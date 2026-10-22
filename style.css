@@ -1,69 +1,139 @@
-/* Brother's Deliverys — estilos compartidos */
+/* ============================================================
+   Brother’s Deliverys — estilo app de delivery
+   Celeste (marca) + blanco, con detalles en rojo y negro
+   ============================================================ */
 :root {
-  --tinta: #16202e;
-  --asfalto: #2b3647;
-  --señal: #ffc20e;      /* amarillo señalización vial */
-  --papel: #f4f5f0;
-  --linea: #d6d9cf;
-  --ok: #1f8a4c;
-  --error: #c0392b;
+  --celeste: #3DB8F5;        /* marca: superficies y botones principales (texto en negro) */
+  --celeste-suave: #E8F6FE;
+  --celeste-prof: #0A86C9;
+  --tinta: #0E141B;          /* negro */
+  --rojo: #E5322D;           /* detalles: en vivo, destino, alertas */
+  --rojo-suave: #FDECEB;
+  --gris: #F2F4F6;
+  --linea: #E1E6EB;
+  --texto2: #5B6672;
+  --wa: #25D366;
   color-scheme: light;
 }
 * { box-sizing: border-box; margin: 0; }
 html, body { height: 100%; }
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: var(--papel); color: var(--tinta);
-  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px; line-height: 1.45; color: var(--tinta); background: var(--gris);
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: env(safe-area-inset-bottom);
 }
-header.marca {
-  background: var(--tinta); color: #fff; padding: 14px 18px;
-  display: flex; align-items: center; gap: 10px; border-bottom: 5px solid var(--señal);
-}
-header.marca h1 { font-size: 1.15rem; font-weight: 800; letter-spacing: .01em; }
-header.marca small { margin-left: auto; opacity: .75; font-size: .8rem; }
-
-main { max-width: 480px; margin: 0 auto; padding: 18px; display: grid; gap: 14px; }
 .oculto { display: none !important; }
+[data-rider] svg { width: 100%; height: 100%; display: block; }
 
-label { font-weight: 600; font-size: .9rem; display: grid; gap: 6px; }
-input {
-  font: inherit; padding: 13px 12px; border: 2px solid var(--linea);
-  border-radius: 8px; background: #fff; color: var(--tinta);
+/* ---------- Barra superior (repartidor) ---------- */
+.barra-marca {
+  display: flex; align-items: center; gap: 12px; background: var(--celeste);
+  padding: calc(14px + env(safe-area-inset-top)) 16px 14px;
 }
-input:focus-visible, button:focus-visible { outline: 3px solid var(--señal); outline-offset: 2px; }
+.insignia { width: 46px; height: 46px; border-radius: 50%; background: #fff; padding: 3px; flex-shrink: 0; }
+.barra-marca .titulo { display: grid; line-height: 1.15; }
+.barra-marca strong { font-size: 18px; font-weight: 800; }
+.barra-marca small { font-size: 13px; font-weight: 600; opacity: .75; }
+
+/* ---------- Contenido ---------- */
+main { max-width: 480px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
+.acciones { display: grid; gap: 12px; }
+#vistaLogin, #vistaNuevo, #vistaActivo {
+  background: #fff; border-radius: 22px; padding: 18px; border: 1px solid var(--linea);
+}
+.hero { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 4px 0 8px; }
+.hero .gran-icono { width: 128px; height: 128px; border-radius: 50%; background: var(--celeste-suave); padding: 12px; }
+.hero h1 { font-size: 24px; font-weight: 800; }
+.hero p { color: var(--texto2); }
+
+label { display: grid; gap: 6px; font-weight: 700; font-size: 13px; }
+input {
+  font: inherit; font-weight: 500; width: 100%; height: 52px; padding: 0 14px;
+  border: 1.5px solid var(--linea); border-radius: 14px; background: var(--gris); color: var(--tinta);
+}
+input:focus { border-color: var(--celeste-prof); background: #fff; }
 
 button {
-  font: inherit; font-weight: 700; padding: 14px; border: 0; border-radius: 8px;
-  cursor: pointer; background: var(--tinta); color: #fff;
+  font: inherit; font-weight: 800; width: 100%; height: 52px; padding: 0 18px; cursor: pointer;
+  border: 1.5px solid var(--linea); border-radius: 14px; background: #fff; color: var(--tinta);
 }
-button.primario { background: var(--señal); color: var(--tinta); }
-button.whatsapp { background: #25d366; color: #06361a; }
-button.peligro { background: #fff; color: var(--error); border: 2px solid var(--error); }
+button:active { transform: scale(.985); }
+button.primario { background: var(--celeste); border-color: var(--celeste); }
+button.oscuro { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+button.whatsapp { background: var(--wa); border-color: var(--wa); }
+button.peligro { color: var(--rojo); border-color: var(--rojo); }
 button:disabled { opacity: .5; cursor: not-allowed; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--tinta); outline-offset: 2px; }
+.salir { margin-left: auto; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.6); display: grid; place-items: center; }
 
+/* Estado en vivo: punto rojo que late mientras se transmite */
 .estado {
-  padding: 12px 14px; border-radius: 8px; background: #fff;
-  border-left: 6px solid var(--señal); font-size: .92rem;
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px;
+  background: var(--celeste-suave); font-weight: 600; font-size: 14px;
 }
-.estado.ok { border-color: var(--ok); }
-.estado.error { border-color: var(--error); }
-.enlace { word-break: break-all; font-size: .82rem; background: #fff; padding: 10px; border-radius: 8px; border: 1px dashed var(--asfalto); }
-.acciones { display: grid; gap: 10px; }
+.estado::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--celeste-prof); flex-shrink: 0; }
+.estado.ok::before { background: var(--rojo); animation: latido 1.4s infinite; }
+.estado.error { background: var(--rojo-suave); color: #8E1B17; }
+.estado.error::before { background: var(--rojo); }
+@keyframes latido { 0% { box-shadow: 0 0 0 0 rgba(229,50,45,.5); } 100% { box-shadow: 0 0 0 10px rgba(229,50,45,0); } }
 
-/* ---------- Página del cliente ---------- */
-body.cliente { display: flex; flex-direction: column; }
+.enlace { font-size: 13px; word-break: break-all; background: var(--gris); border-radius: 12px; padding: 12px; color: var(--texto2); }
+.ayuda { font-size: 13px; color: var(--texto2); }
+#mapaDestino { height: 220px; border-radius: 16px; border: 1.5px solid var(--linea); }
+
+/* ---------- Marcadores del mapa ---------- */
+.marca-rider {
+  width: 56px; height: 56px; border-radius: 50%; background: #fff; border: 3px solid var(--celeste); padding: 3px;
+  animation: pulso 2s infinite;
+}
+.marca-rider svg { width: 100%; height: 100%; display: block; }
+@keyframes pulso { 0% { box-shadow: 0 0 0 0 rgba(61,184,245,.7); } 70%, 100% { box-shadow: 0 0 0 18px rgba(61,184,245,0); } }
+
+/* ---------- Página del cliente: mapa + hoja inferior ---------- */
+body.cliente { display: flex; flex-direction: column; padding: 0; background: #fff; }
 #mapa { flex: 1; min-height: 0; }
-.barra {
-  background: var(--tinta); color: #fff; padding: 12px 18px;
-  display: flex; justify-content: space-between; gap: 12px; font-size: .9rem;
+.cliente .leaflet-bottom { bottom: 30px; }
+header.flotante {
+  position: fixed; z-index: 1100; top: calc(12px + env(safe-area-inset-top)); left: 12px;
+  display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--linea);
+  border-radius: 999px; padding: 6px 18px 6px 6px;
 }
-.barra strong { color: var(--señal); }
-.pin-moto { font-size: 30px; line-height: 1; filter: drop-shadow(0 2px 2px rgba(0,0,0,.4)); }
+header.flotante strong { display: block; font-size: 15px; font-weight: 800; line-height: 1.15; }
+header.flotante small { color: var(--texto2); font-size: 12px; font-weight: 600; }
+.hoja {
+  position: relative; z-index: 1100; margin-top: -26px; background: #fff; border-radius: 26px 26px 0 0;
+  padding: 18px 18px calc(16px + env(safe-area-inset-bottom)); display: grid; gap: 12px;
+  border-top: 1px solid var(--linea);
+}
+.hoja h1 { font-size: 22px; font-weight: 800; line-height: 1.2; }
+.distancia { font-size: 34px; font-weight: 800; line-height: 1.05; }
+.progreso { height: 6px; border-radius: 3px; background: var(--linea); overflow: hidden; }
+.progreso i { display: block; height: 100%; width: 0; background: var(--celeste); transition: width .8s; }
+.fila-repartidor { display: flex; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--linea); }
+.avatar { width: 46px; height: 46px; border-radius: 50%; background: var(--celeste-suave); padding: 3px; flex-shrink: 0; }
+.fila-repartidor strong { display: block; font-size: 15px; }
+.fila-repartidor small { color: var(--texto2); font-size: 13px; }
+.credito { font-size: 11px; color: var(--texto2); }
+.credito a { color: inherit; }
+.aviso-sonido { display: flex; gap: 10px; align-items: center; background: var(--celeste-suave); border-radius: 14px; padding: 10px 12px; font-size: 13px; font-weight: 600; }
+.aviso-sonido svg { width: 22px; height: 22px; flex-shrink: 0; }
+.aviso-sonido span { flex: 1; }
+.aviso-sonido button { width: auto; height: 40px; padding: 0 16px; flex-shrink: 0; }
 
+/* ---------- Pantallas completas: entrega finalizada y alarma de cercanía ---------- */
 .pantalla-final {
-  position: fixed; inset: 0; z-index: 2000; background: var(--tinta); color: #fff;
-  display: grid; place-content: center; text-align: center; padding: 30px; gap: 12px;
+  position: fixed; inset: 0; z-index: 2000; display: grid; place-content: center; justify-items: center;
+  text-align: center; gap: 14px; padding: 32px;
 }
-.pantalla-final h2 { font-size: 1.7rem; color: var(--señal); }
-.pantalla-final p { max-width: 32ch; opacity: .9; line-height: 1.45; margin: 0 auto; }
+.pantalla-final .gran-icono { width: 150px; height: 150px; border-radius: 50%; background: #fff; padding: 16px; }
+.pantalla-final h2 { font-size: 28px; font-weight: 800; line-height: 1.15; }
+.pantalla-final p { max-width: 30ch; }
+.pantalla-final button { width: auto; min-width: 220px; margin-top: 8px; }
+.pantalla-final.fin { background: var(--celeste); color: var(--tinta); }
+.pantalla-final.fin button { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.pantalla-final.alerta { background: var(--tinta); color: #fff; z-index: 1900; }
+.pantalla-final.alerta .gran-icono { animation: alarma 1s infinite; }
+@keyframes alarma { 0% { box-shadow: 0 0 0 0 rgba(229,50,45,.85); } 100% { box-shadow: 0 0 0 38px rgba(229,50,45,0); } }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

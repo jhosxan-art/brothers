@@ -3,15 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Brother's Deliverys — Repartidor</title>
+  <meta name="theme-color" content="#3DB8F5">
+  <title>Brother’s Deliverys — Repartidor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="marca"><h1>Brother's Deliverys</h1><small>Repartidor</small></header>
+  <header class="barra-marca">
+    <span class="insignia" data-rider></span>
+    <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor</small></div>
+    <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+    </button>
+  </header>
 
   <main>
-    <!-- 1) Inicio de sesión (solo el repartidor puede escribir en Firebase) -->
+    <!-- 1) Inicio de sesión -->
     <section id="vistaLogin" class="acciones">
+      <div class="hero">
+        <div class="gran-icono" data-rider></div>
+        <h1>Hola, repartidor</h1>
+        <p>Entra para empezar tus entregas.</p>
+      </div>
       <label>Correo <input id="email" type="email" autocomplete="username"></label>
       <label>Contraseña <input id="clave" type="password" autocomplete="current-password"></label>
       <button id="btnLogin" class="primario">Entrar</button>
@@ -25,6 +41,15 @@
       <label>WhatsApp del cliente (con código de país)
         <input id="inputTel" type="tel" placeholder="51999888777" inputmode="numeric">
       </label>
+
+      <!-- Mapa de destino: el JS lo mueve a "vistaActivo" cuando hay viaje en curso -->
+      <div id="vistaDestino" class="acciones">
+        <p class="ayuda">Toca el mapa donde el cliente recibe el pedido. Se le avisará cuando estés a 200 m (opcional).</p>
+        <div id="mapaDestino"></div>
+        <div id="destinoTxt" class="estado">Sin destino marcado</div>
+        <button id="btnQuitarDestino" type="button">Quitar destino</button>
+      </div>
+
       <button id="btnIniciar" class="primario">Iniciar viaje</button>
     </section>
 
@@ -33,17 +58,19 @@
       <div class="estado" id="estadoGps">Obteniendo ubicación…</div>
       <div class="enlace" id="enlaceTxt"></div>
       <button id="btnWhatsapp" class="whatsapp">Enviar enlace por WhatsApp</button>
+      <button id="btnCerca" class="whatsapp oculto">Avisar por WhatsApp: ya estoy cerca</button>
       <button id="btnCopiar">Copiar enlace</button>
-      <button id="btnFinalizar" class="primario">Finalizar entrega</button>
+      <button id="btnFinalizar" class="oscuro">Finalizar entrega</button>
       <button id="btnCancelar" class="peligro">Cancelar viaje</button>
     </section>
   </main>
 
-  <!-- Firebase (versión compat: simple y funciona dentro de Cordova/Capacitor) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
+  <script src="iconos.js"></script>
   <script src="repartidor.js"></script>
 </body>
 </html>
