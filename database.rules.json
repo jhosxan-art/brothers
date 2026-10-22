@@ -1,0 +1,19 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "pedidos": {
+      "$token": {
+        // Cliente: solo puede leer el pedido cuyo token conoce. No puede listar "pedidos".
+        ".read": true,
+        // Repartidor: SOLO tu cuenta (reemplaza TU_UID_REPARTIDOR) puede crear/actualizar/borrar.
+        ".write": "auth != null && auth.uid === 'TU_UID_REPARTIDOR'",
+        ".validate": "newData.hasChildren(['estado'])",
+        "estado": { ".validate": "newData.val() === 'en_ruta' || newData.val() === 'entregado' || newData.val() === 'cancelado'" },
+        "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 180" },
+        "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+        "$other": { ".validate": true }
+      }
+    }
+  }
+}

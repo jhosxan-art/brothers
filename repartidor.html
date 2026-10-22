@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Brother's Deliverys — Repartidor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="marca"><h1>Brother's Deliverys</h1><small>Repartidor</small></header>
+
+  <main>
+    <!-- 1) Inicio de sesión (solo el repartidor puede escribir en Firebase) -->
+    <section id="vistaLogin" class="acciones">
+      <label>Correo <input id="email" type="email" autocomplete="username"></label>
+      <label>Contraseña <input id="clave" type="password" autocomplete="current-password"></label>
+      <button id="btnLogin" class="primario">Entrar</button>
+    </section>
+
+    <!-- 2) Nuevo pedido -->
+    <section id="vistaNuevo" class="acciones oculto">
+      <label>N.º de pedido (opcional)
+        <input id="inputPedido" placeholder="Vacío = se genera automático" inputmode="text">
+      </label>
+      <label>WhatsApp del cliente (con código de país)
+        <input id="inputTel" type="tel" placeholder="51999888777" inputmode="numeric">
+      </label>
+      <button id="btnIniciar" class="primario">Iniciar viaje</button>
+    </section>
+
+    <!-- 3) Viaje activo -->
+    <section id="vistaActivo" class="acciones oculto">
+      <div class="estado" id="estadoGps">Obteniendo ubicación…</div>
+      <div class="enlace" id="enlaceTxt"></div>
+      <button id="btnWhatsapp" class="whatsapp">Enviar enlace por WhatsApp</button>
+      <button id="btnCopiar">Copiar enlace</button>
+      <button id="btnFinalizar" class="primario">Finalizar entrega</button>
+      <button id="btnCancelar" class="peligro">Cancelar viaje</button>
+    </section>
+  </main>
+
+  <!-- Firebase (versión compat: simple y funciona dentro de Cordova/Capacitor) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="repartidor.js"></script>
+</body>
+</html>

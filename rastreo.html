@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Rastrea tu pedido — Brother's Deliverys</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="cliente">
+  <header class="marca"><h1>Brother's Deliverys</h1><small id="pedidoTxt"></small></header>
+  <div id="mapa"></div>
+  <div class="barra"><span id="estadoTxt">Conectando…</span><span id="horaTxt"></span></div>
+
+  <!-- Pantalla que reemplaza al mapa cuando termina el rastreo -->
+  <div id="pantallaFinal" class="pantalla-final oculto">
+    <h2 id="finalTitulo"></h2>
+    <p id="finalMsg"></p>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="rastreo.js"></script>
+</body>
+</html>
