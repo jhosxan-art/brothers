@@ -107,7 +107,11 @@ $("btnIniciar").onclick = async () => {
   const token = generarToken();
   const pedido = $("inputPedido").value.trim() || "P-" + Date.now().toString(36).toUpperCase();
   const tel = $("inputTel").value.replace(/\D/g, "");
-  const datos = { estado: "en_ruta", pedido, inicio: firebase.database.ServerValue.TIMESTAMP };
+  const datos = {
+    estado: "en_ruta", pedido, inicio: firebase.database.ServerValue.TIMESTAMP,
+    repartidorUid: auth.currentUser.uid,                              // para el panel del administrador
+    repartidorNombre: nombreDesdeCorreo(auth.currentUser.email)       // nombre visible (no se guarda el correo)
+  };
   if (destino) { datos.destLat = destino.lat; datos.destLng = destino.lng; datos.cerca = false; }
   try { await db.ref("pedidos/" + token).set(datos); }
   catch (e) { return alert("Error al crear el pedido: " + e.message); }

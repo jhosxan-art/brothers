@@ -40,3 +40,12 @@ function iconoRepartidor() {
 function iconoPin() {
   return L.divIcon({ className: "", html: PIN_SVG, iconSize: [34, 44], iconAnchor: [17, 42] });
 }
+
+/* "rodrigo.perez@gmail.com" → "Rodrigo Perez" (nombre que se muestra en el mapa del administrador) */
+function nombreDesdeCorreo(correo) {
+  if (!correo) return "";
+  const local = String(correo).split("@")[0];
+  const limpio = local.replace(/[._\-+0-9]+/g, " ").trim().split(/\s+/).filter(Boolean)
+    .map((p) => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(" ");
+  return limpio || local;
+}

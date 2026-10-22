@@ -89,6 +89,7 @@ if (!token) {
     if (d.estado === "cancelado") return terminar("El rastreo ha finalizado", "El viaje fue cancelado. Contacta a Brother's Deliverys si tienes dudas.");
 
     if (d.pedido) $("pedidoTxt").textContent = "Pedido " + d.pedido;
+    if (d.repartidorNombre) $("nombreRepartidor").textContent = "Tu repartidor: " + d.repartidorNombre;
 
     // El repartidor llegó al radio de 200 m → alarma (una sola vez)
     if (d.cerca === true && !yaSono) {

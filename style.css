@@ -137,3 +137,33 @@ header.flotante small { color: var(--texto2); font-size: 12px; font-weight: 600;
 @keyframes alarma { 0% { box-shadow: 0 0 0 0 rgba(229,50,45,.85); } 100% { box-shadow: 0 0 0 38px rgba(229,50,45,0); } }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- Panel de administración ---------- */
+body.admin { display: flex; flex-direction: column; height: 100%; }
+#vistaApp { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#panelMapa { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.mapa-caja { position: relative; flex: 1; min-height: 240px; }
+#mapaAdmin { position: absolute; inset: 0; }
+.flota-mapa { position: absolute; z-index: 1000; top: 10px; right: 10px; display: flex; gap: 8px; align-items: center; }
+.flota-mapa .contador { background: var(--tinta); color: #fff; font-weight: 800; font-size: 13px; padding: 0 14px; height: 38px; border-radius: 999px; display: grid; place-items: center; }
+.flota-mapa button { width: auto; height: 38px; padding: 0 14px; font-size: 13px; }
+.marca-rider-caja { position: relative; width: 56px; height: 56px; }
+.etiqueta-rider { position: absolute; top: 62px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--tinta); color: #fff; font-weight: 800; font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+#listaActivos { max-height: 40vh; overflow: auto; padding: 12px; display: grid; gap: 8px; background: var(--gris); border-top: 1px solid var(--linea); }
+#panelEquipo { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: grid; align-content: start; gap: 14px; max-width: 520px; width: 100%; margin: 0 auto; }
+.formulario-equipo { background: #fff; border: 1px solid var(--linea); border-radius: 22px; padding: 18px; display: grid; gap: 12px; }
+.formulario-equipo h2, #panelEquipo h2 { font-size: 18px; font-weight: 800; }
+.tarjeta-rep { background: #fff; border: 1px solid var(--linea); border-radius: 16px; padding: 12px; display: grid; gap: 10px; }
+.tarjeta-rep .fila { display: flex; align-items: center; gap: 12px; }
+.tarjeta-rep .datos { flex: 1; min-width: 0; }
+.tarjeta-rep .datos strong { display: block; }
+.tarjeta-rep .datos small { display: block; color: var(--texto2); font-size: 13px; overflow-wrap: anywhere; }
+.tarjeta-rep[data-token] { cursor: pointer; }
+.acciones-fila { display: flex; gap: 8px; }
+.mini { width: auto; flex: 1; height: 40px; padding: 0 14px; font-size: 13px; }
+.chip { flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; background: var(--gris); color: var(--texto2); }
+.chip.vivo { background: var(--celeste); color: var(--tinta); }
+.chip.alerta { background: var(--rojo-suave); color: #8E1B17; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; background: #fff; border-top: 1px solid var(--linea); padding-bottom: env(safe-area-inset-bottom); }
+.tabs button { height: 56px; border: 0; border-radius: 0; background: #fff; color: var(--texto2); }
+.tabs button.activa { color: var(--tinta); box-shadow: inset 0 3px 0 var(--celeste); }
