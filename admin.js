@@ -53,10 +53,8 @@ function errorAuth(e) {
   };
   return t[e.code] || e.message;
 }
-const viajeDe = (uid) => {
-  const e = Object.entries(activos).find(([, d]) => d.repartidorUid === uid);
-  return e ? { token: e[0], d: e[1] } : null;
-};
+const viajesDe = (uid) => Object.entries(activos).filter(([, d]) => d.repartidorUid === uid).map(([token, d]) => ({ token, d }));
+const viajeDe = (uid) => viajesDe(uid)[0] || null;
 function estadoDe(uid) {
   const u = ubic[uid];
   if (!u) return "sinDatos";
@@ -164,7 +162,17 @@ function iniciarMonitoreo() {
 
   // Últimas 50 conversaciones
   consultaChats = db.ref("chatsResumen").orderByChild("ts").limitToLast(50);
-  consultaChats.on("value", (s) => { resumenes = s.val() || {}; pintarChats(); }, fallo);
+  let primeraCargaChats = true;
+  consultaChats.on("value", (s) => {
+    const nuevos = s.val() || {};
+    if (!primeraCargaChats) {
+      // Aviso por voz: el repartidor acaba de escribir (mensaje nuevo = marca de tiempo mayor que la anterior)
+      const hayNuevo = Object.entries(nuevos).some(([t, r]) => r.ultimoDe === "repartidor" && (r.ts || 0) > ((resumenes[t] && resumenes[t].ts) || 0));
+      if (hayNuevo) Voz.hablar(Voz.FRASES.mensajeRepartidor);
+    }
+    primeraCargaChats = false;
+    resumenes = nuevos; pintarChats();
+  }, fallo);
 }
 function detener() {
   if (refUbic) { refUbic.off(); refUbic = null; }
@@ -182,6 +190,8 @@ setInterval(() => { if (!$("vistaApp").classList.contains("oculto")) refrescar()
 function descripcion(uid, est) {
   const u = ubic[uid] || {}, v = viajeDe(uid);
   if (est === "enRuta") {
+    const todos = viajesDe(uid);
+    if (todos.length > 1) return `${todos.length} pedidos en ruta: ` + todos.map((x) => x.d.pedido || "—").join(", ");
     const dist = typeof v.d.distancia === "number" ? `a ${formatoDist(v.d.distancia)} del destino` : "sin destino marcado";
     return `Pedido ${v.d.pedido || "—"} · ${dist}`;
   }

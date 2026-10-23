@@ -1,5 +1,5 @@
 /* ============================================================
-   CHAT cliente ↔ repartidor (con fotos)
+   CHAT cliente ↔ repartidor (con fotos y aviso por voz)
    - Mensajes en  chats/{token}/{id}      (solo texto, livianos)
    - Fotos en     fotos/{token}/{id}      (JPEG comprimido en base64)
    - Resumen en   chatsResumen/{token}    (lista del administrador)
@@ -13,18 +13,8 @@ const Chat = (() => {
   let ref = null, el = null, abierto = false, cargando = true, audio = null;
   const q = (id) => el.querySelector("#" + id);
 
-  // El audio solo se desbloquea tras un toque del usuario
-  document.addEventListener("pointerdown", () => {
-    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (_) {}
-  }, { once: true });
-  function pitido() {
-    if (!audio || audio.state !== "running") return;
-    [0, 0.2].forEach((t) => {
-      const o = audio.createOscillator(), g = audio.createGain();
-      g.gain.value = 0.3; o.frequency.value = 880; o.connect(g).connect(audio.destination);
-      o.start(audio.currentTime + t); o.stop(audio.currentTime + t + 0.12);
-    });
-  }
+  // El sonido y la voz viven en voz.js (se desbloquean con el primer toque)
+  const pitido = () => Voz.pitido(2);
 
   function montar() {
     if (el) return;
@@ -143,9 +133,13 @@ const Chat = (() => {
     ref = db.ref("chats/" + token);
     ref.on("child_added", (s) => {
       const m = s.val(); pintar(s.key, m);
-      if (!cargando && !soloLectura && m.de !== yo && !abierto) {
-        sinLeer++; opciones.alNoLeidos && opciones.alNoLeidos(sinLeer);
-        navigator.vibrate && navigator.vibrate(200); pitido();
+      if (!cargando && !soloLectura && m.de !== yo) {
+        // opciones.avisos === false: otra parte de la app (repartidor con varios pedidos) se encarga de avisar
+        if (opciones.avisos !== false) {
+          Voz.hablar(yo === "cliente" ? Voz.FRASES.mensajeRepartidor : Voz.FRASES.mensajeCliente);
+          if (!abierto) { navigator.vibrate && navigator.vibrate(200); }
+        }
+        if (!abierto) { sinLeer++; opciones.alNoLeidos && opciones.alNoLeidos(sinLeer); }
       }
     }, () => aviso("Sin acceso al chat."));
     ref.once("value", () => { cargando = false; });   // llega después de los mensajes ya existentes
@@ -158,7 +152,11 @@ const Chat = (() => {
     const l = q("chatLista"); l.scrollTop = l.scrollHeight;
     if (!soloLectura) setTimeout(() => q("chatTexto").focus(), 60);
   }
-  function cerrar() { abierto = false; if (el) el.classList.add("oculto"); if (soloLectura) detener(); }
+  function cerrar() {
+    abierto = false; if (el) el.classList.add("oculto");
+    if (opciones.alCerrar) opciones.alCerrar();
+    if (soloLectura) detener();
+  }
   // Borra todo rastro local del chat (el repartidor no conserva nada al terminar)
   function detener() {
     if (ref) { ref.off(); ref = null; }

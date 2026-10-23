@@ -23,7 +23,7 @@
     <!-- Activa el sonido (los navegadores lo exigen con un toque del usuario) -->
     <div id="avisoSonido" class="aviso-sonido">
       <svg viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-      <span>Activa la alerta y tu celular sonará cuando el repartidor esté a 200 m.</span>
+      <span>Activa las alertas de voz: tu celular te avisará cuando el repartidor te escriba o esté cerca.</span>
       <button id="btnActivarSonido" class="primario">Activar</button>
     </div>
 
@@ -34,6 +34,21 @@
     <div class="fila-repartidor">
       <span class="avatar" data-rider></span>
       <div><strong id="nombreRepartidor">Tu repartidor</strong><small id="horaTxt">Esperando señal…</small></div>
+    </div>
+    <!-- Mi ubicación: se comparte en tiempo real con el repartidor -->
+    <div id="ubicCaja" class="ubic-caja">
+      <div id="ubicTxt" class="estado">Activando tu ubicación…</div>
+      <div id="barraManual" class="barra-manual oculto">
+        <p>Toca el mapa (o arrastra el pin) para marcar dónde quieres recibir tu pedido.</p>
+        <div class="dos-botones">
+          <button id="btnConfirmarUbic" class="primario" type="button">Confirmar ubicación</button>
+          <button id="btnCancelarUbic" type="button">Cancelar</button>
+        </div>
+      </div>
+      <div id="filaUbic" class="dos-botones">
+        <button id="btnCambiarUbic" type="button">Cambiar mi ubicación</button>
+        <button id="btnVolverVivo" class="oculto" type="button">Usar mi ubicación en vivo</button>
+      </div>
     </div>
     <button id="btnChat" class="primario boton-chat">Escribir al repartidor <span id="badgeChat" class="badge oculto">0</span></button>
     <small class="credito">Mapa © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></small>
@@ -60,6 +75,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
+  <script src="voz.js"></script>
   <script src="chat.js"></script>
   <script src="rastreo.js"></script>
 </body>

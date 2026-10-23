@@ -7,11 +7,12 @@
   <title>Brother’s Deliverys — Repartidor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Roboto:wght@300;400;700&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="factura.css">
 </head>
-<body>
+<body class="rep">
   <header class="barra-marca">
     <span class="insignia" data-rider></span>
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor</small></div>
@@ -20,8 +21,8 @@
     </button>
   </header>
 
-  <main>
-    <!-- 1) Inicio de sesión -->
+  <!-- Inicio de sesión y nombre de usuario -->
+  <main id="mainAuth">
     <section id="vistaLogin" class="acciones">
       <div class="hero">
         <div class="gran-icono" data-rider></div>
@@ -34,7 +35,6 @@
       <button id="btnLogin" class="primario">Entrar</button>
     </section>
 
-    <!-- 1b) Primera vez: elegir nombre de usuario -->
     <section id="vistaUsuario" class="acciones oculto">
       <div class="hero">
         <div class="gran-icono" data-rider></div>
@@ -44,48 +44,227 @@
       <label>Nombre de usuario <input id="inputUsuario" maxlength="24" placeholder="Ej. Rodrigo" autocomplete="off"></label>
       <button id="btnGuardarUsuario" class="primario">Guardar y continuar</button>
     </section>
-
-    <!-- 2) Nuevo pedido -->
-    <section id="vistaNuevo" class="acciones oculto">
-      <div class="estado" id="estadoTurno">Iniciando ubicación…</div>
-      <label>N.º de pedido (opcional)
-        <input id="inputPedido" placeholder="Vacío = se genera automático" inputmode="text">
-      </label>
-      <label>WhatsApp del cliente (con código de país)
-        <input id="inputTel" type="tel" placeholder="51999888777" inputmode="numeric">
-      </label>
-
-      <!-- Mapa de destino: el JS lo mueve a "vistaActivo" cuando hay viaje en curso -->
-      <div id="vistaDestino" class="acciones">
-        <p class="ayuda">Toca el mapa donde el cliente recibe el pedido. Se le avisará cuando estés a 200 m (opcional).</p>
-        <div id="mapaDestino"></div>
-        <div id="destinoTxt" class="estado">Sin destino marcado</div>
-        <button id="btnQuitarDestino" type="button">Quitar destino</button>
-      </div>
-
-      <button id="btnIniciar" class="primario">Iniciar viaje</button>
-    </section>
-
-    <!-- 3) Viaje activo -->
-    <section id="vistaActivo" class="acciones oculto">
-      <div class="estado" id="estadoGps">Obteniendo ubicación…</div>
-      <button id="btnChat" class="primario boton-chat">Chat con el cliente <span id="badgeChat" class="badge oculto">0</span></button>
-      <div class="enlace" id="enlaceTxt"></div>
-      <button id="btnWhatsapp" class="whatsapp">Enviar enlace por WhatsApp</button>
-      <button id="btnCerca" class="whatsapp oculto">Avisar por WhatsApp: ya estoy cerca</button>
-      <button id="btnCopiar">Copiar enlace</button>
-      <button id="btnFinalizar" class="oscuro">Finalizar entrega</button>
-      <button id="btnCancelar" class="peligro">Cancelar viaje</button>
-    </section>
   </main>
 
+  <!-- 1) FACTURA: lo primero que ve el repartidor al entrar -->
+  <div id="vistaFactura" class="fx oculto">
+<div class="invoice-container" id="invoiceContainer">
+        <button type="button" class="stats-btn" onclick="showStats()">📊 Estadísticas</button>
+        
+        <div class="header">
+            <h1>Brothers Delivery</h1>
+            <p>Aplicación de Facturación</p>
+        </div>
+
+        <div class="daily-quote-box" id="quoteCard" style="display:none;">
+            <strong>💡 Motivación del Día:</strong>
+            <span id="loginQuoteText"></span>
+            <button type="button" class="quote-close" onclick="cerrarFraseDelDia()" aria-label="Cerrar">✕</button>
+        </div>
+
+        <div class="client-section">
+            <label for="customerName">Nombre del Cliente:</label>
+            <input type="text" id="customerName" placeholder="Ej: Juan Pérez">
+            <label for="customerPhone" style="margin-top:12px;">WhatsApp del cliente:</label>
+            <input type="tel" id="customerPhone" placeholder="Ej: 8888 7777" inputmode="tel" autocomplete="off">
+            <div class="small-muted">Con 8 dígitos se agrega +505 (Nicaragua). Si lo dejas vacío, eliges el contacto en WhatsApp.</div>
+            <div class="small-muted">La opción de pago por depósito se consultará al generar la factura.</div>
+        </div>
+
+        <div class="delivery-section">
+            <label for="deliveryPrice">Delivery (C$):</label>
+            <input type="number" id="deliveryPrice" value="" placeholder="0.00" min="0" step="0.01" oninput="calculateTotal()">
+            
+            <div class="extra-errand-section">
+                <label>Mandado Extra:</label>
+                <div class="extra-errand-buttons">
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(0)">Ninguno</button>
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(10)">+C$10</button>
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(20)">+C$20</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="productInputSection">
+            <div class="product-item">
+                <input type="text" placeholder="Producto" id="currentProductName">
+                <input type="number" placeholder="Precio (C$)" id="currentProductPrice" min="0" step="0.01">
+            </div>
+        </div>
+
+        <button type="button" class="add-product-btn" onclick="addProductToList()">+ Agregar Producto</button>
+
+        <div id="savedProductsList"></div>
+
+        <div class="totals-section">
+            <div>
+                <span class="label">Subtotal:</span>
+                <span class="value" id="subtotal">C$ 0.00</span>
+            </div>
+            <div>
+                <span class="label">Costo Delivery:</span>
+                <span class="value" id="deliveryCost">C$ 0.00</span>
+            </div>
+        </div>
+
+        <div class="total-pay">
+            <label>Total a pagar</label>
+            <span id="grandTotal">C$ 0.00</span>
+        </div>
+
+        <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">Generar Factura</button>
+    </div>
+
+    <div class="stats-container" id="statsContainer">
+        <button type="button" class="back-btn" onclick="hideStats()">← Volver</button>
+        
+        <div class="stats-header">
+            <h1>📊 Mis Estadísticas</h1>
+        </div>
+
+        <div class="tip-card">
+            <h3>💡 Consejo del Día</h3>
+            <p id="dailyTip"></p>
+        </div>
+
+        <div class="stats-card">
+            <h3>Total de Pedidos Hoy</h3>
+            <p class="big-number" id="totalOrders">0</p>
+        </div>
+
+        <div class="stats-card">
+            <h3>Total en Delivery + Extras</h3>
+            <p class="big-number" id="totalEarnings">C$ 0.00</p>
+        </div>
+
+        <div class="iva-section">
+            <label for="ivaAmount">Restar I.V.A (C$):</label>
+            <input type="number" id="ivaAmount" value="0" min="0" step="0.01" oninput="calculateIVA()" placeholder="Ingrese monto a restar">
+            <div id="ivaResult" style="display: none;" class="iva-result"></div>
+        </div>
+
+        <div class="deposits-card">
+            <h3>📌 Facturas “Por Cobrar” (Depósito)</h3>
+            <div class="small-muted">Aquí se guardan los pedidos marcados como “pagó por depósito” con detalles para cobrar después.</div>
+            <div id="depositInvoicesList" style="margin-top: 10px;"></div>
+            <button type="button" class="reset-deposits-btn" onclick="clearDepositInvoices()">🧹 Limpiar “Por Cobrar”</button>
+        </div>
+
+        <button type="button" class="reset-stats-btn" onclick="resetStats()">🔄 Reiniciar Estadísticas</button>
+    </div>
+
+      </div>
+
+  <!-- 2) MAPA: seguimiento en vivo de todos los pedidos en ruta -->
+  <section id="vistaMapa" class="oculto">
+    <div class="mapa-caja">
+      <div id="mapaRuta"></div>
+      <div class="flota-mapa izq"><div class="estado" id="estadoGps">Obteniendo ubicación…</div></div>
+      <div class="flota-mapa der">
+        <button id="btnVerTodo" class="mini-mapa" type="button">Ver todo</button>
+        <button id="btnMarcarDestino" class="mini-mapa" type="button">📍 Marcar destino</button>
+      </div>
+      <div id="avisoMarcar" class="aviso-marcar oculto">Toca el mapa para marcar el destino del pedido seleccionado.</div>
+    </div>
+    <div id="hojaPedidos" class="hoja-pedidos"></div>
+  </section>
+
+  <!-- Cambiar entre Factura y Mapa (aparece cuando hay pedidos en ruta) -->
+  <nav id="navApp" class="nav-app oculto" aria-label="Cambiar de pantalla">
+    <button id="navFactura" data-vista="factura" class="activa" type="button">🧾 Factura</button>
+    <button id="navMapa" data-vista="mapa" type="button">🗺️ Mapa y entregas <span id="badgeNav" class="badge-nav oculto">0</span></button>
+  </nav>
+
+  <!-- Ventana tras confirmar una entrega -->
+  <div id="modalEntregado" class="modal-rep oculto" role="dialog" aria-modal="true">
+    <div class="modal-rep-caja">
+      <div class="gran-check">✓</div>
+      <h2>¡Entrega confirmada!</h2>
+      <p id="entregadoTxt"></p>
+      <button id="btnOtraFactura" class="primario" type="button">🧾 Hacer otra factura</button>
+      <button id="btnVerMapa" class="oscuro" type="button">🗺️ Ver mapa y pedidos</button>
+    </div>
+  </div>
+
+  <!-- Ventanas de la factura (alertas, depósito, factura lista) -->
+  <div id="fxModales" class="fx">
+
+    <!-- DEPOSIT PROMPT POPUP -->
+    <div class="popup-overlay" id="depositPromptPopup">
+        <div class="popup-content">
+            <h2>¿Método de Pago?</h2>
+            <p>¿El cliente pagó por depósito?</p>
+            <div style="display: flex; gap: 10px; margin-top: 20px; flex-direction: column;">
+                <button type="button" class="close-popup-btn" style="background-color: #27AE60; color: var(--white); margin-top: 0; font-weight: 700; padding: 13px;" onclick="confirmDeposit(true)">Sí, pagó por depósito</button>
+                <button type="button" class="close-popup-btn" style="background-color: var(--red); color: var(--white); margin-top: 0; font-weight: 700; padding: 13px;" onclick="confirmDeposit(false)">No pagó por depósito</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CUSTOM ALERT MODAL -->
+    <div class="custom-modal-overlay" id="customAlertModal">
+        <div class="custom-modal-box">
+            <div class="custom-modal-icon">⚠️</div>
+            <h3 id="customAlertTitle">Atención</h3>
+            <p id="customAlertMessage">Por favor, agrega al menos un producto.</p>
+            <button type="button" class="custom-modal-btn" onclick="closeCustomAlert()">Entendido</button>
+        </div>
+    </div>
+
+    <!-- CUSTOM CONFIRM MODAL FOR DELETE PRODUCT -->
+    <div class="custom-modal-overlay" id="customConfirmModal">
+        <div class="custom-modal-box" style="border-top-color: var(--sky-blue);">
+            <div class="custom-modal-icon" style="animation: fx-pulseWarning 1.5s infinite;">🗑️</div>
+            <h3>Eliminar Producto</h3>
+            <p id="customConfirmMessage">¿Estás seguro de eliminar este producto?</p>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button type="button" class="custom-modal-btn" style="background-color: var(--light-gray); color: var(--black); box-shadow: none;" onclick="closeCustomConfirm(false)">Cancelar</button>
+                <button type="button" class="custom-modal-btn" style="background-color: var(--red); box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3);" onclick="closeCustomConfirm(true)">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CUSTOM LOADING MODAL -->
+    <div class="custom-modal-overlay" id="customLoadingModal">
+        <div class="custom-modal-box loading-box">
+            <div class="loading-spinner"></div>
+            <h3>Guardando Imagen</h3>
+            <p>Tu factura se está guardando como imagen...</p>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="invoicePopup">
+        <div class="popup-content">
+            <h2>¡Factura Lista!</h2>
+            <p>Tu factura ha sido generada correctamente.</p>
+            <div id="generatedInvoiceDisplay"></div>
+            <p style="margin-top: 15px; font-weight: bold; color: var(--red); font-size: 0.9em;">¡Importante! Puedes guardar la imagen o enviar una copia a Brothers Delivery.</p>
+            <button type="button" class="whatsapp-btn" id="whatsappShareBtn" onclick="enviarFacturaWhatsApp()">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                </svg>
+                Enviar factura por WhatsApp
+            </button>
+            <p class="track-note">Al enviarla se activa el seguimiento en tiempo real y pasas al mapa.</p>
+            <button type="button" class="add-product-btn copy-btn" onclick="enviarCopiaNegocio()">📋 Enviar copia a Brothers Delivery</button>
+            <button type="button" class="add-product-btn" style="background-color: var(--sky-blue); margin-top: 10px;" onclick="downloadInvoiceImage()">📥 Guardar Factura en Imagen</button>
+            <button type="button" class="close-popup-btn" onclick="closePopup()">Cerrar</button>
+        </div>
+    </div>
+
+      </div>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
+  <script src="voz.js"></script>
   <script src="chat.js"></script>
+  <script src="frases.js"></script>
+  <script src="factura.js"></script>
   <script src="repartidor.js"></script>
 </body>
 </html>

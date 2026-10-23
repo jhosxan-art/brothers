@@ -1,0 +1,963 @@
+/* ============================================================
+   FACTURACIÓN (integrada en la app del repartidor)
+   Todo está dentro de la clase .fx para no chocar con style.css
+   ============================================================ */
+.fx { font-family: "Roboto", "Plus Jakarta Sans", system-ui, sans-serif; font-size: 16px; line-height: 1.35; color: #2C3E50; }
+/* Anula los estilos globales de style.css (botones y campos de 52 px de alto, etc.) */
+.fx button { width: auto; height: auto; padding: 0; border: 0; border-radius: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.fx input { width: 100%; height: auto; padding: 0; border: 0; border-radius: 0; background: none; font: inherit; color: inherit; }
+.fx label { display: block; font-size: inherit; font-weight: inherit; }
+.fx h1, .fx h2, .fx h3, .fx p { margin: 0; }
+.fx button:focus-visible, .fx input:focus-visible { outline: 3px solid #2C3E50; outline-offset: 2px; }
+
+.fx {
+            --red: #E74C3C;
+            --white: #ECF0F1;
+            --black: #2C3E50;
+            --sky-blue: #3498DB;
+            --light-gray: #BDC3C7;
+        }
+.fx, .fx * {
+            box-sizing: border-box;
+        }
+.fx .invoice-container {
+            background-color: var(--white);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 500px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+.fx .stats-btn {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background-color: var(--sky-blue);
+            color: var(--white);
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 700;
+            transition: all 0.3s ease;
+            box-shadow: 0 3px 8px rgba(52, 152, 219, 0.3);
+            z-index: 10;
+        }
+.fx .stats-btn:hover {
+            background-color: #2980B9;
+            transform: translateY(-2px);
+        }
+.fx .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            padding-top: 55px;
+            border-bottom: 3px solid var(--sky-blue);
+            position: relative;
+        }
+.fx .header h1 {
+            color: var(--red);
+            margin: 0;
+            font-size: 2em;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+.fx .header p {
+            color: var(--black);
+            font-size: 1em;
+            margin-top: 5px;
+            font-weight: 300;
+        }
+.fx .delivery-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+            background-color: var(--sky-blue);
+            padding: 15px;
+            border-radius: 8px;
+            color: var(--white);
+        }
+.fx .delivery-section label {
+            font-size: 1.1em;
+            font-weight: 700;
+        }
+.fx .delivery-section input {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 5px;
+            font-size: 1.2em;
+            font-weight: 700;
+            color: var(--black);
+            background-color: rgba(255, 255, 255, 0.9);
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+        }
+.fx .extra-errand-section {
+            margin-top: 10px;
+        }
+.fx .extra-errand-section label {
+            font-size: 0.95em;
+            display: block;
+            margin-bottom: 8px;
+        }
+.fx .extra-errand-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+.fx .extra-errand-btn {
+            flex: 1;
+            min-width: 80px;
+            padding: 10px;
+            border: 2px solid var(--white);
+            border-radius: 5px;
+            background-color: rgba(255, 255, 255, 0.2);
+            color: var(--white);
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 700;
+            transition: all 0.3s ease;
+        }
+.fx .extra-errand-btn:hover {
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+.fx .extra-errand-btn.active {
+            background-color: var(--white);
+            color: var(--sky-blue);
+        }
+.fx .product-item {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 15px;
+            background-color: var(--white);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--light-gray);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+.fx .product-item input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--light-gray);
+            border-radius: 5px;
+            font-size: 1em;
+            color: var(--black);
+        }
+.fx .product-item input:focus {
+            outline: none;
+            border-color: var(--sky-blue);
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        }
+.fx .product-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            margin-bottom: 8px;
+            background-color: var(--white);
+            border-radius: 8px;
+            border: 1px solid var(--light-gray);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+.fx .product-list-item:hover {
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            border-color: var(--sky-blue);
+        }
+.fx .product-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+.fx .product-info .name {
+            font-weight: 700;
+            color: var(--black);
+            font-size: 1em;
+        }
+.fx .product-info .price {
+            font-weight: 700;
+            color: var(--red);
+            font-size: 1.1em;
+        }
+.fx .product-actions {
+            display: flex;
+            gap: 8px;
+        }
+.fx .edit-btn, .fx .delete-btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 700;
+            transition: all 0.3s ease;
+        }
+.fx .edit-btn {
+            background-color: var(--sky-blue);
+            color: var(--white);
+        }
+.fx .edit-btn:hover {
+            background-color: #2980B9;
+        }
+.fx .delete-btn {
+            background-color: var(--red);
+            color: var(--white);
+        }
+.fx .delete-btn:hover {
+            background-color: #C0392B;
+        }
+.fx .add-product-btn {
+            background-color: var(--sky-blue);
+            color: var(--white);
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 700;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            width: 100%;
+            margin-top: 10px;
+            box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3);
+        }
+.fx .add-product-btn:hover {
+            background-color: #2980B9;
+            transform: translateY(-2px);
+        }
+.fx .add-product-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 5px rgba(52, 152, 219,  0.3);
+        }
+.fx .totals-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px dashed var(--light-gray);
+        }
+.fx .totals-section div {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 1em;
+        }
+.fx .totals-section .label {
+            font-weight: 400;
+            color: var(--black);
+        }
+.fx .totals-section .value {
+            font-weight: 700;
+            color: var(--red);
+        }
+.fx .total-pay {
+            text-align: center;
+            margin-top: 25px;
+            padding: 15px;
+            background-color: var(--red);
+            color: var(--white);
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(231, 76, 60, 0.4);
+        }
+.fx .total-pay span {
+            font-size: 2.5em;
+            font-weight: 700;
+            display: block;
+            line-height: 1;
+        }
+.fx .total-pay label {
+            font-size: 1.2em;
+            margin-bottom: 5px;
+            display: block;
+            font-weight: 300;
+        }
+.fx .generate-btn {
+            background-color: var(--black);
+            color: var(--white);
+            border: none;
+            padding: 15px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.2em;
+            font-weight: 700;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            width: 100%;
+            margin-top: 25px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+.fx .generate-btn:hover {
+            background-color: #34495E;
+            transform: translateY(-2px);
+        }
+.fx .generate-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+.fx .popup-overlay, .fx .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(44, 62, 80, 0.75);
+            backdrop-filter: blur(4px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            z-index: 1000;
+            padding: 15px;
+        }
+.fx .popup-overlay.show, .fx .login-overlay[style*="flex"] {
+            visibility: visible;
+            opacity: 1;
+        }
+.fx .popup-content, .fx .login-card {
+            background-color: var(--white);
+            padding: 30px 24px;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 15px 35px rgba(44, 62, 80, 0.3);
+            transform: scale(0.9);
+            opacity: 0;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
+            max-width: 440px;
+            width: 100%;
+            position: relative;
+            border-top: 6px solid var(--sky-blue);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+.fx #depositPromptPopup .popup-content {
+            border-top-color: var(--red);
+        }
+.fx .popup-overlay.show .popup-content, .fx .login-overlay[style*="flex"] .login-card {
+            transform: scale(1);
+            opacity: 1;
+        }
+.fx .popup-content h2, .fx .login-card h2 {
+            color: var(--black);
+            font-size: 1.6em;
+            margin-top: 5px;
+            margin-bottom: 12px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+.fx .popup-content p, .fx .login-card p {
+            color: #555;
+            font-size: 0.95em;
+            margin-bottom: 18px;
+            line-height: 1.5;
+        }
+.fx #generatedInvoiceDisplay {
+            text-align: left;
+            margin-top: 15px;
+            padding: 14px;
+            border: 1px dashed var(--light-gray);
+            border-radius: 10px;
+            background-color: #ffffff;
+            color: var(--black);
+            font-size: 0.85em;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+        }
+.fx #generatedInvoiceDisplay strong {
+            color: var(--red);
+        }
+.fx .invoice-products-table {
+            width: 100%;
+            margin: 10px 0;
+            border-collapse: collapse;
+        }
+.fx .invoice-products-table tr {
+            border-bottom: 1px solid #f1f1f1;
+        }
+.fx .invoice-products-table td {
+            padding: 7px 4px;
+            font-size: 0.85em;
+        }
+.fx .invoice-products-table td:first-child {
+            text-align: left;
+            width: 65%;
+            font-weight: 500;
+        }
+.fx .invoice-products-table td:last-child {
+            text-align: right;
+            width: 35%;
+            font-weight: 700;
+            color: var(--red);
+        }
+.fx .invoice-header-popup {
+            font-weight: 700;
+            font-size: 1.1em;
+            color: var(--sky-blue);
+            margin: 8px 0 6px 0;
+            text-align: center;
+        }
+.fx .invoice-divider {
+            border-top: 2px solid var(--sky-blue);
+            margin: 10px 0;
+        }
+.fx .invoice-totals-table {
+            width: 100%;
+            margin: 10px 0;
+        }
+.fx .invoice-totals-table td {
+            padding: 6px 0;
+            font-size: 0.9em;
+        }
+.fx .invoice-totals-table td:first-child {
+            text-align: left;
+            font-weight: 500;
+        }
+.fx .invoice-totals-table td:last-child {
+            text-align: right;
+            font-weight: 700;
+            color: var(--red);
+        }
+.fx .invoice-totals-table .total-row td {
+            font-size: 1.1em;
+            padding-top: 10px;
+            border-top: 2px solid var(--red);
+        }
+.fx .invoice-footer {
+            text-align: center;
+            margin-top: 12px;
+            font-size: 0.85em;
+            color: var(--sky-blue);
+            font-weight: 500;
+        }
+.fx .popup-content .whatsapp-btn {
+            background-color: #27AE60;
+            color: var(--white);
+            border: none;
+            padding: 13px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: 700;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(39, 174, 96, 0.3);
+            margin-top: 15px;
+            width: 100%;
+        }
+.fx .popup-content .whatsapp-btn:hover {
+            background-color: #219653;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(39, 174, 96, 0.4);
+        }
+.fx .popup-content .whatsapp-btn svg {
+            fill: var(--white);
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+.fx .close-popup-btn {
+            background-color: var(--light-gray);
+            color: var(--black);
+            border: none;
+            padding: 12px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: 700;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        }
+.fx .close-popup-btn:hover {
+            background-color: #95A5A6;
+            transform: translateY(-1px);
+        }
+.fx .login-card input {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid var(--light-gray);
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 15px;
+            color: var(--black);
+            background-color: #f9f9f9;
+        }
+.fx .login-card input:focus {
+            outline: none;
+            border-color: var(--sky-blue);
+            background-color: #fff;
+        }
+.fx .login-btn {
+            background-color: var(--sky-blue);
+            color: var(--white);
+            border: none;
+            padding: 14px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: 700;
+            width: 100%;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+        }
+.fx .login-btn:hover {
+            background-color: #2980B9;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(52, 152, 219, 0.4);
+        }
+.fx .daily-quote-box {
+            background: linear-gradient(135deg, var(--sky-blue) 0%, #2980B9 100%);
+            color: var(--white);
+            padding: 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: left;
+            font-size: 0.9em;
+            line-height: 1.5;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.1);
+        }
+.fx .daily-quote-box strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 1.05em;
+            letter-spacing: 0.3px;
+        }
+.fx .custom-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(44, 62, 80, 0.8);
+            backdrop-filter: blur(5px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 3000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            padding: 15px;
+        }
+.fx .custom-modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+.fx .custom-modal-box {
+            background-color: var(--white);
+            padding: 30px 25px;
+            border-radius: 16px;
+            text-align: center;
+            max-width: 380px;
+            width: 100%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            transform: scale(0.8);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border-top: 6px solid var(--red);
+        }
+.fx .custom-modal-overlay.show .custom-modal-box {
+            transform: scale(1);
+        }
+.fx .custom-modal-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+            display: inline-block;
+            animation: fx-pulseWarning 1.5s infinite;
+        }
+@keyframes fx-pulseWarning {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+.fx .custom-modal-box h3 {
+            color: var(--red);
+            font-size: 1.4em;
+            margin: 0 0 10px 0;
+            font-weight: 700;
+        }
+.fx .custom-modal-box p {
+            color: var(--black);
+            font-size: 0.95em;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+.fx .custom-modal-btn {
+            background-color: var(--red);
+            color: var(--white);
+            border: none;
+            padding: 12px 20px;
+            border-radius: 10px;
+            font-size: 1em;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.3s ease;
+            box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3);
+        }
+.fx .custom-modal-btn:hover {
+            background-color: #C0392B;
+        }
+.fx .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(52, 152, 219, 0.2);
+            border-top: 5px solid var(--sky-blue);
+            border-radius: 50%;
+            animation: fx-spin 1s linear infinite;
+            margin: 0 auto 15px auto;
+        }
+@keyframes fx-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+.fx .loading-box {
+            border-top-color: var(--sky-blue);
+        }
+.fx .loading-box h3 {
+            color: var(--sky-blue);
+        }
+.fx #productInputSection {
+            margin-bottom: 15px;
+        }
+.fx #savedProductsList {
+            margin-bottom: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+.fx .stats-container {
+            display: none;
+            background-color: var(--white);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 500px;
+            padding: 20px;
+            position: relative;
+        }
+.fx .stats-container.active {
+            display: block;
+        }
+.fx .back-btn {
+            background-color: var(--light-gray);
+            color: var(--black);
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 700;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+.fx .back-btn:hover {
+            background-color: #95A5A6;
+        }
+.fx .stats-header {
+            text-align: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid var(--sky-blue);
+        }
+.fx .stats-header h1 {
+            color: var(--red);
+            margin: 0;
+            font-size: 1.8em;
+            font-weight: 700;
+        }
+.fx .stats-card {
+            background-color: var(--sky-blue);
+            color: var(--white);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 10px rgba(52, 152, 219, 0.3);
+        }
+.fx .stats-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 1em;
+            font-weight: 400;
+        }
+.fx .stats-card .big-number {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin: 0;
+        }
+.fx .iva-section {
+            background-color: var(--white);
+            border: 2px solid var(--light-gray);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+.fx .iva-section label {
+            display: block;
+            font-weight: 700;
+            color: var(--black);
+            margin-bottom: 10px;
+        }
+.fx .iva-section input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid var(--light-gray);
+            border-radius: 5px;
+            font-size: 1.1em;
+            font-weight: 700;
+            color: var(--black);
+        }
+.fx .iva-section input[type="number"]:focus {
+            outline: none;
+            border-color: var(--sky-blue);
+        }
+.fx .iva-result {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: var(--red);
+            color: var(--white);
+            border-radius: 5px;
+            text-align: center;
+            font-weight: 700;
+            font-size: 1.2em;
+        }
+.fx .tip-card {
+            background: linear-gradient(135deg, var(--red) 0%, #C0392B 100%);
+            color: var(--white);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+            margin-bottom: 15px;
+        }
+.fx .tip-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+.fx .tip-card p {
+            margin: 0;
+            font-size: 1em;
+            line-height: 1.5;
+        }
+.fx .reset-stats-btn {
+            background-color: var(--red);
+            color: var(--white);
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 700;
+            width: 100%;
+            margin-top: 15px;
+            transition: all 0.3s ease;
+        }
+.fx .reset-stats-btn:hover {
+            background-color: #C0392B;
+        }
+.fx .deposits-card {
+            background-color: var(--white);
+            border: 2px dashed var(--sky-blue);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+.fx .deposits-card h3 {
+            margin: 0 0 10px 0;
+            color: var(--black);
+            font-size: 1.05em;
+        }
+.fx .deposit-invoice {
+            border: 1px solid var(--light-gray);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: #fafafa;
+        }
+.fx .deposit-invoice .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 0.95em;
+            margin-bottom: 6px;
+        }
+.fx .deposit-invoice .row strong {
+            color: var(--red);
+        }
+.fx .deposit-invoice details {
+            margin-top: 8px;
+        }
+.fx .deposit-invoice summary {
+            cursor: pointer;
+            font-weight: 700;
+            color: var(--sky-blue);
+        }
+.fx .small-muted {
+            font-size: 0.85em;
+            color: #7f8c8d;
+            margin-top: 4px;
+        }
+.fx .reset-deposits-btn {
+            background-color: var(--black);
+            color: var(--white);
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 700;
+            width: 100%;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+.fx .reset-deposits-btn:hover {
+            background-color: #34495E;
+        }
+.fx .client-section {
+            margin-bottom: 15px;
+            background-color: var(--white);
+            border: 2px solid var(--light-gray);
+            padding: 12px;
+            border-radius: 10px;
+        }
+.fx .client-section label {
+            display: block;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--black);
+        }
+.fx .client-section input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid var(--light-gray);
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: 700;
+            color: var(--black);
+        }
+.fx .client-section input[type="text"]:focus {
+            outline: none;
+            border-color: var(--sky-blue);
+        }
+@media screen and (min-width: 600px) and (max-width: 900px) {
+.fx .invoice-container {
+                max-width: 600px;
+                padding: 25px;
+            }
+.fx .header h1 {
+                font-size: 2.2em;
+            }
+.fx .product-item {
+                flex-direction: row;
+                align-items: center;
+            }
+.fx .product-item input[type="text"] {
+                flex: 2;
+            }
+.fx .product-item input[type="number"] {
+                flex: 1;
+                max-width: 150px;
+            }
+.fx .delivery-section {
+                flex-direction: row;
+                align-items: center;
+            }
+.fx .delivery-section label {
+                margin-right: 15px;
+                white-space: nowrap;
+            }
+.fx .delivery-section input {
+                flex-grow: 1;
+            }
+}
+@media screen and (min-width: 901px) {
+.fx .invoice-container {
+                padding: 30px;
+            }
+.fx .header h1 {
+                font-size: 2.5em;
+            }
+.fx .product-item {
+                flex-direction: row;
+                align-items: center;
+            }
+.fx .product-item input[type="text"] {
+                flex: 2;
+            }
+.fx .product-item input[type="number"] {
+                flex: 1;
+                max-width: 120px;
+            }
+.fx .delivery-section {
+                flex-direction: row;
+                align-items: center;
+            }
+.fx .delivery-section label {
+                margin-right: 15px;
+            }
+.fx .delivery-section input {
+                flex-grow: 1;
+            }
+.fx .totals-section div {
+                font-size: 1.1em;
+            }
+.fx .total-pay span {
+                font-size: 3.2em;
+            }
+.fx .total-pay label {
+                font-size: 1.5em;
+            }
+}
+@media screen and (max-width: 360px) {
+.fx .header h1 {
+                font-size: 1.6em;
+            }
+.fx .header p {
+                font-size: 0.9em;
+            }
+.fx .total-pay span {
+                font-size: 2em;
+            }
+.fx .total-pay label {
+                font-size: 1em;
+            }
+.fx .popup-content {
+                padding: 20px 15px;
+            }
+.fx .popup-content h2 {
+                font-size: 1.5em;
+            }
+.fx .invoice-products-table td {
+                font-size: 0.8em;
+                padding: 5px 2px;
+            }
+.fx .edit-btn, .fx .delete-btn {
+                padding: 6px 10px;
+                font-size: 0.8em;
+            }
+}
+
+/* ---------- Añadidos de la integración ---------- */
+#vistaFactura { padding: 10px; }
+.fx .invoice-container, .fx .stats-container { margin: 0 auto; }
+.fx .client-section input[type="tel"] { width: 100%; padding: 12px; border: 2px solid var(--light-gray); border-radius: 6px; font-size: 1em; font-weight: 700; color: var(--black); background: #fff; }
+.fx .client-section input[type="tel"]:focus { outline: none; border-color: var(--sky-blue); }
+.fx .daily-quote-box { position: relative; padding-right: 40px; }
+.fx .quote-close { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,.25); color: var(--white); font-weight: 700; }
+.fx .track-note { font-size: .8em; color: #555; margin: 8px 0 0; line-height: 1.35; }
+.fx .copy-btn { background-color: var(--black); margin-top: 10px; box-shadow: none; }
+.fx .copy-btn:hover { background-color: #34495E; }
+.fx .invoice-track { margin-top: 12px; padding: 10px; border-radius: 10px; background: #EAF4FB; border: 1px dashed var(--sky-blue); text-align: center; font-size: .85em; }
+.fx .invoice-track b { color: var(--sky-blue); display: block; margin-bottom: 4px; }
+.fx .invoice-track .lnk { word-break: break-all; color: var(--black); font-weight: 700; }

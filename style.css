@@ -200,3 +200,74 @@ body.admin { display: flex; flex-direction: column; height: 100%; }
 #panelChats { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: grid; align-content: start; gap: 10px; max-width: 520px; width: 100%; margin: 0 auto; }
 #panelChats h2 { font-size: 18px; font-weight: 800; }
 .chip.libre { background: #E2F6E6; color: #17602B; }
+
+/* ============================================================
+   NUEVO: app del repartidor con Factura + Mapa, ubicación del cliente
+   ============================================================ */
+#vistaUsuario { background: #fff; border-radius: 22px; padding: 18px; border: 1px solid var(--linea); }
+
+/* ---------- Repartidor: pantalla completa dividida en factura / mapa + barra inferior ---------- */
+body.rep { display: flex; flex-direction: column; height: 100%; }
+body.rep > .barra-marca { flex: none; }
+body.rep > #mainAuth { flex: 1; min-height: 0; overflow: auto; width: 100%; max-width: 480px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; align-content: start; }
+body.rep > #vistaFactura { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+body.rep > #vistaMapa { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+#vistaMapa .mapa-caja { position: relative; flex: 1; min-height: 220px; z-index: 0; }
+#mapaRuta { position: absolute; inset: 0; }
+#vistaMapa .flota-mapa.izq { left: 10px; right: auto; }
+#vistaMapa .flota-mapa.der { flex-direction: column; align-items: stretch; }
+#vistaMapa .flota-mapa.izq .estado { background: #fff; border: 1px solid var(--linea); padding: 8px 12px; font-size: 12px; max-width: 62vw; }
+.mini-mapa { width: auto; height: 38px; padding: 0 14px; font-size: 13px; background: var(--celeste); border-color: var(--celeste); }
+.mini-mapa.activo { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.aviso-marcar { position: absolute; z-index: 1000; left: 10px; right: 10px; bottom: 28px; background: var(--tinta); color: #fff; font-weight: 700; font-size: 13px; border-radius: 12px; padding: 10px 14px; text-align: center; }
+
+/* Hoja inferior con los pedidos */
+.hoja-pedidos { position: relative; z-index: 5; flex: none; max-height: 46vh; overflow-y: auto; background: #fff; border-radius: 22px 22px 0 0; margin-top: -18px; padding: 14px; display: grid; gap: 10px; border-top: 1px solid var(--linea); }
+.pedido-card { border: 2px solid var(--linea); border-radius: 16px; padding: 10px; display: grid; gap: 10px; background: #fff; }
+.pedido-card.sel { border-color: var(--celeste-prof); background: var(--celeste-suave); }
+.pc-top { display: flex; align-items: center; gap: 10px; }
+.pc-num { width: 32px; height: 32px; border-radius: 50%; background: var(--rojo); color: #fff; font-weight: 800; display: grid; place-items: center; flex-shrink: 0; }
+.pc-datos { flex: 1; min-width: 0; }
+.pc-datos strong { display: block; }
+.pc-datos small { display: block; color: var(--texto2); font-size: 12px; overflow-wrap: anywhere; }
+.pc-botones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pc-botones button { height: 46px; }
+.pc-mas { display: flex; flex-wrap: wrap; gap: 6px; }
+.pc-mas .mini { min-width: 104px; height: 36px; padding: 0 10px; font-size: 12px; }
+
+/* Marcadores de clientes en el mapa del repartidor */
+.pin-cli { width: 34px; height: 34px; border-radius: 50%; background: var(--rojo); border: 3px solid #fff; color: #fff; display: grid; place-items: center; font-weight: 800; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.pin-cli b { font-size: 15px; }
+.pin-cli.sel { box-shadow: 0 0 0 4px rgba(61,184,245,.85), 0 2px 6px rgba(0,0,0,.35); }
+.pin-cli.vivo { animation: pulsoRojo 2s infinite; }
+@keyframes pulsoRojo { 0% { box-shadow: 0 0 0 0 rgba(229,50,45,.7); } 70%, 100% { box-shadow: 0 0 0 16px rgba(229,50,45,0); } }
+.etq-cli { position: absolute; top: 38px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #fff; border: 1px solid var(--linea); font-weight: 800; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+/* Punto azul "Tú" / "Cliente" (ubicación en vivo del cliente) */
+.marca-cliente { position: relative; width: 26px; height: 26px; border-radius: 50%; background: #2F6FED; border: 4px solid #fff; box-shadow: 0 0 0 2px #2F6FED; animation: pulsoAzul 2s infinite; }
+.marca-cliente span { position: absolute; top: 30px; left: 50%; transform: translateX(-50%); background: #2F6FED; color: #fff; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+@keyframes pulsoAzul { 0% { box-shadow: 0 0 0 2px #2F6FED, 0 0 0 0 rgba(47,111,237,.6); } 70%, 100% { box-shadow: 0 0 0 2px #2F6FED, 0 0 0 16px rgba(47,111,237,0); } }
+/* Línea de seguimiento en marcha (puntos que avanzan por la ruta) */
+.ruta-viva { stroke-dasharray: 2 14; stroke-linecap: round; animation: marcha 1s linear infinite; }
+@keyframes marcha { to { stroke-dashoffset: -16; } }
+
+/* Barra inferior: Factura ⇄ Mapa */
+.nav-app { flex: none; display: grid; grid-template-columns: 1fr 1fr; background: #fff; border-top: 1px solid var(--linea); padding-bottom: env(safe-area-inset-bottom); z-index: 900; }
+.nav-app button { height: 56px; border: 0; border-radius: 0; background: #fff; color: var(--texto2); font-size: 14px; }
+.nav-app button.activa { color: var(--tinta); background: var(--celeste-suave); box-shadow: inset 0 3px 0 var(--celeste); }
+.badge-nav { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 7px; margin-left: 6px; border-radius: 11px; background: var(--tinta); color: #fff; font-size: 12px; font-weight: 800; vertical-align: middle; }
+.badge-nav.rojo { background: var(--rojo); }
+
+/* Ventana "Entrega confirmada" */
+.modal-rep { position: fixed; inset: 0; z-index: 2500; background: rgba(14,20,27,.65); display: grid; place-items: center; padding: 20px; }
+.modal-rep-caja { background: #fff; border-radius: 22px; padding: 24px 20px; max-width: 380px; width: 100%; display: grid; gap: 12px; text-align: center; justify-items: stretch; }
+.modal-rep-caja h2 { font-size: 22px; font-weight: 800; }
+.modal-rep-caja p { color: var(--texto2); }
+.gran-check { width: 72px; height: 72px; border-radius: 50%; background: var(--celeste); font-size: 40px; font-weight: 800; display: grid; place-items: center; justify-self: center; }
+
+/* ---------- Cliente: mi ubicación ---------- */
+.ubic-caja { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--linea); }
+.barra-manual { display: grid; gap: 8px; background: var(--celeste-suave); border-radius: 14px; padding: 12px; }
+.barra-manual p { font-size: 13px; font-weight: 600; }
+.dos-botones { display: flex; gap: 8px; }
+.dos-botones button { height: 44px; font-size: 14px; }
+body.cliente .hoja { max-height: 58vh; overflow-y: auto; }
