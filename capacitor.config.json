@@ -1,0 +1,6 @@
+{
+  "appId": "com.brothers.deliverys",
+  "appName": "Brothers Repartidor",
+  "webDir": "www",
+  "server": { "androidScheme": "https" }
+}
