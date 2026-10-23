@@ -4,8 +4,8 @@
    - Viajes: enlace de rastreo, destino con aviso a 200 m, chat con el cliente
    - En el APK (Capacitor) el GPS sigue en segundo plano; en el navegador solo con la pantalla activa
    ============================================================ */
-const auth = firebase.auth();
-const db = firebase.database();
+const auth = APP.auth();
+const db = APP.database();
 const $ = (id) => document.getElementById(id);
 const TS = firebase.database.ServerValue.TIMESTAMP;
 
@@ -48,9 +48,12 @@ function mostrar(vista) {
 }
 
 /* ---------- Sesión y nombre de usuario ---------- */
-$("btnLogin").onclick = () =>
+function msgLogin(t) { const e = $("msgLogin"); e.textContent = t || ""; e.classList.toggle("oculto", !t); }
+$("btnLogin").onclick = () => {
+  msgLogin("");
   auth.signInWithEmailAndPassword($("email").value.trim(), $("clave").value)
-      .catch((e) => alert("No se pudo entrar: " + e.message));
+      .catch((e) => msgLogin("No se pudo entrar: correo o contraseña incorrectos."));
+};
 
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
@@ -60,8 +63,14 @@ auth.onAuthStateChanged(async (user) => {
   uidActual = user.uid;
   let reg;
   try { reg = (await db.ref("repartidores/" + user.uid).once("value")).val(); }
-  catch (e) { return alert("No se pudo verificar tu cuenta. Revisa tu conexión o pide al administrador que revise los permisos."); }
-  if (!reg) { alert("Tu cuenta no está registrada como repartidor. Pide al administrador que te agregue."); return auth.signOut(); }
+  catch (e) {
+    msgLogin("No se pudo verificar tu cuenta (sin conexión o reglas de Firebase sin actualizar).");
+    return auth.signOut();
+  }
+  if (!reg) {
+    msgLogin("Esta cuenta no está registrada como repartidor. Pide al administrador que la agregue en la pestaña Equipo.");
+    return auth.signOut();
+  }
   usuario = typeof reg === "object" && reg.usuario ? reg.usuario : null;
   if (!usuario) return mostrar("vistaUsuario");   // primera vez: pedir nombre de usuario
   entrarTurno();

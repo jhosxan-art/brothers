@@ -7,7 +7,7 @@
    el administrador puede leer siempre (archivo permanente).
    ============================================================ */
 const Chat = (() => {
-  const db = firebase.database();
+  const db = APP.database();   // misma sesión que la página que lo usa
   const TS = firebase.database.ServerValue.TIMESTAMP;
   let token = null, yo = null, soloLectura = false, ctx = {}, opciones = {};
   let ref = null, el = null, abierto = false, cargando = true, audio = null;

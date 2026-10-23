@@ -4,8 +4,8 @@
    - Chats archivados de cada pedido
    - Agregar / quitar repartidores sin entrar a la consola de Firebase
    ============================================================ */
-const auth = firebase.auth();
-const db = firebase.database();
+const auth = APP.auth();
+const db = APP.database();
 const $ = (id) => document.getElementById(id);
 const esc = escHtml;   // iconos.js
 

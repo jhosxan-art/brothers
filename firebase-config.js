@@ -15,4 +15,8 @@ const FIREBASE_CONFIG = {
    enlace del cliente DEBE apuntar a tu dominio público, no a la app. */
 const URL_RASTREO = "https://jhosxan-art.github.io/brothers/rastreo.html";
 
-firebase.initializeApp(FIREBASE_CONFIG);
+/* Cada panel tiene su PROPIA sesión: si el administrador y un repartidor abren la app en el mismo
+   navegador, uno no cierra la sesión del otro. admin.html define window.NOMBRE_APP = "admin". */
+const APP = window.NOMBRE_APP
+  ? firebase.initializeApp(FIREBASE_CONFIG, window.NOMBRE_APP)
+  : firebase.initializeApp(FIREBASE_CONFIG);
