@@ -4,6 +4,11 @@
    - Viajes: enlace de rastreo, destino con aviso a 200 m, chat con el cliente
    - En el APK (Capacitor) el GPS sigue en segundo plano; en el navegador solo con la pantalla activa
    ============================================================ */
+/* Si algo falla al cargar (p. ej. faltan archivos por subir), el motivo aparece escrito bajo el formulario */
+window.addEventListener("error", (e) => {
+  const m = document.getElementById("msgLogin");
+  if (m) { m.textContent = "Error en la página: " + e.message + ". Puede que falten archivos por subir a GitHub."; m.className = "estado error"; }
+});
 const auth = APP.auth();
 const db = APP.database();
 const $ = (id) => document.getElementById(id);
@@ -48,7 +53,11 @@ function mostrar(vista) {
 }
 
 /* ---------- Sesión y nombre de usuario ---------- */
-function msgLogin(t) { const e = $("msgLogin"); e.textContent = t || ""; e.classList.toggle("oculto", !t); }
+function msgLogin(t) {
+  const e = $("msgLogin");
+  if (!e) { if (t) alert(t); return; }
+  e.textContent = t || ""; e.classList.toggle("oculto", !t);
+}
 $("btnLogin").onclick = () => {
   msgLogin("");
   auth.signInWithEmailAndPassword($("email").value.trim(), $("clave").value)

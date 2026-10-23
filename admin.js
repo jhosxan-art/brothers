@@ -4,6 +4,11 @@
    - Chats archivados de cada pedido
    - Agregar / quitar repartidores sin entrar a la consola de Firebase
    ============================================================ */
+/* Si algo falla al cargar (p. ej. faltan archivos por subir), el motivo aparece escrito bajo el formulario */
+window.addEventListener("error", (e) => {
+  const m = document.getElementById("msgLogin");
+  if (m) { m.textContent = "Error en la página: " + e.message + ". Puede que falten archivos por subir a GitHub."; m.className = "estado error"; }
+});
 const auth = APP.auth();
 const db = APP.database();
 const $ = (id) => document.getElementById(id);
@@ -21,6 +26,7 @@ let ajusteProgramado = false, secundaria = null;
 /* ---------- Utilidades ---------- */
 function setMsg(id, texto, tipo = "") {
   const el = $(id);
+  if (!el) return;
   el.textContent = texto || "";
   el.className = "estado " + tipo + (texto ? "" : " oculto");
 }
@@ -81,8 +87,10 @@ document.querySelectorAll(".tabs button").forEach((b) => {
 /* ---------- Sesión (solo administradores) ---------- */
 $("btnLogin").onclick = () => {
   setMsg("msgLogin", "");
-  auth.signInWithEmailAndPassword($("email").value.trim(), $("clave").value)
-      .catch((e) => setMsg("msgLogin", errorAuth(e), "error"));
+  try {
+    auth.signInWithEmailAndPassword($("email").value.trim(), $("clave").value)
+        .catch((e) => setMsg("msgLogin", errorAuth(e), "error"));
+  } catch (e) { setMsg("msgLogin", "Error: " + e.message, "error"); }
 };
 auth.onAuthStateChanged(async (user) => {
   if (!user) { detener(); $("clave").value = ""; return mostrar("login"); }
