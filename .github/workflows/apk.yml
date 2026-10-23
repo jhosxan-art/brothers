@@ -1,0 +1,61 @@
+name: Construir APK del repartidor
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Preparar la app web
+        run: |
+          mkdir -p www
+          cp repartidor.html www/index.html
+          cp style.css iconos.js chat.js firebase-config.js repartidor.js www/
+
+      - name: Instalar dependencias
+        run: npm install --legacy-peer-deps
+
+      - name: Crear proyecto Android
+        run: npx cap add android
+
+      - name: Permisos de Android
+        run: |
+          python3 - <<'PY'
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p).read()
+          perms = ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "POST_NOTIFICATIONS", "WAKE_LOCK", "CAMERA"]
+          add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if x not in s)
+          s = s.replace('<application', add + '    <application', 1)
+          open(p, 'w').write(s)
+          PY
+
+      - name: Sincronizar
+        run: npx cap sync android
+
+      - name: Compilar
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Publicar APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: APK repartidor ${{ github.run_number }}
+          files: android/app/build/outputs/apk/debug/app-debug.apk
