@@ -49,3 +49,16 @@ function nombreDesdeCorreo(correo) {
     .map((p) => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(" ");
   return limpio || local;
 }
+
+/* Marcador del repartidor con su nombre en una burbuja (mapa del cliente y del administrador) */
+function escHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function iconoRepartidorNombre(nombre, apagado = false) {
+  return L.divIcon({
+    className: "",
+    html: `<div class="marca-rider-caja"><div class="marca-rider${apagado ? " apagado" : ""}">${RIDER_SVG}</div>` +
+          (nombre ? `<span class="etiqueta-rider">${escHtml(nombre)}</span>` : "") + `</div>`,
+    iconSize: [56, 56], iconAnchor: [28, 28]
+  });
+}

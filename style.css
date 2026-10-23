@@ -149,7 +149,7 @@ body.admin { display: flex; flex-direction: column; height: 100%; }
 .flota-mapa button { width: auto; height: 38px; padding: 0 14px; font-size: 13px; }
 .marca-rider-caja { position: relative; width: 56px; height: 56px; }
 .etiqueta-rider { position: absolute; top: 62px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--tinta); color: #fff; font-weight: 800; font-size: 12px; padding: 3px 10px; border-radius: 999px; }
-#listaActivos { max-height: 40vh; overflow: auto; padding: 12px; display: grid; gap: 8px; background: var(--gris); border-top: 1px solid var(--linea); }
+#listaMapa { max-height: 40vh; overflow: auto; padding: 12px; display: grid; gap: 8px; background: var(--gris); border-top: 1px solid var(--linea); }
 #panelEquipo { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: grid; align-content: start; gap: 14px; max-width: 520px; width: 100%; margin: 0 auto; }
 .formulario-equipo { background: #fff; border: 1px solid var(--linea); border-radius: 22px; padding: 18px; display: grid; gap: 12px; }
 .formulario-equipo h2, #panelEquipo h2 { font-size: 18px; font-weight: 800; }
@@ -167,3 +167,36 @@ body.admin { display: flex; flex-direction: column; height: 100%; }
 .tabs { display: grid; grid-template-columns: 1fr 1fr; background: #fff; border-top: 1px solid var(--linea); padding-bottom: env(safe-area-inset-bottom); }
 .tabs button { height: 56px; border: 0; border-radius: 0; background: #fff; color: var(--texto2); }
 .tabs button.activa { color: var(--tinta); box-shadow: inset 0 3px 0 var(--celeste); }
+
+/* ---------- Chat ---------- */
+.chat { position: fixed; inset: 0; z-index: 3000; background: var(--gris); display: flex; flex-direction: column; }
+.chat-barra { display: flex; align-items: center; gap: 10px; background: var(--celeste); padding: calc(10px + env(safe-area-inset-top)) 14px 10px; }
+.chat-barra strong { display: block; font-size: 16px; font-weight: 800; line-height: 1.15; }
+.chat-barra small { font-size: 12px; font-weight: 600; opacity: .75; }
+.chat-atras { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.6); font-size: 28px; line-height: 1; }
+.chat-lista { flex: 1; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.burbuja { max-width: 82%; padding: 8px 12px; border-radius: 18px; display: grid; gap: 3px; overflow-wrap: anywhere; }
+.burbuja p { font-size: 15px; }
+.burbuja.propia { align-self: flex-end; background: var(--celeste); border-bottom-right-radius: 6px; }
+.burbuja.ajena { align-self: flex-start; background: #fff; border: 1px solid var(--linea); border-bottom-left-radius: 6px; }
+.burbuja .quien { font-size: 12px; font-weight: 800; color: var(--celeste-prof); }
+.burbuja.propia .quien { color: var(--tinta); opacity: .7; }
+.burbuja .hora { font-size: 11px; opacity: .6; justify-self: end; }
+.foto-chat { width: 220px; max-width: 100%; border-radius: 12px; display: block; background: var(--gris); min-height: 60px; }
+.foto-chat.grande { width: 100%; }
+.chat-estado { padding: 6px 14px; font-size: 13px; color: var(--texto2); background: #fff; }
+.chat-entrada { display: flex; gap: 8px; align-items: center; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid var(--linea); }
+.chat-entrada input[type=text] { flex: 1; min-width: 0; height: 46px; border-radius: 23px; }
+.chat-entrada button { width: auto; height: 46px; border-radius: 23px; padding: 0 18px; }
+.chat-foto { width: 46px; height: 46px; border-radius: 50%; background: var(--celeste-suave); display: grid; place-items: center; flex-shrink: 0; cursor: pointer; }
+.boton-chat { position: relative; }
+.badge { position: absolute; top: -7px; right: -4px; min-width: 22px; height: 22px; border-radius: 11px; background: var(--rojo); color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; padding: 0 6px; }
+
+/* ---------- Mapa: repartidor sin señal / desconectado ---------- */
+.marca-rider.apagado { filter: grayscale(1); border-color: #9AA5B1; animation: none; }
+.chip.gris { background: var(--gris); color: var(--texto2); }
+.tabs { grid-template-columns: repeat(3, 1fr); }
+.tabs button { font-size: 13px; padding: 0 6px; }
+#panelChats { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: grid; align-content: start; gap: 10px; max-width: 520px; width: 100%; margin: 0 auto; }
+#panelChats h2 { font-size: 18px; font-weight: 800; }
+.chip.libre { background: #E2F6E6; color: #17602B; }

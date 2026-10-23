@@ -45,7 +45,13 @@
           <button id="btnCentrar" class="primario">Ver todos</button>
         </div>
       </div>
-      <div id="listaActivos"></div>
+      <div id="listaMapa"></div>
+    </section>
+
+    <section id="panelChats" class="oculto">
+      <h2>Conversaciones</h2>
+      <p class="ayuda">Todo lo que hablan los repartidores con sus clientes queda archivado aquí.</p>
+      <div id="listaChats" class="acciones"></div>
     </section>
 
     <section id="panelEquipo" class="oculto">
@@ -62,7 +68,8 @@
 
     <nav class="tabs">
       <button class="activa" data-tab="panelMapa">Mapa en vivo</button>
-      <button data-tab="panelEquipo">Repartidores</button>
+      <button data-tab="panelChats">Chats</button>
+      <button data-tab="panelEquipo">Equipo</button>
     </nav>
   </div>
 
@@ -72,6 +79,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
+  <script src="chat.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

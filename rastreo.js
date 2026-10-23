@@ -12,8 +12,8 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, att
 
 const iconoMoto = iconoRepartidor();   // repartidor con mochila celeste (iconos.js)
 const iconoDestino = iconoPin();
-let marcador = null, marcaDestino = null, primerPunto = true, referencia = null, maxDist = 0;
-const estela = L.polyline([], { color: "#ffc20e", weight: 5, opacity: .9 }).addTo(mapa);
+let marcador = null, marcaDestino = null, primerPunto = true, referencia = null, maxDist = 0, nombreMarcado = "";
+const estela = L.polyline([], { color: "#0A86C9", weight: 5, opacity: .9 }).addTo(mapa);
 
 /* ---------- Alarma sonora ----------
    Los navegadores solo permiten sonido después de que el usuario toca la pantalla,
@@ -68,6 +68,7 @@ $("pantallaCerca").addEventListener("pointerdown", () => { if (audioCtx) audioCt
 
 /* ---------- Pantalla final ---------- */
 function terminar(titulo, mensaje) {
+  Chat.detener();
   if (referencia) referencia.off("value");
   pararAlarma();
   try { wake?.release(); } catch (_) {}
@@ -81,6 +82,13 @@ const formatoDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m"
 if (!token) {
   terminar("Enlace no válido", "Pide a tu repartidor que te reenvíe el enlace de rastreo.");
 } else {
+  Chat.iniciar({
+    token, yo: "cliente",
+    titulo: (c) => "Chat con " + (c.nombreRepartidor || "tu repartidor"),
+    subtitulo: (c) => (c.pedido ? "Pedido " + c.pedido : ""),
+    alNoLeidos: (n) => { const b = $("badgeChat"); b.textContent = n; b.classList.toggle("oculto", !n); }
+  });
+  $("btnChat").onclick = () => Chat.abrir();
   referencia = db.ref("pedidos/" + token);
   referencia.on("value", (snap) => {
     const d = snap.val();
@@ -89,6 +97,7 @@ if (!token) {
     if (d.estado === "cancelado") return terminar("El rastreo ha finalizado", "El viaje fue cancelado. Contacta a Brother's Deliverys si tienes dudas.");
 
     if (d.pedido) $("pedidoTxt").textContent = "Pedido " + d.pedido;
+    Chat.setContexto({ pedido: d.pedido, nombreRepartidor: d.repartidorNombre });
     if (d.repartidorNombre) $("nombreRepartidor").textContent = "Tu repartidor: " + d.repartidorNombre;
 
     // El repartidor llegó al radio de 200 m → alarma (una sola vez)
@@ -101,8 +110,12 @@ if (!token) {
     if (typeof d.lat !== "number") { $("estadoTxt").textContent = "Esperando señal del repartidor…"; $("distTxt").textContent = ""; return; }
 
     const pos = [d.lat, d.lng];
-    if (!marcador) marcador = L.marker(pos, { icon: iconoMoto }).addTo(mapa);
-    else marcador.setLatLng(pos);
+    const nombre = d.repartidorNombre || "";   // burbuja con el nombre del repartidor
+    if (!marcador) { marcador = L.marker(pos, { icon: iconoRepartidorNombre(nombre) }).addTo(mapa); nombreMarcado = nombre; }
+    else {
+      marcador.setLatLng(pos);
+      if (nombre !== nombreMarcado) { marcador.setIcon(iconoRepartidorNombre(nombre)); nombreMarcado = nombre; }
+    }
     estela.addLatLng(pos);
 
     // Marcador del destino (si el repartidor lo definió)

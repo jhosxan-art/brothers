@@ -33,8 +33,20 @@
       <button id="btnLogin" class="primario">Entrar</button>
     </section>
 
+    <!-- 1b) Primera vez: elegir nombre de usuario -->
+    <section id="vistaUsuario" class="acciones oculto">
+      <div class="hero">
+        <div class="gran-icono" data-rider></div>
+        <h1>¿Cómo te llamas?</h1>
+        <p>Elige tu nombre de usuario. Tus clientes y el administrador lo verán en el mapa.</p>
+      </div>
+      <label>Nombre de usuario <input id="inputUsuario" maxlength="24" placeholder="Ej. Rodrigo" autocomplete="off"></label>
+      <button id="btnGuardarUsuario" class="primario">Guardar y continuar</button>
+    </section>
+
     <!-- 2) Nuevo pedido -->
     <section id="vistaNuevo" class="acciones oculto">
+      <div class="estado" id="estadoTurno">Iniciando ubicación…</div>
       <label>N.º de pedido (opcional)
         <input id="inputPedido" placeholder="Vacío = se genera automático" inputmode="text">
       </label>
@@ -56,6 +68,7 @@
     <!-- 3) Viaje activo -->
     <section id="vistaActivo" class="acciones oculto">
       <div class="estado" id="estadoGps">Obteniendo ubicación…</div>
+      <button id="btnChat" class="primario boton-chat">Chat con el cliente <span id="badgeChat" class="badge oculto">0</span></button>
       <div class="enlace" id="enlaceTxt"></div>
       <button id="btnWhatsapp" class="whatsapp">Enviar enlace por WhatsApp</button>
       <button id="btnCerca" class="whatsapp oculto">Avisar por WhatsApp: ya estoy cerca</button>
@@ -71,6 +84,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
+  <script src="chat.js"></script>
   <script src="repartidor.js"></script>
 </body>
 </html>
