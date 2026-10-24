@@ -34,12 +34,16 @@ let vibInt = null, finAlarma = null, alarmaActiva = false, yaSono = false, wake 
 
 async function pedirWake() { try { wake = await navigator.wakeLock?.request("screen"); } catch (_) {} }
 
-$("btnActivarSonido").onclick = () => {
+/* Un solo botón al abrir el enlace: ubicación + voz + pantalla encendida */
+function activarTodo() {
   Voz.activar();
   Voz.hablar(Voz.FRASES.prueba, { forzar: true });   // el cliente comprueba su volumen
   pedirWake();                                       // mantiene la pantalla encendida con la página abierta
-  $("avisoSonido").classList.add("oculto");
-};
+  $("permisos").classList.add("oculto");
+  iniciarUbicacion();                                // el navegador muestra su ventana de permiso de ubicación
+}
+$("btnPermisos").onclick = activarTodo;
+$("btnPermisosMapa").onclick = () => { $("permisos").classList.add("oculto"); $("btnCambiarUbic").click(); };
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") pedirWake();
 });
@@ -93,11 +97,21 @@ let eligiendo = false, marcaPend = null;
 
 function setUbic(texto, tipo = "") { const e = $("ubicTxt"); e.textContent = texto; e.className = "estado " + tipo; }
 
+let marcaManual = null, centradoGps = false;
 function pintarCliente() {
-  if (!posCli) return;
-  const p = [posCli.lat, posCli.lng];
-  if (!marcaCli) marcaCli = L.marker(p, { icon: iconoYo, zIndexOffset: 500, interactive: false }).addTo(mapa);
-  else marcaCli.setLatLng(p);
+  // Punto azul "Tú": dónde estás de verdad ahora (GPS). Si aún no hay GPS, la última ubicación enviada.
+  const real = ultimaGps || (!manual ? posCli : null);
+  if (real) {
+    const p = [real.lat, real.lng];
+    if (!marcaCli) marcaCli = L.marker(p, { icon: iconoYo, zIndexOffset: 500, interactive: false }).addTo(mapa);
+    else marcaCli.setLatLng(p);
+  }
+  // Pin rojo: el lugar de entrega que el cliente marcó a mano
+  if (manual && posCli) {
+    const p = [posCli.lat, posCli.lng];
+    if (!marcaManual) marcaManual = L.marker(p, { icon: iconoDestino, zIndexOffset: 400, interactive: false }).addTo(mapa);
+    else marcaManual.setLatLng(p);
+  } else if (marcaManual) { mapa.removeLayer(marcaManual); marcaManual = null; }
   pintarDestino();
   actualizarGuia();
 }
@@ -121,7 +135,8 @@ function iniciarUbicacion() {
     (pos) => {
       const c = pos.coords;
       ultimaGps = { lat: c.latitude, lng: c.longitude, precision: Math.round(c.accuracy || 0) };
-      if (manual || eligiendo) return;
+      if (!centradoGps && primerPunto) { centradoGps = true; mapa.setView([ultimaGps.lat, ultimaGps.lng], 17); }
+      if (manual || eligiendo) { pintarCliente(); return; }
       enviarCliente(ultimaGps.lat, ultimaGps.lng, ultimaGps.precision, false);
       setUbic(`Compartiendo tu ubicación en tiempo real con el repartidor · ±${ultimaGps.precision} m`, "ok");
     },
@@ -148,9 +163,22 @@ function ponerPendiente(lat, lng) {
 }
 $("btnCambiarUbic").onclick = () => {
   mostrarModoManual(true);
-  const base = posCli || ultimaGps || mapa.getCenter();
-  ponerPendiente(base.lat, base.lng);
-  mapa.panTo([base.lat, base.lng]);
+  const poner = (p, zoom) => { ponerPendiente(p.lat, p.lng); mapa.setView([p.lat, p.lng], zoom); };
+  const respaldo = ultimaGps || posCli;
+  if (respaldo) poner(respaldo, 18);                       // salta ya a tu ubicación (se afina enseguida)
+  $("textoManual").textContent = "Buscando tu ubicación exacta…";
+  const listo = () => { $("textoManual").textContent = "El punto azul es donde estás ahora. Confirma aquí, o toca el mapa / arrastra el pin para elegir otro lugar de entrega."; };
+  if (!("geolocation" in navigator)) return listo();
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const c = pos.coords;
+      ultimaGps = { lat: c.latitude, lng: c.longitude, precision: Math.round(c.accuracy || 0) };
+      pintarCliente();
+      if (eligiendo) poner(ultimaGps, 18);
+      listo();
+    },
+    () => { listo(); if (!respaldo) $("textoManual").textContent = "No pudimos ubicarte: toca el mapa para marcar dónde estás."; },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
 };
 mapa.on("click", (e) => { if (eligiendo) ponerPendiente(e.latlng.lat, e.latlng.lng); });
 $("btnConfirmarUbic").onclick = () => {
@@ -166,6 +194,7 @@ $("btnCancelarUbic").onclick = () => mostrarModoManual(false);
 $("btnVolverVivo").onclick = () => {
   manual = false;
   $("btnVolverVivo").classList.add("oculto");
+  pintarCliente();
   if (ultimaGps) { enviarCliente(ultimaGps.lat, ultimaGps.lng, ultimaGps.precision, false); setUbic("Compartiendo tu ubicación en tiempo real con el repartidor", "ok"); }
   else { setUbic("Buscando tu ubicación…"); iniciarUbicacion(); }
 };
@@ -179,6 +208,21 @@ function pintarDestino() {
   } else if (marcaDestino) { mapa.removeLayer(marcaDestino); marcaDestino = null; }
 }
 
+/* ---------- Permisos al abrir el enlace ---------- */
+async function pedirPermisosAlAbrir() {
+  let estado = "prompt";
+  try { estado = (await navigator.permissions.query({ name: "geolocation" })).state; } catch (_) {}
+  if (estado === "granted") { iniciarUbicacion(); return; }   // ya autorizado: sin ventanas (el primer toque activa la voz)
+  if (estado === "denied") {
+    $("permTitulo").textContent = "Ubicación bloqueada";
+    $("permTexto").textContent = "Tu navegador tiene bloqueada la ubicación. Toca el candado junto a la dirección de la página → Permisos → Ubicación → Permitir, y recarga. O marca tu ubicación a mano en el mapa.";
+    $("permLista").classList.add("oculto");
+    $("btnPermisos").textContent = "Ya la activé, continuar";
+    $("btnPermisosMapa").classList.remove("oculto");
+  }
+  $("permisos").classList.remove("oculto");
+}
+
 /* ---------- Escucha en tiempo real ---------- */
 if (!token) {
   terminar("Enlace no válido", "Pide a tu repartidor que te reenvíe el enlace de rastreo.");
@@ -190,7 +234,7 @@ if (!token) {
     alNoLeidos: (n) => { const b = $("badgeChat"); b.textContent = n; b.classList.toggle("oculto", !n); }
   });
   $("btnChat").onclick = () => Chat.abrir();
-  iniciarUbicacion();   // al abrir el enlace se activa la ubicación (el navegador pide permiso)
+  pedirPermisosAlAbrir();   // al abrir el enlace: ubicación en tiempo real + voz
   referencia = db.ref("pedidos/" + token);
   referencia.on("value", (snap) => {
     const d = snap.val();

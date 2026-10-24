@@ -271,3 +271,18 @@ body.rep > #vistaMapa { flex: 1; min-height: 0; display: flex; flex-direction: c
 .dos-botones { display: flex; gap: 8px; }
 .dos-botones button { height: 44px; font-size: 14px; }
 body.cliente .hoja { max-height: 58vh; overflow-y: auto; }
+
+/* ---------- Chat: cámara propia ---------- */
+.chat-entrada button.chat-foto { width: 46px; padding: 0; border: 0; border-radius: 50%; background: var(--celeste-suave); }
+.cam { position: fixed; inset: 0; z-index: 3500; background: #000; display: flex; flex-direction: column; }
+.cam video, .cam .cam-previa { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; }
+.cam-msg { position: absolute; left: 16px; right: 16px; top: 50%; color: #fff; text-align: center; font-weight: 700; }
+.cam-x { position: absolute; top: calc(12px + env(safe-area-inset-top)); left: 12px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 20px; }
+.cam-barra { flex: none; display: flex; align-items: center; justify-content: space-around; gap: 12px; padding: 16px 20px calc(16px + env(safe-area-inset-bottom)); background: #000; }
+.cam-disparo { width: 74px; height: 74px; padding: 0; border-radius: 50%; background: #fff; border: 6px solid rgba(255,255,255,.45); background-clip: padding-box; }
+.cam-giro { width: 52px; height: 52px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.2); color: #fff; font-size: 26px; }
+.cam-barra > span { width: 52px; }
+.cam-barra-previa button { flex: 1; height: 52px; }
+.cam-barra-previa .cam-otra { background: rgba(255,255,255,.18); color: #fff; border: 0; }
+.lista-permisos { text-align: left; display: grid; gap: 8px; font-size: 14px; padding-left: 0; list-style: none; }
+.lista-permisos li { background: var(--celeste-suave); border-radius: 12px; padding: 10px 12px; }

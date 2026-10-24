@@ -7,7 +7,7 @@
    ============================================================ */
 (function () {
 'use strict';
-window.Factura = { alEnviar: null };
+window.Factura = { alEnviar: null, nombreRepartidor: '' };
 
   let products = [];
   let editingIndex = -1;
@@ -48,19 +48,6 @@ window.Factura = { alEnviar: null };
       document.getElementById('customLoadingModal').classList.remove('show');
   }
 
-  function getDayOfYear() {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), 0, 0);
-      const diff = (now - start) + ((start.getTimezoneOffset() - now.getTimezoneOffset()) * 60 * 1000);
-      const oneDay = 1000 * 60 * 60 * 24;
-      return Math.floor(diff / oneDay);
-  }
-
-  function getDailyQuote() {
-      const dayIndex = (getDayOfYear() - 1) % FRASES_ANUALES.length;
-      return FRASES_ANUALES[dayIndex >= 0 ? dayIndex : 0];
-  }
-
   function getBusinessDayString() {
       const now = new Date();
       if (now.getHours() < 8) {
@@ -69,7 +56,7 @@ window.Factura = { alEnviar: null };
       return now.toDateString();
   }
 
-  /* Estadísticas del día + frase motivacional (una vez por jornada). Ya no hay PIN: el repartidor entra con su cuenta. */
+  /* Estadísticas del día. Ya no hay PIN: el repartidor entra con su cuenta. */
   function checkSessionAndLogin() {
       const currentBusinessDay = getBusinessDayString();
 
@@ -81,18 +68,6 @@ window.Factura = { alEnviar: null };
           dailyStats = storedStats;
       }
 
-      const card = document.getElementById('quoteCard');
-      if (card && localStorage.getItem('brothersDeliveryQuoteDay') !== currentBusinessDay) {
-          document.getElementById('loginQuoteText').textContent = getDailyQuote();
-          card.style.display = 'block';
-      }
-      document.getElementById('dailyTip').textContent = getDailyQuote();
-  }
-
-  function cerrarFraseDelDia() {
-      localStorage.setItem('brothersDeliverySessionDay', getBusinessDayString());
-      localStorage.setItem('brothersDeliveryQuoteDay', getBusinessDayString());
-      document.getElementById('quoteCard').style.display = 'none';
   }
 
   let dailyStats = JSON.parse(localStorage.getItem('brothersDeliveryStats')) || {
@@ -107,14 +82,6 @@ window.Factura = { alEnviar: null };
       const abc = 'abcdefghijkmnpqrstuvwxyz23456789';
       const bytes = crypto.getRandomValues(new Uint8Array(largo));
       return Array.from(bytes, (b) => abc[b % abc.length]).join('');
-  }
-
-  // 8 dígitos = número de Nicaragua (+505). Con otro largo se respeta el código de país escrito.
-  function normalizarTel(raw) {
-      let d = String(raw || '').replace(/\D/g, '');
-      if (d.startsWith('00')) d = d.slice(2);
-      if (d.length === 8) d = '505' + d;
-      return d;
   }
 
   function getUniqueCode() {
@@ -206,7 +173,6 @@ window.Factura = { alEnviar: null };
       document.getElementById('statsContainer').classList.add('active');
       updateStatsDisplay();
       renderDepositInvoices();
-      document.getElementById('dailyTip').textContent = getDailyQuote();
   }
 
   function hideStats() {
@@ -281,7 +247,7 @@ window.Factura = { alEnviar: null };
       if (editingIndex >= 0) {
           products[editingIndex] = { name, price };
           editingIndex = -1;
-          document.querySelector('.add-product-btn').textContent = '+ Agregar Producto';
+          document.querySelector('.add-product-btn').textContent = '+';
       } else {
           products.push({ name, price });
       }
@@ -319,7 +285,7 @@ window.Factura = { alEnviar: null };
       document.getElementById('currentProductName').value = product.name;
       document.getElementById('currentProductPrice').value = product.price;
       editingIndex = index;
-      document.querySelector('.add-product-btn').textContent = '✓ Actualizar Producto';
+      document.querySelector('.add-product-btn').textContent = '✓';
       document.getElementById('currentProductName').focus();
   }
 
@@ -362,7 +328,6 @@ window.Factura = { alEnviar: null };
 
   function generateInvoice() {
       const customerName = document.getElementById('customerName').value.trim();
-      const customerPhone = normalizarTel(document.getElementById('customerPhone').value);
       const pickupCode = getUniqueCode();
       const token = crearToken();
       const link = `${URL_RASTREO}?id=${token}`;
@@ -383,6 +348,7 @@ window.Factura = { alEnviar: null };
       let invoiceText = '━━━━━━━━━━━━━━━━━━━━\n';
       invoiceText += '🏍️ *BROTHERS DELIVERY*\n';
       invoiceText += '━━━━━━━━━━━━━━━━━━━━\n\n';
+      if (window.Factura && window.Factura.nombreRepartidor) invoiceText += `🏍️ *Repartidor:* ${window.Factura.nombreRepartidor}\n`;
       if (customerName) invoiceText += `👤 *Cliente:* ${customerName}\n`;
       invoiceText += `💳 *Depósito:* ${depositPaid ? 'SÍ' : 'NO'}\n\n`;
       invoiceText += '📦 *PRODUCTOS:*\n';
@@ -437,7 +403,7 @@ window.Factura = { alEnviar: null };
 
       document.getElementById('generatedInvoiceDisplay').innerHTML = invoiceHTML;
 
-      facturaActual = { token, pedido: pickupCode, cliente: customerName, tel: customerPhone, texto: invoiceText, total: grandTotal, link };
+      facturaActual = { token, pedido: pickupCode, cliente: customerName, tel: '', texto: invoiceText, total: grandTotal, link };
 
       dailyStats.totalOrders += 1;
       dailyStats.totalEarnings += totalDelivery;
@@ -466,24 +432,19 @@ window.Factura = { alEnviar: null };
       document.getElementById('invoicePopup').classList.add('show');
   }
 
-  /* Botón principal: manda la factura (con el enlace de seguimiento) al cliente por WhatsApp
-     y activa el seguimiento: repartidor.js crea el pedido y lleva al repartidor al mapa. */
+  /* Botón principal: la factura (con el enlace de seguimiento) va SIEMPRE al chat de WhatsApp del negocio;
+     el repartidor no tiene contacto directo con el cliente fuera de la app.
+     Además activa el seguimiento: repartidor.js crea el pedido y lleva al repartidor al mapa. */
+  const NEGOCIO_WA = '50586265619';
   function enviarFacturaWhatsApp() {
       if (!facturaActual) return;
       const f = facturaActual;
       facturaActual = null;   // evita iniciar dos veces con un doble toque
-      const base = f.tel ? `https://wa.me/${f.tel}` : 'https://wa.me/';
-      const url = `${base}?text=${encodeURIComponent(f.texto)}`;
+      const url = `https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(f.texto)}`;
       if (window.Factura && typeof window.Factura.alEnviar === 'function') window.Factura.alEnviar(f);
       window.open(url, '_system');
       document.getElementById('invoicePopup').classList.remove('show');
       resetForm();
-  }
-
-  /* Copia de la factura para el negocio (como era antes). No inicia seguimiento. */
-  function enviarCopiaNegocio() {
-      if (!facturaActual) return;
-      window.open(`https://wa.me/50586265619?text=${encodeURIComponent(facturaActual.texto)}`, '_system');
   }
 
   function downloadInvoiceImage() {
@@ -522,7 +483,6 @@ window.Factura = { alEnviar: null };
       document.getElementById('currentProductName').value = '';
       document.getElementById('currentProductPrice').value = '';
       document.getElementById('customerName').value = '';
-      document.getElementById('customerPhone').value = '';
       depositPaid = false;
       
       const buttons = document.querySelectorAll('.extra-errand-btn');
@@ -550,5 +510,5 @@ window.Factura = { alEnviar: null };
   checkSessionAndLogin();
   renderDepositInvoices();
 
-Object.assign(window, { showCustomAlert, closeCustomAlert, closeCustomConfirm, confirmDeposit, showStats, hideStats, calculateTotal, toggleExtraErrand, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, cerrarFraseDelDia, enviarFacturaWhatsApp, enviarCopiaNegocio });
+Object.assign(window, { showCustomAlert, closeCustomAlert, closeCustomConfirm, confirmDeposit, showStats, hideStats, calculateTotal, toggleExtraErrand, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp });
 })();

@@ -135,19 +135,23 @@ $("btnGuardarUsuario").onclick = async () => {
   entrarTurno();
 };
 
-function entrarTurno() {
+async function entrarTurno() {
   // Si se corta la conexión, el administrador lo verá como "desconectado"
   db.ref("ubicaciones/" + uidActual).onDisconnect().update({ enLinea: false, enViaje: false, ts: TS });
   vistaActual = "factura";          // lo primero que ve el repartidor: la factura
   mostrar("app");
+  Factura.nombreRepartidor = usuario;
   reanudarViajes();                 // por si la app se cerró con pedidos en ruta
-  iniciarGPS();
+  await permisosInicio();           // APK: explica y pide permisos (notificaciones…)
+  registrarPush();                  // avisos push con la app cerrada
+  iniciarGPS();                     // y aquí Android pide la ubicación (“todo el tiempo”)
 }
 
 $("btnSalir").onclick = async () => {
   if (orden.length) return alert("Primero entrega o cancela los pedidos en curso.");
   if (!confirm("¿Cerrar sesión? Dejarás de compartir tu ubicación.")) return;
   detenerGPS();
+  try { await db.ref(`repartidores/${uidActual}/fcmToken`).remove(); } catch (_) {}   // este teléfono deja de recibir avisos
   try {
     await db.ref("ubicaciones/" + uidActual).update({ enLinea: false, enViaje: false, ts: TS });
     db.ref("ubicaciones/" + uidActual).onDisconnect().cancel();
@@ -355,6 +359,7 @@ function reanudarViajes() {
   });
   if (orden.length) {
     seleccionado = orden[0]; renderLista();
+    if (abrirPendiente && viajes[abrirPendiente]) { const v0 = viajes[abrirPendiente]; abrirPendiente = null; irA("mapa"); abrirChat(v0); }
     try { const r = JSON.parse(localStorage.getItem("rastroViaje") || "null"); if (r && r.uid === uidActual && Array.isArray(r.pts)) rastro = r.pts; } catch (_) {}
   }
   actualizarNav();
@@ -433,6 +438,7 @@ function escucharChat(v) {
     if (!m || m.de !== "cliente") return;
     Voz.hablar(orden.length > 1 && v.cliente ? `El cliente ${v.cliente} te ha escrito` : Voz.FRASES.mensajeCliente);
     navigator.vibrate && navigator.vibrate(200);
+    if (chatToken !== v.token || document.hidden) notificarMensaje(v, m);
     if (chatToken !== v.token) { v.noLeidos++; refrescarTextos(); actualizarNav(); }
   }, () => {});
   v.refChat.once("value", () => { v.chatListo = true; });
@@ -466,9 +472,7 @@ function renderLista() {
         <button class="oscuro" data-acc="entregado" type="button">✓ Entregado</button>
       </div>
       <div class="pc-mas">
-        <button class="mini whatsapp oculto" data-acc="cerca" id="cerca-${t}" type="button">Avisar: ya estoy cerca</button>
-        <button class="mini" data-acc="wa" type="button">Reenviar enlace</button>
-        <button class="mini" data-acc="copiar" type="button">Copiar</button>
+        <button class="mini" data-acc="wa" type="button">Reenviar al negocio</button>
         <button class="mini oculto" data-acc="usarcli" id="usarcli-${t}" type="button">Usar ubic. del cliente</button>
         <button class="mini peligro" data-acc="cancelar" type="button">Cancelar</button>
       </div>
@@ -492,7 +496,6 @@ function refrescarTextos() {
     chip.textContent = v.cerca ? "Cerca" : esVivo(v) ? "En vivo" : "En ruta";
     chip.className = "chip " + (v.cerca ? "alerta" : "vivo");
     const bd = $("bd-" + t); bd.textContent = v.noLeidos; bd.classList.toggle("oculto", !v.noLeidos);
-    $("cerca-" + t).classList.toggle("oculto", !v.cerca);
     $("usarcli-" + t).classList.toggle("oculto", !(v.destManual && v.cliPos));
     pintarCliente(v);
   });
@@ -509,22 +512,108 @@ $("hojaPedidos").onclick = (e) => {
   if (acc === "chat") abrirChat(v);
   else if (acc === "entregado") cerrarViaje(v.token, "entregado");
   else if (acc === "cancelar") cerrarViaje(v.token, "cancelado");
-  else if (acc === "wa") abrirWhatsApp(v.tel, mensajeSeguimiento(v));
-  else if (acc === "cerca") abrirWhatsApp(v.tel, "📦 Tu repartidor de Brother’s Deliverys está a menos de 200 metros. ¡Sal a recibir tu pedido!");
+  else if (acc === "wa") abrirWhatsApp(mensajeSeguimiento(v));
   else if (acc === "usarcli") usarUbicacionCliente(v);
-  else if (acc === "copiar") copiarEnlace(v);
 };
+
+/* ============================================================
+   APK: plugins nativos, permisos y notificaciones de mensajes
+   ============================================================ */
+const esNativo = () => { const C = window.Capacitor; return !!(C && ((C.isNativePlatform && C.isNativePlatform()) || (C.getPlatform && C.getPlatform() !== "web"))); };
+function plug(nombre) {
+  const C = window.Capacitor;
+  if (!esNativo()) return null;
+  if (C.isPluginAvailable && !C.isPluginAvailable(nombre)) return null;
+  return (C.Plugins && C.Plugins[nombre]) || (C.registerPlugin && C.registerPlugin(nombre)) || null;
+}
+let notifLista = false, esperandoPermisos = null;
+
+/* Ventana inicial que explica los permisos (ubicación todo el tiempo, notificaciones) y luego los pide */
+function permisosInicio() {
+  if (!esNativo()) return Promise.resolve();
+  return (async () => {
+    const ln = plug("LocalNotifications");
+    let faltaNotif = false;
+    if (ln) { try { faltaNotif = (await ln.checkPermissions()).display !== "granted"; } catch (_) {} }
+    if (localStorage.getItem("permisosExplicados") === "1" && !faltaNotif) return prepararNotificaciones();
+    $("modalPermisos").classList.remove("oculto");
+    await new Promise((ok) => { esperandoPermisos = ok; });
+  })();
+}
+$("btnPermisos").onclick = async () => {
+  $("btnPermisos").disabled = true;
+  await prepararNotificaciones(true);
+  localStorage.setItem("permisosExplicados", "1");
+  $("modalPermisos").classList.add("oculto");
+  $("btnPermisos").disabled = false;
+  if (esperandoPermisos) { esperandoPermisos(); esperandoPermisos = null; }
+};
+$("btnAjustesApp").onclick = () => { const bg = plug("BackgroundGeolocation"); bg && bg.openSettings && bg.openSettings(); };
+
+async function prepararNotificaciones(pedir) {
+  const ln = plug("LocalNotifications");
+  if (!ln) return;
+  try {
+    if (pedir) await ln.requestPermissions();   // ventana de Android: "¿Permitir notificaciones?"
+    await ln.createChannel({ id: "mensajes", name: "Mensajes de clientes", description: "Avisos cuando un cliente te escribe", importance: 5, visibility: 1, vibration: true, lights: true });
+    await ln.registerActionTypes({ types: [{ id: "MENSAJE", actions: [
+      { id: "responder", title: "Responder", input: true, inputButtonTitle: "Enviar", inputPlaceholder: "Escribe tu respuesta" },
+      { id: "abrir", title: "Abrir chat" }
+    ] }] });
+    if (!notifLista) { notifLista = true; ln.addListener("localNotificationActionPerformed", alAccionNotificacion); }
+  } catch (e) { console.warn("Notificaciones:", e); }
+}
+
+/* ---------- Push (FCM): llega aunque la app esté cerrada o en otra app ---------- */
+let pushActivo = false, abrirPendiente = null;
+async function registrarPush() {
+  const PN = plug("PushNotifications");
+  if (!PN || !uidActual) return;
+  try {
+    let p = await PN.checkPermissions();
+    if (p.receive !== "granted") p = await PN.requestPermissions();
+    if (p.receive !== "granted") return;
+    await PN.createChannel({ id: "mensajes", name: "Mensajes de clientes", description: "Avisos cuando un cliente te escribe", importance: 5, visibility: 1, vibration: true });
+    await PN.removeAllListeners();
+    PN.addListener("registration", (t) => {
+      pushActivo = true;   // con push activo no hace falta la notificación local (evita duplicados)
+      db.ref(`repartidores/${uidActual}/fcmToken`).set(t.value).catch((e) => console.warn("fcmToken:", e.message));
+    });
+    PN.addListener("registrationError", (e) => console.warn("Push:", e));
+    PN.addListener("pushNotificationActionPerformed", (ev) => {   // tocó la notificación
+      const tk = ev.notification && ev.notification.data && ev.notification.data.token;
+      if (!tk) return;
+      if (viajes[tk]) { irA("mapa"); abrirChat(viajes[tk]); } else abrirPendiente = tk;
+    });
+    await PN.register();
+  } catch (e) { console.warn("Push:", e); }
+}
+
+/* Notificación tipo WhatsApp: título = cliente, cuerpo = su mensaje; se puede responder desde la propia notificación */
+function notificarMensaje(v, m) {
+  const ln = plug("LocalNotifications");
+  if (!ln || !document.hidden || pushActivo) return;   // con la app a la vista basta la voz y la burbuja
+  const cuerpo = m.texto ? m.texto : "📷 Te envió una foto";
+  ln.schedule({ notifications: [{
+    id: Math.floor(Math.random() * 2000000000), title: v.cliente ? "Cliente · " + v.cliente : "Cliente · Pedido " + v.pedido,
+    body: cuerpo, largeBody: cuerpo, summaryText: "Pedido " + v.pedido,
+    channelId: "mensajes", actionTypeId: "MENSAJE", extra: { token: v.token }
+  }] }).catch(() => {});
+}
+function alAccionNotificacion(ev) {
+  const token = ev && ev.notification && ev.notification.extra && ev.notification.extra.token;
+  const v = viajes[token]; if (!v) return;
+  if (ev.actionId === "responder" && ev.inputValue && ev.inputValue.trim()) {
+    Chat.enviarA(token, "repartidor", { pedido: v.pedido, nombreRepartidor: usuario }, ev.inputValue.trim().slice(0, 600), null).catch(() => {});
+    return;   // respondido sin abrir la app
+  }
+  irA("mapa"); abrirChat(v);   // tocar la notificación o "Abrir chat"
+}
 
 /* ============================================================
    GPS permanente (turno)
    ============================================================ */
-function plugin() {
-  const C = window.Capacitor;
-  if (!C) return null;
-  const nativo = (C.isNativePlatform && C.isNativePlatform()) || (C.getPlatform && C.getPlatform() !== "web");
-  if (!nativo) return null;
-  return (C.Plugins && C.Plugins.BackgroundGeolocation) || (C.registerPlugin && C.registerPlugin("BackgroundGeolocation")) || null;
-}
+const plugin = () => plug("BackgroundGeolocation");
 
 async function iniciarGPS() {
   if (watchId !== null || bgId !== null) return;
@@ -602,17 +691,11 @@ function procesarPosicion(c) {
   setEstado(`Compartiendo ubicación · ±${precision} m` + (orden.length ? ` · ${orden.length} pedido${orden.length > 1 ? "s" : ""} en ruta` : "") + (bgPlugin ? " · segundo plano activo" : " · solo con pantalla activa (usa el APK)"), "ok");
 }
 
-/* ---------- WhatsApp ---------- */
-function abrirWhatsApp(tel, msg) {
-  const base = tel ? `https://wa.me/${tel}` : "https://wa.me/";
-  window.open(`${base}?text=${encodeURIComponent(msg)}`, "_system");
-}
+/* ---------- WhatsApp: siempre al chat del negocio (el repartidor no contacta al cliente fuera de la app) ---------- */
+const NEGOCIO_WA = "50586265619";
+function abrirWhatsApp(msg) { window.open(`https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(msg)}`, "_system"); }
 const mensajeSeguimiento = (v) =>
-  `Hola 👋 Tu pedido de Brother’s Deliverys ya va en camino con ${usuario}.\n📍 Síguelo en tiempo real aquí: ${enlaceDe(v.token)}\n👆 Toca el enlace y verás la ubicación de tu paquete en tiempo real.`;
-async function copiarEnlace(v) {
-  try { await navigator.clipboard.writeText(enlaceDe(v.token)); setEstado("Enlace copiado.", "ok"); }
-  catch (_) { prompt("Copia el enlace:", enlaceDe(v.token)); }
-}
+  `🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n📍 Seguimiento en tiempo real: ${enlaceDe(v.token)}`;
 
 /* ---------- Entregar / cancelar un pedido ---------- */
 async function cerrarViaje(token, estadoFinal) {

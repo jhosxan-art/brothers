@@ -25,6 +25,15 @@ const Voz = (() => {
   }
   if (soporta) { elegirVoz(); speechSynthesis.addEventListener?.("voiceschanged", elegirVoz); }
 
+  /* En el APK se usa la voz nativa de Android (plugin text-to-speech): sigue sonando con la app en segundo plano.
+     En el navegador se usa speechSynthesis. */
+  function nativo() {
+    const C = window.Capacitor;
+    if (!C || !(C.isNativePlatform && C.isNativePlatform())) return null;
+    if (C.isPluginAvailable && !C.isPluginAvailable("TextToSpeech")) return null;
+    return (C.Plugins && C.Plugins.TextToSpeech) || null;
+  }
+
   function ctxAudio() {
     try {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
@@ -63,10 +72,10 @@ const Voz = (() => {
     if (!forzar && ultimaVez[texto] && ahora - ultimaVez[texto] < 2500) return;   // evita que se solape consigo misma
     ultimaVez[texto] = ahora;
     pitido(1);
-    if (!soporta) return;
     let n = 0;
     const mi = gen;
     const decir = () => {
+      if (!soporta) return;
       try {
         const u = new SpeechSynthesisUtterance(texto);
         u.lang = (vozEs && vozEs.lang) || "es-MX";
@@ -76,9 +85,20 @@ const Voz = (() => {
         speechSynthesis.speak(u);
       } catch (_) {}
     };
-    decir();
+    const tts = nativo();
+    if (!tts) return decir();
+    const decirNativo = () => {
+      tts.speak({ text: texto, lang: "es-MX", rate: 1, pitch: 1, volume: 1, category: "ambient", queueStrategy: 1 })
+        .then(() => { if (mi === gen && ++n < repetir) setTimeout(decirNativo, pausaMs); })
+        .catch(() => decir());   // sin voz nativa instalada: prueba la del navegador
+    };
+    decirNativo();
   }
-  function parar() { gen++; try { soporta && speechSynthesis.cancel(); } catch (_) {} }
+  function parar() {
+    gen++;
+    try { const t = nativo(); t && t.stop(); } catch (_) {}
+    try { soporta && speechSynthesis.cancel(); } catch (_) {}
+  }
 
   const lista = () => desbloqueada;
 
