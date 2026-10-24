@@ -49,28 +49,40 @@
   <!-- 1) FACTURA: lo primero que ve el repartidor al entrar -->
   <div id="vistaFactura" class="fx oculto">
 <div class="invoice-container" id="invoiceContainer">
-        <div class="fx-fila">
-            <input type="text" id="customerName" placeholder="Nombre del cliente" autocomplete="off">
+        <div class="fx-cab">
+            <div class="fx-campo fx-grow">
+                <span class="fx-et">👤 Cliente</span>
+                <input type="text" id="customerName" placeholder="Nombre del cliente" autocomplete="off">
+            </div>
             <button type="button" class="stats-btn" onclick="showStats()" aria-label="Estadísticas">📊</button>
         </div>
 
-        <div class="fx-fila">
-            <input type="number" id="deliveryPrice" value="" placeholder="Delivery C$" min="0" step="0.01" oninput="calculateTotal()" inputmode="decimal">
-            <div class="extra-errand-buttons">
-                <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(0)">Sin extra</button>
-                <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(10)">+C$10</button>
-                <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(20)">+C$20</button>
+        <div class="fx-fila2">
+            <div class="fx-campo fx-delivery">
+                <span class="fx-et">🛵 Delivery</span>
+                <div class="fx-moneda"><i>C$</i><input type="number" id="deliveryPrice" value="" placeholder="0" min="0" step="0.01" oninput="calculateTotal()" inputmode="decimal"></div>
+            </div>
+            <div class="fx-campo fx-grow">
+                <span class="fx-et">➕ Mandado extra</span>
+                <div class="extra-errand-buttons">
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(0)">Ninguno</button>
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(10)">+C$10</button>
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(20)">+C$20</button>
+                </div>
             </div>
         </div>
 
-        <div class="fx-fila">
-            <div id="productInputSection">
-                <div class="product-item">
-                    <input type="text" placeholder="Producto" id="currentProductName" autocomplete="off">
-                    <input type="number" placeholder="C$" id="currentProductPrice" min="0" step="0.01" inputmode="decimal">
+        <div class="fx-campo">
+            <span class="fx-et">📦 Producto y precio</span>
+            <div class="fx-prod">
+                <div id="productInputSection">
+                    <div class="product-item">
+                        <input type="text" placeholder="Producto" id="currentProductName" autocomplete="off">
+                        <input type="number" placeholder="C$" id="currentProductPrice" min="0" step="0.01" inputmode="decimal">
+                    </div>
                 </div>
+                <button type="button" class="add-product-btn" onclick="addProductToList()" aria-label="Agregar producto">+</button>
             </div>
-            <button type="button" class="add-product-btn" onclick="addProductToList()" aria-label="Agregar producto">+</button>
         </div>
 
         <div id="savedProductsList"></div>
@@ -81,7 +93,7 @@
             <div class="gran"><small>Total a pagar</small><b id="grandTotal">C$ 0.00</b></div>
         </div>
 
-        <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">Generar Factura</button>
+        <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">🧾 Generar factura</button>
     </div>
 
     <div class="stats-container" id="statsContainer">

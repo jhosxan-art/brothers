@@ -268,12 +268,12 @@ window.Factura = { alEnviar: null, nombreRepartidor: '' };
           productItem.className = 'product-list-item';
           productItem.innerHTML = `
               <div class="product-info">
-                  <div class="name">${escHtml(product.name)}</div>
-                  <div class="price">C$ ${product.price.toFixed(2)}</div>
+                  <span class="name">${escHtml(product.name)}</span>
+                  <span class="price">C$ ${product.price.toFixed(2)}</span>
               </div>
               <div class="product-actions">
-                  <button class="edit-btn" onclick="editProduct(${index})">Editar</button>
-                  <button class="delete-btn" onclick="deleteProduct(${index})">Eliminar</button>
+                  <button type="button" class="edit-btn" onclick="editProduct(${index})" aria-label="Editar">✏️</button>
+                  <button type="button" class="delete-btn" onclick="deleteProduct(${index})" aria-label="Eliminar">🗑️</button>
               </div>
           `;
           listContainer.appendChild(productItem);

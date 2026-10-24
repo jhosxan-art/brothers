@@ -962,28 +962,51 @@
 .fx .invoice-track b { color: var(--sky-blue); display: block; margin-bottom: 4px; }
 .fx .invoice-track .lnk { word-break: break-all; color: var(--black); font-weight: 700; }
 
-/* ---------- Factura compacta (sin scroll innecesario) ---------- */
-#vistaFactura { padding: 6px; }
-#vistaFactura .invoice-container { padding: 10px; border-radius: 14px; display: grid; gap: 8px; margin: 0 auto; }
-.fx .fx-fila { display: flex; gap: 6px; align-items: center; }
-.fx .fx-fila input { min-width: 0; padding: 10px; border: 2px solid var(--light-gray); border-radius: 8px; background: #fff; font-size: 15px; font-weight: 700; color: var(--black); margin: 0; }
-.fx .fx-fila input:focus { outline: none; border-color: var(--sky-blue); }
-.fx .fx-fila #customerName { flex: 1; }
-.fx .invoice-container .stats-btn { position: static; flex: none; width: 46px; height: 46px; padding: 0; margin: 0; font-size: 20px; border-radius: 10px; }
-.fx .fx-fila #deliveryPrice { flex: 0 0 34%; width: 34%; }
-.fx .fx-fila .extra-errand-buttons { display: flex; gap: 5px; flex: 1; margin: 0; }
-.fx .fx-fila .extra-errand-btn { flex: 1; padding: 10px 2px; font-size: 12.5px; border-radius: 8px; }
-.fx .fx-fila #productInputSection { flex: 1; min-width: 0; margin: 0; }
-.fx .fx-fila .product-item { display: flex; gap: 6px; margin: 0; padding: 0; background: none; border: 0; }
-.fx .fx-fila .product-item input[type="text"] { flex: 1 1 55%; }
-.fx .fx-fila .product-item input[type="number"] { flex: 1 1 45%; }
-.fx .fx-fila .add-product-btn { flex: none; width: 46px; height: 46px; margin: 0; padding: 0; font-size: 26px; line-height: 1; border-radius: 10px; }
-#vistaFactura #savedProductsList { max-height: 26vh; overflow-y: auto; margin: 0; -webkit-overflow-scrolling: touch; }
-.fx .fx-totales { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 6px; text-align: center; }
-.fx .fx-totales > div { background: #fff; border-radius: 8px; padding: 6px 4px; display: grid; }
-.fx .fx-totales small { font-size: 11px; color: #667; }
-.fx .fx-totales b { font-size: 15px; }
-.fx .fx-totales .gran { background: var(--black); color: #fff; }
-.fx .fx-totales .gran small { color: #cfd8dc; }
-.fx .fx-totales .gran b { font-size: 19px; }
-.fx .invoice-container .generate-btn { margin: 0; padding: 15px; }
+/* ---------- Factura v2: compacta y con mejor contraste ---------- */
+#vistaFactura { --ink: #0E141B; --cel: #3DB8F5; --cel-d: #1E9BE0; --rojo: #E5322D; --gris: #F1F5F9; --linea: #E1E8F0; padding: 8px; }
+#vistaFactura .invoice-container { background: #fff; border-radius: 20px; padding: 12px; margin: 0 auto; max-width: 500px; display: grid; gap: 10px; box-shadow: 0 8px 24px rgba(14,20,27,.12); border-top: 5px solid var(--cel); overflow: visible; }
+.fx .fx-campo { display: grid; gap: 4px; min-width: 0; }
+.fx .fx-grow { flex: 1; min-width: 0; }
+.fx .fx-et { font-size: 11px; font-weight: 700; letter-spacing: .02em; color: #5B6B7B; text-transform: uppercase; }
+.fx .fx-cab { display: flex; gap: 8px; align-items: flex-end; }
+.fx .fx-fila2 { display: grid; grid-template-columns: 38% 1fr; gap: 8px; align-items: end; }
+.fx input[type="text"], .fx input[type="number"] { height: 46px; padding: 0 12px; border: 2px solid transparent; border-radius: 12px; background: var(--gris); font-size: 16px; font-weight: 700; color: var(--ink); min-width: 0; width: 100%; }
+.fx input::placeholder { color: #9AA8B6; font-weight: 600; }
+.fx input:focus { outline: none; border-color: var(--cel); background: #fff; }
+.fx .fx-moneda { position: relative; }
+.fx .fx-moneda i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-style: normal; font-weight: 800; color: #5B6B7B; pointer-events: none; }
+.fx .fx-moneda input { padding-left: 38px; }
+.fx .invoice-container .stats-btn { position: static; flex: none; width: 46px; height: 46px; padding: 0; margin: 0; font-size: 20px; border-radius: 12px; background: var(--ink); box-shadow: none; display: grid; place-items: center; }
+/* Mandado extra: control segmentado con texto SIEMPRE visible */
+.fx .extra-errand-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 0; background: var(--gris); border-radius: 12px; padding: 3px; height: 46px; }
+.fx .extra-errand-btn { min-width: 0; padding: 0 2px; border: 0; border-radius: 9px; background: transparent; color: var(--ink); font-size: 13px; font-weight: 800; transition: background .15s, color .15s; }
+.fx .extra-errand-btn:hover { background: transparent; }
+.fx .extra-errand-btn.active { background: var(--ink); color: #fff; box-shadow: 0 2px 6px rgba(14,20,27,.3); }
+/* Producto + precio + botón + */
+.fx .fx-prod { display: flex; gap: 8px; }
+.fx .fx-prod #productInputSection { flex: 1; min-width: 0; margin: 0; }
+.fx .fx-prod .product-item { display: grid; grid-template-columns: 1fr 34%; gap: 8px; margin: 0; padding: 0; box-shadow: none; background: none; border: 0; }
+.fx .fx-prod .add-product-btn { flex: none; width: 46px; height: 46px; margin: 0; padding: 0; border-radius: 12px; font-size: 28px; font-weight: 700; line-height: 1; background: linear-gradient(135deg, var(--cel), var(--cel-d)); color: #fff; box-shadow: 0 4px 10px rgba(30,155,224,.4); display: grid; place-items: center; }
+/* Lista de productos: filas de una línea */
+#vistaFactura #savedProductsList { max-height: 28vh; overflow-y: auto; margin: 0; display: grid; gap: 6px; align-content: start; -webkit-overflow-scrolling: touch; }
+#vistaFactura #savedProductsList:empty { max-height: none; }
+#vistaFactura #savedProductsList:empty::before { content: "Aún no hay productos. Agrégalos arriba 👆"; display: block; text-align: center; font-size: 12.5px; font-weight: 600; color: #8796A5; border: 2px dashed var(--linea); border-radius: 12px; padding: 9px; }
+.fx .product-list-item { margin: 0; padding: 6px 6px 6px 12px; border: 1px solid var(--linea); border-left: 4px solid var(--cel); border-radius: 10px; background: #fff; box-shadow: none; gap: 8px; }
+.fx .product-list-item:hover { box-shadow: none; border-color: var(--linea); border-left-color: var(--cel); }
+.fx .product-info { flex-direction: row; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.fx .product-info .name { font-size: 14px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fx .product-info .price { font-size: 14px; font-weight: 800; color: var(--rojo); white-space: nowrap; }
+.fx .product-actions { gap: 4px; }
+.fx .product-actions .edit-btn, .fx .product-actions .delete-btn { width: 34px; height: 34px; padding: 0; border-radius: 9px; font-size: 15px; background: var(--gris); display: grid; place-items: center; }
+/* Totales */
+.fx .fx-totales { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 6px; }
+.fx .fx-totales > div { display: grid; text-align: center; background: var(--gris); border-radius: 12px; padding: 7px 4px; }
+.fx .fx-totales small { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: #5B6B7B; }
+.fx .fx-totales b { font-size: 15px; font-weight: 800; color: var(--ink); }
+.fx .fx-totales .gran { background: linear-gradient(135deg, #E5322D, #FF6A5F); box-shadow: 0 6px 14px rgba(229,50,45,.35); }
+.fx .fx-totales .gran small { color: rgba(255,255,255,.9); }
+.fx .fx-totales .gran b { color: #fff; font-size: 21px; line-height: 1.1; }
+/* Botón principal */
+.fx .invoice-container .generate-btn { margin: 0; padding: 0; height: 54px; border-radius: 14px; font-size: 17px; font-weight: 800; background: var(--ink); color: #fff; box-shadow: 0 6px 16px rgba(14,20,27,.3); }
+.fx .invoice-container .generate-btn:hover { background: #1b2530; transform: none; }
+.fx .invoice-container .generate-btn:active { transform: scale(.98); }

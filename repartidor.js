@@ -565,8 +565,11 @@ async function prepararNotificaciones(pedir) {
 }
 
 /* ---------- Push (FCM): llega aunque la app esté cerrada o en otra app ---------- */
+// ⚠️ Déjalo en false hasta completar GUIA-PUSH.md (google-services.json + plugin). Con true y sin eso, la app se cierra al abrir.
+const PUSH_HABILITADO = false;
 let pushActivo = false, abrirPendiente = null;
 async function registrarPush() {
+  if (!PUSH_HABILITADO) return;
   const PN = plug("PushNotifications");
   if (!PN || !uidActual) return;
   try {

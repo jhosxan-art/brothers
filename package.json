@@ -1,6 +1,6 @@
 {
   "name": "brothers-repartidor",
-  "version": "1.2.0",
+  "version": "1.1.1",
   "private": true,
   "dependencies": {
     "@capacitor/android": "^6.1.2",
@@ -8,7 +8,6 @@
     "@capacitor/core": "^6.1.2",
     "@capacitor/local-notifications": "^6.1.0",
     "@capacitor-community/background-geolocation": "^1.2.0",
-    "@capacitor-community/text-to-speech": "^5.0.0",
-    "@capacitor/push-notifications": "^6.0.0"
+    "@capacitor-community/text-to-speech": "^5.0.0"
   }
 }
