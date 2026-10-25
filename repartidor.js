@@ -64,6 +64,7 @@ const esVivo = (v) => !!(v.cliPos && !v.cliPos.manual && v.cliPos.ts && Date.now
 
 /* ---------- Pantallas ---------- */
 function mostrar(vista) {   // "login" | "usuario" | "app"
+  $("splash").classList.add("oculto");
   $("mainAuth").classList.toggle("oculto", vista === "app");
   $("vistaLogin").classList.toggle("oculto", vista !== "login");
   $("vistaUsuario").classList.toggle("oculto", vista !== "usuario");
@@ -111,6 +112,8 @@ $("btnLogin").onclick = () => {
       .catch(() => msgLogin("No se pudo entrar: correo o contraseña incorrectos."));
 };
 
+try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}   // la sesión se recuerda en este aparato
+setTimeout(() => $("splash").classList.add("oculto"), 8000);   // por si algo tarda: nunca se queda cargando
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
     detenerGPS(); soltarViajesEnMemoria(); soltarAdmin(); uidActual = null; usuario = null; $("clave").value = "";
@@ -118,10 +121,21 @@ auth.onAuthStateChanged(async (user) => {
   }
   uidActual = user.uid;
   let reg;
-  try { reg = (await db.ref("repartidores/" + user.uid).once("value")).val(); }
-  catch (e) {
-    msgLogin("No se pudo verificar tu cuenta (sin conexión o reglas de Firebase sin actualizar).");
-    return auth.signOut();
+  const claveCache = "repInfo_" + user.uid;
+  try {
+    reg = await Promise.race([
+      db.ref("repartidores/" + user.uid).once("value").then((x) => x.val()),
+      new Promise((_, no) => setTimeout(() => no({ code: "TIMEOUT" }), 6000))
+    ]);
+    if (reg) localStorage.setItem(claveCache, JSON.stringify(typeof reg === "object" ? { usuario: reg.usuario || null } : { usuario: null }));
+  } catch (e) {
+    if (e && e.code === "PERMISSION_DENIED") {
+      msgLogin("No se pudo verificar tu cuenta: faltan permisos en Firebase (reglas).");
+      return auth.signOut();
+    }
+    // sin internet o muy lenta: NO se cierra la sesión; se entra con los datos guardados la última vez
+    try { reg = JSON.parse(localStorage.getItem(claveCache) || "null"); } catch (_) { reg = null; }
+    if (!reg) { msgLogin("Sin conexión: no se pudo verificar tu cuenta. Revisa tu internet."); return mostrar("login"); }
   }
   if (!reg) {
     msgLogin("Esta cuenta no está registrada como repartidor. Pide al administrador que la agregue en la pestaña Equipo.");
@@ -1021,3 +1035,22 @@ function mostrarEntregado(quien) {
 }
 $("btnOtraFactura").onclick = () => { $("modalEntregado").classList.add("oculto"); irA("factura"); };
 $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); irA("mapa"); };
+
+
+/* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
+Atras.iniciar([
+  () => Chat.cerrarCapa(),
+  () => { for (const id of ["modalEntregado", "modalContacto"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
+  () => {   // ventanas de la factura
+    if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
+    if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
+    if ($("customAlertModal").classList.contains("show")) { closeCustomAlert(); return true; }
+    if ($("depositPromptPopup").classList.contains("show")) { $("depositPromptPopup").classList.remove("show"); return true; }
+    return false;
+  },
+  () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
+  () => { if (!$("resBusqRep").classList.contains("oculto")) { $("resBusqRep").classList.add("oculto"); $("busqRep").blur(); return true; } return false; },
+  () => { if (marcando) { marcando = false; $("btnMarcarDestino").classList.remove("activo"); $("avisoMarcar").classList.add("oculto"); return true; } return false; },
+  () => { if ($("invoiceContainer").style.display === "none") { hideStats(); return true; } return false; },   // pantalla de estadísticas
+  () => { if (vistaActual === "mapa" && uidActual) { irA("factura"); return true; } return false; }
+]);

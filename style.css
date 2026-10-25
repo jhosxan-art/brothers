@@ -370,3 +370,34 @@ label.opcion input { width: 20px; height: 20px; flex: none; }
 .stats-fila { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: #fff; border: 1px solid var(--linea); border-radius: 12px; padding: 10px 12px; }
 .stats-fila small { color: var(--texto2); display: block; }
 .stats-fila b.n { font-size: 20px; }
+
+/* ---------- Pantalla de carga, botón atrás, y orden de los controles del mapa ---------- */
+.splash { position: fixed; inset: 0; z-index: 6000; background: var(--celeste); display: grid; place-items: center; }
+.splash-caja { display: grid; gap: 8px; justify-items: center; text-align: center; font-size: 20px; }
+.splash-caja small { font-size: 14px; font-weight: 600; opacity: .8; }
+.splash .insignia { width: 96px; height: 96px; display: block; }
+.toast-atras { position: fixed; z-index: 7000; left: 50%; bottom: 96px; transform: translate(-50%, 20px); background: var(--tinta); color: #fff; font-weight: 700; font-size: 13px; padding: 10px 16px; border-radius: 999px; opacity: 0; pointer-events: none; transition: .25s; max-width: 90vw; text-align: center; }
+.toast-atras.ver { opacity: 1; transform: translate(-50%, 0); }
+.zoom-lejos .etq-cli { display: none; }
+.marca-rider-caja { transform: scale(var(--escala-rep, 1)); transform-origin: 28px 28px; }
+.modo-registro .leaflet-marker-icon, .modo-registro .leaflet-marker-icon * { pointer-events: none !important; }
+/* Administrador: contador a la izquierda, herramientas en columna a la derecha */
+.chip-mapa { position: absolute; z-index: 1000; top: 62px; left: 10px; background: var(--tinta); color: #fff; font-weight: 800; font-size: 12px; padding: 0 12px; height: 34px; border-radius: 999px; display: grid; place-items: center; max-width: calc(100% - 90px); white-space: nowrap; }
+.barra-herr { position: absolute; z-index: 1000; top: 62px; right: 10px; display: grid; gap: 6px; }
+.herr { width: 58px; height: 54px; padding: 0; border-radius: 14px; background: #fff; border: 2px solid var(--linea); display: grid; place-items: center; align-content: center; gap: 1px; line-height: 1; box-shadow: 0 3px 10px rgba(0,0,0,.22); font: inherit; color: var(--tinta); }
+.herr b { font-size: 16px; font-weight: 700; }
+.herr small { font-size: 9px; font-weight: 800; color: var(--texto2); }
+.herr.on { border-color: var(--celeste-prof); background: var(--celeste-suave); }
+.herr.activo { background: var(--tinta); border-color: var(--tinta); }
+.herr.activo b, .herr.activo small { color: #fff; }
+.toast-admin { left: 10px; right: 78px; top: 104px; }
+/* Repartidor: barra superior, estado GPS debajo y aviso de marcar destino debajo del estado */
+.barra-sup-rep { position: absolute; z-index: 1001; top: 10px; left: 10px; right: 10px; display: flex; gap: 6px; }
+.barra-sup-rep form { flex: 1; display: flex; gap: 6px; min-width: 0; }
+.barra-sup-rep input { flex: 1; min-width: 0; height: 44px; border-radius: 14px; border: 2px solid var(--linea); background: #fff; padding: 0 12px; font-size: 15px; box-shadow: 0 3px 10px rgba(0,0,0,.2); }
+.barra-sup-rep form button, .herr-rep { width: 46px; height: 44px; padding: 0; border-radius: 14px; background: #fff; border: 2px solid var(--linea); font-size: 18px; box-shadow: 0 3px 10px rgba(0,0,0,.2); flex: none; }
+.herr-rep.activo { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+#resBusqRep { position: absolute; z-index: 1002; top: 60px; left: 10px; right: 10px; width: auto; max-width: none; margin: 0; }
+.chip-gps { position: absolute; z-index: 1000; top: 62px; left: 10px; max-width: calc(100% - 20px); background: #fff; border: 1px solid var(--linea); padding: 6px 12px; font-size: 12px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#vistaMapa .aviso-marcar { top: 104px; bottom: auto; }
+.banner-ruta { bottom: 30px; }

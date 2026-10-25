@@ -273,5 +273,11 @@ const Chat = (() => {
     if (opciones.alNoLeidos) opciones.alNoLeidos(0);
     token = null;
   }
-  return { iniciar, abrir, cerrar, detener, setContexto, pitido, enviarA };
+  /* Para el botón "atrás": cierra la cámara o el chat si están abiertos */
+  function cerrarCapa() {
+    if (cam && !cam.classList.contains("oculto")) { pararCamara(); cam.classList.add("oculto"); return true; }
+    if (abierto) { cerrar(); return true; }
+    return false;
+  }
+  return { iniciar, abrir, cerrar, detener, setContexto, pitido, enviarA, cerrarCapa };
 })();

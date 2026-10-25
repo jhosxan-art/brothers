@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="factura.css">
 </head>
 <body class="rep">
+  <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
   <header class="barra-marca">
     <span class="insignia" data-rider></span>
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor</small></div>
@@ -142,18 +143,17 @@
   <section id="vistaMapa" class="oculto">
     <div class="mapa-caja">
       <div id="mapaRuta"></div>
-      <div class="flota-mapa izq"><div class="estado" id="estadoGps">Obteniendo ubicación…</div></div>
-      <div class="flota-mapa der">
-        <button id="btnVerTodo" class="mini-mapa" type="button">Ver todo</button>
-        <button id="btnMarcarDestino" class="mini-mapa" type="button">📍 Marcar destino</button>
-      </div>
-      <div class="buscador buscador-rep">
+      <!-- Barra superior: buscador + herramientas (nada se encima) -->
+      <div class="barra-sup-rep">
         <form id="formBusqRep" autocomplete="off">
           <input id="busqRep" type="search" placeholder="Buscar negocio o lugar…" enterkeyhint="search" aria-label="Buscar negocio o lugar">
           <button type="submit" aria-label="Buscar">🔎</button>
         </form>
-        <div id="resBusqRep" class="res-busq oculto"></div>
+        <button id="btnMarcarDestino" class="herr-rep" type="button" aria-label="Marcar destino en el mapa">📍</button>
+        <button id="btnVerTodo" class="herr-rep" type="button" aria-label="Ver todo">⛶</button>
       </div>
+      <div id="resBusqRep" class="res-busq oculto"></div>
+      <div class="estado chip-gps" id="estadoGps">Obteniendo ubicación…</div>
       <div id="bannerRuta" class="banner-ruta oculto"></div>
       <div id="avisoMarcar" class="aviso-marcar oculto">Toca el mapa para marcar el destino del pedido seleccionado.</div>
     </div>
@@ -277,6 +277,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
+  <script src="atras.js"></script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>

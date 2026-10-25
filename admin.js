@@ -81,6 +81,7 @@ const ETIQUETA = {
 
 /* ---------- Vistas y pestañas ---------- */
 function mostrar(vista) {
+  $("splash").classList.add("oculto");
   $("loginMain").classList.toggle("oculto", vista !== "login");
   $("vistaApp").classList.toggle("oculto", vista !== "app");
   $("btnSalir").classList.toggle("oculto", vista !== "app");
@@ -102,14 +103,16 @@ $("btnLogin").onclick = () => {
         .catch((e) => setMsg("msgLogin", errorAuth(e), "error"));
   } catch (e) { setMsg("msgLogin", "Error: " + e.message, "error"); }
 };
+try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}   // la sesión se recuerda en este aparato
+setTimeout(() => $("splash").classList.add("oculto"), 8000);   // por si algo tarda: nunca se queda cargando
 auth.onAuthStateChanged(async (user) => {
   if (!user) { detener(); $("clave").value = ""; return mostrar("login"); }
   try {
     const esAdmin = (await db.ref("admins/" + user.uid).once("value")).exists();
     if (!esAdmin) { setMsg("msgLogin", "Esta cuenta no tiene permisos de administrador.", "error"); return auth.signOut(); }
   } catch (e) {
-    setMsg("msgLogin", "No se pudo verificar el permiso. ¿Publicaste las reglas nuevas?", "error");
-    return auth.signOut();
+    if (e && e.code === "PERMISSION_DENIED") { setMsg("msgLogin", "No se pudo verificar el permiso. ¿Publicaste las reglas nuevas?", "error"); return auth.signOut(); }
+    // sin internet u otro fallo pasajero: se conserva la sesión y se entra igual (las reglas protegen los datos)
   }
   mostrar("app");
   initMapa();
@@ -132,6 +135,7 @@ function initMapa() {
   });
   mapa.on("zoomend", () => mapa.getContainer().classList.toggle("zoom-lejos", mapa.getZoom() < 15));   // nombres de negocios solo de cerca
   mapa.getContainer().classList.add("zoom-lejos");   // con un repartidor elegido, tocar el mapa = marcar dónde está el cliente
+  aplicarHerramientas();
   setTimeout(() => mapa.invalidateSize(), 50);
 }
 function ajustarVista() {
@@ -173,6 +177,20 @@ function pintarMarcador(uid) {
   if (el) el.classList.toggle("sel-rep", uid === selUid);
   pintarGuia(uid);   // la línea de su guía sigue al repartidor mientras se mueve
 }
+
+/* ---------- Herramientas: negocios visibles, tamaño de iconos ---------- */
+let verNegocios = localStorage.getItem("verNegocios") !== "0";
+let escalaRep = parseFloat(localStorage.getItem("escalaRep")) || 1;
+function aplicarHerramientas() {
+  if (!mapa) return;
+  mapa.getContainer().style.setProperty("--escala-rep", escalaRep);
+  $("btnVerNegocios").classList.toggle("on", verNegocios);
+  Object.values(lugarMarks).forEach((m) => { if (verNegocios) m.addTo(mapa); else mapa.removeLayer(m); });
+}
+$("btnVerNegocios").onclick = () => { verNegocios = !verNegocios; localStorage.setItem("verNegocios", verNegocios ? "1" : "0"); aplicarHerramientas(); toast(verNegocios ? "Negocios visibles" : "Negocios ocultos"); };
+const cambiarEscala = (d) => { escalaRep = Math.max(.5, Math.min(2, +(escalaRep + d).toFixed(1))); localStorage.setItem("escalaRep", escalaRep); aplicarHerramientas(); toast("Tamaño de iconos: " + Math.round(escalaRep * 100) + " %"); };
+$("btnIconoMas").onclick = () => cambiarEscala(.2);
+$("btnIconoMenos").onclick = () => cambiarEscala(-.2);
 
 /* ---------- Ventanitas del mapa: repartidor y cliente ---------- */
 function popupRep(uid) {
@@ -297,11 +315,11 @@ function popupBusq(r) {
 }
 
 /* ---------- Negocios en el mapa (icono + nombre + ubicación precisa) ---------- */
-function terminarModoNegocio() { modoNegocio = false; $("btnNegocio").classList.remove("activo"); if (mapa) mapa.getContainer().classList.remove("modo-guia"); }
+function terminarModoNegocio() { modoNegocio = false; $("btnNegocio").classList.remove("activo"); if (mapa) mapa.getContainer().classList.remove("modo-guia", "modo-registro"); }
 $("btnNegocio").onclick = () => {
   if (modoNegocio) { terminarModoNegocio(); return toast("Cancelado."); }
   modoNegocio = true; selUid = null; pintarSeleccion(); pintarLista();
-  $("btnNegocio").classList.add("activo"); mapa.getContainer().classList.add("modo-guia");
+  $("btnNegocio").classList.add("activo"); mapa.closePopup(); mapa.getContainer().classList.add("modo-guia", "modo-registro");   // los iconos dejan de recibir toques
   toast("Toca el mapa donde está el negocio (o búscalo y usa “Guardar como negocio”).");
 };
 $("btnNuevoNegocio").onclick = () => { document.querySelector('.tabs button[data-tab="panelMapa"]').click(); setTimeout(() => $("btnNegocio").click(), 150); };
@@ -340,7 +358,7 @@ function pintarLugares() {
     if (typeof l.lat !== "number") return;
     const clave = [l.nombre, l.icono].join("|");
     let m = lugarMarks[id];
-    if (!m) { m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: Lugares.iconoMapa(l), zIndexOffset: 100 }).addTo(mapa); m._clave = clave; m.bindPopup(() => popupLugar(id), { offset: [0, -14], minWidth: 230 }); }
+    if (!m) { m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: Lugares.iconoMapa(l), zIndexOffset: 100 }); if (verNegocios) m.addTo(mapa); m._clave = clave; m.bindPopup(() => popupLugar(id), { offset: [0, -14], minWidth: 230 }); }
     else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(Lugares.iconoMapa(l)); m._clave = clave; } }
   });
 }
@@ -797,3 +815,16 @@ $("btnAgregar").onclick = async () => {
     $("btnAgregar").disabled = false;
   }
 };
+
+
+/* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
+Atras.iniciar([
+  () => Chat.cerrarCapa(),
+  () => { if (!$("modalAdmin").classList.contains("oculto")) { cerrarModal(); return true; } return false; },
+  () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
+  () => { if (!$("resBusq").classList.contains("oculto")) { $("resBusq").classList.add("oculto"); return true; } return false; },
+  () => { if (modoNegocio) { terminarModoNegocio(); return true; } return false; },
+  () => { if (selUid) { selUid = null; pintarSeleccion(); pintarLista(); return true; } return false; },
+  () => { if (modoSel) { modoSel = false; selChats.clear(); pintarChats(); return true; } return false; },
+  () => { const t = document.querySelector('.tabs button[data-tab="panelMapa"]'); if ($("vistaApp").classList.contains("oculto") || t.classList.contains("activa")) return false; t.click(); return true; }
+]);

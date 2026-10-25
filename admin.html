@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="admin">
+  <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
   <header class="barra-marca">
     <span class="insignia" data-rider></span>
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Administrador</small></div>
@@ -48,10 +49,14 @@
           </form>
           <div id="resBusq" class="res-busq oculto"></div>
         </div>
-        <div class="flota-mapa">
-          <span id="contador" class="contador">0 en ruta</span>
-          <button id="btnNegocio" class="mini-mapa" type="button">➕ Negocio</button>
-          <button id="btnCentrar" class="primario">Ver todos</button>
+        <span id="contador" class="contador chip-mapa">0 en ruta</span>
+        <!-- Herramientas del mapa (columna a la derecha, sin tapar nada) -->
+        <div class="barra-herr">
+          <button id="btnVerNegocios" class="herr on" type="button" aria-label="Mostrar u ocultar negocios"><b>🏪</b><small>Negocios</small></button>
+          <button id="btnNegocio" class="herr" type="button" aria-label="Agregar negocio"><b>➕</b><small>Agregar</small></button>
+          <button id="btnIconoMas" class="herr" type="button" aria-label="Iconos de repartidor más grandes"><b>🛵＋</b><small>Más grande</small></button>
+          <button id="btnIconoMenos" class="herr" type="button" aria-label="Iconos de repartidor más pequeños"><b>🛵－</b><small>Más chico</small></button>
+          <button id="btnCentrar" class="herr" type="button" aria-label="Ver a todos"><b>⛶</b><small>Ver todos</small></button>
         </div>
         <!-- Guiar: toca el icono de un repartidor y luego el mapa -->
         <div id="panelGuia" class="panel-guia oculto">
@@ -115,6 +120,7 @@
   <script>window.NOMBRE_APP = "admin";   // sesión independiente de la del repartidor</script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
+  <script src="atras.js"></script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>
