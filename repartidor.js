@@ -31,7 +31,9 @@ const viajes = {};           // token → pedido en ruta (ver crearViaje)
 let orden = [];              // tokens, en el orden en que se crearon (define el número 1, 2, 3…)
 let seleccionado = null;     // token del pedido enfocado en el mapa
 let vistaActual = "factura"; // "factura" | "mapa"
-let chatToken = null;        // token cuyo chat está abierto ahora
+let chatToken = null;        // token cuyo chat está abierto ahora ("equipo" = chat con Brothers)
+const RUTA_EQUIPO = { chats: "chatsEquipo", resumen: "chatsEquipoResumen", fotos: "fotosEquipo" };
+let guiaActual = null, guiaTsVisto, marcaGuia = null, refGuia = null, refAdminChat = null, adminListo = false, noLeidosAdmin = 0;
 let mapa = null, marcaYo = null, estelaProp = null, capaRuta = null, capaFlujo = null;
 let rastro = [], marcando = false, nombreYoMarcado = "";
 const iconoDestino = iconoPin();
@@ -64,6 +66,7 @@ function mostrar(vista) {   // "login" | "usuario" | "app"
   $("vistaLogin").classList.toggle("oculto", vista !== "login");
   $("vistaUsuario").classList.toggle("oculto", vista !== "usuario");
   $("btnSalir").classList.toggle("oculto", vista === "login");
+  $("btnChatAdmin").classList.toggle("oculto", vista !== "app");
   if (vista !== "app") {
     ["vistaFactura", "vistaMapa", "navApp"].forEach((id) => $(id).classList.add("oculto"));
   } else irA(vistaActual);
@@ -107,7 +110,7 @@ $("btnLogin").onclick = () => {
 
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    detenerGPS(); soltarViajesEnMemoria(); uidActual = null; usuario = null; $("clave").value = "";
+    detenerGPS(); soltarViajesEnMemoria(); soltarAdmin(); uidActual = null; usuario = null; $("clave").value = "";
     return mostrar("login");
   }
   uidActual = user.uid;
@@ -141,7 +144,8 @@ async function entrarTurno() {
   vistaActual = "factura";          // lo primero que ve el repartidor: la factura
   mostrar("app");
   Factura.nombreRepartidor = usuario;
-  reanudarViajes();                 // por si la app se cerró con pedidos en ruta
+  reanudarViajes();
+  escucharAdmin();                  // chat con Brothers + guías del administrador                 // por si la app se cerró con pedidos en ruta
   await permisosInicio();           // APK: explica y pide permisos (notificaciones…)
   registrarPush();                  // avisos push con la app cerrada
   iniciarGPS();                     // y aquí Android pide la ubicación (“todo el tiempo”)
@@ -176,6 +180,7 @@ function initMapa() {
   if (ultimaPos) { pintarYo(); mapa.setView([ultimaPos.lat, ultimaPos.lng], 15); }
   orden.forEach((t) => pintarCliente(viajes[t]));
   dibujarRuta();
+  pintarGuia();
 }
 let seguirme = true;   // el mapa sigue al repartidor hasta que lo mueve con el dedo
 
@@ -224,6 +229,7 @@ function encuadrar(soloSeleccionado) {
   if (ultimaPos) pts.push([ultimaPos.lat, ultimaPos.lng]);
   const lista = soloSeleccionado && seleccionado ? [seleccionado] : orden;
   lista.forEach((t) => { const v = viajes[t]; if (v && v.destino) pts.push([v.destino.lat, v.destino.lng]); });
+  if (guiaActual && !orden.length) pts.push([guiaActual.lat, guiaActual.lng]);
   if (pts.length > 1) mapa.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 17 });
   else if (pts.length === 1) mapa.setView(pts[0], 16);
 }
@@ -258,8 +264,10 @@ function dibujarRuta() {
   if (v && v.destino && ultimaPos) {
     pts = v.rutaPts ? [[ultimaPos.lat, ultimaPos.lng], ...v.rutaPts] : [[ultimaPos.lat, ultimaPos.lng], [v.destino.lat, v.destino.lng]];
   }
+  if (!v && guiaActual && !orden.length && ultimaPos) pts = [[ultimaPos.lat, ultimaPos.lng], [guiaActual.lat, guiaActual.lng]];   // sin pedido: línea hacia la guía de Brothers
   capaRuta.setLatLngs(pts); capaFlujo.setLatLngs(pts);
   capaRuta.setStyle({ opacity: v && v.rutaPts ? .9 : .5 });
+  pintarGuia();
 }
 
 /* ---------- Selección y destino manual ---------- */
@@ -282,6 +290,9 @@ $("btnMarcarDestino").onclick = () => {
 function fijarDestinoManual(lat, lng) {
   const v = viajes[seleccionado]; if (!v) return;
   marcando = false; $("btnMarcarDestino").classList.remove("activo"); $("avisoMarcar").classList.add("oculto");
+  fijarDestino(v, lat, lng);
+}
+function fijarDestino(v, lat, lng) {
   v.destManual = true; v.destino = { lat, lng }; v.cerca = false; v.rutaPts = null; v.rutaDest = null;
   db.ref("pedidos/" + v.token).update({ destLat: lat, destLng: lng, cerca: false, distancia: null });
   guardarViajes(); pintarCliente(v); dibujarRuta(); pedirRuta(v, true); evaluarViaje(v); refrescarTextos();
@@ -455,6 +466,72 @@ function abrirChat(v) {
   refrescarTextos(); actualizarNav();
 }
 
+/* ---------- Chat con Brothers (administración) ---------- */
+function pintarBadgeAdmin() {
+  const b = $("badgeAdmin"); b.textContent = noLeidosAdmin; b.classList.toggle("oculto", !noLeidosAdmin);
+}
+function abrirChatAdmin() {
+  Chat.iniciar({
+    token: uidActual, yo: "repartidor", ruta: RUTA_EQUIPO, pedido: "Equipo", nombreRepartidor: usuario, avisos: false,
+    titulo: () => "Brothers (administración)", subtitulo: () => usuario || "",
+    alCerrar: () => { chatToken = null; }
+  });
+  chatToken = "equipo"; noLeidosAdmin = 0; pintarBadgeAdmin();
+  Chat.abrir();
+}
+$("btnChatAdmin").onclick = abrirChatAdmin;
+function soltarAdmin() {
+  if (refAdminChat) { refAdminChat.off(); refAdminChat = null; }
+  if (refGuia) { refGuia.off(); refGuia = null; }
+  guiaActual = null; guiaTsVisto = undefined; noLeidosAdmin = 0; pintarBadgeAdmin(); pintarGuia();
+}
+function escucharAdmin() {
+  soltarAdmin();
+  adminListo = false;
+  refAdminChat = db.ref(`chatsEquipo/${uidActual}`).limitToLast(1);
+  refAdminChat.on("child_added", (s) => {
+    if (!adminListo) return;
+    const m = s.val();
+    if (!m || m.de !== "admin") return;
+    Voz.hablar(Voz.FRASES.mensajeAdmin);   // “Brothers te ha escrito”
+    navigator.vibrate && navigator.vibrate(200);
+    if (chatToken !== "equipo" || document.hidden) notificarTexto("Brothers", m.texto ? m.texto : "📷 Te envió una foto", "Administración", { equipo: "chat" });
+    if (chatToken !== "equipo") { noLeidosAdmin++; pintarBadgeAdmin(); }
+  }, () => {});
+  refAdminChat.once("value", () => { adminListo = true; });
+
+  // Guía de Brothers: solo para este repartidor (cada uno tiene la suya en guias/{su uid})
+  refGuia = db.ref("guias/" + uidActual);
+  refGuia.on("value", (s) => {
+    const g = s.val(), primera = guiaTsVisto === undefined;
+    if (!g || typeof g.lat !== "number") { guiaActual = null; guiaTsVisto = null; pintarGuia(); dibujarRuta(); return; }
+    if (primera && g.ts && Date.now() - g.ts > 12 * 3600 * 1000) { guiaTsVisto = g.ts; return; }   // guía vieja de otro día: se ignora
+    const nueva = !primera && g.ts !== guiaTsVisto;
+    guiaTsVisto = g.ts;
+    aplicarGuia(g, nueva);
+  }, () => {});
+}
+const iconoGuia = L.divIcon({ className: "", html: '<div class="pin-cli sel"><b>🏠</b></div><span class="etq-cli">Cliente (Brothers)</span>', iconSize: [34, 34], iconAnchor: [17, 17] });
+function pintarGuia() {   // sin pedido en curso se dibuja el pin de la guía; con pedido, la guía ya es su destino
+  if (!mapa) return;
+  if (guiaActual && !orden.length) {
+    const p = [guiaActual.lat, guiaActual.lng];
+    if (!marcaGuia) marcaGuia = L.marker(p, { icon: iconoGuia, zIndexOffset: 700 }).addTo(mapa); else marcaGuia.setLatLng(p);
+  } else if (marcaGuia) { mapa.removeLayer(marcaGuia); marcaGuia = null; }
+}
+function aplicarGuia(g, nueva) {
+  guiaActual = g;
+  const v = (g.token && viajes[g.token]) || (orden.length === 1 ? viajes[orden[0]] : null) || (orden.length ? viajes[seleccionado] : null);
+  if (v) fijarDestino(v, g.lat, g.lng);   // el pedido toma esa ubicación como destino (el cliente también la ve)
+  pintarGuia(); dibujarRuta();
+  if (!nueva) return;
+  Voz.hablar(Voz.FRASES.guiaAdmin, { forzar: true });   // “Brothers te ha indicado la ubicación del cliente”
+  navigator.vibrate && navigator.vibrate([300, 150, 300]);
+  notificarTexto("Brothers", "Te indicó la ubicación del cliente", "Guía", { equipo: "guia" });
+  irA("mapa");
+  if (v) seleccionar(v.token, true); else { seguirme = false; setTimeout(() => encuadrar(false), 200); }
+}
+
 /* ---------- Lista de pedidos (hoja inferior del mapa) ---------- */
 function renderLista() {
   const cont = $("hojaPedidos");
@@ -592,22 +669,33 @@ async function registrarPush() {
   } catch (e) { console.warn("Push:", e); }
 }
 
-/* Notificación tipo WhatsApp: título = cliente, cuerpo = su mensaje; se puede responder desde la propia notificación */
-function notificarMensaje(v, m) {
+/* Notificación tipo WhatsApp: título + texto; se puede responder desde la propia notificación */
+function notificarTexto(titulo, cuerpo, resumen, extra) {
   const ln = plug("LocalNotifications");
-  if (!ln || !document.hidden || pushActivo) return;   // con la app a la vista basta la voz y la burbuja
-  const cuerpo = m.texto ? m.texto : "📷 Te envió una foto";
+  if (!ln || !document.hidden) return;   // con la app a la vista basta la voz y la burbuja
   ln.schedule({ notifications: [{
-    id: Math.floor(Math.random() * 2000000000), title: v.cliente ? "Cliente · " + v.cliente : "Cliente · Pedido " + v.pedido,
-    body: cuerpo, largeBody: cuerpo, summaryText: "Pedido " + v.pedido,
-    channelId: "mensajes", actionTypeId: "MENSAJE", extra: { token: v.token }
+    id: Math.floor(Math.random() * 2000000000), title: titulo, body: cuerpo, largeBody: cuerpo, summaryText: resumen,
+    channelId: "mensajes", actionTypeId: "MENSAJE", extra
   }] }).catch(() => {});
 }
+function notificarMensaje(v, m) {
+  if (pushActivo) return;
+  notificarTexto(v.cliente ? "Cliente · " + v.cliente : "Cliente · Pedido " + v.pedido, m.texto ? m.texto : "📷 Te envió una foto", "Pedido " + v.pedido, { token: v.token });
+}
 function alAccionNotificacion(ev) {
-  const token = ev && ev.notification && ev.notification.extra && ev.notification.extra.token;
-  const v = viajes[token]; if (!v) return;
-  if (ev.actionId === "responder" && ev.inputValue && ev.inputValue.trim()) {
-    Chat.enviarA(token, "repartidor", { pedido: v.pedido, nombreRepartidor: usuario }, ev.inputValue.trim().slice(0, 600), null).catch(() => {});
+  const extra = (ev && ev.notification && ev.notification.extra) || {};
+  const texto = ev.inputValue && ev.inputValue.trim();
+  if (extra.equipo) {   // aviso de Brothers (mensaje o guía)
+    if (ev.actionId === "responder" && texto) {
+      Chat.enviarA(uidActual, "repartidor", { pedido: "Equipo", nombreRepartidor: usuario }, texto.slice(0, 600), null, RUTA_EQUIPO).catch(() => {});
+      return;
+    }
+    if (extra.equipo === "guia") { irA("mapa"); return; }
+    return abrirChatAdmin();
+  }
+  const v = viajes[extra.token]; if (!v) return;
+  if (ev.actionId === "responder" && texto) {
+    Chat.enviarA(extra.token, "repartidor", { pedido: v.pedido, nombreRepartidor: usuario }, texto.slice(0, 600), null).catch(() => {});
     return;   // respondido sin abrir la app
   }
   irA("mapa"); abrirChat(v);   // tocar la notificación o "Abrir chat"
@@ -711,6 +799,7 @@ async function cerrarViaje(token, estadoFinal) {
       destLat: null, destLng: null, distancia: null, cerca: null, cliente: null, fin: TS
     });
   } catch (e) { return alert("No se pudo cerrar en la nube: " + e.message); }
+  if (guiaActual && (!guiaActual.token || guiaActual.token === token)) db.ref("guias/" + uidActual).remove().catch(() => {});   // la guía ya cumplió su función
   quitarViaje(token);          // el GPS del turno sigue activo
   irA("factura");              // vuelve a la factura…
   if (estadoFinal === "entregado") mostrarEntregado(quien);   // …con la ventana para moverse entre pantallas

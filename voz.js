@@ -11,6 +11,8 @@ const Voz = (() => {
   const FRASES = {
     mensajeRepartidor: "El repartidor te ha enviado un mensaje",
     mensajeCliente: "El cliente te ha escrito",
+    mensajeAdmin: "Brothers te ha escrito",
+    guiaAdmin: "Brothers te ha indicado la ubicación del cliente",
     cerca: "El repartidor está cerca",
     prueba: "Alertas de voz activadas"
   };

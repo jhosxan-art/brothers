@@ -44,13 +44,31 @@
           <span id="contador" class="contador">0 en ruta</span>
           <button id="btnCentrar" class="primario">Ver todos</button>
         </div>
+        <!-- Guiar: toca el icono de un repartidor y luego el mapa -->
+        <div id="panelGuia" class="panel-guia oculto">
+          <div id="guiaTxt"></div>
+          <select id="guiaPedido" class="oculto" aria-label="Pedido de la guía"></select>
+          <div class="acciones-fila">
+            <button id="btnGuiaChat" class="mini" type="button">💬 Chat</button>
+            <button id="btnGuiaQuitar" class="mini peligro oculto" type="button">Quitar guía</button>
+            <button id="btnGuiaCancelar" class="mini" type="button">Cancelar</button>
+          </div>
+        </div>
+        <div id="toastAdmin" class="toast-admin oculto" role="status"></div>
       </div>
       <div id="listaMapa"></div>
     </section>
 
     <section id="panelChats" class="oculto">
       <h2>Conversaciones</h2>
-      <p class="ayuda">Todo lo que hablan los repartidores con sus clientes queda archivado aquí.</p>
+      <p class="ayuda">Habla con tus repartidores y revisa lo que conversan con sus clientes. Puedes eliminar mensajes sueltos (abre el chat) o varios chats por fecha.</p>
+      <div class="barra-sel">
+        <button id="btnModoSel" class="mini" type="button">☑ Seleccionar</button>
+        <span id="selInfo" class="oculto"></span>
+        <button id="btnSelTodos" class="mini oculto" type="button">Todos</button>
+        <button id="btnSelEnviar" class="mini pri oculto" type="button">✉️ Enviar</button>
+        <button id="btnSelBorrar" class="mini peligro oculto" type="button">🗑 Eliminar…</button>
+      </div>
       <div id="listaChats" class="acciones"></div>
     </section>
 
@@ -65,6 +83,8 @@
       <h2>Tu equipo</h2>
       <div id="listaEquipo" class="acciones"></div>
     </section>
+
+    <div id="modalAdmin" class="modal-rep oculto" role="dialog" aria-modal="true"><div class="modal-rep-caja" id="modalCaja" style="text-align:left"></div></div>
 
     <nav class="tabs">
       <button class="activa" data-tab="panelMapa">Mapa en vivo</button>

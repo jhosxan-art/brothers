@@ -22,6 +22,15 @@ let registrados = {};         // uid → { email, nombre, usuario } (o true en c
 let resumenes = {};           // token → resumen del chat
 let mapa = null, refUbic = null, consultaActivos = null, consultaChats = null;
 let ajusteProgramado = false, secundaria = null;
+// Guiar a los repartidores y chat de equipo (administrador ↔ repartidor)
+const RUTA_EQ = { chats: "chatsEquipo", resumen: "chatsEquipoResumen", fotos: "fotosEquipo" };
+const guias = {};             // uid → { lat, lng, token } guía que Brothers marcó para ese repartidor
+const guiaCapas = {};         // uid → { pin, linea } en el mapa
+let selUid = null;            // repartidor elegido para guiarlo
+let resEquipo = {}, sinLeerEq = {}, chatEqAbierto = null;
+let refGuias = null, refEq = null;
+let modoSel = false;          // selección múltiple de chats
+const selChats = new Set();
 
 /* ---------- Utilidades ---------- */
 function setMsg(id, texto, tipo = "") {
@@ -113,6 +122,7 @@ function initMapa() {
       maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(mapa);
   }
+  mapa.on("click", (e) => { if (selUid) fijarGuia(selUid, e.latlng); });   // con un repartidor elegido, tocar el mapa = marcar dónde está el cliente
   setTimeout(() => mapa.invalidateSize(), 50);
 }
 function ajustarVista() {
@@ -132,11 +142,76 @@ function pintarMarcador(uid) {
   if (!marcadores[uid]) {
     marcadores[uid] = L.marker(pos, { icon: iconoRepartidorNombre(nombre, apagado) }).addTo(mapa);
     marcadores[uid]._clave = clave;
+    marcadores[uid].on("click", () => seleccionarRep(uid));   // tocar el icono = elegir a ese repartidor
     if (!ajusteProgramado) { ajusteProgramado = true; setTimeout(ajustarVista, 800); }   // encuadra a todos una sola vez
   } else {
     marcadores[uid].setLatLng(pos);
     if (marcadores[uid]._clave !== clave) { marcadores[uid].setIcon(iconoRepartidorNombre(nombre, apagado)); marcadores[uid]._clave = clave; }
   }
+  const el = marcadores[uid].getElement();
+  if (el) el.classList.toggle("sel-rep", uid === selUid);
+  pintarGuia(uid);   // la línea de su guía sigue al repartidor mientras se mueve
+}
+
+/* ---------- Guiar repartidores (cada uno con su propia guía) ---------- */
+const PALETA = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2", "#DB2777", "#65A30D"];
+function colorUid(uid) { let h = 0; for (const c of uid) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETA[h % PALETA.length]; }
+function toast(t) {
+  const e = $("toastAdmin"); e.textContent = t; e.classList.remove("oculto");
+  clearTimeout(toast._t); toast._t = setTimeout(() => e.classList.add("oculto"), 3800);
+}
+function pintarGuia(uid) {
+  const g = guias[uid]; let c = guiaCapas[uid];
+  if (!g || typeof g.lat !== "number") {
+    if (c) { mapa.removeLayer(c.pin); mapa.removeLayer(c.linea); delete guiaCapas[uid]; }
+    return;
+  }
+  const col = colorUid(uid), p = [g.lat, g.lng], nom = nombreUid(uid), clave = nom + "|" + col;
+  const icono = () => L.divIcon({ className: "", html: `<div class="pin-guia" style="--c:${col}"><b>🏠</b></div><span class="etq-cli">Cliente de ${esc(nom)}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+  if (!c) {
+    c = guiaCapas[uid] = {
+      pin: L.marker(p, { icon: icono(), zIndexOffset: 300 }).addTo(mapa),
+      linea: L.polyline([], { color: col, weight: 4, opacity: .85, dashArray: "4 10" }).addTo(mapa), clave
+    };
+  } else if (c.clave !== clave) { c.pin.setIcon(icono()); c.clave = clave; }
+  c.pin.setLatLng(p);
+  const u = ubic[uid];
+  c.linea.setLatLngs(u && typeof u.lat === "number" ? [[u.lat, u.lng], p] : []);
+}
+function seleccionarRep(uid) { selUid = selUid === uid ? null : uid; pintarSeleccion(); pintarLista(); }
+function pintarSeleccion() {
+  Object.keys(marcadores).forEach((u) => { const e = marcadores[u].getElement(); if (e) e.classList.toggle("sel-rep", u === selUid); });
+  $("panelGuia").classList.toggle("oculto", !selUid);
+  mapa.getContainer().classList.toggle("modo-guia", !!selUid);
+  if (!selUid) return;
+  const vs = viajesDe(selUid), sel = $("guiaPedido"), previo = sel.value;
+  $("guiaTxt").innerHTML = `<b>Guiando a ${esc(nombreUid(selUid))}</b><br>Toca el mapa donde está el cliente.`;
+  sel.innerHTML = vs.map((x) => `<option value="${esc(x.token)}">Pedido ${esc(x.d.pedido || "—")}</option>`).join("");
+  if (previo && vs.some((x) => x.token === previo)) sel.value = previo;
+  sel.classList.toggle("oculto", vs.length < 2);   // con varios pedidos, eliges para cuál es la guía
+  $("btnGuiaQuitar").classList.toggle("oculto", !guias[selUid]);
+}
+async function fijarGuia(uid, ll) {
+  const dato = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), ts: firebase.database.ServerValue.TIMESTAMP, por: "admin" };
+  const tk = $("guiaPedido").value; if (tk) dato.token = tk;
+  try { await db.ref("guias/" + uid).set(dato); toast(`Guía enviada a ${nombreUid(uid)} ✓ Solo la ve él.`); }
+  catch (e) { return toast("No se pudo enviar la guía: " + e.message); }
+  selUid = null; pintarSeleccion(); pintarLista();   // listo: los demás repartidores no se tocan
+}
+$("btnGuiaCancelar").onclick = () => { selUid = null; pintarSeleccion(); pintarLista(); };
+$("btnGuiaQuitar").onclick = () => { if (selUid) db.ref("guias/" + selUid).remove().then(() => toast("Guía quitada.")).catch((e) => toast(e.message)); };
+$("btnGuiaChat").onclick = () => { if (selUid) abrirChatRep(selUid); };
+
+/* ---------- Chat del administrador con un repartidor ---------- */
+function abrirChatRep(uid) {
+  chatEqAbierto = uid; sinLeerEq[uid] = 0; pintarLista(); pintarChats();
+  Chat.iniciar({
+    token: uid, yo: "admin", ruta: RUTA_EQ, pedido: "Equipo", nombreRepartidor: nombreUid(uid), puedeBorrar: true, avisos: false,
+    titulo: () => "Chat con " + nombreUid(uid),
+    subtitulo: () => "Equipo · Brothers ↔ repartidor",
+    alCerrar: () => { chatEqAbierto = null; }
+  });
+  Chat.abrir();
 }
 function quitarMarcador(uid) { if (marcadores[uid]) { mapa.removeLayer(marcadores[uid]); delete marcadores[uid]; } }
 
@@ -151,6 +226,30 @@ function iniciarMonitoreo() {
   refUbic.on("child_changed", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarLista(); });
   refUbic.on("child_removed", (s) => { delete ubic[s.key]; quitarMarcador(s.key); pintarLista(); });
 
+  // Guías marcadas por Brothers (una por repartidor)
+  refGuias = db.ref("guias");
+  const guiaOk = (s) => { guias[s.key] = s.val(); pintarGuia(s.key); pintarLista(); if (s.key === selUid) pintarSeleccion(); };
+  refGuias.on("child_added", guiaOk, fallo);
+  refGuias.on("child_changed", guiaOk);
+  refGuias.on("child_removed", (s) => { delete guias[s.key]; pintarGuia(s.key); pintarLista(); if (s.key === selUid) pintarSeleccion(); });
+
+  // Chat de equipo: aviso por voz cuando un repartidor escribe a Brothers
+  refEq = db.ref("chatsEquipoResumen");
+  let primeraEq = true;
+  refEq.on("value", (s) => {
+    const n = s.val() || {};
+    if (!primeraEq) {
+      Object.entries(n).forEach(([uid, r]) => {
+        const antes = (resEquipo[uid] && resEquipo[uid].ts) || 0;
+        if (r.ultimoDe === "repartidor" && (r.ts || 0) > antes) {
+          if (chatEqAbierto !== uid) sinLeerEq[uid] = (sinLeerEq[uid] || 0) + 1;
+          Voz.hablar(Voz.FRASES.mensajeRepartidor);
+        }
+      });
+    }
+    primeraEq = false; resEquipo = n; pintarChats(); pintarLista();
+  }, fallo);
+
   // Pedidos en ruta (para saber quién lleva qué)
   consultaActivos = db.ref("pedidos").orderByChild("estado").equalTo("en_ruta");
   const alCambiar = (s) => { activos[s.key] = s.val(); refrescar(); };
@@ -158,7 +257,7 @@ function iniciarMonitoreo() {
   consultaActivos.on("child_changed", alCambiar);
   consultaActivos.on("child_removed", (s) => { delete activos[s.key]; refrescar(); });
 
-  db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); }, fallo);
+  db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); }, fallo);
 
   // Últimas 50 conversaciones
   consultaChats = db.ref("chatsResumen").orderByChild("ts").limitToLast(50);
@@ -178,12 +277,17 @@ function detener() {
   if (refUbic) { refUbic.off(); refUbic = null; }
   if (consultaActivos) { consultaActivos.off(); consultaActivos = null; }
   if (consultaChats) { consultaChats.off(); consultaChats = null; }
+  if (refGuias) { refGuias.off(); refGuias = null; }
+  if (refEq) { refEq.off(); refEq = null; }
+  Object.keys(guiaCapas).forEach((u) => { delete guias[u]; pintarGuia(u); });
+  [guias, sinLeerEq].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
+  resEquipo = {}; selUid = null; selChats.clear(); modoSel = false;
   db.ref("repartidores").off();
   Object.keys(marcadores).forEach(quitarMarcador);
   [ubic, activos].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
   registrados = {}; resumenes = {}; ajusteProgramado = false;
 }
-function refrescar() { Object.keys(ubic).forEach(pintarMarcador); pintarLista(); pintarEquipo(); }
+function refrescar() { Object.keys(ubic).forEach(pintarMarcador); pintarLista(); pintarEquipo(); if (selUid) pintarSeleccion(); }
 setInterval(() => { if (!$("vistaApp").classList.contains("oculto")) refrescar(); }, 15000);   // actualiza "hace X s" y "sin señal"
 
 /* ---------- Lista del mapa: todos los repartidores ---------- */
@@ -195,7 +299,7 @@ function descripcion(uid, est) {
     const dist = typeof v.d.distancia === "number" ? `a ${formatoDist(v.d.distancia)} del destino` : "sin destino marcado";
     return `Pedido ${v.d.pedido || "—"} · ${dist}`;
   }
-  if (est === "libre") return `Sin pedido · señal ${hace(u.ts)}`;
+  if (est === "libre") return `Sin pedido · señal ${hace(u.ts)}`;   // (la marca de guía se agrega en pintarLista)
   if (est === "sinSenal") return `Última señal ${hace(u.ts)}${v ? " · lleva el pedido " + (v.d.pedido || "—") : ""}`;
   if (est === "desconectado") return `Cerró sesión o perdió conexión ${hace(u.ts)}`;
   return "Aún no ha compartido ubicación";
@@ -209,41 +313,159 @@ function pintarLista() {
   $("contador").textContent = `${enRuta} en ruta · ${enLinea} en línea`;
   if (!ids.length) { $("listaMapa").innerHTML = '<p class="ayuda">Aún no hay repartidores registrados.</p>'; return; }
   $("listaMapa").innerHTML = ids.map((uid) => {
-    const est = estadoDe(uid), [texto, clase] = ETIQUETA[est];
-    return `<div class="tarjeta-rep" data-uid="${esc(uid)}"><div class="fila">
+    const est = estadoDe(uid), [texto, clase] = ETIQUETA[est], elegido = uid === selUid, n = sinLeerEq[uid] || 0;
+    return `<div class="tarjeta-rep${elegido ? " sel" : ""}" data-uid="${esc(uid)}"><div class="fila">
       <span class="avatar">${RIDER_SVG}</span>
-      <div class="datos"><strong>${esc(nombreUid(uid))}</strong><small>${esc(descripcion(uid, est))}</small></div>
-      <span class="chip ${clase}">${texto}</span></div></div>`;
+      <div class="datos"><strong>${esc(nombreUid(uid))}</strong><small>${esc(descripcion(uid, est))}${guias[uid] ? " · 📍 guía activa" : ""}</small></div>
+      <span class="chip ${clase}">${texto}</span></div>
+      <div class="acciones-fila">
+        <button class="mini${elegido ? " pri" : ""}" data-act="guiar" data-uid="${esc(uid)}" type="button">📍 ${elegido ? "Elegido" : "Guiar"}</button>
+        <button class="mini" data-act="chat" data-uid="${esc(uid)}" type="button">💬 Chat${n ? " (" + n + ")" : ""}</button>
+        ${guias[uid] ? `<button class="mini peligro" data-act="quitarguia" data-uid="${esc(uid)}" type="button">Quitar guía</button>` : ""}
+      </div></div>`;
   }).join("");
 }
 $("listaMapa").onclick = (e) => {
-  const uid = e.target.closest("[data-uid]")?.dataset.uid;
-  if (uid && marcadores[uid]) mapa.flyTo(marcadores[uid].getLatLng(), 17);
+  const b = e.target.closest("button[data-act]");
+  const uid = (b || e.target.closest("[data-uid]"))?.dataset.uid;
+  if (!uid) return;
+  if (!b) { if (marcadores[uid]) mapa.flyTo(marcadores[uid].getLatLng(), 17); return; }
+  if (b.dataset.act === "guiar") { seleccionarRep(uid); if (selUid && marcadores[uid]) mapa.flyTo(marcadores[uid].getLatLng(), 16); }
+  else if (b.dataset.act === "chat") abrirChatRep(uid);
+  else if (b.dataset.act === "quitarguia") db.ref("guias/" + uid).remove().catch((err) => toast(err.message));
 };
 
-/* ---------- Chats archivados ---------- */
-function pintarChats() {
-  const lista = Object.entries(resumenes).sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0));
-  if (!lista.length) { $("listaChats").innerHTML = '<p class="ayuda">Aún no hay conversaciones.</p>'; return; }
-  $("listaChats").innerHTML = lista.map(([token, r]) => {
-    const quien = r.ultimoDe === "cliente" ? "Cliente" : (r.repartidor || "Repartidor");
-    const f = r.ts ? new Date(r.ts).toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-    return `<div class="tarjeta-rep" data-token="${esc(token)}" style="cursor:pointer"><div class="fila">
-      <span class="avatar">${RIDER_SVG}</span>
-      <div class="datos"><strong>Pedido ${esc(r.pedido || "—")} · ${esc(r.repartidor || "Repartidor")}</strong>
-        <small>${esc(quien)}: ${esc(r.ultimo || "")}</small><small>${esc(f)}</small></div></div></div>`;
-  }).join("");
+/* ---------- Chats: equipo + clientes, selección múltiple, envío y borrado por fecha ---------- */
+const RUTA_CL = { chats: "chats", resumen: "chatsResumen", fotos: "fotos" };
+const fechaCorta = (ts) => (ts ? new Date(ts).toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
+function conversaciones() {
+  const eq = Object.keys(registrados).map((uid) => {
+    const r = resEquipo[uid] || {};
+    return { key: "eq:" + uid, titulo: "👥 " + nombreUid(uid), ts: r.ts || 0, sinLeer: sinLeerEq[uid] || 0,
+      sub: r.ultimo ? `${r.ultimoDe === "admin" ? "Tú" : nombreUid(uid)}: ${r.ultimo}` : "Sin mensajes todavía" };
+  }).sort((a, b) => b.ts - a.ts || a.titulo.localeCompare(b.titulo));
+  const cl = Object.entries(resumenes).sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0)).map(([token, r]) => ({
+    key: "cl:" + token, titulo: `Pedido ${r.pedido || "—"} · ${r.repartidor || "Repartidor"}`, ts: r.ts || 0, sinLeer: 0,
+    sub: `${r.ultimoDe === "cliente" ? "Cliente" : (r.repartidor || "Repartidor")}: ${r.ultimo || ""}` }));
+  return { eq, cl };
 }
+function pintarChats() {
+  const { eq, cl } = conversaciones();
+  const tarjeta = (c) => `<div class="tarjeta-rep conv${selChats.has(c.key) ? " sel" : ""}" data-key="${esc(c.key)}" style="cursor:pointer"><div class="fila">
+      ${modoSel ? `<input type="checkbox" class="chk" ${selChats.has(c.key) ? "checked" : ""} tabindex="-1" aria-label="Seleccionar">` : `<span class="avatar">${RIDER_SVG}</span>`}
+      <div class="datos"><strong>${esc(c.titulo)}${c.sinLeer ? ` <span class="badge">${c.sinLeer}</span>` : ""}</strong>
+        <small>${esc(c.sub)}</small><small>${esc(fechaCorta(c.ts))}</small></div></div></div>`;
+  $("listaChats").innerHTML =
+    `<h3 class="sec">Equipo (chat con tus repartidores)</h3>` + (eq.length ? eq.map(tarjeta).join("") : '<p class="ayuda">Aún no hay repartidores.</p>') +
+    `<h3 class="sec">Clientes (archivo de pedidos)</h3>` + (cl.length ? cl.map(tarjeta).join("") : '<p class="ayuda">Aún no hay conversaciones de clientes.</p>');
+  actualizarBarraSel();
+}
+function actualizarBarraSel() {
+  $("btnModoSel").textContent = modoSel ? "✕ Salir de selección" : "☑ Seleccionar";
+  ["selInfo", "btnSelTodos", "btnSelEnviar", "btnSelBorrar"].forEach((id) => $(id).classList.toggle("oculto", !modoSel));
+  $("selInfo").textContent = selChats.size + " seleccionado" + (selChats.size === 1 ? "" : "s");
+}
+$("btnModoSel").onclick = () => { modoSel = !modoSel; selChats.clear(); pintarChats(); };
+$("btnSelTodos").onclick = () => {
+  const { eq, cl } = conversaciones(), todas = [...eq, ...cl].map((c) => c.key);
+  if (todas.every((k) => selChats.has(k))) selChats.clear(); else todas.forEach((k) => selChats.add(k));
+  pintarChats();
+};
 $("listaChats").onclick = (e) => {
-  const token = e.target.closest("[data-token]")?.dataset.token;
-  if (!token) return;
-  const r = resumenes[token] || {};
+  const k = e.target.closest("[data-key]")?.dataset.key;
+  if (!k) return;
+  if (modoSel) { selChats.has(k) ? selChats.delete(k) : selChats.add(k); return pintarChats(); }
+  const id = k.slice(3);
+  if (k.startsWith("eq:")) return abrirChatRep(id);
+  const r = resumenes[id] || {};
   Chat.iniciar({
-    token, soloLectura: true, pedido: r.pedido, nombreRepartidor: r.repartidor,
+    token: id, soloLectura: true, puedeBorrar: true, pedido: r.pedido, nombreRepartidor: r.repartidor,
     titulo: (c) => "Pedido " + (c.pedido || "—"),
     subtitulo: (c) => (c.nombreRepartidor ? "Repartidor: " + c.nombreRepartidor : "")
   });
   Chat.abrir();
+};
+
+/* Ventana de diálogo del administrador */
+function modal(html) { $("modalCaja").innerHTML = html; $("modalAdmin").classList.remove("oculto"); }
+const cerrarModal = () => $("modalAdmin").classList.add("oculto");
+const rutaDe = (k) => (k.startsWith("eq:") ? { r: RUTA_EQ, id: k.slice(3) } : { r: RUTA_CL, id: k.slice(3) });
+
+$("btnSelEnviar").onclick = () => {
+  const uids = [...selChats].filter((k) => k.startsWith("eq:")).map((k) => k.slice(3));
+  const clientes = [...selChats].filter((k) => k.startsWith("cl:")).length;
+  if (!uids.length) return toast("Selecciona al menos un chat del equipo (repartidores).");
+  modal(`<h2>✉️ Enviar mensaje</h2>
+    <p>Se enviará a <b>${uids.length}</b> repartidor${uids.length > 1 ? "es" : ""}: ${uids.map((u) => esc(nombreUid(u))).join(", ")}.
+    ${clientes ? `<br><small>Los ${clientes} chat(s) de clientes seleccionados no reciben mensajes del administrador.</small>` : ""}</p>
+    <textarea id="envTexto" rows="4" maxlength="600" placeholder="Escribe el mensaje…"></textarea>
+    <button id="envOk" class="primario" type="button">Enviar</button><button id="envNo" class="oscuro" type="button">Cancelar</button>`);
+  $("envNo").onclick = cerrarModal;
+  $("envOk").onclick = async () => {
+    const t = $("envTexto").value.trim(); if (!t) return;
+    $("envOk").disabled = true;
+    try {
+      await Promise.all(uids.map((u) => Chat.enviarA(u, "admin", { pedido: "Equipo", nombreRepartidor: nombreUid(u) }, t, null, RUTA_EQ)));
+      cerrarModal(); toast(`Mensaje enviado a ${uids.length} repartidor${uids.length > 1 ? "es" : ""} ✓`);
+    } catch (e) { toast("Error al enviar: " + e.message); $("envOk").disabled = false; }
+  };
+};
+
+/* Eliminar mensajes de varios chats, por fecha o todo */
+async function planBorrado(keys, d, h) {
+  const plan = []; let total = 0;
+  for (const k of keys) {
+    const { r, id } = rutaDe(k);
+    const msgs = (await db.ref(`${r.chats}/${id}`).once("value")).val() || {};
+    const todos = Object.entries(msgs);
+    const ids = todos.filter(([, m]) => (!d || (m.ts || 0) >= d) && (!h || (m.ts || 0) <= h)).map(([i]) => i);
+    if (ids.length) { plan.push({ r, id, ids, restantes: todos.filter(([i]) => !ids.includes(i)).map(([, m]) => m) }); total += ids.length; }
+  }
+  return { plan, total };
+}
+async function ejecutarBorrado(plan) {
+  for (const p of plan) {
+    const upd = {};
+    p.ids.forEach((i) => { upd[`${p.r.chats}/${p.id}/${i}`] = null; upd[`${p.r.fotos}/${p.id}/${i}`] = null; });
+    if (!p.restantes.length) upd[`${p.r.resumen}/${p.id}`] = null;   // chat vacío: sale de la lista
+    else {
+      const ult = p.restantes.sort((a, b) => (a.ts || 0) - (b.ts || 0)).pop();
+      upd[`${p.r.resumen}/${p.id}/ultimoDe`] = ult.de;
+      upd[`${p.r.resumen}/${p.id}/ultimo`] = (ult.texto || "Foto enviada").slice(0, 100);
+      upd[`${p.r.resumen}/${p.id}/ts`] = ult.ts || firebase.database.ServerValue.TIMESTAMP;
+    }
+    await db.ref().update(upd);
+  }
+}
+$("btnSelBorrar").onclick = () => {
+  if (!selChats.size) return toast("Selecciona al menos un chat.");
+  modal(`<h2>🗑 Eliminar mensajes</h2>
+    <p>En <b>${selChats.size}</b> chat${selChats.size > 1 ? "s" : ""} seleccionado${selChats.size > 1 ? "s" : ""}.</p>
+    <label class="opcion"><input type="radio" name="modoB" value="fecha" checked> Solo los de estas fechas</label>
+    <div class="dos-botones"><label>Desde<input type="date" id="bDesde"></label><label>Hasta<input type="date" id="bHasta"></label></div>
+    <small>Puedes dejar una vacía (sin límite). “Hasta” incluye ese día completo.</small>
+    <label class="opcion"><input type="radio" name="modoB" value="todo"> Todo el historial</label>
+    <button id="bOk" class="primario" type="button">Revisar y eliminar</button><button id="bNo" class="oscuro" type="button">Cancelar</button>`);
+  $("bNo").onclick = cerrarModal;
+  $("bOk").onclick = async () => {
+    let d = null, h = null;
+    if (document.querySelector("input[name=modoB]:checked").value === "fecha") {
+      if ($("bDesde").value) d = new Date($("bDesde").value + "T00:00:00").getTime();
+      if ($("bHasta").value) h = new Date($("bHasta").value + "T23:59:59.999").getTime();
+      if (!d && !h) return toast("Elige al menos una fecha o marca “Todo el historial”.");
+      if (d && h && d > h) return toast("“Desde” no puede ser posterior a “Hasta”.");
+    }
+    $("bOk").disabled = true; $("bOk").textContent = "Revisando…";
+    try {
+      const { plan, total } = await planBorrado([...selChats], d, h);
+      if (!total) { cerrarModal(); return toast("No hay mensajes en ese rango."); }
+      if (!confirm(`Se eliminarán ${total} mensaje${total > 1 ? "s" : ""} de ${plan.length} chat${plan.length > 1 ? "s" : ""}. Esto no se puede deshacer. ¿Continuar?`)) {
+        $("bOk").disabled = false; $("bOk").textContent = "Revisar y eliminar"; return;
+      }
+      await ejecutarBorrado(plan);
+      cerrarModal(); selChats.clear(); pintarChats(); toast(`Se eliminaron ${total} mensajes ✓`);
+    } catch (e) { toast("No se pudo eliminar: " + e.message); $("bOk").disabled = false; $("bOk").textContent = "Revisar y eliminar"; }
+  };
 };
 
 /* ---------- Equipo: agregar y quitar repartidores ---------- */

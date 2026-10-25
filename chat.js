@@ -7,6 +7,9 @@
    el administrador puede leer siempre (archivo permanente).
    ============================================================ */
 const Chat = (() => {
+  // Rutas en la base de datos. El chat administrador ↔ repartidor usa otras (opciones.ruta)
+  const RUTA_CLIENTE = { chats: "chats", resumen: "chatsResumen", fotos: "fotos" };
+  let R = RUTA_CLIENTE;
   const db = APP.database();   // misma sesión que la página que lo usa
   const TS = firebase.database.ServerValue.TIMESTAMP;
   let token = null, yo = null, soloLectura = false, ctx = {}, opciones = {};
@@ -156,31 +159,33 @@ const Chat = (() => {
   }
 
   // Mismo formato de siempre; sirve también para responder sin abrir el chat (notificación)
-  async function enviarA(tk, de, c, texto, foto) {
-    const id = db.ref("chats/" + tk).push().key;
+  async function enviarA(tk, de, c, texto, foto, ruta) {
+    const r = ruta || RUTA_CLIENTE;
+    const id = db.ref(`${r.chats}/${tk}`).push().key;
     const msg = { de, ts: TS };
     if (texto) msg.texto = texto;
     if (foto) msg.foto = true;
     const upd = {};
-    upd[`chats/${tk}/${id}`] = msg;
-    upd[`chatsResumen/${tk}`] = {
+    upd[`${r.chats}/${tk}/${id}`] = msg;
+    upd[`${r.resumen}/${tk}`] = {
       pedido: String(c.pedido || "").slice(0, 40), repartidor: String(c.nombreRepartidor || "").slice(0, 40),
       ultimoDe: de, ultimo: (texto || "Foto enviada").slice(0, 100), ts: TS
     };
-    if (foto) upd[`fotos/${tk}/${id}`] = foto;
+    if (foto) upd[`${r.fotos}/${tk}/${id}`] = foto;
     await db.ref().update(upd);
   }
-  const enviar = (texto, foto) => enviarA(token, yo, ctx, texto, foto);
+  const enviar = (texto, foto) => enviarA(token, yo, ctx, texto, foto, R);
 
   function pintar(id, m) {
     const lista = q("chatLista");
     const propia = soloLectura ? m.de === "repartidor" : m.de === yo;
     const b = document.createElement("div");
     b.className = "burbuja " + (propia ? "propia" : "ajena");
+    b.dataset.id = id;
     if (soloLectura || !propia) {
       const quien = document.createElement("span");
       quien.className = "quien";
-      quien.textContent = m.de === "cliente" ? "Cliente" : (ctx.nombreRepartidor || "Repartidor");
+      quien.textContent = m.de === "cliente" ? "Cliente" : m.de === "admin" ? "Brothers" : (ctx.nombreRepartidor || "Repartidor");
       b.appendChild(quien);
     }
     if (m.foto) {
@@ -189,40 +194,61 @@ const Chat = (() => {
       img.onclick = () => img.classList.toggle("grande");
       img.onload = () => { lista.scrollTop = lista.scrollHeight; };
       b.appendChild(img);
-      db.ref(`fotos/${token}/${id}`).once("value").then((s) => { img.src = s.val() || ""; }).catch(() => { img.alt = "Foto no disponible"; });
+      db.ref(`${R.fotos}/${token}/${id}`).once("value").then((s) => { img.src = s.val() || ""; }).catch(() => { img.alt = "Foto no disponible"; });
     }
     if (m.texto) { const p = document.createElement("p"); p.textContent = m.texto; b.appendChild(p); }
     const h = document.createElement("small");
     h.className = "hora";
     const f = m.ts ? new Date(m.ts) : null;
-    h.textContent = !f ? "" : soloLectura
+    h.textContent = !f ? "" : (soloLectura || yo === "admin")
       ? f.toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
       : f.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
     b.appendChild(h);
+    if (opciones.puedeBorrar) {   // administrador: eliminar este mensaje para todos
+      const x = document.createElement("button");
+      x.type = "button"; x.className = "borrar-msg"; x.textContent = "🗑 Eliminar"; x.setAttribute("aria-label", "Eliminar mensaje");
+      x.onclick = () => borrar(id);
+      b.appendChild(x);
+    }
     lista.appendChild(b);
     lista.scrollTop = lista.scrollHeight;
+  }
+
+  async function borrar(id) {
+    if (!confirm("¿Eliminar este mensaje? Desaparecerá para todos.")) return;
+    const tk = token, r = R;
+    try {
+      await db.ref().update({ [`${r.chats}/${tk}/${id}`]: null, [`${r.fotos}/${tk}/${id}`]: null });
+      const rest = (await db.ref(`${r.chats}/${tk}`).once("value")).val();
+      if (!rest) { await db.ref(`${r.resumen}/${tk}`).remove(); return; }
+      const ult = Object.values(rest).sort((a, b) => (a.ts || 0) - (b.ts || 0)).pop();   // el resumen vuelve a mostrar el último mensaje que queda
+      await db.ref(`${r.resumen}/${tk}`).update({ ultimoDe: ult.de, ultimo: (ult.texto || "Foto enviada").slice(0, 100), ts: ult.ts || TS });
+    } catch (e) { aviso("No se pudo eliminar: " + e.message); }
   }
 
   let sinLeer = 0;
   function iniciar(o) {
     detener(); montar();
     opciones = o; token = o.token; yo = o.yo || null; soloLectura = !!o.soloLectura;
+    R = Object.assign({}, RUTA_CLIENTE, o.ruta || {});
     ctx = { pedido: o.pedido, nombreRepartidor: o.nombreRepartidor };
     titular();
     q("chatForm").classList.toggle("oculto", soloLectura);
     q("chatLista").innerHTML = ""; aviso(""); sinLeer = 0; cargando = true;
-    ref = db.ref("chats/" + token);
+    ref = db.ref(`${R.chats}/${token}`);
     ref.on("child_added", (s) => {
       const m = s.val(); pintar(s.key, m);
       if (!cargando && !soloLectura && m.de !== yo) {
         // opciones.avisos === false: otra parte de la app (repartidor con varios pedidos) se encarga de avisar
         if (opciones.avisos !== false) {
-          Voz.hablar(yo === "cliente" ? Voz.FRASES.mensajeRepartidor : Voz.FRASES.mensajeCliente);
+          Voz.hablar(yo === "repartidor" ? (m.de === "admin" ? Voz.FRASES.mensajeAdmin : Voz.FRASES.mensajeCliente) : Voz.FRASES.mensajeRepartidor);
           if (!abierto) { navigator.vibrate && navigator.vibrate(200); }
         }
         if (!abierto) { sinLeer++; opciones.alNoLeidos && opciones.alNoLeidos(sinLeer); }
       }
     }, () => aviso("Sin acceso al chat."));
+    // Si el administrador elimina un mensaje, desaparece también de esta pantalla
+    ref.on("child_removed", (s) => { const n = q("chatLista").querySelector(`[data-id="${s.key}"]`); if (n) n.remove(); });
     ref.once("value", () => { cargando = false; });   // llega después de los mensajes ya existentes
   }
   function setContexto(c) { Object.assign(ctx, c); if (el) titular(); }
