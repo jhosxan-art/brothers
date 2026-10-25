@@ -77,12 +77,13 @@ function irA(vista) {
   $("vistaMapa").classList.toggle("oculto", vista !== "mapa");
   actualizarNav();
   if (vista === "mapa") {
+    renderLista();
     initMapa();
     setTimeout(() => { mapa.invalidateSize(); encuadrar(); }, 60);
   }
 }
 function actualizarNav() {
-  const hay = orden.length > 0 && !!uidActual && !!usuario;
+  const hay = !!uidActual && !!usuario;   // Factura ⇄ Mapa siempre disponibles; el mapa también sirve sin pedidos
   $("navApp").classList.toggle("oculto", !hay);
   document.body.classList.toggle("con-nav", !!hay);
   $("navFactura").classList.toggle("activa", vistaActual === "factura");
@@ -91,7 +92,7 @@ function actualizarNav() {
   const b = $("badgeNav");
   b.textContent = sinLeer ? "💬 " + sinLeer : String(orden.length);
   b.classList.toggle("rojo", sinLeer > 0);
-  b.classList.toggle("oculto", !orden.length);
+  b.classList.toggle("oculto", !orden.length && !sinLeer);
 }
 $("navFactura").onclick = () => irA("factura");
 $("navMapa").onclick = () => irA("mapa");
@@ -141,11 +142,11 @@ $("btnGuardarUsuario").onclick = async () => {
 async function entrarTurno() {
   // Si se corta la conexión, el administrador lo verá como "desconectado"
   db.ref("ubicaciones/" + uidActual).onDisconnect().update({ enLinea: false, enViaje: false, ts: TS });
-  vistaActual = "factura";          // lo primero que ve el repartidor: la factura
-  mostrar("app");
   Factura.nombreRepartidor = usuario;
-  reanudarViajes();
-  escucharAdmin();                  // chat con Brothers + guías del administrador                 // por si la app se cerró con pedidos en ruta
+  reanudarViajes();                 // por si la app se cerró con pedidos en ruta
+  vistaActual = orden.length ? "mapa" : "factura";   // la factura es lo primero, salvo que ya lleve un pedido en camino
+  mostrar("app");
+  escucharAdmin();                  // chat con Brothers + guías del administrador
   await permisosInicio();           // APK: explica y pide permisos (notificaciones…)
   registrarPush();                  // avisos push con la app cerrada
   iniciarGPS();                     // y aquí Android pide la ubicación (“todo el tiempo”)
@@ -781,6 +782,25 @@ function procesarPosicion(c) {
   refrescarTextos();
   setEstado(`Compartiendo ubicación · ±${precision} m` + (orden.length ? ` · ${orden.length} pedido${orden.length > 1 ? "s" : ""} en ruta` : "") + (bgPlugin ? " · segundo plano activo" : " · solo con pantalla activa (usa el APK)"), "ok");
 }
+
+/* ---------- "Contactarme al cliente": el negocio avisa al cliente con un enlace que abre el chat ---------- */
+function enviarContacto(v) {
+  const enlace = enlaceDe(v.token) + "&chat=1";   // abre el chat directamente en la página del cliente
+  abrirWhatsApp(
+    `📞 *SOLICITUD DE CONTACTO*\n🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · Cliente: " + v.cliente : ""}\n\n` +
+    `💬 El repartidor desea contactarse con usted, por favor presione el enlace para responderle:\n${enlace}`);
+}
+$("btnContactoCliente").onclick = () => {
+  if (!orden.length) return alert("Primero envía la factura del pedido: el enlace de contacto se crea junto con el pedido.");
+  if (orden.length === 1) return enviarContacto(viajes[orden[0]]);
+  $("contactoLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${escHtml(nombreDe(viajes[t]))} · ${escHtml(viajes[t].pedido)}</button>`).join("");
+  $("modalContacto").classList.remove("oculto");
+};
+$("contactoLista").onclick = (e) => {
+  const b = e.target.closest("button[data-t]"); if (!b || !viajes[b.dataset.t]) return;
+  $("modalContacto").classList.add("oculto"); enviarContacto(viajes[b.dataset.t]);
+};
+$("btnContactoCancelar").onclick = () => $("modalContacto").classList.add("oculto");
 
 /* ---------- WhatsApp: siempre al chat del negocio (el repartidor no contacta al cliente fuera de la app) ---------- */
 const NEGOCIO_WA = "50586265619";

@@ -234,6 +234,7 @@ if (!token) {
     alNoLeidos: (n) => { const b = $("badgeChat"); b.textContent = n; b.classList.toggle("oculto", !n); }
   });
   $("btnChat").onclick = () => Chat.abrir();
+  if (new URLSearchParams(location.search).get("chat") === "1") setTimeout(() => Chat.abrir(), 700);   // enlace de contacto: abre el chat
   pedirPermisosAlAbrir();   // al abrir el enlace: ubicación en tiempo real + voz
   referencia = db.ref("pedidos/" + token);
   referencia.on("value", (snap) => {

@@ -122,6 +122,7 @@ function initMapa() {
       maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(mapa);
   }
+  iniciarPopups();
   mapa.on("click", (e) => { if (selUid) fijarGuia(selUid, e.latlng); });   // con un repartidor elegido, tocar el mapa = marcar dónde está el cliente
   setTimeout(() => mapa.invalidateSize(), 50);
 }
@@ -133,24 +134,113 @@ function ajustarVista() {
 }
 $("btnCentrar").onclick = ajustarVista;
 
+const EST_ICONO = {
+  enRuta: ["#12A150", "En ruta"], libre: ["#12A150", "Conectado"], sinSenal: ["#F59E0B", "Sin señal"],
+  desconectado: ["#8A97A5", "Desconectado"], sinDatos: ["#8A97A5", "Sin datos"]
+};
+function iconoRepAdmin(nombre, est) {
+  const [col, txt] = EST_ICONO[est] || EST_ICONO.sinDatos, apagado = ["desconectado", "sinSenal", "sinDatos"].includes(est);
+  return L.divIcon({
+    className: "",
+    html: `<div class="marca-rider-caja"><div class="marca-rider${apagado ? " apagado" : ""}">${RIDER_SVG}<i class="pt-est" style="background:${col}"></i></div>` +
+          `<span class="etiqueta-rider">${esc(nombre)}<small class="est" style="color:${col}">● ${txt}</small></span></div>`,
+    iconSize: [56, 56], iconAnchor: [28, 28]
+  });
+}
 function pintarMarcador(uid) {
   const u = ubic[uid];
   if (!u || typeof u.lat !== "number") return;
   const est = estadoDe(uid), nombre = nombreUid(uid);
-  const apagado = est === "desconectado" || est === "sinSenal";
-  const clave = nombre + "|" + apagado, pos = [u.lat, u.lng];
+  const clave = nombre + "|" + est, pos = [u.lat, u.lng];
   if (!marcadores[uid]) {
-    marcadores[uid] = L.marker(pos, { icon: iconoRepartidorNombre(nombre, apagado) }).addTo(mapa);
+    marcadores[uid] = L.marker(pos, { icon: iconoRepAdmin(nombre, est) }).addTo(mapa);
     marcadores[uid]._clave = clave;
-    marcadores[uid].on("click", () => seleccionarRep(uid));   // tocar el icono = elegir a ese repartidor
+    marcadores[uid].bindPopup(() => popupRep(uid), { offset: [0, -22], minWidth: 210 });   // tocar el repartidor = Guiar / Chat
     if (!ajusteProgramado) { ajusteProgramado = true; setTimeout(ajustarVista, 800); }   // encuadra a todos una sola vez
   } else {
     marcadores[uid].setLatLng(pos);
-    if (marcadores[uid]._clave !== clave) { marcadores[uid].setIcon(iconoRepartidorNombre(nombre, apagado)); marcadores[uid]._clave = clave; }
+    if (marcadores[uid]._clave !== clave) { marcadores[uid].setIcon(iconoRepAdmin(nombre, est)); marcadores[uid]._clave = clave; }
   }
   const el = marcadores[uid].getElement();
   if (el) el.classList.toggle("sel-rep", uid === selUid);
   pintarGuia(uid);   // la línea de su guía sigue al repartidor mientras se mueve
+}
+
+/* ---------- Ventanitas del mapa: repartidor y cliente ---------- */
+function popupRep(uid) {
+  const est = estadoDe(uid), [texto, clase] = ETIQUETA[est], n = sinLeerEq[uid] || 0;
+  return `<div class="pop-rep"><strong>${esc(nombreUid(uid))}</strong>
+    <span class="chip ${clase}">${texto}</span>
+    <small>${esc(descripcion(uid, est))}${guias[uid] ? " · 📍 guía activa" : ""}</small>
+    <div class="acciones-fila">
+      <button class="mini pri" data-pa="guiar" data-uid="${esc(uid)}" type="button">📍 Guiar</button>
+      <button class="mini" data-pa="chat" data-uid="${esc(uid)}" type="button">💬 Chat${n ? " (" + n + ")" : ""}</button>
+      ${guias[uid] ? `<button class="mini peligro" data-pa="quitarguia" data-uid="${esc(uid)}" type="button">Quitar guía</button>` : ""}
+    </div></div>`;
+}
+function popupCliente(token) {
+  const d = activos[token] || {}, c = d.cliente || {}, uid = d.repartidorUid;
+  const vivo = !c.manual && c.ts && Date.now() - c.ts < 60000;
+  const tipo = c.manual ? "Ubicación marcada por el cliente" : vivo ? "En vivo" : "Sin señal reciente";
+  return `<div class="pop-rep"><strong>👤 Cliente · Pedido ${esc(d.pedido || "—")}</strong>
+    <small>Lo lleva: <b>${esc(nombreUid(uid))}</b></small>
+    <small>${tipo} · ${hace(c.ts)}${c.precision ? " · ±" + c.precision + " m" : ""}</small>
+    <div class="acciones-fila"><button class="mini pri" data-pa="guiaclie" data-token="${esc(token)}" type="button">📍 Guiar a ${esc(nombreUid(uid))} hasta aquí</button></div></div>`;
+}
+function iniciarPopups() {
+  mapa.on("popupopen", (e) => {
+    const el = e.popup.getElement(); if (!el) return;
+    el.querySelectorAll("button[data-pa]").forEach((b) => {
+      b.onclick = () => {
+        const uid = b.dataset.uid, a = b.dataset.pa;
+        mapa.closePopup();
+        if (a === "guiar") { selUid = uid; pintarSeleccion(); }
+        else if (a === "chat") abrirChatRep(uid);
+        else if (a === "quitarguia") db.ref("guias/" + uid).remove().then(() => toast("Guía quitada.")).catch((err) => toast(err.message));
+        else if (a === "guiaclie") {
+          const d = activos[b.dataset.token];
+          if (d && d.cliente && d.repartidorUid) fijarGuia(d.repartidorUid, { lat: d.cliente.lat, lng: d.cliente.lng }, b.dataset.token);
+        }
+      };
+    });
+  });
+}
+
+/* ---------- Clientes en el mapa (cuando abren el enlace o marcan su ubicación) ---------- */
+const clientesM = {};   // token → { pin, linea }
+function pintarClientes() {
+  if (!mapa) return;
+  const vistos = new Set();
+  Object.entries(activos).forEach(([token, d]) => {
+    const c = d.cliente;
+    if (!c || typeof c.lat !== "number") return;
+    vistos.add(token);
+    const uid = d.repartidorUid, col = colorUid(uid || token), nom = nombreUid(uid);
+    const vivo = !c.manual && c.ts && Date.now() - c.ts < 60000;
+    const clave = [nom, d.pedido, col, vivo, !!c.manual].join("|");
+    const icono = () => L.divIcon({
+      className: "",
+      html: `<div class="pin-cliente${vivo ? " vivo" : ""}${c.manual ? " manual" : ""}" style="--c:${col}"><b>👤</b></div>` +
+            `<span class="etq-cli">Cliente · ${esc(d.pedido || "")}<small>Lo lleva ${esc(nom)}</small></span>`,
+      iconSize: [34, 34], iconAnchor: [17, 17]
+    });
+    let m = clientesM[token];
+    if (!m) {
+      m = clientesM[token] = {
+        pin: L.marker([c.lat, c.lng], { icon: icono(), zIndexOffset: 200 }).addTo(mapa),
+        linea: L.polyline([], { color: col, weight: 2, opacity: .55, dashArray: "2 8" }).addTo(mapa), clave
+      };
+      m.pin.bindPopup(() => popupCliente(token), { offset: [0, -14], minWidth: 220 });
+    } else {
+      m.pin.setLatLng([c.lat, c.lng]);
+      if (m.clave !== clave) { m.pin.setIcon(icono()); m.clave = clave; }
+    }
+    const u = ubic[uid];
+    m.linea.setLatLngs(u && typeof u.lat === "number" ? [[u.lat, u.lng], [c.lat, c.lng]] : []);
+  });
+  Object.keys(clientesM).forEach((t) => {
+    if (!vistos.has(t)) { mapa.removeLayer(clientesM[t].pin); mapa.removeLayer(clientesM[t].linea); delete clientesM[t]; }
+  });
 }
 
 /* ---------- Guiar repartidores (cada uno con su propia guía) ---------- */
@@ -167,7 +257,7 @@ function pintarGuia(uid) {
     return;
   }
   const col = colorUid(uid), p = [g.lat, g.lng], nom = nombreUid(uid), clave = nom + "|" + col;
-  const icono = () => L.divIcon({ className: "", html: `<div class="pin-guia" style="--c:${col}"><b>🏠</b></div><span class="etq-cli">Cliente de ${esc(nom)}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+  const icono = () => L.divIcon({ className: "", html: `<div class="pin-guia" style="--c:${col}"><b>🏠</b></div><span class="etq-cli">Guía para ${esc(nom)}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] });
   if (!c) {
     c = guiaCapas[uid] = {
       pin: L.marker(p, { icon: icono(), zIndexOffset: 300 }).addTo(mapa),
@@ -191,9 +281,9 @@ function pintarSeleccion() {
   sel.classList.toggle("oculto", vs.length < 2);   // con varios pedidos, eliges para cuál es la guía
   $("btnGuiaQuitar").classList.toggle("oculto", !guias[selUid]);
 }
-async function fijarGuia(uid, ll) {
+async function fijarGuia(uid, ll, tokenForzado) {
   const dato = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), ts: firebase.database.ServerValue.TIMESTAMP, por: "admin" };
-  const tk = $("guiaPedido").value; if (tk) dato.token = tk;
+  const tk = tokenForzado || $("guiaPedido").value; if (tk) dato.token = tk;
   try { await db.ref("guias/" + uid).set(dato); toast(`Guía enviada a ${nombreUid(uid)} ✓ Solo la ve él.`); }
   catch (e) { return toast("No se pudo enviar la guía: " + e.message); }
   selUid = null; pintarSeleccion(); pintarLista();   // listo: los demás repartidores no se tocan
@@ -222,8 +312,8 @@ function iniciarMonitoreo() {
 
   // Ubicación permanente de cada repartidor (con o sin pedido)
   refUbic = db.ref("ubicaciones");
-  refUbic.on("child_added", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarLista(); }, fallo);
-  refUbic.on("child_changed", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarLista(); });
+  refUbic.on("child_added", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarClientes(); pintarLista(); }, fallo);
+  refUbic.on("child_changed", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarClientes(); pintarLista(); });
   refUbic.on("child_removed", (s) => { delete ubic[s.key]; quitarMarcador(s.key); pintarLista(); });
 
   // Guías marcadas por Brothers (una por repartidor)
@@ -252,10 +342,10 @@ function iniciarMonitoreo() {
 
   // Pedidos en ruta (para saber quién lleva qué)
   consultaActivos = db.ref("pedidos").orderByChild("estado").equalTo("en_ruta");
-  const alCambiar = (s) => { activos[s.key] = s.val(); refrescar(); };
+  const alCambiar = (s) => { activos[s.key] = s.val(); pintarClientes(); refrescar(); };
   consultaActivos.on("child_added", alCambiar, fallo);
   consultaActivos.on("child_changed", alCambiar);
-  consultaActivos.on("child_removed", (s) => { delete activos[s.key]; refrescar(); });
+  consultaActivos.on("child_removed", (s) => { delete activos[s.key]; pintarClientes(); refrescar(); });
 
   db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); }, fallo);
 
@@ -284,10 +374,11 @@ function detener() {
   resEquipo = {}; selUid = null; selChats.clear(); modoSel = false;
   db.ref("repartidores").off();
   Object.keys(marcadores).forEach(quitarMarcador);
+  Object.keys(clientesM).forEach((t) => { mapa.removeLayer(clientesM[t].pin); mapa.removeLayer(clientesM[t].linea); delete clientesM[t]; });
   [ubic, activos].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
   registrados = {}; resumenes = {}; ajusteProgramado = false;
 }
-function refrescar() { Object.keys(ubic).forEach(pintarMarcador); pintarLista(); pintarEquipo(); if (selUid) pintarSeleccion(); }
+function refrescar() { Object.keys(ubic).forEach(pintarMarcador); pintarClientes(); pintarLista(); pintarEquipo(); if (selUid) pintarSeleccion(); }
 setInterval(() => { if (!$("vistaApp").classList.contains("oculto")) refrescar(); }, 15000);   // actualiza "hace X s" y "sin señal"
 
 /* ---------- Lista del mapa: todos los repartidores ---------- */
@@ -304,36 +395,12 @@ function descripcion(uid, est) {
   if (est === "desconectado") return `Cerró sesión o perdió conexión ${hace(u.ts)}`;
   return "Aún no ha compartido ubicación";
 }
-function pintarLista() {
+function pintarLista() {   // ya no hay lista inferior: solo el contador del mapa
   const ids = [...new Set([...Object.keys(registrados), ...Object.keys(ubic)])];
-  const orden = { enRuta: 0, libre: 1, sinSenal: 2, desconectado: 3, sinDatos: 4 };
-  ids.sort((a, b) => orden[estadoDe(a)] - orden[estadoDe(b)] || nombreUid(a).localeCompare(nombreUid(b)));
   const enRuta = ids.filter((u) => estadoDe(u) === "enRuta").length;
   const enLinea = ids.filter((u) => ["enRuta", "libre"].includes(estadoDe(u))).length;
   $("contador").textContent = `${enRuta} en ruta · ${enLinea} en línea`;
-  if (!ids.length) { $("listaMapa").innerHTML = '<p class="ayuda">Aún no hay repartidores registrados.</p>'; return; }
-  $("listaMapa").innerHTML = ids.map((uid) => {
-    const est = estadoDe(uid), [texto, clase] = ETIQUETA[est], elegido = uid === selUid, n = sinLeerEq[uid] || 0;
-    return `<div class="tarjeta-rep${elegido ? " sel" : ""}" data-uid="${esc(uid)}"><div class="fila">
-      <span class="avatar">${RIDER_SVG}</span>
-      <div class="datos"><strong>${esc(nombreUid(uid))}</strong><small>${esc(descripcion(uid, est))}${guias[uid] ? " · 📍 guía activa" : ""}</small></div>
-      <span class="chip ${clase}">${texto}</span></div>
-      <div class="acciones-fila">
-        <button class="mini${elegido ? " pri" : ""}" data-act="guiar" data-uid="${esc(uid)}" type="button">📍 ${elegido ? "Elegido" : "Guiar"}</button>
-        <button class="mini" data-act="chat" data-uid="${esc(uid)}" type="button">💬 Chat${n ? " (" + n + ")" : ""}</button>
-        ${guias[uid] ? `<button class="mini peligro" data-act="quitarguia" data-uid="${esc(uid)}" type="button">Quitar guía</button>` : ""}
-      </div></div>`;
-  }).join("");
 }
-$("listaMapa").onclick = (e) => {
-  const b = e.target.closest("button[data-act]");
-  const uid = (b || e.target.closest("[data-uid]"))?.dataset.uid;
-  if (!uid) return;
-  if (!b) { if (marcadores[uid]) mapa.flyTo(marcadores[uid].getLatLng(), 17); return; }
-  if (b.dataset.act === "guiar") { seleccionarRep(uid); if (selUid && marcadores[uid]) mapa.flyTo(marcadores[uid].getLatLng(), 16); }
-  else if (b.dataset.act === "chat") abrirChatRep(uid);
-  else if (b.dataset.act === "quitarguia") db.ref("guias/" + uid).remove().catch((err) => toast(err.message));
-};
 
 /* ---------- Chats: equipo + clientes, selección múltiple, envío y borrado por fecha ---------- */
 const RUTA_CL = { chats: "chats", resumen: "chatsResumen", fotos: "fotos" };

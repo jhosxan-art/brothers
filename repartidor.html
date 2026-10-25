@@ -95,6 +95,7 @@
         </div>
 
         <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">🧾 Generar factura</button>
+        <button type="button" class="contacto-btn" id="btnContactoCliente">📞 Contactarme al cliente</button>
     </div>
 
     <div class="stats-container" id="statsContainer">
@@ -160,6 +161,16 @@
       <p id="entregadoTxt"></p>
       <button id="btnOtraFactura" class="primario" type="button">🧾 Hacer otra factura</button>
       <button id="btnVerMapa" class="oscuro" type="button">🗺️ Ver mapa y pedidos</button>
+    </div>
+  </div>
+
+  <!-- Elegir a qué cliente contactar (cuando hay varios pedidos) -->
+  <div id="modalContacto" class="modal-rep oculto" role="dialog" aria-modal="true">
+    <div class="modal-rep-caja">
+      <h2>¿A qué cliente?</h2>
+      <p>El negocio le enviará el aviso con el enlace para que te responda.</p>
+      <div id="contactoLista" style="display:grid;gap:8px"></div>
+      <button id="btnContactoCancelar" type="button">Cancelar</button>
     </div>
   </div>
 
