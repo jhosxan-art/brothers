@@ -40,8 +40,17 @@
     <section id="panelMapa">
       <div class="mapa-caja">
         <div id="mapaAdmin"></div>
+        <!-- Buscador: ciudades, barrios, direcciones, negocios, coordenadas o enlaces de Google Maps -->
+        <div class="buscador">
+          <form id="formBusq" autocomplete="off">
+            <input id="busq" type="search" placeholder="Buscar ciudad, dirección, negocio o coordenadas" enterkeyhint="search" aria-label="Buscar en el mapa">
+            <button type="submit" aria-label="Buscar">🔎</button>
+          </form>
+          <div id="resBusq" class="res-busq oculto"></div>
+        </div>
         <div class="flota-mapa">
           <span id="contador" class="contador">0 en ruta</span>
+          <button id="btnNegocio" class="mini-mapa" type="button">➕ Negocio</button>
           <button id="btnCentrar" class="primario">Ver todos</button>
         </div>
         <!-- Guiar: toca el icono de un repartidor y luego el mapa -->
@@ -79,8 +88,15 @@
         <div id="msgEquipo" class="estado oculto"></div>
         <button id="btnAgregar" class="primario">Crear repartidor</button>
       </div>
+      <h2>Facturas del día</h2>
+      <label>Día <input id="diaStats" type="date"></label>
+      <div id="statsDia" class="acciones" style="margin:10px 0"></div>
       <h2>Tu equipo</h2>
       <div id="listaEquipo" class="acciones"></div>
+      <h2>Negocios del mapa</h2>
+      <p class="ayuda">Los repartidores ven estos negocios en su mapa y los pueden buscar por nombre.</p>
+      <button id="btnNuevoNegocio" class="primario" type="button">➕ Agregar negocio</button>
+      <div id="listaNegocios" class="acciones" style="margin-top:10px"></div>
     </section>
 
     <div id="modalAdmin" class="modal-rep oculto" role="dialog" aria-modal="true"><div class="modal-rep-caja" id="modalCaja" style="text-align:left"></div></div>
@@ -99,6 +115,7 @@
   <script>window.NOMBRE_APP = "admin";   // sesión independiente de la del repartidor</script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
+  <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>
   <script src="admin.js"></script>

@@ -7,7 +7,7 @@
    ============================================================ */
 (function () {
 'use strict';
-window.Factura = { alEnviar: null, nombreRepartidor: '' };
+window.Factura = { alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCodigo: () => getUniqueCode(), refrescarContactos: () => refrescarContactos() };
 
   let products = [];
   let editingIndex = -1;
@@ -82,6 +82,22 @@ window.Factura = { alEnviar: null, nombreRepartidor: '' };
       const abc = 'abcdefghijkmnpqrstuvwxyz23456789';
       const bytes = crypto.getRandomValues(new Uint8Array(largo));
       return Array.from(bytes, (b) => abc[b % abc.length]).join('');
+  }
+
+  /* Enlaces de contacto abiertos (los crea repartidor.js con "Contactarme al cliente") */
+  function refrescarContactos() {
+      const fila = document.getElementById('contactoFila'), sel = document.getElementById('contactoSel');
+      const cs = window.Factura.contactos || [], previo = sel.value;
+      fila.style.display = cs.length ? '' : 'none';
+      sel.innerHTML = '<option value="">🆕 Pedido nuevo (enlace nuevo)</option>' +
+          cs.map((c) => `<option value="${escHtml(c.token)}">🔗 ${escHtml(c.cliente || 'Cliente')} · ${escHtml(c.pedido)}</option>`).join('');
+      sel.value = cs.some((c) => c.token === previo) ? previo : (cs.length ? cs[cs.length - 1].token : '');
+      alElegirContacto();
+  }
+  function alElegirContacto() {
+      const c = (window.Factura.contactos || []).find((x) => x.token === document.getElementById('contactoSel').value);
+      const campo = document.getElementById('customerName');
+      if (c && c.cliente && !campo.value.trim()) campo.value = c.cliente;
   }
 
   function getUniqueCode() {
@@ -328,8 +344,10 @@ window.Factura = { alEnviar: null, nombreRepartidor: '' };
 
   function generateInvoice() {
       const customerName = document.getElementById('customerName').value.trim();
-      const pickupCode = getUniqueCode();
-      const token = crearToken();
+      // Si ya se abrió un enlace de contacto con este cliente, la factura usa ESE mismo enlace y código
+      const contacto = (window.Factura.contactos || []).find((x) => x.token === document.getElementById('contactoSel').value);
+      const pickupCode = contacto ? contacto.pedido : getUniqueCode();
+      const token = contacto ? contacto.token : crearToken();
       const link = `${URL_RASTREO}?id=${token}`;
 
       let invoiceHTML = '<div class="invoice-header-popup">🏍️ BROTHERS DELIVERY</div>';
@@ -403,7 +421,7 @@ window.Factura = { alEnviar: null, nombreRepartidor: '' };
 
       document.getElementById('generatedInvoiceDisplay').innerHTML = invoiceHTML;
 
-      facturaActual = { token, pedido: pickupCode, cliente: customerName, tel: '', texto: invoiceText, total: grandTotal, link };
+      facturaActual = { token, pedido: pickupCode, cliente: customerName, tel: '', texto: invoiceText, total: grandTotal, delivery: totalDelivery, link };
 
       dailyStats.totalOrders += 1;
       dailyStats.totalEarnings += totalDelivery;
@@ -484,6 +502,7 @@ window.Factura = { alEnviar: null, nombreRepartidor: '' };
       document.getElementById('currentProductPrice').value = '';
       document.getElementById('customerName').value = '';
       depositPaid = false;
+      refrescarContactos();
       
       const buttons = document.querySelectorAll('.extra-errand-btn');
       buttons.forEach(btn => btn.classList.remove('active'));
@@ -510,5 +529,5 @@ window.Factura = { alEnviar: null, nombreRepartidor: '' };
   checkSessionAndLogin();
   renderDepositInvoices();
 
-Object.assign(window, { showCustomAlert, closeCustomAlert, closeCustomConfirm, confirmDeposit, showStats, hideStats, calculateTotal, toggleExtraErrand, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp });
+Object.assign(window, { showCustomAlert, closeCustomAlert, closeCustomConfirm, confirmDeposit, showStats, hideStats, calculateTotal, toggleExtraErrand, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto });
 })();

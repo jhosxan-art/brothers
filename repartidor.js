@@ -33,6 +33,8 @@ let seleccionado = null;     // token del pedido enfocado en el mapa
 let vistaActual = "factura"; // "factura" | "mapa"
 let chatToken = null;        // token cuyo chat está abierto ahora ("equipo" = chat con Brothers)
 const RUTA_EQUIPO = { chats: "chatsEquipo", resumen: "chatsEquipoResumen", fotos: "fotosEquipo" };
+let lugares = {}, lugarMarks = {}, refLugares = null, lugarDestino = null, marcaLugar = null, rutaLugar = null;
+let capaLugar = null, flechasLugar = null, flechasOrden = null, flechasClave = "", resultadosRep = [];
 let guiaActual = null, guiaTsVisto, marcaGuia = null, refGuia = null, refAdminChat = null, adminListo = false, noLeidosAdmin = 0;
 let mapa = null, marcaYo = null, estelaProp = null, capaRuta = null, capaFlujo = null;
 let rastro = [], marcando = false, nombreYoMarcado = "";
@@ -176,12 +178,24 @@ function initMapa() {
   estelaProp = L.polyline([], { color: "#7B8794", weight: 5, opacity: .65 }).addTo(mapa);
   capaRuta = L.polyline([], { color: "#0A86C9", weight: 7, opacity: .9, lineCap: "round" }).addTo(mapa);
   capaFlujo = L.polyline([], { color: "#fff", weight: 3, opacity: .95, className: "ruta-viva" }).addTo(mapa);
+  flechasOrden = L.layerGroup().addTo(mapa);   // flechas: sentido de circulación en cada calle
+  capaLugar = L.polyline([], { color: "#F59E0B", weight: 7, opacity: .9, lineCap: "round" }).addTo(mapa);
+  flechasLugar = L.layerGroup().addTo(mapa);
+  mapa.on("zoomend", () => mapa.getContainer().classList.toggle("zoom-lejos", mapa.getZoom() < 15));
+  mapa.getContainer().classList.add("zoom-lejos");
+  mapa.on("popupopen", (e) => {   // botón "Ir aquí" dentro de la ventanita de un negocio
+    const el = e.popup.getElement(); if (!el) return;
+    el.querySelectorAll("button[data-ir]").forEach((b) => b.onclick = () => { mapa.closePopup(); irALugar(lugares[b.dataset.ir], true); });
+  });
   mapa.on("click", (e) => { if (marcando) fijarDestinoManual(e.latlng.lat, e.latlng.lng); });
   mapa.on("dragstart", () => { seguirme = false; });
   if (ultimaPos) { pintarYo(); mapa.setView([ultimaPos.lat, ultimaPos.lng], 15); }
   orden.forEach((t) => pintarCliente(viajes[t]));
   dibujarRuta();
   pintarGuia();
+  pintarLugares();
+  if (lugarDestino) { pintarLugarDestino(); dibujarRutaLugar(); }
+  actualizarBanner();
 }
 let seguirme = true;   // el mapa sigue al repartidor hasta que lo mueve con el dedo
 
@@ -230,7 +244,7 @@ function encuadrar(soloSeleccionado) {
   if (ultimaPos) pts.push([ultimaPos.lat, ultimaPos.lng]);
   const lista = soloSeleccionado && seleccionado ? [seleccionado] : orden;
   lista.forEach((t) => { const v = viajes[t]; if (v && v.destino) pts.push([v.destino.lat, v.destino.lng]); });
-  if (guiaActual && !orden.length) pts.push([guiaActual.lat, guiaActual.lng]);
+  if (guiaCliente() && !orden.length) pts.push([guiaActual.lat, guiaActual.lng]);
   if (pts.length > 1) mapa.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 17 });
   else if (pts.length === 1) mapa.setView(pts[0], 16);
 }
@@ -247,16 +261,13 @@ async function pedirRuta(v, forzar) {
   if (!forzar && v.rutaPts && !cambioOrigen && !cambioDest) return;
   v.rutaEn = ahora;
   const o = { lat: ultimaPos.lat, lng: ultimaPos.lng }, d = { lat: v.destino.lat, lng: v.destino.lng };
-  try {
-    const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${o.lng},${o.lat};${d.lng},${d.lat}?overview=full&geometries=geojson`);
-    const j = await r.json();
-    if (j.code === "OK" && j.routes && j.routes[0]) {
-      v.rutaPts = j.routes[0].geometry.coordinates.map(([x, y]) => [y, x]);
-      v.rutaDur = j.routes[0].duration; v.rutaOrigen = o; v.rutaDest = d;
-    }
+  try {   // ruta por calles: respeta sentidos únicos y giros; si falla, línea recta
+    const r = await Ruta.pedir(o, d);
+    v.rutaPts = r.pts; v.rutaDur = r.dur; v.rutaDist = r.dist; v.rutaPasos = r.pasos; v.rutaIdx = Math.min(1, r.pasos.length - 1);
+    v.rutaOrigen = o; v.rutaDest = d;
   } catch (_) { /* sin ruta por calles: se usa la línea recta */ }
   if (v.token === seleccionado) dibujarRuta();
-  refrescarTextos();
+  refrescarTextos(); actualizarBanner();
 }
 function dibujarRuta() {
   if (!mapa) return;
@@ -265,9 +276,11 @@ function dibujarRuta() {
   if (v && v.destino && ultimaPos) {
     pts = v.rutaPts ? [[ultimaPos.lat, ultimaPos.lng], ...v.rutaPts] : [[ultimaPos.lat, ultimaPos.lng], [v.destino.lat, v.destino.lng]];
   }
-  if (!v && guiaActual && !orden.length && ultimaPos) pts = [[ultimaPos.lat, ultimaPos.lng], [guiaActual.lat, guiaActual.lng]];   // sin pedido: línea hacia la guía de Brothers
+  if (!v && guiaCliente() && !orden.length && ultimaPos) pts = [[ultimaPos.lat, ultimaPos.lng], [guiaActual.lat, guiaActual.lng]];   // sin pedido: línea hacia la guía de Brothers
   capaRuta.setLatLngs(pts); capaFlujo.setLatLngs(pts);
   capaRuta.setStyle({ opacity: v && v.rutaPts ? .9 : .5 });
+  const clave = v && v.rutaPts ? v.token + v.rutaPts.length + (v.rutaDist || 0) : "";
+  if (clave !== flechasClave) { flechasClave = clave; if (clave) Ruta.flechas(v.rutaPts, flechasOrden, "#0A86C9"); else flechasOrden.clearLayers(); }
   pintarGuia();
 }
 
@@ -311,14 +324,14 @@ function usarUbicacionCliente(v) {
 function guardarViajes() {
   try {
     const otros = JSON.parse(localStorage.getItem("viajesActivos") || "[]").filter((x) => x.uid !== uidActual);
-    const mios = orden.map((t) => ({ token: t, tel: viajes[t].tel, pedido: viajes[t].pedido, cliente: viajes[t].cliente, destManual: viajes[t].destManual, uid: uidActual }));
+    const mios = orden.map((t) => ({ token: t, tel: viajes[t].tel, pedido: viajes[t].pedido, cliente: viajes[t].cliente, destManual: viajes[t].destManual, sinFactura: !!viajes[t].sinFactura, uid: uidActual }));
     localStorage.setItem("viajesActivos", JSON.stringify(otros.concat(mios)));
   } catch (_) {}
 }
 function crearViaje(info) {
   const v = {
     token: info.token, tel: info.tel || "", pedido: info.pedido || "", cliente: info.cliente || "",
-    destManual: !!info.destManual, destino: null, cliPos: null, cerca: false, dist: null,
+    destManual: !!info.destManual, sinFactura: !!info.sinFactura, cerrando: false, refEstado: null, destino: null, cliPos: null, cerca: false, dist: null,
     marca: null, marcaCli: null, refCli: null, refChat: null, noLeidos: 0, chatListo: false,
     rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null
   };
@@ -326,12 +339,48 @@ function crearViaje(info) {
   if (!orden.includes(v.token)) orden.push(v.token);
   escucharCliente(v);
   escucharChat(v);
+  escucharEstado(v);
   return v;
+}
+
+/* Si Brothers marca el pedido como entregado (o se cancela), desaparece también de este teléfono */
+function escucharEstado(v) {
+  v.refEstado = db.ref("pedidos/" + v.token + "/estado");
+  v.refEstado.on("value", (s) => {
+    const e = s.val();
+    if (!e || e === "en_ruta" || !viajes[v.token] || v.cerrando) return;
+    const quien = nombreDe(v), txt = e === "entregado" ? `Brothers marcó como entregado el pedido de ${quien}.` : `El pedido de ${quien} fue cancelado.`;
+    quitarViaje(v.token);
+    setEstado(txt, "ok");
+    Voz.hablar(txt, { forzar: true });
+    notificarTexto("Brothers", txt, "Pedido", { equipo: "guia" });
+    if (!document.hidden) alert(txt);
+  }, () => {});
+}
+
+/* Enlaces de contacto sin factura: la factura los puede usar después (mismo enlace) */
+function sincronizarContactos() {
+  Factura.contactos = orden.filter((t) => viajes[t] && viajes[t].sinFactura).map((t) => ({ token: t, pedido: viajes[t].pedido, cliente: viajes[t].cliente }));
+  Factura.refrescarContactos();
+}
+function contarFactura(f) {   // suma al contador del día que ve el administrador
+  const inc = (n) => firebase.database.ServerValue.increment(Number(n) || 0);
+  db.ref(`estadisticas/${Dia.clave()}/${uidActual}`).update({ facturas: inc(1), total: inc(f.total), delivery: inc(f.delivery), nombre: usuario }).catch(() => {});
 }
 
 /* Nuevo pedido: lo llama factura.js cuando se pulsa "Enviar factura por WhatsApp" */
 Factura.alEnviar = (f) => {
   if (!uidActual || !usuario) return;
+  contarFactura(f);
+  const ex = viajes[f.token];
+  if (ex) {   // la factura usa un enlace de contacto que ya estaba abierto: mismo token, ahora con factura
+    ex.sinFactura = false; ex.cliente = f.cliente || ex.cliente; ex.pedido = f.pedido;
+    db.ref("pedidos/" + f.token).update({ pedido: f.pedido, sinFactura: null }).catch(() => {});
+    guardarViajes(); sincronizarContactos(); renderLista();
+    seleccionado = f.token; irA("mapa"); seleccionar(f.token, false);
+    setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
+    return;
+  }
   if (orden.length === 0) rastro = [];
   const v = crearViaje({ token: f.token, tel: f.tel, pedido: f.pedido, cliente: f.cliente });
   guardarViajes();
@@ -344,6 +393,7 @@ Factura.alEnviar = (f) => {
     alert("No se pudo activar el seguimiento: " + e.message);
   });
   seleccionado = v.token;
+  sincronizarContactos();
   irA("mapa");
   seleccionar(v.token, false);
   setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
@@ -369,6 +419,7 @@ function reanudarViajes() {
       pintarCliente(v); renderLista(); refrescarTextos();
     }).catch(() => {});
   });
+  sincronizarContactos();
   if (orden.length) {
     seleccionado = orden[0]; renderLista();
     if (abrirPendiente && viajes[abrirPendiente]) { const v0 = viajes[abrirPendiente]; abrirPendiente = null; irA("mapa"); abrirChat(v0); }
@@ -378,7 +429,7 @@ function reanudarViajes() {
 }
 
 function soltarViajesEnMemoria() {   // al cerrar sesión: no borra nada en la nube ni en localStorage
-  orden.forEach((t) => { const v = viajes[t]; if (!v) return; v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); if (mapa) { v.marca && mapa.removeLayer(v.marca); v.marcaCli && mapa.removeLayer(v.marcaCli); } delete viajes[t]; });
+  orden.forEach((t) => { const v = viajes[t]; if (!v) return; v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off(); if (mapa) { v.marca && mapa.removeLayer(v.marca); v.marcaCli && mapa.removeLayer(v.marcaCli); } delete viajes[t]; });
   orden = []; seleccionado = null; chatToken = null; rastro = [];
   try { Chat.detener(); } catch (_) {}
   renderLista(); actualizarNav();
@@ -391,14 +442,14 @@ function guardarRastro() {   // el recorrido sobrevive aunque Android cierre la 
 }
 function quitarViaje(token) {
   const v = viajes[token]; if (!v) return;
-  v.refCli && v.refCli.off(); v.refChat && v.refChat.off();
+  v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off();
   if (chatToken === token) { Chat.detener(); chatToken = null; }   // el repartidor no conserva rastro del chat
   if (mapa) { v.marca && mapa.removeLayer(v.marca); v.marcaCli && mapa.removeLayer(v.marcaCli); }
   delete viajes[token];
   orden = orden.filter((t) => t !== token);
   if (seleccionado === token) seleccionado = orden[0] || null;
   if (!orden.length) { rastro = []; try { localStorage.removeItem("rastroViaje"); } catch (_) {} if (estelaProp) estelaProp.setLatLngs([]); }
-  guardarViajes();
+  guardarViajes(); sincronizarContactos();
   orden.forEach((t) => pintarCliente(viajes[t]));
   renderLista(); dibujarRuta(); actualizarNav();
   if (!orden.length && vistaActual === "mapa") irA("factura");
@@ -484,6 +535,8 @@ $("btnChatAdmin").onclick = abrirChatAdmin;
 function soltarAdmin() {
   if (refAdminChat) { refAdminChat.off(); refAdminChat = null; }
   if (refGuia) { refGuia.off(); refGuia = null; }
+  if (refLugares) { refLugares.off(); refLugares = null; }
+  lugares = {}; pintarLugares(); quitarLugarDestino();
   guiaActual = null; guiaTsVisto = undefined; noLeidosAdmin = 0; pintarBadgeAdmin(); pintarGuia();
 }
 function escucharAdmin() {
@@ -502,6 +555,10 @@ function escucharAdmin() {
   refAdminChat.once("value", () => { adminListo = true; });
 
   // Guía de Brothers: solo para este repartidor (cada uno tiene la suya en guias/{su uid})
+  if (refLugares) refLugares.off();
+  refLugares = db.ref("lugares");
+  refLugares.on("value", (s) => { lugares = s.val() || {}; pintarLugares(); if (!$("resBusqRep").classList.contains("oculto")) mostrarBusquedaRep(); }, () => {});
+
   refGuia = db.ref("guias/" + uidActual);
   refGuia.on("value", (s) => {
     const g = s.val(), primera = guiaTsVisto === undefined;
@@ -513,15 +570,25 @@ function escucharAdmin() {
   }, () => {});
 }
 const iconoGuia = L.divIcon({ className: "", html: '<div class="pin-cli sel"><b>🏠</b></div><span class="etq-cli">Cliente (Brothers)</span>', iconSize: [34, 34], iconAnchor: [17, 17] });
+const guiaCliente = () => (guiaActual && guiaActual.tipo !== "negocio" ? guiaActual : null);   // la guía a un negocio se maneja como destino libre
 function pintarGuia() {   // sin pedido en curso se dibuja el pin de la guía; con pedido, la guía ya es su destino
   if (!mapa) return;
-  if (guiaActual && !orden.length) {
+  if (guiaCliente() && !orden.length) {
     const p = [guiaActual.lat, guiaActual.lng];
     if (!marcaGuia) marcaGuia = L.marker(p, { icon: iconoGuia, zIndexOffset: 700 }).addTo(mapa); else marcaGuia.setLatLng(p);
   } else if (marcaGuia) { mapa.removeLayer(marcaGuia); marcaGuia = null; }
 }
 function aplicarGuia(g, nueva) {
   guiaActual = g;
+  if (g.tipo === "negocio") {   // Brothers te manda a un negocio: se abre como destino con su ruta por calles
+    irALugar({ nombre: g.nombre || "Negocio", lat: g.lat, lng: g.lng, icono: g.icono || "📍" }, !!nueva);
+    if (nueva) {
+      Voz.hablar("Brothers te ha indicado la ubicación de " + (g.nombre || "un negocio"), { forzar: true });
+      navigator.vibrate && navigator.vibrate([300, 150, 300]);
+      notificarTexto("Brothers", "Te indicó la ubicación de " + (g.nombre || "un negocio"), "Guía", { equipo: "guia" });
+    }
+    return;
+  }
   const v = (g.token && viajes[g.token]) || (orden.length === 1 ? viajes[orden[0]] : null) || (orden.length ? viajes[seleccionado] : null);
   if (v) fijarDestino(v, g.lat, g.lng);   // el pedido toma esa ubicación como destino (el cliente también la ve)
   pintarGuia(); dibujarRuta();
@@ -531,6 +598,109 @@ function aplicarGuia(g, nueva) {
   notificarTexto("Brothers", "Te indicó la ubicación del cliente", "Guía", { equipo: "guia" });
   irA("mapa");
   if (v) seleccionar(v.token, true); else { seguirme = false; setTimeout(() => encuadrar(false), 200); }
+}
+
+/* ---------- Negocios del mapa, buscador y navegación a un lugar ---------- */
+function pintarLugares() {
+  if (!mapa) return;
+  Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
+  Object.entries(lugares).forEach(([id, l]) => {
+    if (typeof l.lat !== "number") return;
+    const clave = [l.nombre, l.icono].join("|");
+    let m = lugarMarks[id];
+    if (!m) {
+      m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: Lugares.iconoMapa(l), zIndexOffset: 100 }).addTo(mapa);
+      m._clave = clave;
+      m.bindPopup(() => `<div class="pop-rep"><strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong>${l.dir ? `<small>${escHtml(l.dir)}</small>` : ""}
+        <div class="acciones-fila"><button class="mini pri" data-ir="${escHtml(id)}" type="button">🧭 Ir aquí</button></div></div>`, { offset: [0, -14], minWidth: 200 });
+    } else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(Lugares.iconoMapa(l)); m._clave = clave; } }
+  });
+}
+function mostrarBusquedaRep(online) {
+  const q = norm($("busqRep").value.trim()), caja = $("resBusqRep");
+  const locales = Object.entries(lugares).filter(([, l]) => !q || norm(l.nombre + " " + (l.dir || "")).includes(q)).slice(0, 8);
+  let html = locales.map(([id, l]) => `<div class="item-busq" data-k="l:${escHtml(id)}"><strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong><small>${escHtml(l.dir || "Negocio de Brothers")}</small></div>`).join("");
+  if (online) html += online.map((r, i) => `<div class="item-busq" data-k="o:${i}"><strong>${escHtml(r.nombre)}</strong><small>${escHtml(r.detalle || "")}</small></div>`).join("");
+  if (q && !online) html += `<div class="item-busq" data-k="buscar"><strong>🔎 Buscar “${escHtml($("busqRep").value.trim())}” en todo el mapa</strong><small>Direcciones, barrios, ciudades, coordenadas…</small></div>`;
+  caja.innerHTML = html || '<p class="ayuda">No hay negocios guardados todavía. Escribe para buscar en el mapa.</p>';
+  caja.classList.remove("oculto");
+}
+$("busqRep").addEventListener("input", () => { resultadosRep = []; $("busqRep").value ? mostrarBusquedaRep() : $("resBusqRep").classList.add("oculto"); });
+$("busqRep").addEventListener("focus", () => mostrarBusquedaRep());
+$("formBusqRep").onsubmit = (e) => { e.preventDefault(); buscarEnMapa(); };
+async function buscarEnMapa() {
+  const q = $("busqRep").value.trim(); if (!q) return;
+  $("resBusqRep").innerHTML = '<p class="ayuda">Buscando…</p>';
+  try { resultadosRep = await Buscar.buscar(q, mapa && mapa.getBounds()); mostrarBusquedaRep(resultadosRep); }
+  catch (err) { $("resBusqRep").innerHTML = `<p class="ayuda">No se pudo buscar: ${escHtml(err.message)}</p>`; }
+}
+$("resBusqRep").onclick = (e) => {
+  const it = e.target.closest("[data-k]"); if (!it) return;
+  const k = it.dataset.k;
+  if (k === "buscar") return buscarEnMapa();
+  if (k.startsWith("l:")) return irALugar(lugares[k.slice(2)], true);
+  const r = resultadosRep[+k.slice(2)]; if (r) irALugar({ nombre: r.nombre, lat: r.lat, lng: r.lng, icono: "📍" }, true);
+};
+function irALugar(l, enfocar) {
+  if (!l) return;
+  lugarDestino = { nombre: l.nombre, lat: l.lat, lng: l.lng, icono: l.icono || "📍" }; rutaLugar = null;
+  $("resBusqRep").classList.add("oculto"); $("busqRep").blur();
+  if (enfocar && vistaActual !== "mapa") irA("mapa");   // al restaurar una guía vieja no se cambia de pantalla
+  initMapa(); pintarLugarDestino();
+  if (enfocar) { seguirme = false; mapa.flyTo([l.lat, l.lng], 16); }
+  pedirRutaLugar(true); actualizarBanner();
+}
+function pintarLugarDestino() {
+  if (!mapa) return;
+  if (!lugarDestino) { if (marcaLugar) { mapa.removeLayer(marcaLugar); marcaLugar = null; } return; }
+  const p = [lugarDestino.lat, lugarDestino.lng], ic = Lugares.iconoMapa(lugarDestino, true);
+  if (!marcaLugar) marcaLugar = L.marker(p, { icon: ic, zIndexOffset: 900 }).addTo(mapa); else { marcaLugar.setLatLng(p); marcaLugar.setIcon(ic); }
+}
+function quitarLugarDestino() {
+  lugarDestino = null; rutaLugar = null;
+  if (capaLugar) capaLugar.setLatLngs([]);
+  if (flechasLugar) flechasLugar.clearLayers();
+  pintarLugarDestino(); actualizarBanner();
+}
+async function pedirRutaLugar(forzar) {
+  if (!lugarDestino || !ultimaPos) return;
+  const r0 = rutaLugar, ahora = Date.now();
+  if (!forzar && r0 && (ahora - r0.rutaEn < 15000 || distanciaM(ultimaPos.lat, ultimaPos.lng, r0.rutaOrigen.lat, r0.rutaOrigen.lng) < 60)) return;
+  const o = { lat: ultimaPos.lat, lng: ultimaPos.lng }, destino = lugarDestino;
+  if (!rutaLugar) rutaLugar = { rutaEn: ahora, rutaOrigen: o, rutaPts: null };
+  rutaLugar.rutaEn = ahora; rutaLugar.rutaOrigen = o;
+  try {
+    const r = await Ruta.pedir(o, destino);
+    if (lugarDestino !== destino) return;
+    Object.assign(rutaLugar, { rutaPts: r.pts, rutaPasos: r.pasos, rutaDur: r.dur, rutaDist: r.dist, rutaIdx: Math.min(1, r.pasos.length - 1) });
+    Ruta.flechas(r.pts, flechasLugar, "#B45309");
+  } catch (_) { /* sin ruta por calles: línea recta */ }
+  dibujarRutaLugar(); actualizarBanner();
+}
+function dibujarRutaLugar() {
+  if (!capaLugar) return;
+  if (!lugarDestino || !ultimaPos) return capaLugar.setLatLngs([]);
+  const aqui = [ultimaPos.lat, ultimaPos.lng];
+  capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...rutaLugar.rutaPts] : [aqui, [lugarDestino.lat, lugarDestino.lng]]);
+  capaLugar.setStyle({ opacity: rutaLugar && rutaLugar.rutaPts ? .9 : .5 });
+}
+/* Aviso de ruta: próximo giro, calle y distancia (calles de un solo sentido ya vienen resueltas en la ruta) */
+function actualizarBanner() {
+  const b = $("bannerRuta"); if (!b) return;
+  const n = lugarDestino ? rutaLugar : viajes[seleccionado];
+  const titulo = lugarDestino ? `${lugarDestino.icono} ${lugarDestino.nombre}` : (n ? "👤 " + nombreDe(n) : "");
+  if (!lugarDestino && !(n && n.rutaPasos)) { b.classList.add("oculto"); return; }
+  b.classList.remove("oculto");
+  const cerrar = lugarDestino ? '<button id="brX" type="button" aria-label="Quitar destino">✕</button>' : "";
+  if (!n || !n.rutaPasos || !ultimaPos) { b.innerHTML = `<div class="br-fila"><span class="br-ic">🧭</span><div class="br-txt"><b>Calculando ruta a ${escHtml(titulo)}…</b></div>${cerrar}</div>`; }
+  else {
+    const aqui = [ultimaPos.lat, ultimaPos.lng], pasos = n.rutaPasos;
+    while (n.rutaIdx < pasos.length - 1 && Ruta.dist(aqui, [pasos[n.rutaIdx].loc.lat, pasos[n.rutaIdx].loc.lng]) < 30) n.rutaIdx++;
+    const p = pasos[n.rutaIdx], [ic, tx] = Ruta.textoPaso(p), d = Math.round(Ruta.dist(aqui, [p.loc.lat, p.loc.lng]));
+    b.innerHTML = `<div class="br-fila"><span class="br-ic">${ic}</span><div class="br-txt"><b>${escHtml(tx)}</b><small>${p.tipo === "arrive" ? "" : "en " + formatoDist(d) + " · "}${escHtml(titulo)}</small></div>${cerrar}</div>
+      <small>${formatoDist(n.rutaDist)} · ≈ ${Math.max(1, Math.round(n.rutaDur / 60))} min${Ruta.calles(pasos) ? " · Vía: " + escHtml(Ruta.calles(pasos)) : ""}</small>`;
+  }
+  const x = $("brX"); if (x) x.onclick = quitarLugarDestino;
 }
 
 /* ---------- Lista de pedidos (hoja inferior del mapa) ---------- */
@@ -560,6 +730,7 @@ function renderLista() {
 }
 function textoSub(v) {
   const p = [];
+  if (v.sinFactura) p.push("enlace de contacto (aún sin factura)");
   p.push(v.destino ? (v.dist != null ? "a " + formatoDist(v.dist) : "calculando…") : "sin destino");
   if (v.rutaDur) p.push("≈ " + Math.max(1, Math.round(v.rutaDur / 60)) + " min");
   p.push(v.destManual ? "destino marcado por ti" : !v.cliPos ? "el cliente aún no comparte ubicación" : v.cliPos.manual ? "ubicación marcada por el cliente" : esVivo(v) ? "cliente en vivo" : "cliente sin señal");
@@ -571,7 +742,7 @@ function refrescarTextos() {
     const sub = $("sub-" + t); if (!sub) return;
     sub.textContent = textoSub(v);
     const chip = $("chip-" + t);
-    chip.textContent = v.cerca ? "Cerca" : esVivo(v) ? "En vivo" : "En ruta";
+    chip.textContent = v.cerca ? "Cerca" : v.sinFactura ? "Sin factura" : esVivo(v) ? "En vivo" : "En ruta";
     chip.className = "chip " + (v.cerca ? "alerta" : "vivo");
     const bd = $("bd-" + t); bd.textContent = v.noLeidos; bd.classList.toggle("oculto", !v.noLeidos);
     $("usarcli-" + t).classList.toggle("oculto", !(v.destManual && v.cliPos));
@@ -762,7 +933,7 @@ function procesarPosicion(c) {
   if (mapa && vistaActual === "mapa") {
     if (primera && !orden.length) mapa.setView([lat, lng], 16);
     else if (seguirme && !mapa.getBounds().pad(-0.25).contains([lat, lng])) mapa.panTo([lat, lng]);
-    dibujarRuta();
+    dibujarRuta(); dibujarRutaLugar(); actualizarBanner();
   }
 
   const ahora = Date.now();
@@ -779,6 +950,7 @@ function procesarPosicion(c) {
   const base = { lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed), ts: TS };
   orden.forEach((t) => evaluarViaje(viajes[t], base));
   if (seleccionado) pedirRuta(viajes[seleccionado]);
+  if (lugarDestino) pedirRutaLugar();
   refrescarTextos();
   setEstado(`Compartiendo ubicación · ±${precision} m` + (orden.length ? ` · ${orden.length} pedido${orden.length > 1 ? "s" : ""} en ruta` : "") + (bgPlugin ? " · segundo plano activo" : " · solo con pantalla activa (usa el APK)"), "ok");
 }
@@ -790,15 +962,29 @@ function enviarContacto(v) {
     `📞 *SOLICITUD DE CONTACTO*\n🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · Cliente: " + v.cliente : ""}\n\n` +
     `💬 El repartidor desea contactarse con usted, por favor presione el enlace para responderle:\n${enlace}`);
 }
+function nuevoContacto() {   // crea el MISMO enlace de seguimiento que crea la factura, sin hacer la factura todavía
+  let nombre = ($("customerName").value || "").trim();
+  if (!nombre) nombre = (prompt("Nombre del cliente (para identificarlo):") || "").trim();
+  if (!nombre) return;
+  const token = generarToken(), pedido = Factura.nuevoCodigo();
+  crearViaje({ token, pedido, cliente: nombre, sinFactura: true });
+  if (!seleccionado) seleccionado = token;
+  guardarViajes(); sincronizarContactos(); renderLista();
+  db.ref("pedidos/" + token).set({ estado: "en_ruta", pedido, inicio: TS, repartidorUid: uidActual, repartidorNombre: usuario, sinFactura: true })
+    .catch((e) => { quitarViaje(token); alert("No se pudo crear el enlace: " + e.message); });
+  enviarContacto(viajes[token]);
+}
 $("btnContactoCliente").onclick = () => {
-  if (!orden.length) return alert("Primero envía la factura del pedido: el enlace de contacto se crea junto con el pedido.");
-  if (orden.length === 1) return enviarContacto(viajes[orden[0]]);
-  $("contactoLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${escHtml(nombreDe(viajes[t]))} · ${escHtml(viajes[t].pedido)}</button>`).join("");
+  if (!orden.length) return nuevoContacto();
+  $("contactoLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${escHtml(nombreDe(viajes[t]))} · ${escHtml(viajes[t].pedido)}${viajes[t].sinFactura ? " (sin factura)" : ""}</button>`).join("") +
+    '<button class="primario" data-t="__nuevo" type="button">➕ Cliente nuevo (aún sin factura)</button>';
   $("modalContacto").classList.remove("oculto");
 };
 $("contactoLista").onclick = (e) => {
-  const b = e.target.closest("button[data-t]"); if (!b || !viajes[b.dataset.t]) return;
-  $("modalContacto").classList.add("oculto"); enviarContacto(viajes[b.dataset.t]);
+  const b = e.target.closest("button[data-t]"); if (!b) return;
+  $("modalContacto").classList.add("oculto");
+  if (b.dataset.t === "__nuevo") return nuevoContacto();
+  if (viajes[b.dataset.t]) enviarContacto(viajes[b.dataset.t]);
 };
 $("btnContactoCancelar").onclick = () => $("modalContacto").classList.add("oculto");
 
@@ -813,13 +999,14 @@ async function cerrarViaje(token, estadoFinal) {
   const v = viajes[token]; if (!v) return;
   const quien = nombreDe(v);
   if (!confirm(estadoFinal === "entregado" ? `¿Confirmar la entrega a ${quien}?` : `¿Cancelar el pedido de ${quien}?`)) return;
+  v.cerrando = true;   // para que no avise "Brothers lo marcó" cuando lo cierra el propio repartidor
   try {
     await db.ref("pedidos/" + token).update({
       estado: estadoFinal, lat: null, lng: null, rumbo: null, velocidad: null, precision: null,
       destLat: null, destLng: null, distancia: null, cerca: null, cliente: null, fin: TS
     });
-  } catch (e) { return alert("No se pudo cerrar en la nube: " + e.message); }
-  if (guiaActual && (!guiaActual.token || guiaActual.token === token)) db.ref("guias/" + uidActual).remove().catch(() => {});   // la guía ya cumplió su función
+  } catch (e) { v.cerrando = false; return alert("No se pudo cerrar en la nube: " + e.message); }
+  if (guiaCliente() && (!guiaActual.token || guiaActual.token === token)) db.ref("guias/" + uidActual).remove().catch(() => {});   // la guía ya cumplió su función
   quitarViaje(token);          // el GPS del turno sigue activo
   irA("factura");              // vuelve a la factura…
   if (estadoFinal === "entregado") mostrarEntregado(quien);   // …con la ventana para moverse entre pantallas

@@ -30,6 +30,9 @@ let selUid = null;            // repartidor elegido para guiarlo
 let resEquipo = {}, sinLeerEq = {}, chatEqAbierto = null;
 let refGuias = null, refEq = null;
 let modoSel = false;          // selección múltiple de chats
+let lugares = {}, refLugares = null;   // negocios agregados al mapa
+const lugarMarks = {};
+let modoNegocio = false, marcaBusq = null, datosBusq = null, resultadosBusq = [];
 const selChats = new Set();
 
 /* ---------- Utilidades ---------- */
@@ -123,7 +126,12 @@ function initMapa() {
     }).addTo(mapa);
   }
   iniciarPopups();
-  mapa.on("click", (e) => { if (selUid) fijarGuia(selUid, e.latlng); });   // con un repartidor elegido, tocar el mapa = marcar dónde está el cliente
+  mapa.on("click", (e) => {
+    if (modoNegocio) { terminarModoNegocio(); return formNegocio({ lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6) }); }
+    if (selUid) fijarGuia(selUid, e.latlng);   // el mapa se puede mover y explorar libremente; solo un toque marca la guía
+  });
+  mapa.on("zoomend", () => mapa.getContainer().classList.toggle("zoom-lejos", mapa.getZoom() < 15));   // nombres de negocios solo de cerca
+  mapa.getContainer().classList.add("zoom-lejos");   // con un repartidor elegido, tocar el mapa = marcar dónde está el cliente
   setTimeout(() => mapa.invalidateSize(), 50);
 }
 function ajustarVista() {
@@ -176,7 +184,8 @@ function popupRep(uid) {
       <button class="mini pri" data-pa="guiar" data-uid="${esc(uid)}" type="button">📍 Guiar</button>
       <button class="mini" data-pa="chat" data-uid="${esc(uid)}" type="button">💬 Chat${n ? " (" + n + ")" : ""}</button>
       ${guias[uid] ? `<button class="mini peligro" data-pa="quitarguia" data-uid="${esc(uid)}" type="button">Quitar guía</button>` : ""}
-    </div></div>`;
+    </div>
+    ${viajesDe(uid).map((x) => `<button class="mini" data-pa="entregarped" data-token="${esc(x.token)}" type="button">✓ Marcar entregado: ${esc(x.d.pedido || "—")}</button>`).join("")}</div>`;
 }
 function popupCliente(token) {
   const d = activos[token] || {}, c = d.cliente || {}, uid = d.repartidorUid;
@@ -185,7 +194,9 @@ function popupCliente(token) {
   return `<div class="pop-rep"><strong>👤 Cliente · Pedido ${esc(d.pedido || "—")}</strong>
     <small>Lo lleva: <b>${esc(nombreUid(uid))}</b></small>
     <small>${tipo} · ${hace(c.ts)}${c.precision ? " · ±" + c.precision + " m" : ""}</small>
-    <div class="acciones-fila"><button class="mini pri" data-pa="guiaclie" data-token="${esc(token)}" type="button">📍 Guiar a ${esc(nombreUid(uid))} hasta aquí</button></div></div>`;
+    ${d.sinFactura ? "<small>🧾 Todavía sin factura (solo enlace de contacto)</small>" : ""}
+    <div class="acciones-fila"><button class="mini pri" data-pa="guiaclie" data-token="${esc(token)}" type="button">📍 Guiar a ${esc(nombreUid(uid))} hasta aquí</button>
+    <button class="mini" data-pa="entregarped" data-token="${esc(token)}" type="button">✓ Marcar como entregado</button></div></div>`;
 }
 function iniciarPopups() {
   mapa.on("popupopen", (e) => {
@@ -197,6 +208,16 @@ function iniciarPopups() {
         if (a === "guiar") { selUid = uid; pintarSeleccion(); }
         else if (a === "chat") abrirChatRep(uid);
         else if (a === "quitarguia") db.ref("guias/" + uid).remove().then(() => toast("Guía quitada.")).catch((err) => toast(err.message));
+        else if (a === "guiarbus" && datosBusq) { if (selUid) fijarGuia(selUid, datosBusq); }
+        else if (a === "negbus" && datosBusq) formNegocio({ nombre: datosBusq.tipo === "coords" ? "" : datosBusq.nombre, dir: datosBusq.tipo === "coords" ? "" : datosBusq.detalle.slice(0, 120), lat: +datosBusq.lat.toFixed(6), lng: +datosBusq.lng.toFixed(6) });
+        else if (a === "cerrarbus") { if (marcaBusq) { mapa.removeLayer(marcaBusq); marcaBusq = null; } }
+        else if (a === "guiarlugar") { const l = lugares[b.dataset.id]; if (l && selUid) fijarGuia(selUid, l, null, { tipo: "negocio", nombre: l.nombre, icono: l.icono || "📍" }); }
+        else if (a === "editarlugar") formNegocio(lugares[b.dataset.id], b.dataset.id);
+        else if (a === "borrarlugar") {
+          const l = lugares[b.dataset.id];
+          if (l && confirm(`¿Eliminar el negocio “${l.nombre}”? Los repartidores dejarán de verlo.`)) db.ref("lugares/" + b.dataset.id).remove().then(() => toast("Negocio eliminado.")).catch((err) => toast(err.message));
+        }
+        else if (a === "entregarped") marcarEntregado(b.dataset.token);
         else if (a === "guiaclie") {
           const d = activos[b.dataset.token];
           if (d && d.cliente && d.repartidorUid) fijarGuia(d.repartidorUid, { lat: d.cliente.lat, lng: d.cliente.lng }, b.dataset.token);
@@ -205,6 +226,155 @@ function iniciarPopups() {
     });
   });
 }
+
+/* ---------- Marcar un pedido como entregado (si el repartidor lo olvidó) ---------- */
+async function marcarEntregado(token) {
+  const d = activos[token]; if (!d) return toast("Ese pedido ya no está en ruta.");
+  const quien = nombreUid(d.repartidorUid);
+  if (!confirm(`¿Marcar como ENTREGADO el pedido ${d.pedido || ""} que lleva ${quien}?\nDesaparecerá de su app y el cliente verá “Paquete entregado”.`)) return;
+  try {
+    await db.ref("pedidos/" + token).update({
+      estado: "entregado", fin: firebase.database.ServerValue.TIMESTAMP, entregadoPor: "admin",
+      lat: null, lng: null, rumbo: null, velocidad: null, precision: null, destLat: null, destLng: null, distancia: null, cerca: null, cliente: null
+    });
+    if (guias[d.repartidorUid] && guias[d.repartidorUid].token === token) db.ref("guias/" + d.repartidorUid).remove().catch(() => {});
+    toast(`Pedido ${d.pedido || ""} marcado como entregado ✓`);
+  } catch (e) { toast("No se pudo marcar: " + e.message); }
+}
+
+/* ---------- Facturas del día ---------- */
+let refStats = null, facturasHoy = 0;
+function cargarStats() {
+  if (refStats) refStats.off();
+  const dia = $("diaStats").value || Dia.clave();
+  refStats = db.ref("estadisticas/" + dia);
+  refStats.on("value", (s) => pintarStats(s.val() || {}, dia), (e) => { $("statsDia").innerHTML = `<p class="ayuda">No se pudieron leer las facturas: ${esc(e.message)}</p>`; });
+}
+function pintarStats(d, dia) {
+  const uids = [...new Set([...Object.keys(registrados), ...Object.keys(d)])];
+  const filas = uids.map((uid) => { const x = d[uid] || {}; return { nombre: x.nombre || nombreUid(uid), f: x.facturas || 0, t: x.total || 0, del: x.delivery || 0 }; }).sort((a, b) => b.f - a.f || a.nombre.localeCompare(b.nombre));
+  const tf = filas.reduce((n, x) => n + x.f, 0), tt = filas.reduce((n, x) => n + x.t, 0), td = filas.reduce((n, x) => n + x.del, 0);
+  if (dia === Dia.clave()) { facturasHoy = tf; pintarLista(); }
+  const money = (n) => "C$ " + (Math.round(n * 100) / 100).toFixed(2);
+  $("statsDia").innerHTML = `<div class="stats-total"><b>${tf}</b> factura${tf === 1 ? "" : "s"} ${dia === Dia.clave() ? "hoy" : "el " + esc(dia)}<br>Delivery ${money(td)} · Ventas ${money(tt)}</div>` +
+    filas.map((x) => `<div class="stats-fila"><div><strong>${esc(x.nombre)}</strong><small>Delivery ${money(x.del)} · Ventas ${money(x.t)}</small></div><b class="n">${x.f}</b></div>`).join("");
+}
+$("diaStats").onchange = cargarStats;
+
+/* ---------- Buscador del mapa ---------- */
+$("formBusq").onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $("busq").value.trim(); if (!q) return;
+  const caja = $("resBusq"); caja.innerHTML = '<p class="ayuda">Buscando…</p>'; caja.classList.remove("oculto");
+  try {
+    resultadosBusq = await Buscar.buscar(q, mapa.getBounds());
+    caja.innerHTML = resultadosBusq.length
+      ? resultadosBusq.map((r, i) => `<div class="item-busq" data-i="${i}"><strong>${esc(r.nombre)}</strong><small>${esc(r.detalle || "")}</small></div>`).join("")
+      : '<p class="ayuda">Sin resultados. Prueba con el nombre y la ciudad, o escribe las coordenadas.</p>';
+  } catch (err) { caja.innerHTML = `<p class="ayuda">No se pudo buscar: ${esc(err.message)}</p>`; }
+};
+$("busq").addEventListener("input", () => { if (!$("busq").value) $("resBusq").classList.add("oculto"); });
+$("resBusq").onclick = (e) => {
+  const it = e.target.closest("[data-i]"); if (!it) return;
+  mostrarResultado(resultadosBusq[+it.dataset.i]);
+  $("resBusq").classList.add("oculto");
+};
+function mostrarResultado(r) {
+  if (marcaBusq) mapa.removeLayer(marcaBusq);
+  datosBusq = r;
+  marcaBusq = L.marker([r.lat, r.lng], { icon: iconoPin() }).addTo(mapa).bindPopup(() => popupBusq(r), { offset: [0, -30], minWidth: 230 });
+  mapa.flyTo([r.lat, r.lng], r.tipo === "coords" ? 18 : 17);
+  setTimeout(() => marcaBusq && marcaBusq.openPopup(), 700);
+}
+function popupBusq(r) {
+  return `<div class="pop-rep"><strong>${esc(r.nombre)}</strong>
+    <small>${esc(r.detalle || "")}</small><small>${r.lat.toFixed(6)}, ${r.lng.toFixed(6)}</small>
+    <div class="acciones-fila">
+      ${selUid ? `<button class="mini pri" data-pa="guiarbus" type="button">📍 Guiar a ${esc(nombreUid(selUid))} hasta aquí</button>` : ""}
+      <button class="mini" data-pa="negbus" type="button">➕ Guardar como negocio</button>
+      <button class="mini" data-pa="cerrarbus" type="button">Quitar</button>
+    </div></div>`;
+}
+
+/* ---------- Negocios en el mapa (icono + nombre + ubicación precisa) ---------- */
+function terminarModoNegocio() { modoNegocio = false; $("btnNegocio").classList.remove("activo"); if (mapa) mapa.getContainer().classList.remove("modo-guia"); }
+$("btnNegocio").onclick = () => {
+  if (modoNegocio) { terminarModoNegocio(); return toast("Cancelado."); }
+  modoNegocio = true; selUid = null; pintarSeleccion(); pintarLista();
+  $("btnNegocio").classList.add("activo"); mapa.getContainer().classList.add("modo-guia");
+  toast("Toca el mapa donde está el negocio (o búscalo y usa “Guardar como negocio”).");
+};
+$("btnNuevoNegocio").onclick = () => { document.querySelector('.tabs button[data-tab="panelMapa"]').click(); setTimeout(() => $("btnNegocio").click(), 150); };
+
+function formNegocio(d, id) {
+  let icono = d.icono || "🏪";
+  modal(`<h2>${id ? "✏️ Editar negocio" : "➕ Nuevo negocio"}</h2>
+    <label>Nombre<input id="nNombre" maxlength="60" value="${esc(d.nombre || "")}" placeholder="Ej. Pizzería La Esquina"></label>
+    <label>Dirección o referencia (opcional)<input id="nDir" maxlength="120" value="${esc(d.dir || "")}" placeholder="Frente al parque…"></label>
+    <div><small>Icono que verán los repartidores</small><div class="icon-grid">${Lugares.ICONOS.map((i) => `<button type="button" class="ic${i === icono ? " on" : ""}" data-ic="${i}">${i}</button>`).join("")}</div></div>
+    <div class="dos-botones"><label>Latitud<input id="nLat" type="number" step="0.000001" value="${d.lat}"></label><label>Longitud<input id="nLng" type="number" step="0.000001" value="${d.lng}"></label></div>
+    <small>Para afinar la ubicación escribe las coordenadas (6 decimales ≈ 10 cm).</small>
+    <button id="nOk" class="primario" type="button">Guardar</button><button id="nNo" class="oscuro" type="button">Cancelar</button>`);
+  document.querySelectorAll(".icon-grid .ic").forEach((b) => b.onclick = () => {
+    icono = b.dataset.ic; document.querySelectorAll(".icon-grid .ic").forEach((x) => x.classList.toggle("on", x === b));
+  });
+  $("nNo").onclick = cerrarModal;
+  $("nOk").onclick = async () => {
+    const nombre = $("nNombre").value.trim(), lat = parseFloat($("nLat").value), lng = parseFloat($("nLng").value);
+    if (nombre.length < 2) return toast("Escribe el nombre del negocio.");
+    if (!(Math.abs(lat) <= 90 && Math.abs(lng) <= 180)) return toast("Las coordenadas no son válidas.");
+    const datos = { nombre, icono, dir: $("nDir").value.trim().slice(0, 120), lat, lng };
+    $("nOk").disabled = true;
+    try {
+      if (id) await db.ref("lugares/" + id).update({ ...datos, actualizado: firebase.database.ServerValue.TIMESTAMP });
+      else await db.ref("lugares").push({ ...datos, creado: firebase.database.ServerValue.TIMESTAMP });
+      cerrarModal(); toast(`Negocio “${nombre}” guardado ✓ Los repartidores ya lo ven.`);
+      if (marcaBusq) { mapa.removeLayer(marcaBusq); marcaBusq = null; }
+    } catch (err) { toast("No se pudo guardar: " + err.message); $("nOk").disabled = false; }
+  };
+}
+function pintarLugares() {
+  if (!mapa) return;
+  Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
+  Object.entries(lugares).forEach(([id, l]) => {
+    if (typeof l.lat !== "number") return;
+    const clave = [l.nombre, l.icono].join("|");
+    let m = lugarMarks[id];
+    if (!m) { m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: Lugares.iconoMapa(l), zIndexOffset: 100 }).addTo(mapa); m._clave = clave; m.bindPopup(() => popupLugar(id), { offset: [0, -14], minWidth: 230 }); }
+    else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(Lugares.iconoMapa(l)); m._clave = clave; } }
+  });
+}
+function popupLugar(id) {
+  const l = lugares[id] || {};
+  return `<div class="pop-rep"><strong>${esc(l.icono || "📍")} ${esc(l.nombre)}</strong>
+    ${l.dir ? `<small>${esc(l.dir)}</small>` : ""}<small>${(+l.lat).toFixed(6)}, ${(+l.lng).toFixed(6)}</small>
+    <div class="acciones-fila">
+      ${selUid ? `<button class="mini pri" data-pa="guiarlugar" data-id="${esc(id)}" type="button">📍 Enviar a ${esc(nombreUid(selUid))} hasta aquí</button>` : ""}
+      <button class="mini" data-pa="editarlugar" data-id="${esc(id)}" type="button">✏️ Editar</button>
+      <button class="mini peligro" data-pa="borrarlugar" data-id="${esc(id)}" type="button">🗑</button>
+    </div></div>`;
+}
+function pintarNegocios() {
+  const ids = Object.keys(lugares).sort((a, b) => lugares[a].nombre.localeCompare(lugares[b].nombre));
+  $("listaNegocios").innerHTML = ids.length ? ids.map((id) => {
+    const l = lugares[id];
+    return `<div class="tarjeta-rep"><div class="fila"><span class="avatar" style="font-size:26px">${esc(l.icono || "📍")}</span>
+      <div class="datos"><strong>${esc(l.nombre)}</strong><small>${esc(l.dir || "Sin referencia")} · ${(+l.lat).toFixed(5)}, ${(+l.lng).toFixed(5)}</small></div></div>
+      <div class="acciones-fila"><button class="mini" data-ln="ver" data-id="${esc(id)}" type="button">Ver en el mapa</button>
+      <button class="mini" data-ln="editar" data-id="${esc(id)}" type="button">Editar</button>
+      <button class="mini peligro" data-ln="borrar" data-id="${esc(id)}" type="button">Eliminar</button></div></div>`;
+  }).join("") : '<p class="ayuda">Aún no hay negocios. Agrega el primero.</p>';
+}
+$("listaNegocios").onclick = (e) => {
+  const b = e.target.closest("button[data-ln]"); if (!b) return;
+  const id = b.dataset.id, l = lugares[id]; if (!l) return;
+  if (b.dataset.ln === "editar") formNegocio(l, id);
+  else if (b.dataset.ln === "borrar") { if (confirm(`¿Eliminar el negocio “${l.nombre}”?`)) db.ref("lugares/" + id).remove().then(() => toast("Negocio eliminado.")).catch((err) => toast(err.message)); }
+  else {
+    document.querySelector('.tabs button[data-tab="panelMapa"]').click();
+    setTimeout(() => { mapa.flyTo([l.lat, l.lng], 18); setTimeout(() => lugarMarks[id] && lugarMarks[id].openPopup(), 800); }, 150);
+  }
+};
 
 /* ---------- Clientes en el mapa (cuando abren el enlace o marcan su ubicación) ---------- */
 const clientesM = {};   // token → { pin, linea }
@@ -253,20 +423,36 @@ function toast(t) {
 function pintarGuia(uid) {
   const g = guias[uid]; let c = guiaCapas[uid];
   if (!g || typeof g.lat !== "number") {
-    if (c) { mapa.removeLayer(c.pin); mapa.removeLayer(c.linea); delete guiaCapas[uid]; }
+    if (c) { mapa.removeLayer(c.pin); mapa.removeLayer(c.linea); mapa.removeLayer(c.flechas); delete guiaCapas[uid]; }
     return;
   }
-  const col = colorUid(uid), p = [g.lat, g.lng], nom = nombreUid(uid), clave = nom + "|" + col;
-  const icono = () => L.divIcon({ className: "", html: `<div class="pin-guia" style="--c:${col}"><b>🏠</b></div><span class="etq-cli">Guía para ${esc(nom)}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+  const col = colorUid(uid), p = [g.lat, g.lng], nom = nombreUid(uid), neg = g.tipo === "negocio";
+  const clave = [nom, col, g.icono, g.nombre].join("|");
+  const icono = () => L.divIcon({ className: "", html: `<div class="pin-guia" style="--c:${col}"><b>${esc(neg ? (g.icono || "📍") : "🏠")}</b></div><span class="etq-cli">Guía para ${esc(nom)}${neg ? `<small>${esc(g.nombre || "")}</small>` : ""}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] });
   if (!c) {
     c = guiaCapas[uid] = {
       pin: L.marker(p, { icon: icono(), zIndexOffset: 300 }).addTo(mapa),
-      linea: L.polyline([], { color: col, weight: 4, opacity: .85, dashArray: "4 10" }).addTo(mapa), clave
+      linea: L.polyline([], { color: col, weight: 4, opacity: .85, dashArray: "4 10" }).addTo(mapa),
+      flechas: L.layerGroup().addTo(mapa), clave, rutaEn: 0
     };
   } else if (c.clave !== clave) { c.pin.setIcon(icono()); c.clave = clave; }
   c.pin.setLatLng(p);
   const u = ubic[uid];
-  c.linea.setLatLngs(u && typeof u.lat === "number" ? [[u.lat, u.lng], p] : []);
+  if (!u || typeof u.lat !== "number") return c.linea.setLatLngs([]);
+  // Ruta por calles (respeta sentidos); mientras llega, línea recta punteada
+  if (c.pts) c.linea.setLatLngs([[u.lat, u.lng], ...c.pts]); else c.linea.setLatLngs([[u.lat, u.lng], p]);
+  const movido = !c.origen || Ruta.dist([u.lat, u.lng], c.origen) > 80, cambioDest = !c.dest || Ruta.dist(p, c.dest) > 10;
+  if ((movido || cambioDest || !c.pts) && Date.now() - c.rutaEn > (cambioDest ? 1500 : 20000)) {
+    c.rutaEn = Date.now();
+    const o = { lat: u.lat, lng: u.lng };
+    Ruta.pedir(o, { lat: g.lat, lng: g.lng }).then((r) => {
+      if (!guiaCapas[uid]) return;
+      c.pts = r.pts; c.origen = [o.lat, o.lng]; c.dest = p;
+      c.linea.setStyle({ dashArray: null, weight: 5, opacity: .9 });
+      c.linea.setLatLngs([[o.lat, o.lng], ...r.pts]);
+      Ruta.flechas(r.pts, c.flechas, col);
+    }).catch(() => {});
+  }
 }
 function seleccionarRep(uid) { selUid = selUid === uid ? null : uid; pintarSeleccion(); pintarLista(); }
 function pintarSeleccion() {
@@ -281,9 +467,10 @@ function pintarSeleccion() {
   sel.classList.toggle("oculto", vs.length < 2);   // con varios pedidos, eliges para cuál es la guía
   $("btnGuiaQuitar").classList.toggle("oculto", !guias[selUid]);
 }
-async function fijarGuia(uid, ll, tokenForzado) {
+async function fijarGuia(uid, ll, tokenForzado, extra) {
   const dato = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), ts: firebase.database.ServerValue.TIMESTAMP, por: "admin" };
-  const tk = tokenForzado || $("guiaPedido").value; if (tk) dato.token = tk;
+  const tk = tokenForzado || (extra ? "" : $("guiaPedido").value); if (tk) dato.token = tk;
+  if (extra) Object.assign(dato, extra);   // guía a un negocio: nombre e icono
   try { await db.ref("guias/" + uid).set(dato); toast(`Guía enviada a ${nombreUid(uid)} ✓ Solo la ve él.`); }
   catch (e) { return toast("No se pudo enviar la guía: " + e.message); }
   selUid = null; pintarSeleccion(); pintarLista();   // listo: los demás repartidores no se tocan
@@ -316,6 +503,13 @@ function iniciarMonitoreo() {
   refUbic.on("child_changed", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarClientes(); pintarLista(); });
   refUbic.on("child_removed", (s) => { delete ubic[s.key]; quitarMarcador(s.key); pintarLista(); });
 
+  // Facturas del día (cada repartidor suma la suya al enviar)
+  $("diaStats").value = Dia.clave(); cargarStats();
+
+  // Negocios agregados al mapa
+  refLugares = db.ref("lugares");
+  refLugares.on("value", (s) => { lugares = s.val() || {}; pintarLugares(); pintarNegocios(); }, fallo);
+
   // Guías marcadas por Brothers (una por repartidor)
   refGuias = db.ref("guias");
   const guiaOk = (s) => { guias[s.key] = s.val(); pintarGuia(s.key); pintarLista(); if (s.key === selUid) pintarSeleccion(); };
@@ -347,7 +541,7 @@ function iniciarMonitoreo() {
   consultaActivos.on("child_changed", alCambiar);
   consultaActivos.on("child_removed", (s) => { delete activos[s.key]; pintarClientes(); refrescar(); });
 
-  db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); }, fallo);
+  db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); if (refStats) cargarStats(); }, fallo);
 
   // Últimas 50 conversaciones
   consultaChats = db.ref("chatsResumen").orderByChild("ts").limitToLast(50);
@@ -368,6 +562,11 @@ function detener() {
   if (consultaActivos) { consultaActivos.off(); consultaActivos = null; }
   if (consultaChats) { consultaChats.off(); consultaChats = null; }
   if (refGuias) { refGuias.off(); refGuias = null; }
+  if (refLugares) { refLugares.off(); refLugares = null; }
+  if (refStats) { refStats.off(); refStats = null; }
+  facturasHoy = 0;
+  Object.keys(lugarMarks).forEach((id) => { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; });
+  lugares = {};
   if (refEq) { refEq.off(); refEq = null; }
   Object.keys(guiaCapas).forEach((u) => { delete guias[u]; pintarGuia(u); });
   [guias, sinLeerEq].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
@@ -399,7 +598,7 @@ function pintarLista() {   // ya no hay lista inferior: solo el contador del map
   const ids = [...new Set([...Object.keys(registrados), ...Object.keys(ubic)])];
   const enRuta = ids.filter((u) => estadoDe(u) === "enRuta").length;
   const enLinea = ids.filter((u) => ["enRuta", "libre"].includes(estadoDe(u))).length;
-  $("contador").textContent = `${enRuta} en ruta · ${enLinea} en línea`;
+  $("contador").textContent = `${enRuta} en ruta · ${enLinea} en línea · ${facturasHoy} 🧾`;
 }
 
 /* ---------- Chats: equipo + clientes, selección múltiple, envío y borrado por fecha ---------- */

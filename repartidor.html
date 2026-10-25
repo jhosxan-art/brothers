@@ -50,6 +50,11 @@
   <!-- 1) FACTURA: lo primero que ve el repartidor al entrar -->
   <div id="vistaFactura" class="fx oculto">
 <div class="invoice-container" id="invoiceContainer">
+        <div id="contactoFila" class="fx-campo" style="display:none">
+            <span class="fx-et">🔗 Enlace de contacto ya abierto</span>
+            <select id="contactoSel" onchange="alElegirContacto()" aria-label="Enlace de contacto"></select>
+        </div>
+
         <div class="fx-cab">
             <div class="fx-campo fx-grow">
                 <span class="fx-et">👤 Cliente</span>
@@ -142,6 +147,14 @@
         <button id="btnVerTodo" class="mini-mapa" type="button">Ver todo</button>
         <button id="btnMarcarDestino" class="mini-mapa" type="button">📍 Marcar destino</button>
       </div>
+      <div class="buscador buscador-rep">
+        <form id="formBusqRep" autocomplete="off">
+          <input id="busqRep" type="search" placeholder="Buscar negocio o lugar…" enterkeyhint="search" aria-label="Buscar negocio o lugar">
+          <button type="submit" aria-label="Buscar">🔎</button>
+        </form>
+        <div id="resBusqRep" class="res-busq oculto"></div>
+      </div>
+      <div id="bannerRuta" class="banner-ruta oculto"></div>
       <div id="avisoMarcar" class="aviso-marcar oculto">Toca el mapa para marcar el destino del pedido seleccionado.</div>
     </div>
     <div id="hojaPedidos" class="hoja-pedidos"></div>
@@ -168,7 +181,7 @@
   <div id="modalContacto" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
       <h2>¿A qué cliente?</h2>
-      <p>El negocio le enviará el aviso con el enlace para que te responda.</p>
+      <p>Se genera el enlace de seguimiento (el mismo que usará su factura) y el negocio le envía el aviso para que te responda.</p>
       <div id="contactoLista" style="display:grid;gap:8px"></div>
       <button id="btnContactoCancelar" type="button">Cancelar</button>
     </div>
@@ -264,6 +277,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
+  <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>
   <script src="factura.js"></script>

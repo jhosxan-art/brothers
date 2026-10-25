@@ -327,3 +327,46 @@ label.opcion input { width: 20px; height: 20px; flex: none; }
 .pin-cliente.manual { border-style: dashed; }
 .etq-cli small { display: block; font-size: 10px; font-weight: 600; color: var(--texto2); }
 .fx .contacto-btn { margin: 0; height: 44px; border-radius: 12px; background: #fff; color: var(--ink, #0E141B); border: 2px solid var(--ink, #0E141B); font-size: 15px; font-weight: 800; }
+
+/* ---------- Buscador, negocios y flechas de ruta ---------- */
+.buscador { position: absolute; z-index: 1001; top: 10px; left: 10px; right: 10px; }
+.buscador form { display: flex; gap: 6px; }
+.buscador input { flex: 1; min-width: 0; height: 44px; border-radius: 14px; border: 2px solid var(--linea); background: #fff; padding: 0 14px; font-size: 15px; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.buscador button { width: 48px; height: 44px; padding: 0; border-radius: 14px; background: var(--celeste); border: 0; font-size: 18px; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+.res-busq { margin-top: 6px; max-height: 42vh; overflow-y: auto; background: #fff; border-radius: 14px; box-shadow: 0 8px 20px rgba(0,0,0,.3); }
+.res-busq .ayuda { padding: 12px 14px; margin: 0; }
+.item-busq { padding: 10px 14px; border-bottom: 1px solid var(--linea); cursor: pointer; display: grid; gap: 2px; }
+.item-busq:last-child { border-bottom: 0; }
+.item-busq strong { font-size: 14px; }
+.item-busq small { color: var(--texto2); font-size: 12px; line-height: 1.3; }
+#panelMapa .flota-mapa { top: 62px; left: 10px; right: 10px; justify-content: flex-end; flex-wrap: wrap; }
+#panelMapa .flota-mapa .mini-mapa { height: 38px; padding: 0 12px; }
+.toast-admin { top: 110px; }
+.modal-rep-caja { max-height: 92vh; overflow-y: auto; }
+.pin-lugar { width: 34px; height: 34px; border-radius: 50%; background: #fff; border: 3px solid #F59E0B; display: grid; place-items: center; font-size: 18px; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.pin-lugar.sel { border-color: #E5322D; box-shadow: 0 0 0 4px rgba(229,50,45,.35), 0 2px 6px rgba(0,0,0,.4); }
+.etq-lugar { position: absolute; top: 38px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #fff; border: 1px solid var(--linea); font-weight: 800; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+.zoom-lejos .etq-lugar { display: none; }
+.icon-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 4px; }
+.icon-grid .ic { width: 100%; height: 44px; padding: 0; font-size: 22px; border: 2px solid var(--linea); border-radius: 12px; background: #fff; }
+.icon-grid .ic.on { border-color: var(--celeste-prof, #0A86C9); background: var(--celeste-suave); }
+.flecha-ruta { width: 16px; height: 16px; font-size: 14px; line-height: 16px; text-align: center; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; font-weight: 900; }
+.pin-guia b { font-size: 16px; }
+.etq-cli small { display: block; }
+/* Repartidor: buscador y aviso de ruta */
+.buscador-rep { top: 54px; right: 150px; }
+.buscador-rep .res-busq { width: calc(100vw - 20px); max-width: 480px; }
+.banner-ruta { position: absolute; z-index: 1000; left: 10px; right: 10px; bottom: 28px; background: var(--tinta); color: #fff; border-radius: 16px; padding: 10px 12px; display: grid; gap: 6px; box-shadow: 0 8px 20px rgba(0,0,0,.35); }
+.banner-ruta .br-fila { display: flex; align-items: center; gap: 10px; }
+.banner-ruta .br-ic { font-size: 28px; flex: none; }
+.banner-ruta .br-txt { flex: 1; min-width: 0; display: grid; }
+.banner-ruta .br-txt b { font-size: 15px; line-height: 1.25; }
+.banner-ruta small { color: #C8D3DD; font-size: 12px; line-height: 1.3; }
+.banner-ruta button { width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.18); color: #fff; flex: none; }
+.fx select { width: 100%; height: 46px; border: 2px solid transparent; border-radius: 12px; background: #F1F5F9; padding: 0 10px; font: inherit; font-size: 15px; font-weight: 700; color: #0E141B; }
+.fx select:focus { outline: none; border-color: #3DB8F5; background: #fff; }
+.stats-total { background: var(--tinta); color: #fff; border-radius: 14px; padding: 12px 14px; font-weight: 700; line-height: 1.4; }
+.stats-total b { font-size: 26px; }
+.stats-fila { display: flex; justify-content: space-between; gap: 8px; align-items: center; background: #fff; border: 1px solid var(--linea); border-radius: 12px; padding: 10px 12px; }
+.stats-fila small { color: var(--texto2); display: block; }
+.stats-fila b.n { font-size: 20px; }
