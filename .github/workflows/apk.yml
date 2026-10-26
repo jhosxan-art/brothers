@@ -33,6 +33,9 @@ jobs:
       - name: Crear proyecto Android
         run: npx cap add android
 
+      - name: Generar iconos
+        run: npx --yes @capacitor/assets generate --android
+
       - name: Permisos de Android
         run: |
           python3 - <<'PY'
