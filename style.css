@@ -411,3 +411,15 @@ label.opcion input { width: 20px; height: 20px; flex: none; }
 .fx .fx-acciones .generate-btn { background: var(--ink); color: #fff; box-shadow: 0 6px 16px rgba(14,20,27,.3); border: 2px solid var(--ink); }
 .fx .fx-acciones .contacto-btn { background: #fff; color: var(--ink); border: 2px solid var(--ink); box-shadow: none; }
 .fx .fx-acciones button:active { transform: scale(.98); }
+
+/* ---------- Confirmación de lectura y lista para ocultar repartidores ---------- */
+.ticks { margin-left: 6px; font-size: 11px; font-weight: 800; letter-spacing: -2px; color: rgba(14,20,27,.45); }
+.ticks.leido { color: #0B5FA8; letter-spacing: -2px; }
+.lista-sw { display: grid; gap: 6px; margin: 8px 0; }
+.fila-sw { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F3F6F9; border-radius: 12px; padding: 10px 12px; }
+.fila-sw > span { display: grid; gap: 4px; min-width: 0; }
+.fila-sw .chip { justify-self: start; }
+input.sw { -webkit-appearance: none; appearance: none; width: 54px; height: 32px; padding: 0; margin: 0; flex: none; border: 0; border-radius: 16px; background: #C5CFDA; position: relative; transition: background .2s; }
+input.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); transition: transform .2s; }
+input.sw:checked { background: #12A150; }
+input.sw:checked::after { transform: translateX(22px); }

@@ -1107,7 +1107,12 @@ async function cerrarViaje(token, estadoFinal) {
       destLat: null, destLng: null, distancia: null, cerca: null, cliente: null, fin: TS
     });
   } catch (e) { v.cerrando = false; return alert("No se pudo cerrar en la nube: " + e.message); }
-  if (guiaCliente() && (!guiaActual.token || guiaActual.token === token)) db.ref("guias/" + uidActual).remove().catch(() => {});   // la guía ya cumplió su función
+  // La guía de Brothers se borra cuando entrega ESTANDO en el lugar que se le marcó (≤ 250 m); si cancela ese pedido, también
+  const g = guiaCliente();
+  if (g && (!g.token || g.token === token)) {
+    const enElLugar = ultimaPos && distanciaM(ultimaPos.lat, ultimaPos.lng, g.lat, g.lng) <= 250;
+    if ((estadoFinal === "entregado" && enElLugar) || (estadoFinal === "cancelado" && g.token === token)) db.ref("guias/" + uidActual).remove().catch(() => {});
+  }
   quitarViaje(token);          // el GPS del turno sigue activo
   irA("factura");              // vuelve a la factura…
   if (estadoFinal === "entregado") mostrarEntregado(quien);   // …con la ventana para moverse entre pantallas

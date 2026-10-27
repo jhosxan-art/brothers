@@ -30,6 +30,8 @@ let selUid = null;            // repartidor elegido para guiarlo
 let resEquipo = {}, sinLeerEq = {}, chatEqAbierto = null;
 let refGuias = null, refEq = null;
 let modoSel = false;          // selección múltiple de chats
+let ocultos = new Set(); try { ocultos = new Set(JSON.parse(localStorage.getItem("repOcultos") || "[]")); } catch (_) {}   // repartidores que no se dibujan en el mapa
+const guardarOcultos = () => { try { localStorage.setItem("repOcultos", JSON.stringify([...ocultos])); } catch (_) {} };
 let lugares = {}, refLugares = null;   // negocios agregados al mapa
 const lugarMarks = {};
 let modoNegocio = false, marcaBusq = null, datosBusq = null, resultadosBusq = [];
@@ -165,6 +167,7 @@ function iconoRepAdmin(nombre, est) {
 function pintarMarcador(uid) {
   const u = ubic[uid];
   if (!u || typeof u.lat !== "number") return;
+  if (ocultos.has(uid)) { quitarMarcador(uid); pintarGuia(uid); return; }   // desactivado en la lista: no aparece en el mapa
   const est = estadoDe(uid), nombre = nombreUid(uid);
   const clave = nombre + "|" + est, pos = [u.lat, u.lng];
   if (!marcadores[uid]) {
@@ -405,7 +408,7 @@ function pintarClientes() {
   const vistos = new Set();
   Object.entries(activos).forEach(([token, d]) => {
     const c = d.cliente;
-    if (!c || typeof c.lat !== "number") return;
+    if (!c || typeof c.lat !== "number" || ocultos.has(d.repartidorUid)) return;   // clientes de repartidores ocultos tampoco se dibujan
     vistos.add(token);
     const uid = d.repartidorUid, col = colorUid(uid || token), nom = nombreUid(uid);
     const vivo = !c.manual && c.ts && Date.now() - c.ts < 60000;
@@ -444,7 +447,7 @@ function toast(t) {
 }
 function pintarGuia(uid) {
   const g = guias[uid]; let c = guiaCapas[uid];
-  if (!g || typeof g.lat !== "number") {
+  if (!g || typeof g.lat !== "number" || ocultos.has(uid)) {
     if (c) { mapa.removeLayer(c.pin); mapa.removeLayer(c.linea); mapa.removeLayer(c.flechas); delete guiaCapas[uid]; }
     return;
   }
@@ -620,7 +623,8 @@ function pintarLista() {   // ya no hay lista inferior: solo el contador del map
   const ids = [...new Set([...Object.keys(registrados), ...Object.keys(ubic)])];
   const enRuta = ids.filter((u) => estadoDe(u) === "enRuta").length;
   const enLinea = ids.filter((u) => ["enRuta", "libre"].includes(estadoDe(u))).length;
-  $("contador").textContent = `${enRuta} en ruta · ${enLinea} en línea · ${facturasHoy} 🧾`;
+  $("contador").textContent = `${enRuta} en ruta · ${enLinea} en línea · ${facturasHoy} 🧾` + (ocultos.size ? ` · ${ocultos.size} 👁‍🗨 ocultos` : "");
+  $("btnOcultar").querySelector("small").textContent = ocultos.size ? ocultos.size + " ocultos" : "Repartidores";
 }
 
 /* ---------- Chats: equipo + clientes, selección múltiple, envío y borrado por fecha ---------- */
@@ -832,3 +836,25 @@ Atras.iniciar([
   () => { if (modoSel) { modoSel = false; selChats.clear(); pintarChats(); return true; } return false; },
   () => { const t = document.querySelector('.tabs button[data-tab="panelMapa"]'); if ($("vistaApp").classList.contains("oculto") || t.classList.contains("activa")) return false; t.click(); return true; }
 ]);
+
+
+/* ---------- Ocultar repartidores del mapa (lista con interruptores) ---------- */
+function abrirOcultar() {
+  const uids = [...new Set([...Object.keys(registrados), ...Object.keys(ubic)])].sort((x, y) => nombreUid(x).localeCompare(nombreUid(y)));
+  modal(`<h2>👁 Repartidores en el mapa</h2>
+    <p class="ayuda">Activa o desactiva a cada uno. Los desactivados no aparecen en el mapa (ni su guía ni sus clientes). Siguen trabajando normal.</p>
+    <div class="lista-sw">${uids.length ? uids.map((uid) => { const [txt, clase] = ETIQUETA[estadoDe(uid)]; return `<label class="fila-sw"><span><strong>${esc(nombreUid(uid))}</strong><small class="chip ${clase}">${txt}</small></span><input type="checkbox" class="sw" data-uid="${esc(uid)}" ${ocultos.has(uid) ? "" : "checked"}></label>`; }).join("") : '<p class="ayuda">Aún no hay repartidores.</p>'}</div>
+    <button id="ocTodos" class="oscuro" type="button">Mostrar a todos</button><button id="ocListo" class="primario" type="button">Listo</button>`);
+  const aplicar = () => {
+    guardarOcultos();
+    if (selUid && ocultos.has(selUid)) { selUid = null; pintarSeleccion(); }
+    refrescar(); Object.keys(guias).forEach(pintarGuia);
+  };
+  document.querySelectorAll("#modalCaja input.sw").forEach((i) => i.onchange = () => {
+    if (i.checked) ocultos.delete(i.dataset.uid); else ocultos.add(i.dataset.uid);
+    aplicar();
+  });
+  $("ocTodos").onclick = () => { ocultos.clear(); guardarOcultos(); document.querySelectorAll("#modalCaja input.sw").forEach((i) => i.checked = true); aplicar(); };
+  $("ocListo").onclick = cerrarModal;
+}
+$("btnOcultar").onclick = abrirOcultar;

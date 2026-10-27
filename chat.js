@@ -8,12 +8,13 @@
    ============================================================ */
 const Chat = (() => {
   // Rutas en la base de datos. El chat administrador ↔ repartidor usa otras (opciones.ruta)
-  const RUTA_CLIENTE = { chats: "chats", resumen: "chatsResumen", fotos: "fotos" };
+  const RUTA_CLIENTE = { chats: "chats", resumen: "chatsResumen", fotos: "fotos", leido: "leidos" };
   let R = RUTA_CLIENTE;
   const db = APP.database();   // misma sesión que la página que lo usa
   const TS = firebase.database.ServerValue.TIMESTAMP;
   let token = null, yo = null, soloLectura = false, ctx = {}, opciones = {};
   let ref = null, el = null, abierto = false, cargando = true, audio = null;
+  let refLeido = null, lect = {}, tLeido = 0, tmLeido = null;   // confirmación de lectura: lect = { cliente: ts, repartidor: ts, admin: ts }
   const q = (id) => el.querySelector("#" + id);
 
   // El sonido y la voz viven en voz.js (se desbloquean con el primer toque)
@@ -176,6 +177,27 @@ const Chat = (() => {
   }
   const enviar = (texto, foto) => enviarA(token, yo, ctx, texto, foto, R);
 
+  /* ---------- Confirmación de lectura: ✓ enviado · ✓✓ leído (cuando el otro abrió el chat) ---------- */
+  const lectorDe = (m) => (m.de === "cliente" || m.de === "admin" ? "repartidor" : (R.leido === "leidosEquipo" ? "admin" : "cliente"));
+  function actualizarTicks() {
+    if (!el) return;
+    q("chatLista").querySelectorAll(".ticks").forEach((t) => {
+      const ts = +t.dataset.ts || 0, leido = ts > 0 && (+lect[t.dataset.lector] || 0) >= ts;
+      t.textContent = leido ? "✓✓" : "✓";
+      t.classList.toggle("leido", leido);
+      t.title = leido ? "Leído" : "Enviado";
+    });
+  }
+  function marcarLeido() {   // solo si el chat está abierto y a la vista
+    if (!token || soloLectura || !abierto || !yo || document.visibilityState !== "visible") return;
+    clearTimeout(tmLeido);
+    const espera = 1500 - (Date.now() - tLeido);
+    if (espera > 0) { tmLeido = setTimeout(marcarLeido, espera + 50); return; }
+    tLeido = Date.now();
+    db.ref(`${R.leido}/${token}/${yo}`).set(TS).catch(() => {});
+  }
+  document.addEventListener("visibilitychange", () => { if (abierto) marcarLeido(); });
+
   function pintar(id, m) {
     const lista = q("chatLista");
     const propia = soloLectura ? m.de === "repartidor" : m.de === yo;
@@ -203,6 +225,11 @@ const Chat = (() => {
     h.textContent = !f ? "" : (soloLectura || yo === "admin")
       ? f.toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
       : f.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+    if (propia || soloLectura) {   // palomitas en los mensajes que yo envié (el administrador las ve en todos)
+      const k = document.createElement("span");
+      k.className = "ticks"; k.dataset.ts = m.ts || 0; k.dataset.lector = lectorDe(m); k.textContent = "✓";
+      h.appendChild(k);
+    }
     b.appendChild(h);
     if (opciones.puedeBorrar) {   // administrador: eliminar este mensaje para todos
       const x = document.createElement("button");
@@ -231,13 +258,19 @@ const Chat = (() => {
     detener(); montar();
     opciones = o; token = o.token; yo = o.yo || null; soloLectura = !!o.soloLectura;
     R = Object.assign({}, RUTA_CLIENTE, o.ruta || {});
+    if (o.ruta && !o.ruta.leido) R.leido = "leidosEquipo";   // chat administrador ↔ repartidor
+    lect = {};
     ctx = { pedido: o.pedido, nombreRepartidor: o.nombreRepartidor };
     titular();
     q("chatForm").classList.toggle("oculto", soloLectura);
     q("chatLista").innerHTML = ""; aviso(""); sinLeer = 0; cargando = true;
     ref = db.ref(`${R.chats}/${token}`);
+    refLeido = db.ref(`${R.leido}/${token}`);
+    refLeido.on("value", (s) => { lect = s.val() || {}; actualizarTicks(); }, () => {});
     ref.on("child_added", (s) => {
       const m = s.val(); pintar(s.key, m);
+      actualizarTicks();
+      if (abierto && m.de !== yo) marcarLeido();
       if (!cargando && !soloLectura && m.de !== yo) {
         // opciones.avisos === false: otra parte de la app (repartidor con varios pedidos) se encarga de avisar
         if (opciones.avisos !== false) {
@@ -257,6 +290,7 @@ const Chat = (() => {
     abierto = true; sinLeer = 0; opciones.alNoLeidos && opciones.alNoLeidos(0);
     el.classList.remove("oculto");
     const l = q("chatLista"); l.scrollTop = l.scrollHeight;
+    marcarLeido();
     if (!soloLectura) setTimeout(() => q("chatTexto").focus(), 60);
   }
   function cerrar() {
@@ -267,6 +301,8 @@ const Chat = (() => {
   // Borra todo rastro local del chat (el repartidor no conserva nada al terminar)
   function detener() {
     if (ref) { ref.off(); ref = null; }
+    if (refLeido) { refLeido.off(); refLeido = null; }
+    lect = {}; clearTimeout(tmLeido);
     pararCamara(); if (cam) cam.classList.add("oculto");
     abierto = false; sinLeer = 0;
     if (el) { el.classList.add("oculto"); q("chatLista").innerHTML = ""; q("chatTexto").value = ""; }
