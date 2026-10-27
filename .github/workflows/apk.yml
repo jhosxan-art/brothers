@@ -36,24 +36,98 @@ jobs:
       - name: Generar iconos
         run: npx --yes @capacitor/assets generate --android
 
-      - name: Permisos de Android
+      - name: Permisos y enlaces de Android
         run: |
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
-          s = open(p).read()
-          perms = ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "POST_NOTIFICATIONS", "WAKE_LOCK", "CAMERA"]
+          s = open(p, encoding='utf-8').read()
+          perms = ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "POST_NOTIFICATIONS", "WAKE_LOCK", "CAMERA", "SYSTEM_ALERT_WINDOW", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"]
           add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if x not in s)
           s = s.replace('<application', add + '    <application', 1)
-          open(p, 'w').write(s)
+          # Abrir con la app del repartidor: compartir texto/ubicación (WhatsApp...), geo: y enlaces de mapas
+          filtros = '''
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="maps.app.goo.gl" />
+                <data android:host="maps.google.com" />
+                <data android:host="waze.com" />
+                <data android:host="www.waze.com" />
+                <data android:host="ul.waze.com" />
+                <data android:host="maps.apple.com" />
+                <data android:host="www.openstreetmap.org" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="www.google.com" />
+                <data android:host="google.com" />
+                <data android:host="goo.gl" />
+                <data android:pathPrefix="/maps" />
+            </intent-filter>
+          '''
+          if 'maps.app.goo.gl' not in s:
+              s = s.replace('</activity>', filtros + '        </activity>', 1)
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
+
+      - name: Código nativo (burbuja flotante y enlaces)
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil
+          pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
+          d = 'android/app/src/main/java/' + pkg.replace('.', '/')
+          if not os.path.exists('NativoPlugin.java.txt') or not os.path.exists(d + '/MainActivity.java'):
+              print('Sin NativoPlugin.java.txt: se omite el código nativo')
+              raise SystemExit
+          shutil.copy(d + '/MainActivity.java', '/tmp/MainActivity.java.orig')
+          codigo = open('NativoPlugin.java.txt', encoding='utf-8').read().replace('__PKG__', pkg)
+          open(d + '/NativoPlugin.java', 'w', encoding='utf-8').write(codigo)
+          main = ('package %s;\n\nimport android.os.Bundle;\nimport com.getcapacitor.BridgeActivity;\n\n'
+                  'public class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n'
+                  '        registerPlugin(NativoPlugin.class);\n        super.onCreate(savedInstanceState);\n    }\n}\n') % pkg
+          open(d + '/MainActivity.java', 'w', encoding='utf-8').write(main)
           PY
 
       - name: Sincronizar
         run: npx cap sync android
 
-      - name: Compilar
+      - name: Compilar (con burbuja)
+        id: con_nativo
+        continue-on-error: true
         working-directory: android
         run: |
           chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Compilar sin código nativo (respaldo si falló)
+        if: steps.con_nativo.outcome == 'failure'
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil
+          pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
+          d = 'android/app/src/main/java/' + pkg.replace('.', '/')
+          if os.path.exists('/tmp/MainActivity.java.orig'):
+              shutil.copy('/tmp/MainActivity.java.orig', d + '/MainActivity.java')
+          if os.path.exists(d + '/NativoPlugin.java'):
+              os.remove(d + '/NativoPlugin.java')
+          PY
+          cd android
           ./gradlew assembleDebug --no-daemon
 
       - name: Subir APK a Artifacts
