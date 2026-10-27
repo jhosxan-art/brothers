@@ -11,8 +11,10 @@ const Buscar = (() => {
   /* "12.1364, -86.2514" · "12.1364 -86.2514" · enlaces de Google Maps (@lat,lng · q=lat,lng · !3dLAT!4dLNG) */
   function coords(texto) {
     const t = String(texto || "").trim();
-    let m = t.match(/@(-?\d{1,3}\.\d+),\s*(-?\d{1,3}\.\d+)/) || t.match(/[?&](?:q|ll|query|destination)=(-?\d{1,3}\.\d+)(?:,|%2C)\s*(-?\d{1,3}\.\d+)/i) ||
-        t.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+    let m = t.match(/@(-?\d{1,3}\.\d+),\s*(-?\d{1,3}\.\d+)/) || t.match(/[?&](?:q|ll|sll|query|destination|daddr|saddr|center)=(-?\d{1,3}\.\d+)(?:,|%2C)\s*(-?\d{1,3}\.\d+)/i) ||
+        t.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/) || t.match(/geo:(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/i) ||
+        t.match(/[?&#]?m?lat=(-?\d{1,3}\.\d+)&(?:amp;)?m?lon=(-?\d{1,3}\.\d+)/i) || t.match(/\/maps\/dir\/[^/]*\/(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/);
+    if (!m && /https?:|geo:/i.test(t)) m = t.match(/(-?\d{1,2}\.\d{4,}),\s*(-?\d{1,3}\.\d{4,})/);   // último recurso: un par lat,lng con 4+ decimales dentro del enlace
     if (!m) m = t.match(/^\(?\s*(-?\d{1,3}(?:[.,]\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:[.,]\d+)?)\s*\)?$/);
     if (!m) return null;
     const a = parseFloat(m[1].replace(",", ".")), b = parseFloat(m[2].replace(",", "."));
@@ -109,5 +111,30 @@ const Dia = {
     const d = fecha ? new Date(fecha) : new Date();
     if (!fecha && d.getHours() < 8) d.setDate(d.getDate() - 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+};
+
+/* Gestos del mapa: un dedo SOLO desliza. El zoom es únicamente con botones, doble toque o pellizco. */
+const GestosMapa = {
+  opciones: { zoomControl: false, doubleClickZoom: false, scrollWheelZoom: false, boxZoom: false, touchZoom: true, bounceAtZoomLimits: false },
+  aplicar(mapa) {
+    const c = mapa.getContainer();
+    let sx = 0, sy = 0, movido = false, ultimo = 0, ux = 0, uy = 0;
+    c.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) { ultimo = 0; movido = true; return; }   // dos dedos = pellizco, lo maneja el mapa
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; movido = false;
+    }, { passive: true });
+    c.addEventListener("touchmove", (e) => {
+      const t = e.touches[0];
+      if (t && Math.hypot(t.clientX - sx, t.clientY - sy) > 10) { movido = true; ultimo = 0; }
+    }, { passive: true });
+    c.addEventListener("touchend", (e) => {
+      if (movido || e.touches.length || e.changedTouches.length !== 1) return;
+      const t = e.changedTouches[0], ahora = Date.now();
+      if (ahora - ultimo < 320 && Math.hypot(t.clientX - ux, t.clientY - uy) < 30) {   // doble toque quieto = acercar
+        ultimo = 0;
+        mapa.setZoomAround(mapa.mouseEventToContainerPoint({ clientX: t.clientX, clientY: t.clientY }), Math.min(mapa.getMaxZoom(), mapa.getZoom() + 1));
+      } else { ultimo = ahora; ux = t.clientX; uy = t.clientY; }
+    }, { passive: true });
   }
 };

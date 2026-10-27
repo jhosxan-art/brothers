@@ -10,7 +10,8 @@ const TS = firebase.database.ServerValue.TIMESTAMP;
 const token = new URLSearchParams(location.search).get("id");
 
 // Mapa (Leaflet + OpenStreetMap)
-const mapa = L.map("mapa", { zoomControl: false, attributionControl: false }).setView([-12.0464, -77.0428], 14);
+const mapa = L.map("mapa", { ...GestosMapa.opciones, attributionControl: false }).setView([-12.0464, -77.0428], 14);
+GestosMapa.aplicar(mapa);   // un dedo solo desliza; el zoom es con botones, doble toque o pellizco
 L.control.zoom({ position: "bottomright" }).addTo(mapa);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
 

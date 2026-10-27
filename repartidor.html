@@ -100,8 +100,10 @@
             <div class="gran"><small>Total a pagar</small><b id="grandTotal">C$ 0.00</b></div>
         </div>
 
-        <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">🧾 Generar factura</button>
-        <button type="button" class="contacto-btn" id="btnContactoCliente">📞 Contactarme al cliente</button>
+        <div class="fx-acciones">
+            <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">🧾 Generar factura</button>
+            <button type="button" class="contacto-btn" id="btnContactoCliente">📞 Contactarme al cliente</button>
+        </div>
     </div>
 
     <div class="stats-container" id="statsContainer">
@@ -184,6 +186,27 @@
       <p>Se genera el enlace de seguimiento (el mismo que usará su factura) y el negocio le envía el aviso para que te responda.</p>
       <div id="contactoLista" style="display:grid;gap:8px"></div>
       <button id="btnContactoCancelar" type="button">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Elegir un pedido (chat desde la burbuja, ubicación recibida) -->
+  <div id="modalElegir" class="modal-rep oculto" role="dialog" aria-modal="true">
+    <div class="modal-rep-caja">
+      <h2 id="elegirTitulo" style="white-space:pre-line"></h2>
+      <div id="elegirLista" style="display:grid;gap:8px"></div>
+      <button id="btnElegirCancelar" type="button">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Burbuja flotante y batería (solo APK) -->
+  <div id="modalBurbuja" class="modal-rep oculto" role="dialog" aria-modal="true">
+    <div class="modal-rep-caja">
+      <div class="gran-check">🫧</div>
+      <h2>Mantén tu ubicación activa</h2>
+      <p>Para que no se pierda la señal cuando uses otras apps, activa estas dos opciones. Android te mostrará su propia ventana de permiso.</p>
+      <button id="btnBurbujaPermiso" class="primario" type="button">🫧 Burbuja flotante (mostrar sobre otras apps)</button>
+      <button id="btnBurbujaBateria" class="primario" type="button">🔋 Evitar que Android cierre la app</button>
+      <button id="btnBurbujaCerrar" class="oscuro" type="button">Ahora no</button>
     </div>
   </div>
 

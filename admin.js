@@ -123,12 +123,15 @@ $("btnSalir").onclick = () => { if (confirm("¿Cerrar sesión?")) auth.signOut()
 /* ---------- Mapa ---------- */
 function initMapa() {
   if (!mapa) {
-    mapa = L.map("mapaAdmin").setView([-12.0464, -77.0428], 12);
+    mapa = L.map("mapaAdmin", GestosMapa.opciones).setView([-12.0464, -77.0428], 12);
+    L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);   // zoom con botones
+    GestosMapa.aplicar(mapa);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(mapa);
   }
   iniciarPopups();
+  mapa.on("click movestart", () => { $("resBusq").classList.add("oculto"); $("busq").blur(); });   // tocar o mover el mapa cierra la búsqueda
   mapa.on("click", (e) => {
     if (modoNegocio) { terminarModoNegocio(); return formNegocio({ lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6) }); }
     if (selUid) fijarGuia(selUid, e.latlng);   // el mapa se puede mover y explorar libremente; solo un toque marca la guía
@@ -287,12 +290,13 @@ $("formBusq").onsubmit = async (e) => {
   try {
     resultadosBusq = await Buscar.buscar(q, mapa.getBounds());
     caja.innerHTML = resultadosBusq.length
-      ? resultadosBusq.map((r, i) => `<div class="item-busq" data-i="${i}"><strong>${esc(r.nombre)}</strong><small>${esc(r.detalle || "")}</small></div>`).join("")
+      ? '<div class="cerrar-res" data-cerrar="1">✕ Cerrar búsqueda</div>' + resultadosBusq.map((r, i) => `<div class="item-busq" data-i="${i}"><strong>${esc(r.nombre)}</strong><small>${esc(r.detalle || "")}</small></div>`).join("")
       : '<p class="ayuda">Sin resultados. Prueba con el nombre y la ciudad, o escribe las coordenadas.</p>';
   } catch (err) { caja.innerHTML = `<p class="ayuda">No se pudo buscar: ${esc(err.message)}</p>`; }
 };
 $("busq").addEventListener("input", () => { if (!$("busq").value) $("resBusq").classList.add("oculto"); });
 $("resBusq").onclick = (e) => {
+  if (e.target.closest("[data-cerrar]")) { $("resBusq").classList.add("oculto"); $("busq").blur(); return; }
   const it = e.target.closest("[data-i]"); if (!it) return;
   mostrarResultado(resultadosBusq[+it.dataset.i]);
   $("resBusq").classList.add("oculto");
@@ -822,7 +826,7 @@ Atras.iniciar([
   () => Chat.cerrarCapa(),
   () => { if (!$("modalAdmin").classList.contains("oculto")) { cerrarModal(); return true; } return false; },
   () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
-  () => { if (!$("resBusq").classList.contains("oculto")) { $("resBusq").classList.add("oculto"); return true; } return false; },
+  () => { if (!$("resBusq").classList.contains("oculto") || document.activeElement === $("busq")) { $("resBusq").classList.add("oculto"); $("busq").blur(); return true; } return false; },
   () => { if (modoNegocio) { terminarModoNegocio(); return true; } return false; },
   () => { if (selUid) { selUid = null; pintarSeleccion(); pintarLista(); return true; } return false; },
   () => { if (modoSel) { modoSel = false; selChats.clear(); pintarChats(); return true; } return false; },

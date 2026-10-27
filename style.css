@@ -401,3 +401,13 @@ label.opcion input { width: 20px; height: 20px; flex: none; }
 .chip-gps { position: absolute; z-index: 1000; top: 62px; left: 10px; max-width: calc(100% - 20px); background: #fff; border: 1px solid var(--linea); padding: 6px 12px; font-size: 12px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #vistaMapa .aviso-marcar { top: 104px; bottom: auto; }
 .banner-ruta { bottom: 30px; }
+
+/* ---------- Mapa: un dedo solo desliza (el navegador no interpreta gestos de zoom) + factura estable ---------- */
+.leaflet-container { touch-action: none !important; -webkit-tap-highlight-color: transparent; }
+.cerrar-res { padding: 10px 14px; background: var(--celeste-suave); color: var(--tinta); font-weight: 800; font-size: 13px; text-align: center; cursor: pointer; position: sticky; top: 0; }
+.panel-guia { right: 70px; }
+.fx .fx-acciones { position: sticky; bottom: 0; z-index: 3; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 6px; background: #fff; }
+.fx .fx-acciones button { height: 56px; min-width: 0; margin: 0; padding: 0 8px; border-radius: 14px; font-size: 14px; font-weight: 800; line-height: 1.15; white-space: normal; text-align: center; display: grid; place-items: center; box-sizing: border-box; }
+.fx .fx-acciones .generate-btn { background: var(--ink); color: #fff; box-shadow: 0 6px 16px rgba(14,20,27,.3); border: 2px solid var(--ink); }
+.fx .fx-acciones .contacto-btn { background: #fff; color: var(--ink); border: 2px solid var(--ink); box-shadow: none; }
+.fx .fx-acciones button:active { transform: scale(.98); }

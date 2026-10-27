@@ -116,7 +116,7 @@ try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {} 
 setTimeout(() => $("splash").classList.add("oculto"), 8000);   // por si algo tarda: nunca se queda cargando
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    detenerGPS(); soltarViajesEnMemoria(); soltarAdmin(); uidActual = null; usuario = null; $("clave").value = "";
+    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); uidActual = null; usuario = null; $("clave").value = "";
     return mostrar("login");
   }
   uidActual = user.uid;
@@ -165,13 +165,14 @@ async function entrarTurno() {
   escucharAdmin();                  // chat con Brothers + guías del administrador
   await permisosInicio();           // APK: explica y pide permisos (notificaciones…)
   registrarPush();                  // avisos push con la app cerrada
+  iniciarNativo();                  // burbuja flotante, batería y ubicaciones compartidas (solo APK)
   iniciarGPS();                     // y aquí Android pide la ubicación (“todo el tiempo”)
 }
 
 $("btnSalir").onclick = async () => {
   if (orden.length) return alert("Primero entrega o cancela los pedidos en curso.");
   if (!confirm("¿Cerrar sesión? Dejarás de compartir tu ubicación.")) return;
-  detenerGPS();
+  detenerGPS(); apagarNativo();
   try { await db.ref(`repartidores/${uidActual}/fcmToken`).remove(); } catch (_) {}   // este teléfono deja de recibir avisos
   try {
     await db.ref("ubicaciones/" + uidActual).update({ enLinea: false, enViaje: false, ts: TS });
@@ -185,8 +186,10 @@ $("btnSalir").onclick = async () => {
    ============================================================ */
 function initMapa() {
   if (mapa) return;
-  mapa = L.map("mapaRuta", { zoomControl: false }).setView([-12.0464, -77.0428], 14);
-  L.control.zoom({ position: "bottomright" }).addTo(mapa);
+  mapa = L.map("mapaRuta", GestosMapa.opciones).setView([-12.0464, -77.0428], 14);
+  L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);   // zoom: botones, doble toque o pellizco
+  GestosMapa.aplicar(mapa);
+  mapa.on("click movestart", cerrarBusquedaRep);   // tocar o mover el mapa cierra la búsqueda y deja el mapa completo
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
   // Recorrido del repartidor (lo que ya avanzó) + ruta hacia el cliente (con línea animada encima)
   estelaProp = L.polyline([], { color: "#7B8794", weight: 5, opacity: .65 }).addTo(mapa);
@@ -630,10 +633,11 @@ function pintarLugares() {
     } else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(Lugares.iconoMapa(l)); m._clave = clave; } }
   });
 }
+function cerrarBusquedaRep() { $("resBusqRep").classList.add("oculto"); $("busqRep").blur(); }
 function mostrarBusquedaRep(online) {
   const q = norm($("busqRep").value.trim()), caja = $("resBusqRep");
   const locales = Object.entries(lugares).filter(([, l]) => !q || norm(l.nombre + " " + (l.dir || "")).includes(q)).slice(0, 8);
-  let html = locales.map(([id, l]) => `<div class="item-busq" data-k="l:${escHtml(id)}"><strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong><small>${escHtml(l.dir || "Negocio de Brothers")}</small></div>`).join("");
+  let html = '<div class="cerrar-res" data-k="__cerrar">✕ Cerrar búsqueda</div>' + locales.map(([id, l]) => `<div class="item-busq" data-k="l:${escHtml(id)}"><strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong><small>${escHtml(l.dir || "Negocio de Brothers")}</small></div>`).join("");
   if (online) html += online.map((r, i) => `<div class="item-busq" data-k="o:${i}"><strong>${escHtml(r.nombre)}</strong><small>${escHtml(r.detalle || "")}</small></div>`).join("");
   if (q && !online) html += `<div class="item-busq" data-k="buscar"><strong>🔎 Buscar “${escHtml($("busqRep").value.trim())}” en todo el mapa</strong><small>Direcciones, barrios, ciudades, coordenadas…</small></div>`;
   caja.innerHTML = html || '<p class="ayuda">No hay negocios guardados todavía. Escribe para buscar en el mapa.</p>';
@@ -651,6 +655,7 @@ async function buscarEnMapa() {
 $("resBusqRep").onclick = (e) => {
   const it = e.target.closest("[data-k]"); if (!it) return;
   const k = it.dataset.k;
+  if (k === "__cerrar") return cerrarBusquedaRep();
   if (k === "buscar") return buscarEnMapa();
   if (k.startsWith("l:")) return irALugar(lugares[k.slice(2)], true);
   const r = resultadosRep[+k.slice(2)]; if (r) irALugar({ nombre: r.nombre, lat: r.lat, lng: r.lng, icono: "📍" }, true);
@@ -888,6 +893,87 @@ function alAccionNotificacion(ev) {
 }
 
 /* ============================================================
+   Funciones nativas del APK: burbuja flotante, batería, ubicaciones compartidas
+   ============================================================ */
+const nativo = () => plug("Nativo");
+let esperandoAjustes = false, nativoListo = false, alElegirCb = null;
+
+async function iniciarNativo(forzarModal) {
+  const n = nativo(); if (!n) return;
+  if (!nativoListo) { nativoListo = true; n.addListener("entrante", alEntrante); }   // lo compartido/tocado en la burbuja llega aquí
+  let e; try { e = await n.estado(); } catch (_) { return; }
+  if (e.permiso) n.activar({ activo: true }).catch(() => {});   // burbuja activa mientras haya sesión
+  const falta = !e.permiso || !e.bateria;
+  const hace3dias = Date.now() - Number(localStorage.getItem("nativoPreguntado") || 0) > 3 * 86400000;
+  if (falta && (forzarModal || hace3dias)) {
+    localStorage.setItem("nativoPreguntado", String(Date.now()));
+    $("btnBurbujaPermiso").classList.toggle("oculto", !!e.permiso);
+    $("btnBurbujaBateria").classList.toggle("oculto", !!e.bateria);
+    $("modalBurbuja").classList.remove("oculto");
+  } else $("modalBurbuja").classList.add("oculto");
+}
+$("btnBurbujaPermiso").onclick = () => { esperandoAjustes = true; nativo().pedirPermiso().catch(() => {}); };
+$("btnBurbujaBateria").onclick = () => { esperandoAjustes = true; nativo().pedirBateria().catch(() => {}); };
+$("btnBurbujaCerrar").onclick = () => $("modalBurbuja").classList.add("oculto");
+function apagarNativo() { const n = nativo(); if (n) n.activar({ activo: false }).catch(() => {}); }
+
+/* Lista para elegir un pedido (chat, destino…) */
+function elegirPedido(titulo, cb, etiqueta, extra) {
+  $("elegirTitulo").textContent = titulo; alElegirCb = cb;
+  $("elegirLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${etiqueta || ""}${escHtml(nombreDe(viajes[t]))} · ${escHtml(viajes[t].pedido)}</button>`).join("") + (extra || "");
+  $("modalElegir").classList.remove("oculto");
+}
+$("elegirLista").onclick = (e) => {
+  const b = e.target.closest("button[data-t]"); if (!b) return;
+  $("modalElegir").classList.add("oculto");
+  const cb = alElegirCb; alElegirCb = null; if (!cb) return;
+  if (b.dataset.t === "__ir") return cb(null, "ir");
+  if (viajes[b.dataset.t]) cb(viajes[b.dataset.t]);
+};
+$("btnElegirCancelar").onclick = () => { alElegirCb = null; $("modalElegir").classList.add("oculto"); };
+
+function alEntrante(ev) {
+  if (!ev) return;
+  if (ev.accion) return accionBurbuja(ev.accion);
+  if (ev.texto) recibirUbicacion(String(ev.texto));
+}
+/* Menú de la burbuja: Chat al cliente · Nueva factura · Ver ubicación */
+function accionBurbuja(a) {
+  if (a === "factura") return irA("factura");
+  if (a === "ubicacion") {
+    irA("mapa"); seguirme = true;
+    if (mapa && ultimaPos) mapa.setView([ultimaPos.lat, ultimaPos.lng], 17);
+    return;
+  }
+  if (a === "chat") {
+    if (!orden.length) { irA("factura"); return alert("No tienes clientes en ruta para chatear."); }
+    if (orden.length === 1) { irA("mapa"); return abrirChat(viajes[orden[0]]); }
+    elegirPedido("¿Con qué cliente quieres chatear?", (v) => { irA("mapa"); abrirChat(v); });
+  }
+}
+/* Ubicación compartida desde WhatsApp / Google Maps / Waze / geo: → ruta tipo Waze */
+async function recibirUbicacion(texto) {
+  let c = Buscar.coords(texto), nombre = "Ubicación compartida";
+  const l1 = texto.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).find((x) => !/^(https?:|geo:)/i.test(x) && !Buscar.coords(x));
+  if (l1 && l1.length <= 60) nombre = l1;
+  if (!c) {
+    const m = texto.match(/https?:\/\/[^\s]+/i), n = nativo();
+    if (m && n) {   // enlaces cortos (maps.app.goo.gl): se siguen hasta el enlace final para sacar las coordenadas
+      try { const r = await n.resolverEnlace({ url: m[0] }); c = Buscar.coords(r.url) || (r.coords && Buscar.coords(r.coords)); } catch (_) { /* sin red */ }
+    }
+  }
+  if (!c) return alert("No encontré una ubicación en lo que compartiste. Comparte un enlace de Google Maps, Waze, geo: o las coordenadas.\n\nNota: la ubicación EN TIEMPO REAL de WhatsApp solo se ve dentro de WhatsApp; usa “Contactarme al cliente” para que el cliente comparta la suya con tu app.");
+  const lugar = { nombre, lat: c.lat, lng: c.lng, icono: "📍" };
+  if (!orden.length) return irALugar(lugar, true);
+  elegirPedido("📍 " + nombre + "\n¿Qué hacemos con esta ubicación?", (v, modo) => {
+    if (modo === "ir" || !v) return irALugar(lugar, true);
+    irA("mapa"); seleccionar(v.token, false);
+    fijarDestino(v, c.lat, c.lng);   // pasa a ser el destino de ese pedido (el cliente también lo ve)
+    seguirme = false; encuadrar(true);
+  }, "Destino de ", '<button class="primario" data-t="__ir" type="button">🧭 Solo ir ahora (ruta)</button>');
+}
+
+/* ============================================================
    GPS permanente (turno)
    ============================================================ */
 const plugin = () => plug("BackgroundGeolocation");
@@ -929,6 +1015,7 @@ function detenerGPS() {
 }
 document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState !== "visible") return;
+  if (esperandoAjustes) { esperandoAjustes = false; iniciarNativo(true); }   // volvió de los ajustes de Android: se revisa de nuevo
   if (watchId !== null) { try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (_) {} }
   if (mapa) { mapa.invalidateSize(); pintarYo(); dibujarRuta(); }   // muestra el trayecto recorrido en segundo plano
 });
@@ -1040,7 +1127,7 @@ $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); i
 /* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
 Atras.iniciar([
   () => Chat.cerrarCapa(),
-  () => { for (const id of ["modalEntregado", "modalContacto"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
+  () => { for (const id of ["modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
   () => {   // ventanas de la factura
     if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
     if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
@@ -1049,7 +1136,7 @@ Atras.iniciar([
     return false;
   },
   () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
-  () => { if (!$("resBusqRep").classList.contains("oculto")) { $("resBusqRep").classList.add("oculto"); $("busqRep").blur(); return true; } return false; },
+  () => { if (!$("resBusqRep").classList.contains("oculto") || document.activeElement === $("busqRep")) { cerrarBusquedaRep(); return true; } return false; },   // atrás sale del buscador y deja ver el mapa completo
   () => { if (marcando) { marcando = false; $("btnMarcarDestino").classList.remove("activo"); $("avisoMarcar").classList.add("oculto"); return true; } return false; },
   () => { if ($("invoiceContainer").style.display === "none") { hideStats(); return true; } return false; },   // pantalla de estadísticas
   () => { if (vistaActual === "mapa" && uidActual) { irA("factura"); return true; } return false; }
