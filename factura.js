@@ -87,12 +87,11 @@ window.Factura = { alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCod
   /* Enlaces de contacto abiertos (los crea repartidor.js con "Contactarme al cliente") */
   function refrescarContactos() {
       const fila = document.getElementById('contactoFila'), sel = document.getElementById('contactoSel');
-      const cs = window.Factura.contactos || [], previo = sel.value || window.Factura._contactoGuardado || '';
+      const cs = window.Factura.contactos || [], previo = sel.value;
       fila.style.display = cs.length ? '' : 'none';
       sel.innerHTML = '<option value="">🆕 Pedido nuevo (enlace nuevo)</option>' +
           cs.map((c) => `<option value="${escHtml(c.token)}">🔗 ${escHtml(c.cliente || 'Cliente')} · ${escHtml(c.pedido)}</option>`).join('');
       sel.value = cs.some((c) => c.token === previo) ? previo : (cs.length ? cs[cs.length - 1].token : '');
-      if (cs.length) window.Factura._contactoGuardado = '';
       alElegirContacto();
   }
   function alElegirContacto() {
@@ -274,7 +273,6 @@ window.Factura = { alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCod
 
       renderProductList();
       calculateTotal();
-      try { localStorage.removeItem(CLAVE_BORRADOR); localStorage.removeItem(CLAVE_POPUP); } catch (e) { /* ignorar */ }
   }
 
   function renderProductList() {
@@ -312,44 +310,6 @@ window.Factura = { alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCod
       showCustomConfirm(index, product ? product.name : 'este producto');
   }
 
-  /* ---- Borrador: la factura en proceso sobrevive si el navegador recarga la página (iPhone: al cambiar de app) ---- */
-  const CLAVE_BORRADOR = 'facturaBorrador', CLAVE_POPUP = 'facturaPendiente';
-  function guardarBorrador() {
-      try {
-          localStorage.setItem(CLAVE_BORRADOR, JSON.stringify({
-              products, extraErrand, depositPaid, editingIndex,
-              nombre: document.getElementById('customerName').value,
-              delivery: document.getElementById('deliveryPrice').value,
-              prodNombre: document.getElementById('currentProductName').value,
-              prodPrecio: document.getElementById('currentProductPrice').value,
-              contacto: document.getElementById('contactoSel').value, ts: Date.now()
-          }));
-      } catch (e) { /* almacenamiento lleno o bloqueado */ }
-  }
-  function leerBorrador() { try { return JSON.parse(localStorage.getItem(CLAVE_BORRADOR) || 'null'); } catch (e) { return null; } }
-  function restaurarBorrador(b) {
-      if (!b) return;
-      products = Array.isArray(b.products) ? b.products.filter((p) => p && typeof p.price === 'number') : [];
-      editingIndex = Number.isInteger(b.editingIndex) ? b.editingIndex : -1;
-      depositPaid = !!b.depositPaid;
-      document.getElementById('customerName').value = b.nombre || '';
-      document.getElementById('deliveryPrice').value = b.delivery || '';
-      document.getElementById('currentProductName').value = b.prodNombre || '';
-      document.getElementById('currentProductPrice').value = b.prodPrecio || '';
-      window.Factura._contactoGuardado = b.contacto || '';
-      renderProductList();
-      toggleExtraErrand(b.extraErrand === 10 || b.extraErrand === 20 ? b.extraErrand : 0);   // también recalcula el total
-      if (editingIndex >= 0 && products[editingIndex]) document.querySelector('.add-product-btn').textContent = '✓';
-      // Factura ya generada y todavía sin enviar: se vuelve a mostrar
-      try {
-          const p = JSON.parse(localStorage.getItem(CLAVE_POPUP) || 'null');
-          if (p && p.f && p.html && Date.now() - p.ts < 12 * 3600 * 1000) {
-              facturaActual = p.f;
-              document.getElementById('generatedInvoiceDisplay').innerHTML = p.html;
-              document.getElementById('invoicePopup').classList.add('show');
-          } else localStorage.removeItem(CLAVE_POPUP);
-      } catch (e) { /* ignorar */ }
-  }
   function calculateTotal() {
       let subtotal = 0;
       
@@ -364,7 +324,6 @@ window.Factura = { alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCod
       document.getElementById('subtotal').textContent = `C$ ${subtotal.toFixed(2)}`;
       document.getElementById('deliveryCost').textContent = `C$ ${totalDelivery.toFixed(2)}`;
       document.getElementById('grandTotal').textContent = `C$ ${grandTotal.toFixed(2)}`;
-      guardarBorrador();
   }
 
   function promptGenerateInvoice() {
@@ -489,7 +448,6 @@ window.Factura = { alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCod
       }
 
       document.getElementById('invoicePopup').classList.add('show');
-      try { localStorage.setItem(CLAVE_POPUP, JSON.stringify({ f: facturaActual, html: invoiceHTML, ts: Date.now() })); } catch (e) { /* ignorar */ }
   }
 
   /* Botón principal: la factura (con el enlace de seguimiento) va SIEMPRE al chat de WhatsApp del negocio;
@@ -565,17 +523,11 @@ window.Factura = { alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCod
       }
   });
 
-  const borradorGuardado = leerBorrador();   // se lee ANTES de que los cálculos iniciales lo sobrescriban
   toggleExtraErrand(0);
   calculateTotal();
   checkAndResetStats();
   checkSessionAndLogin();
   renderDepositInvoices();
-  restaurarBorrador(borradorGuardado);
-  ['customerName', 'deliveryPrice', 'currentProductName', 'currentProductPrice'].forEach((id) => document.getElementById(id).addEventListener('input', guardarBorrador));
-  document.getElementById('contactoSel').addEventListener('change', guardarBorrador);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') guardarBorrador(); });
-  window.addEventListener('pagehide', guardarBorrador);
 
 Object.assign(window, { showCustomAlert, closeCustomAlert, closeCustomConfirm, confirmDeposit, showStats, hideStats, calculateTotal, toggleExtraErrand, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto });
 })();
