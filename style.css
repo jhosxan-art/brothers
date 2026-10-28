@@ -430,3 +430,4 @@ input.sw { -webkit-appearance: none; appearance: none; width: 54px; height: 32px
 input.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); transition: transform .2s; }
 input.sw:checked { background: #12A150; }
 input.sw:checked::after { transform: translateX(22px); }
+.pd-tag{font-style:normal;font-size:.7rem;font-weight:700;background:#eef2ff;color:#3b4cca;border-radius:6px;padding:1px 6px;margin-left:4px}

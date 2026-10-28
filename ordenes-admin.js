@@ -431,6 +431,25 @@ const PedidosAdmin = (() => {
       ((o.asignacion.tipo === "invitado" && O.uidInvitado(t) === uid) || (o.asignacion.tipo === "registrado" && o.asignacion.uid === uid)));
     return e ? ` · 📦 ${e[1].codigo}: ${O.ESTADOS[e[1].estado][0]}` : "";
   }
+  /* ---------- Repartidor invitado tocado en el mapa: Entregado / Cancelar / Chat ---------- */
+  const tokenInv = (uid) => String(uid).replace(/^inv_/, "");
+  const invCerrado = (uid) => { const o = ordenes[tokenInv(uid)]; return !!o && O.esInvitadoUid(uid) && !activa(o); };   // su pedido ya terminó: no se dibuja
+  function chatInvitado(uid) { abrirChatInv(tokenInv(uid)); }
+  async function accionInvitado(uid, accion) {
+    const t = tokenInv(uid), o = ordenes[t]; if (!o) return toast("No encuentro el pedido de este invitado.");
+    const ent = accion === "entregado", est = ent ? "entregado" : "cancelado";
+    if (!confirm(ent ? `¿Marcar como ENTREGADO el pedido ${o.codigo}? El repartidor saldrá del mapa.` : `¿Cancelar el pedido ${o.codigo}? El repartidor saldrá del mapa.`)) return;
+    const upd = { [`ordenes/${t}/estado`]: est, [`ordenes/${t}/actualizado`]: O.TS, ["ubicaciones/" + uid]: null, ["guias/" + uid]: null };
+    if (ent) upd[`ordenes/${t}/entregadoTs`] = O.TS;
+    try {
+      if ((await db.ref("pedidos/" + t).once("value")).exists()) {
+        upd[`pedidos/${t}/estado`] = est;
+        if (ent) upd[`pedidos/${t}/fin`] = O.TS;
+      }
+      await db.ref().update(upd);
+      toast(ent ? "Pedido entregado ✓ El repartidor salió del mapa." : "Pedido cancelado. El repartidor salió del mapa.");
+    } catch (err) { toast("No se pudo actualizar: " + err.message); }
+  }
   /* Si el admin marca entregado un pedido de un invitado desde el mapa */
   function cerrarInvitado(token, uid) {
     if (!O.esInvitadoUid(uid)) return;
@@ -504,5 +523,5 @@ const PedidosAdmin = (() => {
   }
   function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } ordenes = {}; resInv = {}; sinLeerInv = {}; cerrarMapaForm(); quitarTemp(); cancelarClick(); }
 
-  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "" };
+  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "" };
 })();

@@ -169,6 +169,7 @@ function iconoRepAdmin(nombre, est) {
 function pintarMarcador(uid) {
   const u = ubic[uid];
   if (!u || typeof u.lat !== "number") return;
+  if (typeof PedidosAdmin !== "undefined" && PedidosAdmin.invCerrado(uid)) { quitarMarcador(uid); pintarGuia(uid); return; }   // invitado con pedido entregado/cancelado: sale del mapa
   if (ocultos.has(uid)) { quitarMarcador(uid); pintarGuia(uid); return; }   // desactivado en la lista: no aparece en el mapa
   const est = estadoDe(uid), nombre = nombreUid(uid);
   const clave = nombre + "|" + est, pos = [u.lat, u.lng];
@@ -204,6 +205,18 @@ $("btnIconoMenos").onclick = () => cambiarEscala(-.2);
 /* ---------- Ventanitas del mapa: repartidor y cliente ---------- */
 function popupRep(uid) {
   const est = estadoDe(uid), [texto, clase] = ETIQUETA[est], n = sinLeerEq[uid] || 0;
+  if (typeof PedidosAdmin !== "undefined" && Ordenes.esInvitadoUid(uid)) {   // repartidor invitado: Entregado / Guiar / Chat / Cancelar
+    return `<div class="pop-rep"><strong>${esc(nombreUid(uid))} <i class="pd-tag">Invitado</i></strong>
+    <span class="chip ${clase}">${texto}</span>
+    <small>${esc(descripcion(uid, est))}${guias[uid] ? " · 📍 guía activa" : ""}${esc(PedidosAdmin.notaRep(uid))}</small>
+    <div class="acciones-fila">
+      <button class="mini pri" data-pa="invent" data-uid="${esc(uid)}" type="button">✅ Pedido entregado</button>
+      <button class="mini" data-pa="guiar" data-uid="${esc(uid)}" type="button">📍 Guiar repartidor</button>
+      <button class="mini" data-pa="chat" data-uid="${esc(uid)}" type="button">💬 Chat al repartidor</button>
+      ${guias[uid] ? `<button class="mini peligro" data-pa="quitarguia" data-uid="${esc(uid)}" type="button">Quitar guía</button>` : ""}
+      <button class="mini peligro" data-pa="invcancel" data-uid="${esc(uid)}" type="button">✖ Cancelar pedido</button>
+    </div></div>`;
+  }
   return `<div class="pop-rep"><strong>${esc(nombreUid(uid))}</strong>
     <span class="chip ${clase}">${texto}</span>
     <small>${esc(descripcion(uid, est))}${guias[uid] ? " · 📍 guía activa" : ""}${typeof PedidosAdmin !== "undefined" ? esc(PedidosAdmin.notaRep(uid)) : ""}</small>
@@ -234,7 +247,9 @@ function iniciarPopups() {
         const uid = b.dataset.uid, a = b.dataset.pa;
         mapa.closePopup();
         if (a === "guiar") { selUid = uid; pintarSeleccion(); }
-        else if (a === "chat") abrirChatRep(uid);
+        else if (a === "chat") { if (Ordenes.esInvitadoUid(uid) && typeof PedidosAdmin !== "undefined") PedidosAdmin.chatInvitado(uid); else abrirChatRep(uid); }
+        else if (a === "invent") PedidosAdmin.accionInvitado(uid, "entregado");
+        else if (a === "invcancel") PedidosAdmin.accionInvitado(uid, "cancelado");
         else if (a === "quitarguia") db.ref("guias/" + uid).remove().then(() => toast("Guía quitada.")).catch((err) => toast(err.message));
         else if (a === "guiarbus" && datosBusq) { if (selUid) fijarGuia(selUid, datosBusq); }
         else if (a === "negbus" && datosBusq) formNegocio({ nombre: datosBusq.tipo === "coords" ? "" : datosBusq.nombre, dir: datosBusq.tipo === "coords" ? "" : datosBusq.detalle.slice(0, 120), lat: +datosBusq.lat.toFixed(6), lng: +datosBusq.lng.toFixed(6) });
@@ -532,7 +547,7 @@ async function fijarGuia(uid, ll, tokenForzado, extra) {
   const dato = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), ts: firebase.database.ServerValue.TIMESTAMP, por: "admin" };
   const tk = tokenForzado || (extra ? "" : $("guiaPedido").value); if (tk) dato.token = tk;
   if (extra) Object.assign(dato, extra);   // guía a un negocio: nombre e icono
-  try { await db.ref("guias/" + uid).set(dato); toast(`Guía enviada a ${nombreUid(uid)} ✓ Solo la ve él.`); }
+  try { await db.ref("guias/" + uid).set(dato); if (Ordenes.esInvitadoUid(uid)) db.ref("ordenes/" + PedidosAdmin.tokenInv(uid) + "/guiaAdmin").set(dato).catch(() => {}); toast(`Guía enviada a ${nombreUid(uid)} ✓ Solo la ve él.`); }
   catch (e) { return toast("No se pudo enviar la guía: " + e.message); }
   selUid = null; pintarSeleccion(); pintarLista();   // listo: los demás repartidores no se tocan
 }
