@@ -94,11 +94,28 @@ const PedidosAdmin = (() => {
         <label>📦 Lugar de retiro${n > 1 ? " " + (i + 1) : ""} <input data-f="texto" maxlength="160" autocomplete="off" placeholder="Negocio o dirección" value="${esc(r.texto)}"></label>
         <button data-a="mapa" type="button" aria-label="Elegir en el mapa">📍</button>
         <span class="pd-ok"></span>
+        <div class="pd-sug oculto" data-sug></div>
       </div>
       <label>Producto a retirar aquí <input data-f="producto" maxlength="120" autocomplete="off" placeholder="Ej. 2 pizzas medianas" value="${esc(r.producto)}"></label>
       ${n > 1 ? '<button data-a="quitar" class="mini peligro" type="button">Quitar este retiro</button>' : ""}</div>`).join("");
     retirosForm.forEach((r, i) => pintarOk(filaEl(i).querySelector(".pd-ok"), r.ll));
   }
+  /* ---------- Burbujas de coincidencias con los negocios guardados ---------- */
+  const norm = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  function coincidencias(v) {
+    const q = norm(v); if (!q) return [];
+    return Object.entries(lugares).filter(([, l]) => typeof l.lat === "number" && norm(l.nombre).includes(q))
+      .sort((a, b) => (norm(a[1].nombre).startsWith(q) ? 0 : 1) - (norm(b[1].nombre).startsWith(q) ? 0 : 1) || a[1].nombre.localeCompare(b[1].nombre)).slice(0, 6);
+  }
+  function mostrarSug(box, v) {
+    if (!box) return;
+    const lista = coincidencias(v);
+    if (!lista.length) { box.classList.add("oculto"); box.innerHTML = ""; return; }
+    box.innerHTML = lista.map(([id, l]) => `<button type="button" class="pd-burbuja" data-lid="${esc(id)}"><span>${esc(l.icono || "🏪")}</span><b>${esc(l.nombre)}</b>${l.dir ? `<small>${esc(l.dir)}</small>` : ""}</button>`).join("");
+    box.classList.remove("oculto");
+  }
+  function ocultarSugs() { document.querySelectorAll("#panelPedidos .pd-sug").forEach((b) => { b.classList.add("oculto"); b.innerHTML = ""; }); }
+
   function fijarRetiro(i, ll, texto) {
     const r = retirosForm[i]; if (!r) return;
     r.ll = { lat: ll.lat, lng: ll.lng }; r.texto = texto;
@@ -107,14 +124,17 @@ const PedidosAdmin = (() => {
   function fijarEntrega(ll, texto) { lugarSel.entrega = { lat: ll.lat, lng: ll.lng, texto }; el("pdEntrega").value = texto; pintarOk(el("pdEntregaOk"), lugarSel.entrega); }
   function alEscribirRetiro(i, v) {
     const r = retirosForm[i], hit = hitLugar(v); r.texto = v;
-    if (hit) return fijarRetiro(i, hit, hit.nombre);
+    const box = filaEl(i).querySelector("[data-sug]");
+    if (hit) { fijarRetiro(i, hit, hit.nombre); return mostrarSug(box, ""); }
     r.ll = null; pintarOk(filaEl(i).querySelector(".pd-ok"), null);
+    mostrarSug(box, v);
   }
   function alEscribirEntrega() {
     const v = el("pdEntrega").value.trim(), hit = hitLugar(v);
-    if (hit) return fijarEntrega(hit, hit.nombre);
+    if (hit) { fijarEntrega(hit, hit.nombre); return mostrarSug(el("pdEntregaSug"), ""); }
     if (lugarSel.entrega && lugarSel.entrega.texto !== el("pdEntrega").value) lugarSel.entrega = null;
     pintarOk(el("pdEntregaOk"), lugarSel.entrega);
+    mostrarSug(el("pdEntregaSug"), v);
   }
   /* ============================================================
      MAPA EN BLANCO DEL FORMULARIO: solo Retiro → Entrega, con distancia (km) y ETA
@@ -251,7 +271,7 @@ const PedidosAdmin = (() => {
       }));
       const { token, orden } = await O.crear(db, datos);
       ["pdCliente", "pdEntrega", "pdPaquete", "pdDelivery", "pdIva"].forEach((id) => { el(id).value = ""; }); pintarTotalDelivery();
-      lugarSel.entrega = null; retirosForm = [{ texto: "", ll: null, producto: "" }]; pintarRetiros(); pintarOk(el("pdEntregaOk"), null);
+      lugarSel.entrega = null; retirosForm = [{ texto: "", ll: null, producto: "" }]; pintarRetiros(); pintarOk(el("pdEntregaOk"), null); ocultarSugs();
       if (asignacion.tipo === "invitado") { aviso(""); mostrarEnlaces(token, orden); }
       else {
         const t = `Pedido ${orden.codigo} enviado a ${asignacion.nombre} ✓ (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".");
@@ -422,6 +442,19 @@ const PedidosAdmin = (() => {
         if (b.dataset.a === "mapa") abrirMapaForm("retiro", i);
         else if (b.dataset.a === "quitar") { retirosForm.splice(i, 1); pintarRetiros(); }
       });
+      rc.addEventListener("click", (e) => {   // elegir una burbuja de negocio
+        const b = e.target.closest("button[data-lid]"), f = e.target.closest("[data-i]"); if (!b || !f) return;
+        const l = lugares[b.dataset.lid]; if (!l) return;
+        fijarRetiro(+f.dataset.i, l, l.nombre); ocultarSugs();
+      });
+      rc.addEventListener("focusin", (e) => { if (e.target.dataset.f === "texto") { const f = e.target.closest("[data-i]"); if (f && !retirosForm[+f.dataset.i].ll) mostrarSug(f.querySelector("[data-sug]"), e.target.value); } });
+      el("pdEntrega").addEventListener("focus", () => { if (!lugarSel.entrega) mostrarSug(el("pdEntregaSug"), el("pdEntrega").value); });
+      el("pdEntregaSug").addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-lid]"); if (!b) return;
+        const l = lugares[b.dataset.lid]; if (!l) return;
+        fijarEntrega(l, l.nombre); ocultarSugs();
+      });
+      document.addEventListener("click", (e) => { if (!e.target.closest("#panelPedidos .pd-lugar")) ocultarSugs(); });
       el("pdEntrega").addEventListener("input", alEscribirEntrega);
       el("pdEntregaMapa").onclick = () => abrirMapaForm("entrega");
       pintarOk(el("pdEntregaOk"), null);
