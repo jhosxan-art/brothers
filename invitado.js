@@ -10,7 +10,7 @@
   const uid = O.uidInvitado(t);
   const claveLocal = "invitado_" + t;
 
-  let orden = null, nombre = "", mapa = null, marcaYo = null, pinRetiro = null, pinEntrega = null, pinGuia = null, linea = null;
+  let orden = null, nombre = "", mapa = null, marcaYo = null, pinsRetiro = [], pinEntrega = null, pinGuia = null, linea = null;
   let pos = null, ultEscritura = 0, watchId = null, wakeLock = null, refOrden = null, refChat = null;
   let flechasCapa = null, ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: 0 }, yaEncuadrado = false, chatAbierto = false, sinLeer = 0, terminado = false;
   const vista = (id) => ["vCarga", "vEntrada", "vApp", "vFin"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
@@ -36,8 +36,10 @@
     if (guardado) return entrar(guardado);   // mismo aparato: entra directo
     vista("vEntrada");
   }
+  const listaParadas = (o) => O.paradas(o).map((p, k) => `<span>${p.retirado ? "✅" : "📦"} Retiro ${O.paradas(o).length > 1 ? k + 1 + ": " : ": "}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}</span>`).join("");
   const resumenHtml = (o) => `<b>Pedido ${esc(o.codigo)}</b>
-    <span>📦 Retiro: ${esc((o.retiro && o.retiro.texto) || "—")}</span><span>🏠 Entrega: ${esc((o.entrega && o.entrega.texto) || "—")}</span>
+    ${listaParadas(o)}<span>🏠 Entrega: ${esc((o.entrega && o.entrega.texto) || "—")}</span>
+    ${o.delivery ? `<span>🛵 Delivery: <b>${O.money(o.delivery)}</b></span>` : ""}
     ${o.paquete ? `<span>📝 ${esc(o.paquete)}</span>` : ""}`;
 
   $("btnEntrar").onclick = () => {
@@ -77,26 +79,33 @@
   }
   const destinoActual = () => {
     if (orden.guia && O.valido(orden.guia)) return { lat: orden.guia.lat, lng: orden.guia.lng, etiqueta: O.PUNTOS[orden.guia.punto] ? O.PUNTOS[orden.guia.punto].nombre : "Punto", texto: "Punto indicado por Brothers" };
-    const p = orden.estado === "retirado" ? orden.entrega : orden.retiro;
-    return Object.assign({ etiqueta: orden.estado === "retirado" ? "Entrega" : "Retiro" }, p || {});
+    const d = O.destinoDe(orden);
+    if (d.etiqueta === "Retiro" && d.total > 1) d.etiqueta = `Retiro ${d.idx + 1}/${d.total}`;
+    return d;
   };
   function pintarPedido() {
     const d = destinoActual(), [txt, cls] = O.ESTADOS[orden.estado] || O.ESTADOS.pendiente;
     $("datosPedido").innerHTML = `<b>Pedido ${esc(orden.codigo)} · ${esc(orden.cliente || "")}</b>
-      <span>${d.etiqueta === "Entrega" ? "🏠" : "📦"} Ahora: <b>${esc(d.etiqueta)}</b> — ${esc(d.texto || "sin dirección")}</span>
+      <span>${d.etiqueta === "Entrega" ? "🏠" : "📦"} Ahora: <b>${esc(d.etiqueta)}</b> — ${esc(d.texto || "sin dirección")}${d.producto ? " · <b>" + esc(d.producto) + "</b>" : ""}</span>
+      ${O.paradas(orden).length > 1 ? "<small>Retiros del pedido:</small>" + listaParadas(orden) : ""}
+      ${orden.delivery ? `<span>🛵 Delivery: <b>${O.money(orden.delivery)}</b></span>` : ""}
       ${orden.paquete ? `<span>📝 ${esc(orden.paquete)}</span>` : ""}`;
     $("chipEstado").textContent = txt; $("chipEstado").className = "chip " + cls;
-    $("btnRetirado").disabled = orden.estado === "retirado";
-    $("btnEntregado").disabled = orden.estado !== "retirado";
+    const sig = O.siguienteRetiro(orden);
+    $("btnRetirado").disabled = !sig;
+    $("btnRetirado").textContent = sig ? `📦 Retirado${O.paradas(orden).length > 1 ? " (" + (sig.i + 1) + "/" + O.paradas(orden).length + ")" : ""}` : "📦 Todo retirado";
+    $("btnEntregado").disabled = !!sig;
     pintarPuntos(); calcularRuta(true);
   }
 
   /* ---------- Botones de estado ---------- */
   async function cambiar(estado) {
-    const etiqueta = estado === "retirado" ? "RETIRADO" : "ENTREGADO";
-    if (!confirm(`¿Confirmas que el paquete fue ${etiqueta}?`)) return;
+    const sig = O.siguienteRetiro(orden);
+    if (estado === "retirado" && !sig) return;
+    const pregunta = estado === "retirado" ? `¿Confirmas que ya RETIRASTE${sig.p.producto ? " “" + sig.p.producto + "”" : " este paquete"}${sig.p.texto ? " en " + sig.p.texto : ""}?` : "¿Confirmas que el paquete fue ENTREGADO?";
+    if (!confirm(pregunta)) return;
     try {
-      await O.marcar(db, t, estado, orden);
+      if (estado === "retirado") await O.marcarRetiro(db, t, orden, sig.i); else await O.marcar(db, t, estado, orden);
       await db.ref(`ordenes/${t}/guia`).remove().catch(() => {});   // el punto rápido del admin ya cumplió su función
       if (estado === "entregado") {
         await db.ref("pedidos/" + t).update({ estado: "entregado", fin: TS, lat: null, lng: null, rumbo: null, velocidad: null, precision: null, destLat: null, destLng: null, distancia: null, cerca: null });
@@ -141,7 +150,9 @@
       if (!actual) return L.marker([p.lat, p.lng], { icon: O.pinIcono(clase, emoji) }).addTo(mapa);
       actual.setLatLng([p.lat, p.lng]); return actual;
     };
-    pinRetiro = poner(pinRetiro, orden.retiro, "retiro", "📦");
+    const ps = O.paradas(orden);
+    while (pinsRetiro.length > ps.length) { const x = pinsRetiro.pop(); if (x) mapa.removeLayer(x); }
+    ps.forEach((p, k) => { pinsRetiro[k] = poner(pinsRetiro[k], p, "retiro", p.retirado ? "✅" : ps.length > 1 ? String(k + 1) : "📦"); });
     pinEntrega = poner(pinEntrega, orden.entrega, "entrega", "🏠");
     pinGuia = poner(pinGuia, orden.guia, orden.guia && orden.guia.punto === "entrega" ? "entrega" : "retiro", "📍");
     if (!yaEncuadrado) encuadrar();
@@ -229,6 +240,7 @@
       const m = s.val(); if (!m) return; burbuja(m);
       if (cargado && m.de === "cliente") {
         navigator.vibrate && navigator.vibrate(200);
+        O.hablar("Mensaje del cliente: " + (m.texto || "te envió una foto"));   // en voz alta
         if (!chatAbierto) { sinLeer++; $("chatBadge").textContent = sinLeer; $("chatBadge").classList.remove("oculto"); }
       }
     });

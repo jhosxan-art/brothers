@@ -35,6 +35,26 @@ const Ordenes = (() => {
   const urlInvitado = (t) => (typeof URL_INVITADO !== "undefined" ? URL_INVITADO : baseDe(URL_RASTREO) + "invitado.html") + "?t=" + t;
   const urlCliente = (t) => `${URL_RASTREO}?id=${t}&chat=1`;
 
+  /* Voz en voz alta (usa Voz.hablar si existe; si no, el sintetizador del navegador) */
+  function hablar(texto) {
+    try {
+      if (typeof Voz !== "undefined" && Voz.hablar) return Voz.hablar(texto, { forzar: true });
+      if (!("speechSynthesis" in window)) return;
+      const u = new SpeechSynthesisUtterance(texto); u.lang = "es-ES"; u.rate = 1;
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    } catch (_) {}
+  }
+  const money = (x) => "C$ " + (Math.round((+x || 0) * 100) / 100).toFixed(2);
+  /* Un pedido puede tener varios retiros (cada uno con su producto). Pedidos viejos traen solo "retiro". */
+  const paradas = (o) => (o && Array.isArray(o.retiros) && o.retiros.length ? o.retiros : o && o.retiro ? [o.retiro] : []);
+  const pendientes = (o) => paradas(o).map((p, i) => ({ i, p })).filter((x) => !x.p.retirado);
+  const siguienteRetiro = (o) => pendientes(o)[0] || null;
+  /* Hacia dónde va ahora el repartidor: el siguiente retiro pendiente o, si ya retiró todo, la entrega */
+  function destinoDe(o) {
+    const s = siguienteRetiro(o);
+    if (s && !(o.estado === "entregado")) return Object.assign({ etiqueta: "Retiro", idx: s.i, total: paradas(o).length }, s.p);
+    return Object.assign({ etiqueta: "Entrega" }, o.entrega || {});
+  }
   const valido = (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
   const limpiarPunto = (p) => {
     const o = { texto: String((p && p.texto) || "").trim().slice(0, 160) };
@@ -48,23 +68,72 @@ const Ordenes = (() => {
     tipo: "negocio", punto, nombre: PUNTOS[punto].nombre, icono: PUNTOS[punto].icono
   }, extra || {});
 
+  const textoRetiro = (p, n, k) => `Retiro${n > 1 ? " " + (k + 1) + "/" + n : ""}${p.texto ? ": " + p.texto : ""}`.slice(0, 80);
+  /* pedidos/{token}: lo que ve el cliente (seguimiento, chat y avisos de voz). Se crea al asignar. */
+  const nodoCliente = (t, orden, uid, nombre) => ({
+    estado: "en_ruta", pedido: orden.codigo, inicio: TS, repartidorUid: uid, repartidorNombre: nombre || "",
+    clienteNombre: orden.cliente, adminOrden: true, delivery: orden.delivery || 0
+  });
+
   async function crear(db, d) {
     const t = token();
+    const retiros = (d.retiros || []).map((r) => Object.assign(limpiarPunto(r), { producto: String(r.producto || "").trim().slice(0, 120) })).filter((r) => r.texto);
     const orden = {
       codigo: codigo(), cliente: String(d.cliente || "").trim().slice(0, 60),
-      retiro: limpiarPunto(d.retiro), entrega: limpiarPunto(d.entrega), paquete: String(d.paquete || "").trim().slice(0, 400),
+      retiros, retiro: retiros[0] || { texto: "" }, entrega: limpiarPunto(d.entrega), paquete: String(d.paquete || "").trim().slice(0, 400),
+      delivery: Math.max(0, Math.round((+d.delivery || 0) * 100) / 100),
       estado: "pendiente", creado: TS, actualizado: TS
     };
     const upd = { ["ordenes/" + t]: orden };
-    if (d.asignacion && d.asignacion.tipo === "registrado") {
+    const a = d.asignacion;
+    if (a && a.tipo === "registrado") {
       orden.estado = "asignado";
-      orden.asignacion = { tipo: "registrado", uid: d.asignacion.uid, nombre: d.asignacion.nombre || "" };
-      if (valido(orden.retiro)) upd["guias/" + d.asignacion.uid] = datosGuia("retiro", orden.retiro, { ordenId: t });
-    } else if (d.asignacion && d.asignacion.tipo === "invitado") {
+      orden.asignacion = { tipo: "registrado", uid: a.uid, nombre: a.nombre || "" };
+      upd["pedidos/" + t] = nodoCliente(t, orden, a.uid, a.nombre);
+      if (valido(retiros[0])) upd["guias/" + a.uid] = datosGuia("retiro", retiros[0], { ordenId: t, nombre: textoRetiro(retiros[0], retiros.length, 0) });
+    } else if (a && a.tipo === "invitado") {
       orden.asignacion = { tipo: "invitado" };   // el nombre llega cuando el invitado abre el enlace
+      upd["pedidos/" + t] = nodoCliente(t, orden, uidInvitado(t), "");
     }
     await db.ref().update(upd);
     return { token: t, orden };
+  }
+
+  /* Asignar un pedido pendiente (o reasignarlo) a un repartidor registrado o generar enlace de invitado */
+  async function asignar(db, t, orden, asignacion) {
+    const upd = { ["ordenes/" + t + "/asignacion"]: asignacion, ["ordenes/" + t + "/estado"]: "asignado", ["ordenes/" + t + "/actualizado"]: TS };
+    if (asignacion.tipo === "registrado") {
+      upd["pedidos/" + t] = nodoCliente(t, orden, asignacion.uid, asignacion.nombre);
+      const sig = siguienteRetiro(orden);
+      if (sig && valido(sig.p)) upd["guias/" + asignacion.uid] = datosGuia("retiro", sig.p, { ordenId: t, nombre: textoRetiro(sig.p, paradas(orden).length, sig.i) });
+    } else upd["pedidos/" + t] = nodoCliente(t, orden, uidInvitado(t), "");
+    await db.ref().update(upd);
+  }
+
+  /* Aviso al cliente: queda en pedidos/{token}/aviso (lo lee aviso-cliente.js y lo dice en voz alta) y en su chat */
+  function avisoCliente(upd, db, t, texto, tipo) {
+    upd[`pedidos/${t}/aviso`] = { texto, tipo, ts: TS, id: token(6) };
+    db.ref("chats/" + t).push({ de: "repartidor", texto, ts: TS, sistema: true }).catch(() => {});
+  }
+
+  /* Un retiro (parada i) fue recogido. Cuando ya no quedan pendientes el pedido pasa a "retirado" y la ruta va a la entrega. */
+  async function marcarRetiro(db, t, orden, i) {
+    const ps = paradas(orden), p = ps[i]; if (!p || p.retirado) return;
+    const faltan = ps.filter((x, k) => !x.retirado && k !== i), hechos = ps.length - faltan.length;
+    const upd = { [`ordenes/${t}/retiros/${i}/retirado`]: TS, [`ordenes/${t}/actualizado`]: TS };
+    const a = orden.asignacion || {};
+    if (!Array.isArray(orden.retiros)) upd[`ordenes/${t}/retiros`] = ps.map((x, k) => Object.assign({}, x, k === i ? { retirado: TS } : {}));   // pedido viejo: se convierte
+    const prod = p.producto ? `“${p.producto}”` : "un producto";
+    if (faltan.length) {
+      const sig = ps.findIndex((x, k) => !x.retirado && k !== i);
+      avisoCliente(upd, db, t, `📦 Ya retiraron ${prod}${p.texto ? " en " + p.texto : ""} (${hechos}/${ps.length}). Faltan ${faltan.length} retiro${faltan.length > 1 ? "s" : ""}, ¡atento!`, "retiro");
+      if (a.tipo === "registrado" && a.uid && valido(ps[sig])) upd["guias/" + a.uid] = datosGuia("retiro", ps[sig], { ordenId: t, nombre: textoRetiro(ps[sig], ps.length, sig) });
+    } else {
+      upd[`ordenes/${t}/estado`] = "retirado"; upd[`ordenes/${t}/retiradoTs`] = TS;
+      avisoCliente(upd, db, t, `📦 Tu pedido completo ya fue retirado y va en camino hacia ti. ¡Está pendiente!`, "retirado");
+      if (a.tipo === "registrado" && a.uid && valido(orden.entrega)) upd["guias/" + a.uid] = datosGuia("entrega", orden.entrega, { ordenId: t });
+    }
+    await db.ref().update(upd);
   }
 
   /* Cambio de estado (Retirado / Entregado). Lo usan el invitado y el repartidor registrado. */
@@ -83,6 +152,7 @@ const Ordenes = (() => {
   async function asignar(db, t, orden, asignacion) {
     const upd = { ["ordenes/" + t + "/asignacion"]: asignacion, ["ordenes/" + t + "/estado"]: "asignado", ["ordenes/" + t + "/actualizado"]: TS };
     if (asignacion.tipo === "registrado" && valido(orden.retiro)) upd["guias/" + asignacion.uid] = datosGuia("retiro", orden.retiro, { ordenId: t });
+    if (estado === "entregado") { upd[`pedidos/${t}/estado`] = "entregado"; avisoCliente(upd, db, t, "✅ Tu pedido fue entregado. ¡Gracias por tu compra!", "entregado"); }
     await db.ref().update(upd);
   }
 
@@ -104,18 +174,25 @@ const Ordenes = (() => {
       return { pts: rt.geometry.coordinates.map(([x, y]) => [y, x]), dist: Math.round(rt.distance), dur: rt.duration };
     } catch (_) { return null; }
   }
-  /* Ruta por calles con instrucciones paso a paso (OSRM público). Devuelve null si falla: NUNCA se dibuja línea recta. */
+  /* Ruta por calles con instrucciones paso a paso. Prueba varios servidores públicos con tiempo límite.
+     Devuelve null si todos fallan: NUNCA se dibuja línea recta. */
+  const SERVIDORES_RUTA = ["https://router.project-osrm.org/route/v1/driving/", "https://routing.openstreetmap.de/routed-car/route/v1/driving/"];
   async function rutaCalles(o, d) {
-    try {
-      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${o.lng},${o.lat};${d.lng},${d.lat}?overview=full&geometries=geojson&steps=true`);
-      const j = await r.json(), rt = j.routes && j.routes[0]; if (!rt) return null;
-      const pasos = [];
-      (rt.legs || []).forEach((leg) => (leg.steps || []).forEach((st) => pasos.push({
-        tipo: st.maneuver.type, mod: st.maneuver.modifier || "", calle: st.name || "", dist: Math.round(st.distance),
-        loc: { lat: st.maneuver.location[1], lng: st.maneuver.location[0] }
-      })));
-      return { pts: rt.geometry.coordinates.map(([x, y]) => [y, x]), dist: Math.round(rt.distance), dur: rt.duration, pasos };
-    } catch (_) { return null; }
+    for (const base of SERVIDORES_RUTA) {
+      const ctl = new AbortController(), cortar = setTimeout(() => ctl.abort(), 9000);
+      try {
+        const r = await fetch(`${base}${o.lng},${o.lat};${d.lng},${d.lat}?overview=full&geometries=geojson&steps=true`, { signal: ctl.signal });
+        const j = await r.json(), rt = j.routes && j.routes[0]; if (!rt) continue;
+        const pasos = [];
+        (rt.legs || []).forEach((leg) => (leg.steps || []).forEach((st) => pasos.push({
+          tipo: st.maneuver.type, mod: st.maneuver.modifier || "", calle: st.name || "", dist: Math.round(st.distance),
+          loc: { lat: st.maneuver.location[1], lng: st.maneuver.location[0] }
+        })));
+        if (!pasos.length) pasos.push({ tipo: "arrive", mod: "", calle: "", dist: 0, loc: { lat: d.lat, lng: d.lng } });
+        return { pts: rt.geometry.coordinates.map(([x, y]) => [y, x]), dist: Math.round(rt.distance), dur: rt.duration, pasos };
+      } catch (_) { /* siguiente servidor */ } finally { clearTimeout(cortar); }
+    }
+    return null;
   }
   const GIROS = { left: ["⬅️", "a la izquierda"], right: ["➡️", "a la derecha"], "slight left": ["↖️", "levemente a la izquierda"], "slight right": ["↗️", "levemente a la derecha"],
     "sharp left": ["↩️", "cerrado a la izquierda"], "sharp right": ["↪️", "cerrado a la derecha"], uturn: ["🔄", "en U"], straight: ["⬆️", "recto"] };
@@ -147,5 +224,5 @@ const Ordenes = (() => {
   };
   const pinIcono = (clase, emoji) => L.divIcon({ className: "", html: `<div class="pd-pin ${clase}"><b>${emoji}</b></div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
 
-  return { TS, ESTADOS, PUNTOS, esc, token, uidInvitado, esInvitadoUid, urlInvitado, urlCliente, valido, crear, asignar, marcar, puntoRapido, rutaOSRM, rutaCalles, textoPaso, callesDe, flechas, distM, pinIcono };
+  return { TS, ESTADOS, PUNTOS, esc, token, uidInvitado, esInvitadoUid, urlInvitado, urlCliente, valido, crear, asignar, marcar, marcarRetiro, avisoCliente, hablar, money, paradas, pendientes, siguienteRetiro, destinoDe, textoRetiro, puntoRapido, rutaOSRM, rutaCalles, textoPaso, callesDe, flechas, distM, pinIcono };
 })();

@@ -26,6 +26,7 @@ let ajusteProgramado = false, secundaria = null;
 const RUTA_EQ = { chats: "chatsEquipo", resumen: "chatsEquipoResumen", fotos: "fotosEquipo" };
 const guias = {};             // uid → { lat, lng, token } guía que Brothers marcó para ese repartidor
 const guiaCapas = {};         // uid → { pin, linea } en el mapa
+let focoUid = null;           // repartidor cuyo recorrido muestra el cartel de giros
 let selUid = null;            // repartidor elegido para guiarlo
 let resEquipo = {}, sinLeerEq = {}, chatEqAbierto = null;
 let refGuias = null, refEq = null;
@@ -183,6 +184,7 @@ function pintarMarcador(uid) {
   const el = marcadores[uid].getElement();
   if (el) el.classList.toggle("sel-rep", uid === selUid);
   pintarGuia(uid);   // la línea de su guía sigue al repartidor mientras se mueve
+  pintarBannerAdmin();
 }
 
 /* ---------- Herramientas: negocios visibles, tamaño de iconos ---------- */
@@ -226,6 +228,7 @@ function popupCliente(token) {
 function iniciarPopups() {
   mapa.on("popupopen", (e) => {
     const el = e.popup.getElement(); if (!el) return;
+    const bu = el.querySelector("button[data-uid]"); if (bu) { focoUid = bu.dataset.uid; pintarBannerAdmin(); }   // muestra el cartel de ese repartidor
     el.querySelectorAll("button[data-pa]").forEach((b) => {
       b.onclick = () => {
         const uid = b.dataset.uid, a = b.dataset.pa;
@@ -472,17 +475,45 @@ function pintarGuia(uid) {
   if ((movido || cambioDest || !c.pts) && Date.now() - c.rutaEn > (cambioDest ? 1500 : 20000)) {
     c.rutaEn = Date.now();
     const o = { lat: u.lat, lng: u.lng };
-    Ruta.pedir(o, { lat: g.lat, lng: g.lng }).then((r) => {
+    Ordenes.rutaCalles(o, { lat: g.lat, lng: g.lng }).then((r) => {
       if (!guiaCapas[uid]) return;
+      if (!r) throw new Error("sin ruta");
+      c.rutaFallo = false; c.pasos = r.pasos; c.idx = Math.min(1, r.pasos.length - 1); c.dist = r.dist; c.dur = r.dur;
       c.pts = r.pts; c.origen = [o.lat, o.lng]; c.dest = p;
       c.linea.setStyle({ dashArray: null, weight: 5, opacity: .9 });
       c.linea.setLatLngs([[o.lat, o.lng], ...r.pts]);
       Ruta.flechas(r.pts, c.flechas, col);
-      c.calles = r.pasos ? Ruta.calles(r.pasos) : "";   // calles exactas por donde va el repartidor
+      c.calles = Ordenes.callesDe(r.pasos);   // calles exactas por donde va el repartidor
+      pintarBannerAdmin();
       c.pin.setIcon(icono()); c.clave = [nom, col, g.icono, g.nombre, c.calles].join("|");
       if (c.calles) c.linea.bindTooltip("Vía: " + c.calles, { sticky: true });
-    }).catch(() => { if (guiaCapas[uid]) c.rutaEn = Date.now() - 17000; });   // sin ruta aún: reintenta en ~3 s (no se dibuja línea recta)
+    }).catch(() => {   // sin ruta aún: avisa y reintenta cada ~3 s (no se dibuja línea recta)
+      if (!guiaCapas[uid]) return;
+      c.rutaFallo = true; c.rutaEn = Date.now() - 18000; pintarBannerAdmin();
+      clearTimeout(c._rt); c._rt = setTimeout(() => pintarGuia(uid), 3000);
+    });
   }
+}
+/* Cartel de giros del recorrido del repartidor enfocado (el que guías o el que tocaste en el mapa) */
+const fmtM = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m");
+function pintarBannerAdmin() {
+  const b = $("bannerRuta"); if (!b) return;
+  const uid = focoUid && guiaCapas[focoUid] ? focoUid : (selUid && guiaCapas[selUid] ? selUid : null);
+  if (!uid) { b.classList.add("oculto"); return; }
+  const c = guiaCapas[uid], u = ubic[uid], g = guias[uid] || {}, nom = nombreUid(uid), destino = g.nombre || (g.tipo === "negocio" ? "destino" : "cliente");
+  const cerrar = '<button id="brXAdm" type="button" aria-label="Cerrar">✕</button>';
+  b.classList.remove("oculto");
+  if (!u || typeof u.lat !== "number" || !c.pasos) {
+    const txt = !u || typeof u.lat !== "number" ? `Esperando la ubicación de ${nom}…` : c.rutaFallo ? `No se pudo calcular la ruta de ${nom}. Reintentando…` : `Calculando ruta de ${nom}…`;
+    b.innerHTML = `<div class="br-fila"><span class="br-ic">🧭</span><div class="br-txt"><b>${esc(txt)}</b></div>${cerrar}</div>`;
+  } else {
+    const aqui = { lat: u.lat, lng: u.lng };
+    while (c.idx < c.pasos.length - 1 && Ordenes.distM(aqui, c.pasos[c.idx].loc) < 30) c.idx++;   // pasa solo al siguiente giro
+    const p = c.pasos[c.idx], [ic, tx] = Ordenes.textoPaso(p), d = Ordenes.distM(aqui, p.loc);
+    b.innerHTML = `<div class="br-fila"><span class="br-ic">${ic}</span><div class="br-txt"><b>${esc(tx)}</b><small>${p.tipo === "arrive" ? "" : "en " + fmtM(d) + " · "}${esc(nom)} → ${esc(destino)}</small></div>${cerrar}</div>
+      <small>${fmtM(c.dist)} · ≈ ${Math.max(1, Math.round(c.dur / 60))} min${c.calles ? " · Vía: " + esc(c.calles) : ""}</small>`;
+  }
+  const x = $("brXAdm"); if (x) x.onclick = () => { focoUid = null; if (selUid) { selUid = null; pintarSeleccion(); pintarLista(); } pintarBannerAdmin(); };
 }
 function seleccionarRep(uid) { selUid = selUid === uid ? null : uid; pintarSeleccion(); pintarLista(); }
 function pintarSeleccion() {
@@ -542,10 +573,10 @@ function iniciarMonitoreo() {
 
   // Guías marcadas por Brothers (una por repartidor)
   refGuias = db.ref("guias");
-  const guiaOk = (s) => { guias[s.key] = s.val(); pintarGuia(s.key); pintarLista(); if (s.key === selUid) pintarSeleccion(); };
+  const guiaOk = (s) => { guias[s.key] = s.val(); pintarGuia(s.key); pintarBannerAdmin(); pintarLista(); if (s.key === selUid) pintarSeleccion(); };
   refGuias.on("child_added", guiaOk, fallo);
   refGuias.on("child_changed", guiaOk);
-  refGuias.on("child_removed", (s) => { delete guias[s.key]; pintarGuia(s.key); pintarLista(); if (s.key === selUid) pintarSeleccion(); });
+  refGuias.on("child_removed", (s) => { delete guias[s.key]; pintarGuia(s.key); pintarBannerAdmin(); pintarLista(); if (s.key === selUid) pintarSeleccion(); });
 
   // Chat de equipo: aviso por voz cuando un repartidor escribe a Brothers
   refEq = db.ref("chatsEquipoResumen");

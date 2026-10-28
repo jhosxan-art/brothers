@@ -42,6 +42,7 @@
     <section id="panelMapa">
       <div class="mapa-caja">
         <div id="mapaAdmin"></div>
+        <div id="bannerRuta" class="banner-ruta oculto"></div>
         <!-- Buscador: ciudades, barrios, direcciones, negocios, coordenadas o enlaces de Google Maps -->
         <div class="buscador">
           <form id="formBusq" autocomplete="off">
@@ -111,12 +112,8 @@
       <div class="pd-form">
         <h2>Nuevo pedido</h2>
         <label>Cliente <input id="pdCliente" maxlength="60" autocomplete="off" placeholder="Nombre del cliente"></label>
-        <div class="pd-lugar">
-          <label>📦 Lugar de retiro <input id="pdRetiro" list="pdLugares" maxlength="160" autocomplete="off" placeholder="Negocio o dirección"></label>
-          <button id="pdRetiroBus" type="button" aria-label="Buscar lugar de retiro">🔎</button>
-          <button id="pdRetiroMapa" type="button" aria-label="Elegir retiro en el mapa">📍</button>
-          <span id="pdRetiroOk" class="pd-ok"></span>
-        </div>
+        <div id="pdRetiros" class="pd-retiros"></div>
+        <button id="pdAddRetiro" class="mini" type="button">➕ Agregar otro lugar de retiro</button>
         <div class="pd-lugar">
           <label>🏠 Lugar de entrega <input id="pdEntrega" list="pdLugares" maxlength="160" autocomplete="off" placeholder="Dirección del cliente"></label>
           <button id="pdEntregaBus" type="button" aria-label="Buscar lugar de entrega">🔎</button>
@@ -124,6 +121,7 @@
           <span id="pdEntregaOk" class="pd-ok"></span>
         </div>
         <datalist id="pdLugares"></datalist>
+        <label>🛵 Precio del delivery (C$) <input id="pdDelivery" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></label>
         <label>Detalles del paquete <textarea id="pdPaquete" maxlength="400" placeholder="Qué lleva, tamaño, indicaciones…"></textarea></label>
         <div><small>Asignación</small>
           <div class="pd-seg" id="pdModo"><button type="button" data-m="registrado" class="on">Repartidor registrado</button><button type="button" data-m="invitado">🔗 Enlace de invitado</button></div></div>

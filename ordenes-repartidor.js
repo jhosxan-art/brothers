@@ -23,16 +23,18 @@ const OrdenAdminRep = (() => {
   }
   function html() {
     if (!orden) return "";
-    const [txt, cls] = O.ESTADOS[orden.estado] || O.ESTADOS.asignado, ret = orden.estado === "retirado";
+    const [txt, cls] = O.ESTADOS[orden.estado] || O.ESTADOS.asignado, ps = O.paradas(orden), sig = O.siguienteRetiro(orden);
+    const lista = ps.map((p, k) => `<small>${p.retirado ? "✅" : "📦"} ${ps.length > 1 ? "Retiro " + (k + 1) + ": " : "Retiro: "}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}</small>`).join("");
     return `<div class="pedido-card sel" data-oa="1">
       <div class="pc-top"><span class="pc-num">📦</span>
         <div class="pc-datos"><strong>${esc(orden.codigo)} · ${esc(orden.cliente || "")}</strong>
-          <small>Retiro: ${esc((orden.retiro && orden.retiro.texto) || "—")}</small><small>Entrega: ${esc((orden.entrega && orden.entrega.texto) || "—")}</small>
+          ${lista}<small>🏠 Entrega: ${esc((orden.entrega && orden.entrega.texto) || "—")}</small>
+          ${orden.delivery ? `<small>🛵 Delivery: <b>${O.money(orden.delivery)}</b></small>` : ""}
           ${orden.paquete ? `<small>📝 ${esc(orden.paquete)}</small>` : ""}</div>
         <span class="chip ${cls}">${txt}</span></div>
       <div class="pc-botones">
-        <button class="oscuro" data-oa="retirado" type="button" ${ret ? "disabled" : ""}>📦 Retirado</button>
-        <button class="primario" data-oa="entregado" type="button" ${ret ? "" : "disabled"}>✅ Entregado</button>
+        <button class="oscuro" data-oa="retirado" type="button" ${sig ? "" : "disabled"}>${sig ? "📦 Retirado" + (ps.length > 1 ? " (" + (sig.i + 1) + "/" + ps.length + ")" : "") : "📦 Todo retirado"}</button>
+        <button class="primario" data-oa="entregado" type="button" ${sig ? "disabled" : ""}>✅ Entregado</button>
       </div></div>`;
   }
   /* Devuelve true si el toque era de esta tarjeta */
@@ -40,10 +42,24 @@ const OrdenAdminRep = (() => {
     const b = e.target.closest("button[data-oa]"), card = e.target.closest("[data-oa]");
     if (!card) return false;
     if (!b || !orden) return true;
-    const estado = b.dataset.oa;
-    if (!confirm(estado === "retirado" ? "¿Confirmas que ya RETIRASTE el paquete?" : "¿Confirmas que ENTREGASTE el paquete?")) return true;
-    O.marcar(ctx.db, id, estado, orden).then(() => { if (estado === "entregado") ctx.alEntregado(); }).catch((err) => alert("No se pudo actualizar: " + err.message));
+    const estado = b.dataset.oa, sig = O.siguienteRetiro(orden);
+    if (estado === "retirado" && !sig) return true;
+    const pregunta = estado === "retirado" ? `¿Confirmas que ya RETIRASTE${sig.p.producto ? " “" + sig.p.producto + "”" : ""}${sig.p.texto ? " en " + sig.p.texto : ""}?` : "¿Confirmas que ENTREGASTE el paquete?";
+    if (!confirm(pregunta)) return true;
+    const trabajo = estado === "retirado" ? O.marcarRetiro(ctx.db, id, orden, sig.i) : O.marcar(ctx.db, id, estado, orden);
+    trabajo.then(() => { if (estado === "entregado") ctx.alEntregado(); }).catch((err) => alert("No se pudo actualizar: " + err.message));
     return true;
   }
-  return { init, seguir, detener, html, alClick };
+  /* Tu posición también llega al cliente de este pedido (pedidos/{token}), igual que en los pedidos con factura */
+  let ultPub = 0;
+  function publicar(base) {
+    if (!orden || !id || Date.now() - ultPub < 4000) return; ultPub = Date.now();
+    const ped = Object.assign({}, base), ent = orden.entrega;
+    if (O.valido(ent)) {
+      ped.destLat = ent.lat; ped.destLng = ent.lng; ped.distancia = Math.round(O.distM(base, ent));
+      if (!O.siguienteRetiro(orden)) ped.cerca = ped.distancia <= 200;
+    }
+    ctx.db.ref("pedidos/" + id).update(ped).catch(() => {});
+  }
+  return { init, seguir, detener, html, alClick, publicar };
 })();

@@ -8,7 +8,8 @@ const PedidosAdmin = (() => {
   const O = Ordenes, esc = O.esc, el = (id) => document.getElementById(id);
   let ordenes = {}, ref = null, primera = true, listo = false;
   let tempMarca = null, timerClick = null, popupCerrado = 0, busqAbierta = false, pick = null;
-  const lugarSel = { retiro: null, entrega: null };   // coordenadas fijadas para cada campo del formulario
+  const lugarSel = { entrega: null };   // coordenadas fijadas de la entrega
+  let retirosForm = [{ texto: "", ll: null, producto: "" }];   // varios retiros, cada uno con su producto
   let modoAsig = "registrado";
 
   /* ---------- Utilidades ---------- */
@@ -79,51 +80,70 @@ const PedidosAdmin = (() => {
   /* ============================================================
      2) PEDIDOS Y REPARTIDORES INVITADOS
      ============================================================ */
-  function estadoCampo(cual) {
-    const p = lugarSel[cual], e = el(cual === "retiro" ? "pdRetiroOk" : "pdEntregaOk");
-    e.textContent = p ? `✓ Ubicación fijada (${p.lat.toFixed(5)}, ${p.lng.toFixed(5)})` : "Sin coordenadas: no habrá ruta automática. Usa 🔎 o 📍.";
-    e.style.color = p ? "#17602B" : "#8A5A00";
+  const okMsg = (ll) => (ll ? `✓ Ubicación fijada (${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)})` : "Sin coordenadas: no habrá ruta automática. Usa 🔎 o 📍.");
+  function pintarOk(span, ll) { if (!span) return; span.textContent = okMsg(ll); span.style.color = ll ? "#17602B" : "#8A5A00"; }
+  const filaEl = (i) => el("pdRetiros").querySelector(`[data-i="${i}"]`);
+  const hitLugar = (v) => { const n = (s) => String(s || "").toLowerCase().trim(); return Object.values(lugares).find((l) => n(l.nombre) === n(v) && typeof l.lat === "number"); };
+
+  function pintarRetiros() {
+    const n = retirosForm.length;
+    el("pdRetiros").innerHTML = retirosForm.map((r, i) => `<div class="pd-retiro" data-i="${i}">
+      <div class="pd-lugar">
+        <label>📦 Lugar de retiro${n > 1 ? " " + (i + 1) : ""} <input data-f="texto" list="pdLugares" maxlength="160" autocomplete="off" placeholder="Negocio o dirección" value="${esc(r.texto)}"></label>
+        <button data-a="bus" type="button" aria-label="Buscar lugar">🔎</button>
+        <button data-a="mapa" type="button" aria-label="Elegir en el mapa">📍</button>
+        <span class="pd-ok"></span>
+      </div>
+      <label>Producto a retirar aquí <input data-f="producto" maxlength="120" autocomplete="off" placeholder="Ej. 2 pizzas medianas" value="${esc(r.producto)}"></label>
+      ${n > 1 ? '<button data-a="quitar" class="mini peligro" type="button">Quitar este retiro</button>' : ""}</div>`).join("");
+    retirosForm.forEach((r, i) => pintarOk(filaEl(i).querySelector(".pd-ok"), r.ll));
   }
-  const campo = (cual) => el(cual === "retiro" ? "pdRetiro" : "pdEntrega");
-  function fijar(cual, ll, texto) {
-    lugarSel[cual] = { lat: ll.lat, lng: ll.lng, texto: texto };
-    campo(cual).value = texto; estadoCampo(cual);
+  function fijarRetiro(i, ll, texto) {
+    const r = retirosForm[i]; if (!r) return;
+    r.ll = { lat: ll.lat, lng: ll.lng }; r.texto = texto;
+    const f = filaEl(i); f.querySelector('[data-f="texto"]').value = texto; pintarOk(f.querySelector(".pd-ok"), r.ll);
   }
-  function alEscribir(cual) {
-    const v = campo(cual).value.trim(), n = (s) => String(s || "").toLowerCase().trim();
-    const hit = Object.values(lugares).find((l) => n(l.nombre) === n(v) && typeof l.lat === "number");   // coincide con un negocio guardado
-    if (hit) return fijar(cual, hit, hit.nombre);
-    if (lugarSel[cual] && lugarSel[cual].texto !== campo(cual).value) lugarSel[cual] = null;
-    estadoCampo(cual);
+  function fijarEntrega(ll, texto) { lugarSel.entrega = { lat: ll.lat, lng: ll.lng, texto }; el("pdEntrega").value = texto; pintarOk(el("pdEntregaOk"), lugarSel.entrega); }
+  function alEscribirRetiro(i, v) {
+    const r = retirosForm[i], hit = hitLugar(v); r.texto = v;
+    if (hit) return fijarRetiro(i, hit, hit.nombre);
+    r.ll = null; pintarOk(filaEl(i).querySelector(".pd-ok"), null);
+  }
+  function alEscribirEntrega() {
+    const v = el("pdEntrega").value.trim(), hit = hitLugar(v);
+    if (hit) return fijarEntrega(hit, hit.nombre);
+    if (lugarSel.entrega && lugarSel.entrega.texto !== el("pdEntrega").value) lugarSel.entrega = null;
+    pintarOk(el("pdEntregaOk"), lugarSel.entrega);
   }
   function llenarLugares() {
     el("pdLugares").innerHTML = Object.values(lugares).map((l) => `<option value="${esc(l.nombre)}"></option>`).join("");
   }
-  async function buscarLugar(cual) {
-    const q = campo(cual).value.trim(); if (!q) return toast("Escribe algo para buscar.");
+  async function buscarLugar(cual, i) {
+    const q = (cual === "retiro" ? retirosForm[i].texto : el("pdEntrega").value).trim(); if (!q) return toast("Escribe algo para buscar.");
     toast("Buscando…");
     let res = [];
     try { res = (await Buscar.buscar(q, mapa.getBounds())).slice(0, 6); } catch (err) { return toast("No se pudo buscar: " + err.message); }
     if (!res.length) return toast("Sin resultados. Prueba con el nombre y la ciudad, o usa 📍.");
-    modal(`<h2>Elige el lugar</h2>${res.map((r, i) => `<div class="item-busq" data-i="${i}" style="cursor:pointer"><strong>${esc(r.nombre)}</strong><small>${esc(r.detalle || "")}</small></div>`).join("")}
+    modal(`<h2>Elige el lugar</h2>${res.map((r, k) => `<div class="item-busq" data-i="${k}" style="cursor:pointer"><strong>${esc(r.nombre)}</strong><small>${esc(r.detalle || "")}</small></div>`).join("")}
       <button id="pdBusqNo" class="oscuro" type="button">Cancelar</button>`);
     el("pdBusqNo").onclick = () => { el("modalCaja").onclick = null; cerrarModal(); };
     el("modalCaja").onclick = (e) => {
       const it = e.target.closest("[data-i]"); if (!it) return;
-      const r = res[+it.dataset.i]; fijar(cual, r, campo(cual).value.trim() || r.nombre); cerrarModal();
-      el("modalCaja").onclick = null;
+      const r = res[+it.dataset.i];
+      if (cual === "retiro") fijarRetiro(i, r, retirosForm[i].texto.trim() || r.nombre); else fijarEntrega(r, el("pdEntrega").value.trim() || r.nombre);
+      cerrarModal(); el("modalCaja").onclick = null;
     };
   }
-  function elegirEnMapa(cual) {
+  function elegirEnMapa(cual, i) {
     document.querySelector('.tabs button[data-tab="panelMapa"]').click();
-    pick = cual;   // se activa DESPUÉS del clic de la pestaña (que lo reinicia)
+    pick = { cual, i };   // se activa DESPUÉS del clic de la pestaña (que lo reinicia)
     toast(`Toca el mapa para fijar el lugar de ${cual === "retiro" ? "retiro" : "entrega"}.`);
   }
-  function fijarDesdeMapa(cual, ll) {
+  function fijarDesdeMapa(p, ll) {
     pick = null;
-    const actual = campo(cual).value.trim();
-    fijar(cual, { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) }, actual || `Punto del mapa (${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)})`);
+    const ll6 = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) }, auto = `Punto del mapa (${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)})`;
     document.querySelector('.tabs button[data-tab="panelPedidos"]').click();
+    if (p.cual === "retiro") fijarRetiro(p.i, ll6, retirosForm[p.i].texto.trim() || auto); else fijarEntrega(ll6, el("pdEntrega").value.trim() || auto);
   }
 
   function pintarSelectorReg() {
@@ -141,9 +161,10 @@ const PedidosAdmin = (() => {
   }
 
   async function crearPedido() {
-    const cliente = el("pdCliente").value.trim(), rt = campo("retiro").value.trim(), en = campo("entrega").value.trim();
+    const cliente = el("pdCliente").value.trim(), en = el("pdEntrega").value.trim();
+    const retiros = retirosForm.filter((r) => r.texto.trim()).map((r) => Object.assign({ texto: r.texto.trim(), producto: r.producto.trim() }, r.ll));
     if (!cliente) return toast("Escribe el nombre del cliente.");
-    if (!rt || !en) return toast("Indica el lugar de retiro y el de entrega.");
+    if (!retiros.length || !en) return toast("Indica al menos un lugar de retiro y el de entrega.");
     let asignacion;
     if (modoAsig === "registrado") {
       const uid = el("pdRegSel").value;
@@ -153,13 +174,13 @@ const PedidosAdmin = (() => {
     el("pdCrear").disabled = true;
     try {
       const { token, orden } = await O.crear(db, {
-        cliente, paquete: el("pdPaquete").value,
-        retiro: Object.assign({ texto: rt }, lugarSel.retiro), entrega: Object.assign({ texto: en }, lugarSel.entrega), asignacion
+        cliente, paquete: el("pdPaquete").value, retiros, delivery: parseFloat(el("pdDelivery").value) || 0,
+        entrega: Object.assign({ texto: en }, lugarSel.entrega), asignacion
       });
-      ["pdCliente", "pdRetiro", "pdEntrega", "pdPaquete"].forEach((id) => { el(id).value = ""; });
-      lugarSel.retiro = lugarSel.entrega = null; estadoCampo("retiro"); estadoCampo("entrega");
+      ["pdCliente", "pdEntrega", "pdPaquete", "pdDelivery"].forEach((id) => { el(id).value = ""; });
+      lugarSel.entrega = null; retirosForm = [{ texto: "", ll: null, producto: "" }]; pintarRetiros(); pintarOk(el("pdEntregaOk"), null);
       if (asignacion.tipo === "invitado") mostrarEnlaces(token, orden);
-      else toast(`Pedido ${orden.codigo} asignado a ${asignacion.nombre} ✓` + (O.valido(orden.retiro) ? " Su ruta al retiro ya aparece en su app." : ""));
+      else toast(`Pedido ${orden.codigo} asignado a ${asignacion.nombre} ✓` + (O.valido(orden.retiros[0]) ? " Su ruta al primer retiro ya aparece en su app." : "") + " Enlace del cliente: botón 💬 en la lista.");
     } catch (err) { toast("No se pudo crear el pedido: " + err.message); }
     el("pdCrear").disabled = false;
   }
@@ -215,9 +236,9 @@ const PedidosAdmin = (() => {
     return `<div class="tarjeta-rep pd-orden">
       <div class="fila"><div class="datos"><strong>${esc(o.codigo)} · ${esc(o.cliente || "Sin nombre")}</strong>
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
-      <div class="ruta">📦 ${esc((o.retiro && o.retiro.texto) || "—")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}</div>
+      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery ? "<br>🛵 Delivery: <b>" + O.money(o.delivery) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
-        ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") + btn("linkcli", "💬 Enlace cliente") : ""}
+        ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}
         ${o.estado === "pendiente" && !a.tipo ? btn("asignar", "Asignar", "pri") : ""}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
       </div></div>`;
@@ -227,13 +248,19 @@ const PedidosAdmin = (() => {
     el("listaPedidos").innerHTML = ids.length ? ids.map(tarjeta).join("") : '<p class="ayuda">Aún no hay pedidos. Crea el primero arriba.</p>';
   }
 
-  /* Avisos en vivo: el invitado abrió el enlace / cambió de estado */
+  /* Avisos en vivo (texto + VOZ ALTA): el invitado abrió el enlace, retiró un producto, entregó */
   function avisarCambios(nuevo) {
+    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅🔗🛵]/gu, "")); };
     Object.entries(nuevo).forEach(([t, o]) => {
       const a = ordenes[t]; if (!a) return;
-      const nom = (o.asignacion && o.asignacion.nombre) || "Repartidor";
-      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) toast(`🔗 ${nom} (invitado) abrió el enlace · pedido ${o.codigo}`);
-      else if (o.estado !== a.estado && ["retirado", "entregado"].includes(o.estado)) toast(`${o.estado === "retirado" ? "📦" : "✅"} ${nom}: ${O.ESTADOS[o.estado][0]} · pedido ${o.codigo}`);
+      const nom = (o.asignacion && o.asignacion.nombre) || "El repartidor", pa = O.paradas(a), po = O.paradas(o);
+      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) decir(`🔗 ${nom} abrió el enlace de invitado del pedido ${o.codigo}`);
+      po.forEach((p, k) => {
+        if (!p.retirado || (pa[k] && pa[k].retirado)) return;   // solo retiros nuevos
+        const falta = po.filter((x) => !x.retirado).length;
+        decir(`📦 ${nom} ya retiró ${p.producto ? p.producto : "un producto"}${p.texto ? " en " + p.texto : ""}. ${falta ? "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "") + " del pedido " + o.codigo : "Pedido " + o.codigo + " completo, va hacia el cliente"}`);
+      });
+      if (o.estado !== a.estado && o.estado === "entregado") decir(`✅ ${nom} entregó el pedido ${o.codigo}`);
     });
   }
 
@@ -270,13 +297,25 @@ const PedidosAdmin = (() => {
       document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { pick = null; if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
       el("pdModo").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) modoAsignacion(b.dataset.m); };
       el("pdCrear").onclick = crearPedido;
-      ["retiro", "entrega"].forEach((c) => {
-        campo(c).addEventListener("input", () => alEscribir(c));
-        campo(c).addEventListener("focus", llenarLugares);
-        el(c === "retiro" ? "pdRetiroBus" : "pdEntregaBus").onclick = () => buscarLugar(c);
-        el(c === "retiro" ? "pdRetiroMapa" : "pdEntregaMapa").onclick = () => elegirEnMapa(c);
-        estadoCampo(c);
+      pintarRetiros();
+      el("pdAddRetiro").onclick = () => { retirosForm.push({ texto: "", ll: null, producto: "" }); pintarRetiros(); const f = filaEl(retirosForm.length - 1); f && f.querySelector("input").focus(); };
+      const rc = el("pdRetiros");
+      rc.addEventListener("input", (e) => {
+        const f = e.target.closest("[data-i]"), campo = e.target.dataset.f; if (!f) return; const i = +f.dataset.i;
+        if (campo === "texto") alEscribirRetiro(i, e.target.value); else if (campo === "producto") retirosForm[i].producto = e.target.value;
       });
+      rc.addEventListener("focusin", (e) => { if (e.target.dataset.f === "texto") llenarLugares(); });
+      rc.addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-a]"), f = e.target.closest("[data-i]"); if (!b || !f) return; const i = +f.dataset.i;
+        if (b.dataset.a === "bus") buscarLugar("retiro", i);
+        else if (b.dataset.a === "mapa") elegirEnMapa("retiro", i);
+        else if (b.dataset.a === "quitar") { retirosForm.splice(i, 1); pintarRetiros(); }
+      });
+      el("pdEntrega").addEventListener("input", alEscribirEntrega);
+      el("pdEntrega").addEventListener("focus", llenarLugares);
+      el("pdEntregaBus").onclick = () => buscarLugar("entrega");
+      el("pdEntregaMapa").onclick = () => elegirEnMapa("entrega");
+      pintarOk(el("pdEntregaOk"), null);
       el("listaPedidos").onclick = (e) => {
         const b = e.target.closest("button[data-pa]"); if (!b) return;
         const t = b.dataset.t, o = ordenes[t], a = b.dataset.pa; if (!o) return;

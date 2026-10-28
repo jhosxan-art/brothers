@@ -279,10 +279,15 @@ async function pedirRuta(v, forzar) {
   v.rutaEn = ahora;
   const o = { lat: ultimaPos.lat, lng: ultimaPos.lng }, d = { lat: v.destino.lat, lng: v.destino.lng };
   try {   // ruta por calles: respeta sentidos únicos y giros; si falla, línea recta
-    const r = await Ruta.pedir(o, d);
+    const r = await Ordenes.rutaCalles(o, d);   // varios servidores de respaldo; null si todos fallan
+    if (!r) throw new Error("sin ruta");
+    v.rutaFallo = false;
     v.rutaPts = r.pts; v.rutaDur = r.dur; v.rutaDist = r.dist; v.rutaPasos = r.pasos; v.rutaIdx = Math.min(1, r.pasos.length - 1);
     v.rutaOrigen = o; v.rutaDest = d;
-  } catch (_) { v.rutaEn = Date.now() - 11000; /* sin ruta aún: se reintenta en ~4 s (no se dibuja línea recta) */ }
+  } catch (_) {   // sin ruta aún: avisa y reintenta cada ~3 s (nunca se dibuja línea recta)
+    v.rutaFallo = true; v.rutaEn = Date.now() - 12000;
+    if (!v._reint) v._reint = setTimeout(() => { v._reint = null; if (viajes[v.token] && v.token === seleccionado) pedirRuta(v, true); }, 3000);
+  }
   if (v.token === seleccionado) dibujarRuta();
   refrescarTextos(); actualizarBanner();
 }
@@ -704,11 +709,16 @@ async function pedirRutaLugar(forzar) {
   if (!rutaLugar) rutaLugar = { rutaEn: ahora, rutaOrigen: o, rutaPts: null };
   rutaLugar.rutaEn = ahora; rutaLugar.rutaOrigen = o;
   try {
-    const r = await Ruta.pedir(o, destino);
+    const r = await Ordenes.rutaCalles(o, destino);
     if (lugarDestino !== destino) return;
+    if (!r) throw new Error("sin ruta");
+    rutaLugar.rutaFallo = false;
     Object.assign(rutaLugar, { rutaPts: r.pts, rutaPasos: r.pasos, rutaDur: r.dur, rutaDist: r.dist, rutaIdx: Math.min(1, r.pasos.length - 1) });
     Ruta.flechas(r.pts, flechasLugar, "#B45309");
-  } catch (_) { rutaLugar.rutaEn = ahora - 11000; rutaLugar.rutaOrigen = { lat: 0, lng: 0 }; /* reintenta en la próxima lectura de GPS */ }
+  } catch (_) {   // sin ruta aún: avisa y reintenta cada ~3 s
+    if (rutaLugar) { rutaLugar.rutaFallo = true; rutaLugar.rutaEn = ahora - 12000; rutaLugar.rutaOrigen = { lat: 0, lng: 0 }; }
+    if (!pedirRutaLugar._t) pedirRutaLugar._t = setTimeout(() => { pedirRutaLugar._t = null; if (lugarDestino) pedirRutaLugar(true); }, 3000);
+  }
   dibujarRutaLugar(); actualizarBanner();
 }
 function dibujarRutaLugar() {
@@ -727,13 +737,16 @@ function actualizarBanner() {
   if (!lugarDestino && !(n && n.destino)) { b.classList.add("oculto"); return; }
   b.classList.remove("oculto");
   const cerrar = lugarDestino ? '<button id="brX" type="button" aria-label="Quitar destino">✕</button>' : "";
-  if (!n || !n.rutaPasos || !ultimaPos) { b.innerHTML = `<div class="br-fila"><span class="br-ic">🧭</span><div class="br-txt"><b>Calculando ruta a ${escHtml(titulo)}…</b></div>${cerrar}</div>`; }
+  if (!n || !n.rutaPasos || !ultimaPos) {
+    const txt = !ultimaPos ? `Esperando tu ubicación para trazar la ruta a ${titulo}…` : n && n.rutaFallo ? "No se pudo calcular la ruta por calles. Reintentando…" : `Calculando ruta a ${titulo}…`;
+    b.innerHTML = `<div class="br-fila"><span class="br-ic">🧭</span><div class="br-txt"><b>${escHtml(txt)}</b></div>${cerrar}</div>`;
+  }
   else {
     const aqui = [ultimaPos.lat, ultimaPos.lng], pasos = n.rutaPasos;
     while (n.rutaIdx < pasos.length - 1 && Ruta.dist(aqui, [pasos[n.rutaIdx].loc.lat, pasos[n.rutaIdx].loc.lng]) < 30) n.rutaIdx++;
-    const p = pasos[n.rutaIdx], [ic, tx] = Ruta.textoPaso(p), d = Math.round(Ruta.dist(aqui, [p.loc.lat, p.loc.lng]));
+    const p = pasos[n.rutaIdx], [ic, tx] = Ordenes.textoPaso(p), d = Math.round(Ruta.dist(aqui, [p.loc.lat, p.loc.lng]));
     b.innerHTML = `<div class="br-fila"><span class="br-ic">${ic}</span><div class="br-txt"><b>${escHtml(tx)}</b><small>${p.tipo === "arrive" ? "" : "en " + formatoDist(d) + " · "}${escHtml(titulo)}</small></div>${cerrar}</div>
-      <small>${formatoDist(n.rutaDist)} · ≈ ${Math.max(1, Math.round(n.rutaDur / 60))} min${Ruta.calles(pasos) ? " · Vía: " + escHtml(Ruta.calles(pasos)) : ""}</small>`;
+      <small>${formatoDist(n.rutaDist)} · ≈ ${Math.max(1, Math.round(n.rutaDur / 60))} min${Ordenes.callesDe(pasos) ? " · Vía: " + escHtml(Ordenes.callesDe(pasos)) : ""}</small>`;
   }
   const x = $("brX"); if (x) x.onclick = quitarLugarDestino;
 }
@@ -1071,6 +1084,7 @@ function procesarPosicion(c) {
   // 2) Cada pedido en ruta → su cliente (posición, distancia, aviso de cercanía)
   const base = { lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed), ts: TS };
   orden.forEach((t) => evaluarViaje(viajes[t], base));
+  OrdenAdminRep.publicar(base);   // si hay un pedido del admin, el cliente también te sigue
   if (seleccionado) pedirRuta(viajes[seleccionado]);
   if (lugarDestino) pedirRutaLugar();
   refrescarTextos();
