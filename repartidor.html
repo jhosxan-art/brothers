@@ -152,6 +152,7 @@
           <input id="busqRep" type="search" placeholder="Buscar negocio o lugar…" enterkeyhint="search" aria-label="Buscar negocio o lugar">
           <button type="submit" aria-label="Buscar">🔎</button>
         </form>
+        <button id="btnVerNegociosRep" class="herr-rep on" type="button" aria-label="Ver u ocultar negocios" aria-pressed="true">🏪</button>
         <button id="btnMarcarDestino" class="herr-rep" type="button" aria-label="Marcar destino en el mapa">📍</button>
         <button id="btnVerTodo" class="herr-rep" type="button" aria-label="Ver todo">⛶</button>
       </div>
@@ -160,6 +161,9 @@
       <div id="bannerRuta" class="info-ruta oculto"></div>
       <div id="avisoMarcar" class="aviso-marcar oculto">Toca el mapa para marcar el destino del pedido seleccionado.</div>
     </div>
+    <button id="barraHoja" class="barra-hoja" type="button" aria-expanded="true" aria-controls="hojaPedidos">
+      <span id="barraHojaTxt">▾ Ocultar pedidos</span><span id="barraHojaCnt" class="badge-nav oculto">0</span>
+    </button>
     <div id="hojaPedidos" class="hoja-pedidos"></div>
   </section>
 
@@ -186,6 +190,10 @@
       <div class="gran-check" style="text-align:center">🛵</div>
       <h2 style="text-align:center">¡Tienes un pedido nuevo!</h2>
       <div id="nuevoPedidoCuerpo" style="display:grid;gap:10px"></div>
+      <div class="pc-botones">
+        <button id="btnNuevoRechazar" class="peligro" type="button">✖ Rechazar</button>
+        <button id="btnNuevoAceptar" class="primario" type="button">✔ Aceptar</button>
+      </div>
       <button id="btnNuevoVer" class="primario" type="button">🗺️ Ver ruta en el mapa</button>
       <button id="btnNuevoCerrar" class="oscuro" type="button">Cerrar</button>
     </div>

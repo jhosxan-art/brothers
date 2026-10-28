@@ -646,13 +646,44 @@ function pintarLugares() {
     const clave = [l.nombre, l.icono].join("|");
     let m = lugarMarks[id];
     if (!m) {
-      m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: Lugares.iconoMapa(l), zIndexOffset: 100 }).addTo(mapa);
+      m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: Lugares.iconoMapa(l), zIndexOffset: 100 });
+      if (verNegociosRep) m.addTo(mapa);
       m._clave = clave;
       m.bindPopup(() => `<div class="pop-rep"><strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong>${l.dir ? `<small>${escHtml(l.dir)}</small>` : ""}
         <div class="acciones-fila"><button class="mini pri" data-ir="${escHtml(id)}" type="button">🧭 Ir aquí</button></div></div>`, { offset: [0, -14], minWidth: 200 });
     } else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(Lugares.iconoMapa(l)); m._clave = clave; } }
   });
 }
+/* Ver / ocultar los marcadores de negocios en el mapa (se recuerda en este aparato) */
+let verNegociosRep = localStorage.getItem("verNegociosRep") !== "0";
+function aplicarNegociosRep() {
+  const b = $("btnVerNegociosRep");
+  if (b) { b.classList.toggle("on", verNegociosRep); b.setAttribute("aria-pressed", String(verNegociosRep)); }
+  if (!mapa) return;
+  if (!verNegociosRep) mapa.closePopup();
+  Object.values(lugarMarks).forEach((m) => { if (verNegociosRep) { if (!mapa.hasLayer(m)) m.addTo(mapa); } else mapa.removeLayer(m); });
+}
+$("btnVerNegociosRep").onclick = () => {
+  verNegociosRep = !verNegociosRep;
+  try { localStorage.setItem("verNegociosRep", verNegociosRep ? "1" : "0"); } catch (_) {}
+  aplicarNegociosRep();
+  setEstado(verNegociosRep ? "Negocios visibles en el mapa" : "Negocios ocultos del mapa", "ok");
+};
+aplicarNegociosRep();
+
+/* Minimizar / mostrar la hoja de pedidos para ver más mapa */
+let hojaOculta = false;
+function aplicarHoja() {
+  const h = $("hojaPedidos"), b = $("barraHoja"); if (!h || !b) return;
+  h.classList.toggle("oculta", hojaOculta);
+  b.setAttribute("aria-expanded", String(!hojaOculta));
+  const n = orden.length + (OrdenAdminRep.activo() ? 1 : 0), res = OrdenAdminRep.resumen();
+  $("barraHojaTxt").textContent = hojaOculta ? "▴ " + (res || (n ? "Mostrar pedido" + (n > 1 ? "s" : "") : "Mostrar panel")) : "▾ Ocultar pedidos";
+  const c = $("barraHojaCnt"); c.textContent = n; c.classList.toggle("oculto", !n);
+  if (mapa) setTimeout(() => mapa.invalidateSize(), 80);
+}
+$("barraHoja").onclick = () => { hojaOculta = !hojaOculta; aplicarHoja(); };
+
 function cerrarBusquedaRep() { $("resBusqRep").classList.add("oculto"); $("busqRep").blur(); }
 function mostrarBusquedaRep(online) {
   const q = norm($("busqRep").value.trim()), caja = $("resBusqRep");
@@ -747,7 +778,8 @@ function actualizarBanner() {
 }
 
 /* ---------- Lista de pedidos (hoja inferior del mapa) ---------- */
-function renderLista() {
+function renderLista() { renderListaBase(); aplicarHoja(); }
+function renderListaBase() {
   const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html();
   if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Haz una factura y envíala por WhatsApp para iniciar el seguimiento.</p>'); return; }
   cont.innerHTML = delAdmin + '<p class="ayuda">Toca un pedido para verlo en el mapa. Entrégalos en el orden que prefieras.</p>' + orden.map((t, i) => {
@@ -1184,10 +1216,16 @@ function nuevoPedidoAsignado(id, o) {
   const total = Ordenes.totalDelivery(o), sig = Ordenes.siguienteRetiro(o);
   $("nuevoPedidoCuerpo").innerHTML = OrdenAdminRep.detallesHtml(o);
   $("modalNuevoPedido").classList.remove("oculto");
+  hojaOculta = false; aplicarHoja();   // un pedido nuevo siempre se ve
   Voz.hablar("Tienes un nuevo pedido" + (total ? ". Delivery " + total + " córdobas" : ""), { forzar: true });
   navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]);
   notificarTexto("🛵 Nuevo pedido " + o.codigo, `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia" });
 }
 $("btnNuevoVer").onclick = () => { $("modalNuevoPedido").classList.add("oculto"); irA("mapa"); };
 $("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
-OrdenAdminRep.init({ db, alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado });
+$("btnNuevoAceptar").onclick = async () => { if (await OrdenAdminRep.responder("aceptado")) { $("modalNuevoPedido").classList.add("oculto"); irA("mapa"); } };
+$("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado")) $("modalNuevoPedido").classList.add("oculto"); };
+OrdenAdminRep.init({
+  db, usuario: () => usuario, uid: () => uidActual,
+  alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado
+});

@@ -104,7 +104,8 @@ const PedidosAdmin = (() => {
   const norm = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
   function coincidencias(v) {
     const q = norm(v); if (!q) return [];
-    return Object.entries(lugares).filter(([, l]) => typeof l.lat === "number" && norm(l.nombre).includes(q))
+    const ts = q.split(/\s+/);   // cada palabra escrita debe aparecer en el nombre o la referencia del negocio
+    return Object.entries(lugares).filter(([, l]) => typeof l.lat === "number" && ts.every((w) => norm(l.nombre + " " + (l.dir || "")).includes(w)))
       .sort((a, b) => (norm(a[1].nombre).startsWith(q) ? 0 : 1) - (norm(b[1].nombre).startsWith(q) ? 0 : 1) || a[1].nombre.localeCompare(b[1].nombre)).slice(0, 6);
   }
   function mostrarSug(box, v) {
@@ -311,7 +312,11 @@ const PedidosAdmin = (() => {
     el("pdAsNo").onclick = cerrarModal;
     el("pdAsOk").onclick = async () => {
       const uid = el("pdAsSel").value; if (!uid) return toast("Elige un repartidor.");
-      try { await O.asignar(db, t, o, { tipo: "registrado", uid, nombre: nombreUid(uid) }); cerrarModal(); toast(`Asignado a ${nombreUid(uid)} ✓`); }
+      try {
+        await O.asignar(db, t, o, { tipo: "registrado", uid, nombre: nombreUid(uid) });
+        await db.ref("ordenes/" + t).update({ estado_asignacion: "pendiente" });   // el nuevo repartidor debe aceptar de nuevo
+        cerrarModal(); toast(`Asignado a ${nombreUid(uid)} ✓`);
+      }
       catch (err) { toast("No se pudo asignar: " + err.message); }
     };
     el("pdAsInv").onclick = async () => {
@@ -334,10 +339,10 @@ const PedidosAdmin = (() => {
     return `<div class="tarjeta-rep pd-orden">
       <div class="fila"><div class="datos"><strong>${esc(o.codigo)} · ${esc(o.cliente || "Sin nombre")}</strong>
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
-      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}</div>
+      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
         ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}
-        ${o.estado === "pendiente" && !a.tipo ? btn("asignar", "Asignar", "pri") : ""}
+        ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
       </div></div>`;
   }
@@ -377,11 +382,29 @@ const PedidosAdmin = (() => {
     }, () => {});
   }
 
+  /* Ventana visible cuando un repartidor rechaza el pedido (con atajo para reasignarlo) */
+  function alertaRechazo(t, o, quien) {
+    if (!el("modalAdmin").classList.contains("oculto")) return;   // hay otra ventana abierta: basta el aviso (toast) y la voz
+    modal(`<h2>❌ Pedido rechazado</h2>
+      <p>El repartidor <b>${esc(quien)}</b> rechazó el pedido <b>${esc(o.codigo)}</b>${o.cliente ? " (" + esc(o.cliente) + ")" : ""}.</p>
+      <button id="pdRechReasig" class="primario" type="button">Reasignar a otro repartidor</button>
+      <button id="pdRechCerrar" class="oscuro" type="button">Cerrar</button>`);
+    el("pdRechCerrar").onclick = cerrarModal;
+    el("pdRechReasig").onclick = () => asignarExistente(t);
+  }
+
   /* Avisos en vivo (texto + VOZ ALTA): el invitado abrió el enlace, retiró un producto, entregó */
   function avisarCambios(nuevo) {
-    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅🔗🛵]/gu, "")); };
+    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅❌🔗🛵]/gu, "")); };
     Object.entries(nuevo).forEach(([t, o]) => {
       const a = ordenes[t]; if (!a) return;
+      /* El repartidor registrado aceptó o rechazó el pedido asignado */
+      const resp = o.estado_asignacion;
+      if (resp !== a.estado_asignacion && (resp === "aceptado" || resp === "rechazado") && o.asignacion && o.asignacion.tipo === "registrado") {
+        const quien = o.asignacion.nombre || "repartidor";
+        if (resp === "aceptado") decir(`✅ El repartidor ${quien} aceptó el pedido ${o.codigo}`);
+        else { decir(`❌ El repartidor ${quien} rechazó el pedido ${o.codigo}`); alertaRechazo(t, o, quien); }
+      }
       const nom = (o.asignacion && o.asignacion.nombre) || "El repartidor", pa = O.paradas(a), po = O.paradas(o);
       if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) decir(`🔗 ${nom} aceptó el pedido ${o.codigo}`);
       po.forEach((p, k) => {
@@ -481,5 +504,5 @@ const PedidosAdmin = (() => {
   }
   function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } ordenes = {}; resInv = {}; sinLeerInv = {}; cerrarMapaForm(); quitarTemp(); cancelarClick(); }
 
-  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, cerrarMapaForm };
+  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "" };
 })();

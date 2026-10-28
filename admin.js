@@ -588,7 +588,7 @@ function iniciarMonitoreo() {
         const antes = (resEquipo[uid] && resEquipo[uid].ts) || 0;
         if (r.ultimoDe === "repartidor" && (r.ts || 0) > antes) {
           if (chatEqAbierto !== uid) sinLeerEq[uid] = (sinLeerEq[uid] || 0) + 1;
-          Voz.hablar(Voz.FRASES.mensajeRepartidor);
+          Voz.hablar(Voz.repartidorEscribio(nombreUid(uid)));
         }
       });
     }
@@ -613,8 +613,11 @@ function iniciarMonitoreo() {
     const nuevos = s.val() || {};
     if (!primeraCargaChats) {
       // Aviso por voz: el repartidor acaba de escribir (mensaje nuevo = marca de tiempo mayor que la anterior)
-      const hayNuevo = Object.entries(nuevos).some(([t, r]) => r.ultimoDe === "repartidor" && (r.ts || 0) > ((resumenes[t] && resumenes[t].ts) || 0));
-      if (hayNuevo) Voz.hablar(Voz.FRASES.mensajeRepartidor);
+      Object.entries(nuevos).forEach(([t, r]) => {
+        if ((r.ts || 0) <= ((resumenes[t] && resumenes[t].ts) || 0)) return;   // no es un mensaje nuevo
+        if (r.ultimoDe === "repartidor") Voz.hablar(Voz.repartidorEscribio(r.repartidor || ""));
+        else if (r.ultimoDe === "cliente") Voz.hablar(Voz.clienteEscribio(nombreCliente(t, r)));
+      });
     }
     primeraCargaChats = false;
     resumenes = nuevos; pintarChats();
@@ -899,3 +902,15 @@ function abrirOcultar() {
   $("ocListo").onclick = cerrarModal;
 }
 $("btnOcultar").onclick = abrirOcultar;
+
+
+/* ---------- Voz: nombre del cliente y permiso de audio del navegador ---------- */
+function nombreCliente(token, r) {   // la factura del pedido en ruta o la orden del administrador traen el nombre
+  const f = activos[token] && activos[token].factura;
+  const n = (f && (f.cliente || f.nombre)) || (typeof PedidosAdmin !== "undefined" && PedidosAdmin.clienteDe(token)) || "";
+  return n || (r && r.pedido ? "del pedido " + r.pedido : "");
+}
+function revisarVoz() { const a = $("avisoVoz"); if (a) a.classList.toggle("oculto", Voz.lista()); }
+$("btnActivarVoz").onclick = () => { Voz.activar(); Voz.hablar(Voz.FRASES.prueba, { forzar: true }); revisarVoz(); };
+const timerVoz = setInterval(() => { revisarVoz(); if (Voz.lista()) clearInterval(timerVoz); }, 1000);
+revisarVoz();

@@ -397,6 +397,13 @@ label.opcion input { width: 20px; height: 20px; flex: none; }
 .barra-sup-rep input { flex: 1; min-width: 0; height: 44px; border-radius: 14px; border: 2px solid var(--linea); background: #fff; padding: 0 12px; font-size: 15px; box-shadow: 0 3px 10px rgba(0,0,0,.2); }
 .barra-sup-rep form button, .herr-rep { width: 46px; height: 44px; padding: 0; border-radius: 14px; background: #fff; border: 2px solid var(--linea); font-size: 18px; box-shadow: 0 3px 10px rgba(0,0,0,.2); flex: none; }
 .herr-rep.activo { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.herr-rep.on { background: var(--celeste-suave); border-color: var(--celeste-prof); }
+.herr-rep:not(.on)#btnVerNegociosRep { opacity: .55; }
+/* Barra para minimizar la hoja de pedidos y ver más mapa */
+.barra-hoja { position: relative; z-index: 6; flex: none; height: 34px; border: 0; border-top: 1px solid var(--linea); border-radius: 18px 18px 0 0; margin-top: -18px; background: #fff; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; padding: 0 14px; overflow: hidden; white-space: nowrap; }
+.barra-hoja #barraHojaTxt { overflow: hidden; text-overflow: ellipsis; }
+.barra-hoja + .hoja-pedidos { margin-top: 0; border-radius: 0; border-top: 0; }
+.hoja-pedidos.oculta { display: none; }
 #resBusqRep { position: absolute; z-index: 1002; top: 60px; left: 10px; right: 10px; width: auto; max-width: none; margin: 0; }
 .chip-gps { position: absolute; z-index: 1000; top: 62px; left: 10px; max-width: calc(100% - 20px); background: #fff; border: 1px solid var(--linea); padding: 6px 12px; font-size: 12px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #vistaMapa .aviso-marcar { top: 104px; bottom: auto; }

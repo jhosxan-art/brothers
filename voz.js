@@ -17,7 +17,7 @@ const Voz = (() => {
     prueba: "Alertas de voz activadas"
   };
   const soporta = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
-  let desbloqueada = false, audio = null, vozEs = null, gen = 0;   // gen: cancela repeticiones pendientes
+  let desbloqueada = false, audio = null, vozEs = null, gen = 0, pendiente = null;   // gen: cancela repeticiones pendientes
   const ultimaVez = {};
 
   function elegirVoz() {
@@ -52,6 +52,10 @@ const Voz = (() => {
     if (soporta) {
       try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); } catch (_) {}
     }
+    if (pendiente) {   // un aviso llegó antes del primer toque: se dice ahora (si aún es reciente)
+      const p = pendiente; pendiente = null;
+      if (Date.now() - p.t < 30000) setTimeout(() => hablar(p.texto, p.opciones), 50);
+    }
   }
   ["pointerdown", "touchend", "keydown", "click"].forEach((ev) =>
     document.addEventListener(ev, activar, { once: true, passive: true }));
@@ -70,6 +74,7 @@ const Voz = (() => {
   /* Dice una frase. opciones.repetir = veces; opciones.pausaMs = espera entre repeticiones */
   function hablar(texto, opciones = {}) {
     const { repetir = 1, pausaMs = 2500, forzar = false } = opciones;
+    if (!desbloqueada && !nativo()) { pendiente = { texto, opciones, t: Date.now() }; return; }   // el navegador exige un toque previo
     const ahora = Date.now();
     if (!forzar && ultimaVez[texto] && ahora - ultimaVez[texto] < 2500) return;   // evita que se solape consigo misma
     ultimaVez[texto] = ahora;
@@ -102,7 +107,11 @@ const Voz = (() => {
     try { soporta && speechSynthesis.cancel(); } catch (_) {}
   }
 
+  /* Frases con nombre para el administrador */
+  const repartidorEscribio = (n) => (n ? "Nuevo mensaje del repartidor " + n : "Nuevo mensaje del repartidor");
+  const clienteEscribio = (n) => (n ? "El cliente " + n + " ha enviado un mensaje" : "Un cliente ha enviado un mensaje");
+
   const lista = () => desbloqueada;
 
-  return { FRASES, hablar, parar, pitido, activar, lista, soporta };
+  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio };
 })();

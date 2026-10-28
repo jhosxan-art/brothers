@@ -254,13 +254,19 @@ const Chat = (() => {
   }
 
   let sinLeer = 0;
+  /* Frase de voz según quién recibe y quién escribió (el administrador oye el nombre) */
+  function fraseMensaje(m) {
+    if (yo === "repartidor") return m.de === "admin" ? Voz.FRASES.mensajeAdmin : Voz.FRASES.mensajeCliente;
+    if (yo === "admin") return m.de === "cliente" ? Voz.clienteEscribio(ctx.nombreCliente) : Voz.repartidorEscribio(ctx.nombreRepartidor);
+    return Voz.FRASES.mensajeRepartidor;
+  }
   function iniciar(o) {
     detener(); montar();
     opciones = o; token = o.token; yo = o.yo || null; soloLectura = !!o.soloLectura;
     R = Object.assign({}, RUTA_CLIENTE, o.ruta || {});
     if (o.ruta && !o.ruta.leido) R.leido = "leidosEquipo";   // chat administrador ↔ repartidor
     lect = {};
-    ctx = { pedido: o.pedido, nombreRepartidor: o.nombreRepartidor };
+    ctx = { pedido: o.pedido, nombreRepartidor: o.nombreRepartidor, nombreCliente: o.nombreCliente };
     titular();
     q("chatForm").classList.toggle("oculto", soloLectura);
     q("chatLista").innerHTML = ""; aviso(""); sinLeer = 0; cargando = true;
@@ -274,7 +280,7 @@ const Chat = (() => {
       if (!cargando && !soloLectura && m.de !== yo) {
         // opciones.avisos === false: otra parte de la app (repartidor con varios pedidos) se encarga de avisar
         if (opciones.avisos !== false) {
-          Voz.hablar(yo === "repartidor" ? (m.de === "admin" ? Voz.FRASES.mensajeAdmin : Voz.FRASES.mensajeCliente) : Voz.FRASES.mensajeRepartidor);
+          Voz.hablar(fraseMensaje(m));
           if (!abierto) { navigator.vibrate && navigator.vibrate(200); }
         }
         if (!abierto) { sinLeer++; opciones.alNoLeidos && opciones.alNoLeidos(sinLeer); }
