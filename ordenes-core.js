@@ -104,11 +104,48 @@ const Ordenes = (() => {
       return { pts: rt.geometry.coordinates.map(([x, y]) => [y, x]), dist: Math.round(rt.distance), dur: rt.duration };
     } catch (_) { return null; }
   }
+  /* Ruta por calles con instrucciones paso a paso (OSRM público). Devuelve null si falla: NUNCA se dibuja línea recta. */
+  async function rutaCalles(o, d) {
+    try {
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${o.lng},${o.lat};${d.lng},${d.lat}?overview=full&geometries=geojson&steps=true`);
+      const j = await r.json(), rt = j.routes && j.routes[0]; if (!rt) return null;
+      const pasos = [];
+      (rt.legs || []).forEach((leg) => (leg.steps || []).forEach((st) => pasos.push({
+        tipo: st.maneuver.type, mod: st.maneuver.modifier || "", calle: st.name || "", dist: Math.round(st.distance),
+        loc: { lat: st.maneuver.location[1], lng: st.maneuver.location[0] }
+      })));
+      return { pts: rt.geometry.coordinates.map(([x, y]) => [y, x]), dist: Math.round(rt.distance), dur: rt.duration, pasos };
+    } catch (_) { return null; }
+  }
+  const GIROS = { left: ["⬅️", "a la izquierda"], right: ["➡️", "a la derecha"], "slight left": ["↖️", "levemente a la izquierda"], "slight right": ["↗️", "levemente a la derecha"],
+    "sharp left": ["↩️", "cerrado a la izquierda"], "sharp right": ["↪️", "cerrado a la derecha"], uturn: ["🔄", "en U"], straight: ["⬆️", "recto"] };
+  /* [icono, texto] de una maniobra, siempre con el nombre de la calle */
+  function textoPaso(p) {
+    const calle = p.calle ? p.calle : "la vía", g = GIROS[p.mod];
+    if (p.tipo === "arrive") return ["🏁", "Llegaste a tu destino"];
+    if (p.tipo === "depart") return ["⬆️", `Sal por ${calle}`];
+    if (p.tipo === "roundabout" || p.tipo === "rotary" || p.tipo === "roundabout turn") return ["🔄", `En la rotonda, toma la salida hacia ${calle}`];
+    if (g && ["turn", "end of road", "fork", "on ramp", "off ramp", "merge"].includes(p.tipo)) return [g[0], `Gira ${g[1]} hacia ${calle}`];
+    return ["⬆️", `Sigue por ${calle}`];
+  }
+  const callesDe = (pasos) => { const v = []; (pasos || []).forEach((p) => { if (p.calle && v[v.length - 1] !== p.calle) v.push(p.calle); }); return v.slice(0, 6).join(" → "); };
+  /* Flechas sobre la ruta: muestran el sentido de circulación en cada calle */
+  function flechas(pts, capa, color) {
+    capa.clearLayers(); let acum = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const a = { lat: pts[i - 1][0], lng: pts[i - 1][1] }, b = { lat: pts[i][0], lng: pts[i][1] };
+      acum += distM(a, b);
+      if (acum < 140) continue; acum = 0;
+      const ang = (Math.atan2(b.lng - a.lng, b.lat - a.lat) * 180) / Math.PI;
+      L.marker([b.lat, b.lng], { interactive: false, icon: L.divIcon({ className: "", html: `<div class="flecha-ruta" style="color:${color};transform:rotate(${ang - 90}deg)">➤</div>`, iconSize: [16, 16], iconAnchor: [8, 8] }) }).addTo(capa);
+    }
+  }
+
   const distM = (a, b) => {
     const R = 6371000, rad = (x) => (x * Math.PI) / 180, h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(h));
   };
   const pinIcono = (clase, emoji) => L.divIcon({ className: "", html: `<div class="pd-pin ${clase}"><b>${emoji}</b></div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
 
-  return { TS, ESTADOS, PUNTOS, esc, token, uidInvitado, esInvitadoUid, urlInvitado, urlCliente, valido, crear, asignar, marcar, puntoRapido, rutaOSRM, distM, pinIcono };
+  return { TS, ESTADOS, PUNTOS, esc, token, uidInvitado, esInvitadoUid, urlInvitado, urlCliente, valido, crear, asignar, marcar, puntoRapido, rutaOSRM, rutaCalles, textoPaso, callesDe, flechas, distM, pinIcono };
 })();

@@ -12,7 +12,7 @@
 
   let orden = null, nombre = "", mapa = null, marcaYo = null, pinRetiro = null, pinEntrega = null, pinGuia = null, linea = null;
   let pos = null, ultEscritura = 0, watchId = null, wakeLock = null, refOrden = null, refChat = null;
-  let ruta = { pts: null, origen: null, dest: null, en: 0 }, yaEncuadrado = false, chatAbierto = false, sinLeer = 0, terminado = false;
+  let flechasCapa = null, ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: 0 }, yaEncuadrado = false, chatAbierto = false, sinLeer = 0, terminado = false;
   const vista = (id) => ["vCarga", "vEntrada", "vApp", "vFin"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
   const msgCarga = (m) => { $("msgCarga").textContent = m; $("msgCarga").className = "estado error"; };
 
@@ -131,6 +131,7 @@
     L.control.zoom({ position: "bottomright" }).addTo(mapa);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
     linea = L.polyline([], { color: "#0A86C9", weight: 7, opacity: .9, lineCap: "round" }).addTo(mapa);
+    flechasCapa = L.layerGroup().addTo(mapa);
     setTimeout(() => { mapa.invalidateSize(); pintarPuntos(); encuadrar(); }, 80);
   }
   function pintarPuntos() {
@@ -153,19 +154,37 @@
     if (pts.length > 1) { mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 17 }); yaEncuadrado = true; }
     else if (pts.length === 1) { mapa.setView(pts[0], 16); yaEncuadrado = !!pos; }
   }
+  /* Ruta SOLO por calles (respeta sentidos). Mientras llega no se dibuja nada: jamás una línea recta. */
   async function calcularRuta(forzar) {
     const d = orden && destinoActual();
-    if (!d || !O.valido(d) || !pos) { linea.setLatLngs([]); return; }
+    if (!d || !O.valido(d)) { limpiarRuta(); return banner(null, "Este punto no tiene ubicación exacta. Usa 🧭 Abrir navegación."); }
+    if (!pos) return banner(null, "Esperando tu ubicación para trazar la ruta…");
     const cambioDest = !ruta.dest || O.distM(ruta.dest, d) > 20, movido = !ruta.origen || O.distM(ruta.origen, pos) > 60;
-    if (!forzar && !cambioDest && !movido) return;
-    if (Date.now() - ruta.en < (cambioDest ? 800 : 15000)) { if (ruta.pts) linea.setLatLngs([[pos.lat, pos.lng], ...ruta.pts]); return; }
+    if (cambioDest && ruta.pts) limpiarRuta();   // destino nuevo: se quita la ruta vieja
+    if (!forzar && !cambioDest && !movido) return avanzarBanner();
+    if (Date.now() - ruta.en < (cambioDest ? 800 : 15000)) return avanzarBanner();
     ruta.en = Date.now();
-    linea.setLatLngs([[pos.lat, pos.lng], [d.lat, d.lng]]); linea.setStyle({ opacity: .5, dashArray: "4 10" });   // línea recta mientras llega la ruta por calles
-    const r = await O.rutaOSRM({ lat: pos.lat, lng: pos.lng }, { lat: d.lat, lng: d.lng });
-    if (!r) return;
-    ruta = { pts: r.pts, origen: { lat: pos.lat, lng: pos.lng }, dest: { lat: d.lat, lng: d.lng }, en: Date.now() };
-    linea.setStyle({ opacity: .9, dashArray: null }); linea.setLatLngs([[pos.lat, pos.lng], ...r.pts]);
-    if (r.dist) $("estadoGps").textContent = `${r.dist >= 1000 ? (r.dist / 1000).toFixed(1) + " km" : r.dist + " m"}${r.dur ? " · ≈ " + Math.max(1, Math.round(r.dur / 60)) + " min" : ""} · ${d.etiqueta}`;
+    if (!ruta.pts) banner(null, `Calculando ruta por calles hasta ${d.etiqueta}…`);
+    const r = await O.rutaCalles({ lat: pos.lat, lng: pos.lng }, { lat: d.lat, lng: d.lng });
+    if (!r) { ruta.en = Date.now() - 12000; return banner(null, "No se pudo calcular la ruta por calles. Reintentando…"); }   // reintenta en ~3 s
+    Object.assign(ruta, { pts: r.pts, pasos: r.pasos, idx: Math.min(1, r.pasos.length - 1), dist: r.dist, dur: r.dur, origen: { lat: pos.lat, lng: pos.lng }, dest: { lat: d.lat, lng: d.lng }, en: Date.now() });
+    linea.setLatLngs([[pos.lat, pos.lng], ...r.pts]); O.flechas(r.pts, flechasCapa, "#0A86C9");
+    avanzarBanner();
+  }
+  function limpiarRuta() { ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: ruta.en }; linea.setLatLngs([]); flechasCapa.clearLayers(); }
+  const fmtDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m");
+  function banner(paso, aviso) {
+    const b = $("bannerRuta"); b.classList.remove("oculto");
+    if (!paso) { b.innerHTML = `<div class="br-fila"><span class="br-ic">🧭</span><div class="br-txt"><b>${esc(aviso)}</b></div></div>`; return; }
+    const [ic, tx] = O.textoPaso(paso), aqui = pos, dm = Math.round(O.distM(aqui, paso.loc)), calles = O.callesDe(ruta.pasos);
+    b.innerHTML = `<div class="br-fila"><span class="br-ic">${ic}</span><div class="br-txt"><b>${esc(tx)}</b><small>${paso.tipo === "arrive" ? "" : "en " + fmtDist(dm) + " · "}${esc(destinoActual().etiqueta)}</small></div></div>
+      <small>${fmtDist(ruta.dist)} · ≈ ${Math.max(1, Math.round(ruta.dur / 60))} min${calles ? " · Vía: " + esc(calles) : ""}</small>`;
+  }
+  function avanzarBanner() {   // pasa al siguiente giro cuando ya estás encima del anterior
+    if (!ruta.pasos || !pos) return;
+    while (ruta.idx < ruta.pasos.length - 1 && O.distM(pos, ruta.pasos[ruta.idx].loc) < 30) ruta.idx++;
+    banner(ruta.pasos[ruta.idx]);
+    if (ruta.pts) linea.setLatLngs([[pos.lat, pos.lng], ...ruta.pts]);
   }
 
   /* ---------- GPS: se comparte con el admin (mapa) y el cliente (seguimiento) ---------- */

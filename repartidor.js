@@ -282,7 +282,7 @@ async function pedirRuta(v, forzar) {
     const r = await Ruta.pedir(o, d);
     v.rutaPts = r.pts; v.rutaDur = r.dur; v.rutaDist = r.dist; v.rutaPasos = r.pasos; v.rutaIdx = Math.min(1, r.pasos.length - 1);
     v.rutaOrigen = o; v.rutaDest = d;
-  } catch (_) { /* sin ruta por calles: se usa la línea recta */ }
+  } catch (_) { v.rutaEn = Date.now() - 11000; /* sin ruta aún: se reintenta en ~4 s (no se dibuja línea recta) */ }
   if (v.token === seleccionado) dibujarRuta();
   refrescarTextos(); actualizarBanner();
 }
@@ -291,9 +291,8 @@ function dibujarRuta() {
   const v = viajes[seleccionado];
   let pts = [];
   if (v && v.destino && ultimaPos) {
-    pts = v.rutaPts ? [[ultimaPos.lat, ultimaPos.lng], ...v.rutaPts] : [[ultimaPos.lat, ultimaPos.lng], [v.destino.lat, v.destino.lng]];
+    pts = v.rutaPts ? [[ultimaPos.lat, ultimaPos.lng], ...v.rutaPts] : [];   // solo por calles: mientras se calcula no se dibuja nada
   }
-  if (!v && guiaCliente() && !orden.length && ultimaPos) pts = [[ultimaPos.lat, ultimaPos.lng], [guiaActual.lat, guiaActual.lng]];   // sin pedido: línea hacia la guía de Brothers
   capaRuta.setLatLngs(pts); capaFlujo.setLatLngs(pts);
   capaRuta.setStyle({ opacity: v && v.rutaPts ? .9 : .5 });
   const clave = v && v.rutaPts ? v.token + v.rutaPts.length + (v.rutaDist || 0) : "";
@@ -623,6 +622,7 @@ function aplicarGuia(g, nueva) {
   }
   const v = (g.token && viajes[g.token]) || (orden.length === 1 ? viajes[orden[0]] : null) || (orden.length ? viajes[seleccionado] : null);
   if (v) fijarDestino(v, g.lat, g.lng);   // el pedido toma esa ubicación como destino (el cliente también la ve)
+  if (!v) irALugar({ nombre: "Cliente (Brothers)", lat: g.lat, lng: g.lng, icono: "🏠" }, !!nueva);   // sin pedido: ruta por calles hasta el cliente
   pintarGuia(); dibujarRuta();
   if (!nueva) return;
   Voz.hablar(Voz.FRASES.guiaAdmin, { forzar: true });   // “Brothers te ha indicado la ubicación del cliente”
@@ -708,14 +708,14 @@ async function pedirRutaLugar(forzar) {
     if (lugarDestino !== destino) return;
     Object.assign(rutaLugar, { rutaPts: r.pts, rutaPasos: r.pasos, rutaDur: r.dur, rutaDist: r.dist, rutaIdx: Math.min(1, r.pasos.length - 1) });
     Ruta.flechas(r.pts, flechasLugar, "#B45309");
-  } catch (_) { /* sin ruta por calles: línea recta */ }
+  } catch (_) { rutaLugar.rutaEn = ahora - 11000; rutaLugar.rutaOrigen = { lat: 0, lng: 0 }; /* reintenta en la próxima lectura de GPS */ }
   dibujarRutaLugar(); actualizarBanner();
 }
 function dibujarRutaLugar() {
   if (!capaLugar) return;
   if (!lugarDestino || !ultimaPos) return capaLugar.setLatLngs([]);
   const aqui = [ultimaPos.lat, ultimaPos.lng];
-  capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...rutaLugar.rutaPts] : [aqui, [lugarDestino.lat, lugarDestino.lng]]);
+  capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...rutaLugar.rutaPts] : []);   // nunca línea recta
   capaLugar.setStyle({ opacity: rutaLugar && rutaLugar.rutaPts ? .9 : .5 });
 }
 /* Aviso de ruta: próximo giro, calle y distancia (calles de un solo sentido ya vienen resueltas en la ruta) */
@@ -723,7 +723,8 @@ function actualizarBanner() {
   const b = $("bannerRuta"); if (!b) return;
   const n = lugarDestino ? rutaLugar : viajes[seleccionado];
   const titulo = lugarDestino ? `${lugarDestino.icono} ${lugarDestino.nombre}` : (n ? "👤 " + nombreDe(n) : "");
-  if (!lugarDestino && !(n && n.rutaPasos)) { b.classList.add("oculto"); return; }
+  if (n && !n.rutaPasos && n.rutaEn && Date.now() - n.rutaEn > 20000) { /* la ruta tarda: se sigue reintentando */ }
+  if (!lugarDestino && !(n && n.destino)) { b.classList.add("oculto"); return; }
   b.classList.remove("oculto");
   const cerrar = lugarDestino ? '<button id="brX" type="button" aria-label="Quitar destino">✕</button>' : "";
   if (!n || !n.rutaPasos || !ultimaPos) { b.innerHTML = `<div class="br-fila"><span class="br-ic">🧭</span><div class="br-txt"><b>Calculando ruta a ${escHtml(titulo)}…</b></div>${cerrar}</div>`; }

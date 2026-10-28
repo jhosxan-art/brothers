@@ -433,7 +433,7 @@ function pintarClientes() {
       if (m.clave !== clave) { m.pin.setIcon(icono()); m.clave = clave; }
     }
     const u = ubic[uid];
-    m.linea.setLatLngs(u && typeof u.lat === "number" ? [[u.lat, u.lng], [c.lat, c.lng]] : []);
+    m.linea.setLatLngs([]);   // sin línea recta: la ruta por calles se ve en la guía del repartidor
   });
   Object.keys(clientesM).forEach((t) => {
     if (!vistos.has(t)) { mapa.removeLayer(clientesM[t].pin); mapa.removeLayer(clientesM[t].linea); delete clientesM[t]; }
@@ -454,8 +454,8 @@ function pintarGuia(uid) {
     return;
   }
   const col = colorUid(uid), p = [g.lat, g.lng], nom = nombreUid(uid), neg = g.tipo === "negocio";
-  const clave = [nom, col, g.icono, g.nombre].join("|");
-  const icono = () => L.divIcon({ className: "", html: `<div class="pin-guia" style="--c:${col}"><b>${esc(neg ? (g.icono || "📍") : "🏠")}</b></div><span class="etq-cli">Guía para ${esc(nom)}${neg ? `<small>${esc(g.nombre || "")}</small>` : ""}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+  const clave = [nom, col, g.icono, g.nombre, c && c.calles].join("|");
+  const icono = () => L.divIcon({ className: "", html: `<div class="pin-guia" style="--c:${col}"><b>${esc(neg ? (g.icono || "📍") : "🏠")}</b></div><span class="etq-cli">Guía para ${esc(nom)}${neg ? `<small>${esc(g.nombre || "")}</small>` : ""}${c && c.calles ? `<small>Vía: ${esc(c.calles)}</small>` : ""}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] });
   if (!c) {
     c = guiaCapas[uid] = {
       pin: L.marker(p, { icon: icono(), zIndexOffset: 300 }).addTo(mapa),
@@ -467,7 +467,7 @@ function pintarGuia(uid) {
   const u = ubic[uid];
   if (!u || typeof u.lat !== "number") return c.linea.setLatLngs([]);
   // Ruta por calles (respeta sentidos); mientras llega, línea recta punteada
-  if (c.pts) c.linea.setLatLngs([[u.lat, u.lng], ...c.pts]); else c.linea.setLatLngs([[u.lat, u.lng], p]);
+  c.linea.setLatLngs(c.pts ? [[u.lat, u.lng], ...c.pts] : []);   // solo por calles: nunca línea recta
   const movido = !c.origen || Ruta.dist([u.lat, u.lng], c.origen) > 80, cambioDest = !c.dest || Ruta.dist(p, c.dest) > 10;
   if ((movido || cambioDest || !c.pts) && Date.now() - c.rutaEn > (cambioDest ? 1500 : 20000)) {
     c.rutaEn = Date.now();
@@ -478,7 +478,10 @@ function pintarGuia(uid) {
       c.linea.setStyle({ dashArray: null, weight: 5, opacity: .9 });
       c.linea.setLatLngs([[o.lat, o.lng], ...r.pts]);
       Ruta.flechas(r.pts, c.flechas, col);
-    }).catch(() => {});
+      c.calles = r.pasos ? Ruta.calles(r.pasos) : "";   // calles exactas por donde va el repartidor
+      c.pin.setIcon(icono()); c.clave = [nom, col, g.icono, g.nombre, c.calles].join("|");
+      if (c.calles) c.linea.bindTooltip("Vía: " + c.calles, { sticky: true });
+    }).catch(() => { if (guiaCapas[uid]) c.rutaEn = Date.now() - 17000; });   // sin ruta aún: reintenta en ~3 s (no se dibuja línea recta)
   }
 }
 function seleccionarRep(uid) { selUid = selUid === uid ? null : uid; pintarSeleccion(); pintarLista(); }
