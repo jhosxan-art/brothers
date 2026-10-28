@@ -115,12 +115,10 @@
         <div id="pdRetiros" class="pd-retiros"></div>
         <button id="pdAddRetiro" class="mini" type="button">➕ Agregar otro lugar de retiro</button>
         <div class="pd-lugar">
-          <label>🏠 Lugar de entrega <input id="pdEntrega" list="pdLugares" maxlength="160" autocomplete="off" placeholder="Dirección del cliente"></label>
-          <button id="pdEntregaBus" type="button" aria-label="Buscar lugar de entrega">🔎</button>
+          <label>🏠 Lugar de entrega <input id="pdEntrega" maxlength="160" autocomplete="off" placeholder="Dirección del cliente"></label>
           <button id="pdEntregaMapa" type="button" aria-label="Elegir entrega en el mapa">📍</button>
           <span id="pdEntregaOk" class="pd-ok"></span>
         </div>
-        <datalist id="pdLugares"></datalist>
         <label>🛵 Precio del delivery (C$) <input id="pdDelivery" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></label>
         <div id="pdIvaBox" class="pd-iva">
           <label>➕ IVA del delivery (C$) <input id="pdIva" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Ej. 7.00"></label>
@@ -131,11 +129,14 @@
         <div><small>Asignación</small>
           <div class="pd-seg" id="pdModo"><button type="button" data-m="registrado" class="on">Repartidor registrado</button><button type="button" data-m="invitado">🔗 Enlace de invitado</button></div></div>
         <label id="pdRegBox">Repartidor <select id="pdRegSel"></select></label>
-        <p id="pdInvBox" class="ayuda oculto">Se generará un enlace. Quien lo abra solo escribe su nombre y ve la ruta, el chat con el cliente y los botones Retirado / Entregado.</p>
+        <p id="pdInvBox" class="ayuda oculto">Se generará un enlace. Quien lo abra ve el pedido y, si lo acepta, queda como único repartidor: el enlace se bloquea para los demás. Tendrás un chat directo con él.</p>
+        <div id="pdMsg" class="estado oculto" role="status"></div>
         <button id="pdCrear" class="primario" type="button">Crear y asignar pedido</button>
       </div>
-      <h2>Pedidos</h2>
-      <div id="listaPedidos" class="acciones"></div>
+      <details id="pdAcordeon" class="pd-acordeon">
+        <summary>Pedidos realizados <span id="pdCuenta" class="pd-cuenta">0</span></summary>
+        <div id="listaPedidos" class="acciones"></div>
+      </details>
     </section>
 
     <div id="modalAdmin" class="modal-rep oculto" role="dialog" aria-modal="true"><div class="modal-rep-caja" id="modalCaja" style="text-align:left"></div></div>

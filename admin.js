@@ -868,6 +868,7 @@ $("btnAgregar").onclick = async () => {
 /* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
 Atras.iniciar([
   () => Chat.cerrarCapa(),
+  () => (typeof PedidosAdmin !== "undefined" && PedidosAdmin.cerrarMapaForm()),
   () => { if (!$("modalAdmin").classList.contains("oculto")) { cerrarModal(); return true; } return false; },
   () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
   () => { if (!$("resBusq").classList.contains("oculto") || document.activeElement === $("busq")) { $("resBusq").classList.add("oculto"); $("busq").blur(); return true; } return false; },

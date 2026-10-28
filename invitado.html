@@ -23,11 +23,11 @@
 
   <!-- 1) Entrada: solo el nombre -->
   <main id="vEntrada" class="pd-inv-entrada oculto">
-    <div class="hero"><div class="gran-icono" data-rider></div><h1>¡Hola! Tienes un pedido</h1><p>Escribe tu nombre para ver la ruta y avisar al cliente.</p></div>
+    <div class="hero"><div class="gran-icono" data-rider></div><h1>¡Hola! Hay un pedido disponible</h1><p>Revísalo. Si lo aceptas, escribe tu nombre: el enlace quedará bloqueado para los demás.</p></div>
     <div class="tarjeta-rep"><div class="pd-inv-datos" id="resumenEntrada"></div></div>
     <label>Tu nombre <input id="inNombre" maxlength="24" autocomplete="given-name" placeholder="Ej. Carlos"></label>
     <div id="msgEntrada" class="estado error oculto"></div>
-    <button id="btnEntrar" class="primario" type="button">Empezar entrega</button>
+    <button id="btnEntrar" class="primario pd-aceptar" type="button">✅ Aceptar pedido</button>
   </main>
 
   <!-- 2) UI temporal del invitado: mapa + estado + chat -->
@@ -54,6 +54,13 @@
         <button id="btnEntregado" class="primario" type="button" disabled>✅ Entregado</button>
       </div>
       <div class="pd-chat">
+        <button id="btnChatAdm" class="mini" type="button">🗨 Chat con Brothers (admin) <span id="chatAdmBadge" class="badge oculto">0</span></button>
+        <div id="chatAdmBox" class="oculto">
+          <div id="msgsAdm" class="pd-msgs"></div>
+          <form id="formChatAdm" autocomplete="off"><input id="chatAdmTexto" maxlength="600" placeholder="Escribe al administrador…" aria-label="Mensaje al administrador"><button class="primario" type="submit">Enviar</button></form>
+        </div>
+      </div>
+      <div class="pd-chat">
         <button id="btnChat" class="mini" type="button">💬 Chat con el cliente <span id="chatBadge" class="badge oculto">0</span></button>
         <div id="chatBox" class="oculto">
           <div id="msgs" class="pd-msgs"></div>
@@ -62,6 +69,9 @@
       </div>
     </div>
   </section>
+
+  <!-- Enlace ya tomado: único contenido visible -->
+  <main id="vTomado" class="pd-inv-entrada oculto"><div class="tarjeta-rep pd-fin"><h2 id="txtTomado"></h2></div></main>
 
   <!-- 3) Final -->
   <main id="vFin" class="pd-inv-entrada oculto"><div class="pd-fin"><div class="gran-check" style="font-size:64px">✓</div><h2 id="finTitulo"></h2><p id="finTxt" class="ayuda"></p></div></main>

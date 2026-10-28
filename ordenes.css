@@ -112,3 +112,28 @@ body.pd-invitado { display: flex; flex-direction: column; height: 100%; }
 /* IVA del delivery (admin) */
 .pd-iva { display: grid; gap: 8px; }
 .pd-iva.oculto { display: none; }
+
+/* Acordeón de pedidos realizados */
+.pd-acordeon { background: #fff; border: 1px solid var(--linea); border-radius: 18px; padding: 0 14px; }
+.pd-acordeon > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 54px; font-size: 18px; font-weight: 800; }
+.pd-acordeon > summary::-webkit-details-marker { display: none; }
+.pd-acordeon > summary::after { content: "▾"; font-size: 16px; transition: transform .2s; margin-left: auto; }
+.pd-acordeon[open] > summary::after { transform: rotate(180deg); }
+.pd-acordeon[open] > summary { border-bottom: 1px solid var(--linea); margin-bottom: 12px; }
+.pd-acordeon > .acciones { padding-bottom: 14px; }
+.pd-cuenta { font-size: 12px; font-weight: 800; background: var(--tinta); color: #fff; border-radius: 999px; padding: 2px 9px; }
+.pd-lugar { grid-template-columns: 1fr 44px; }
+
+/* Mapa en blanco del formulario (solo Retiro → Entrega) */
+.pd-ovl { position: fixed; inset: 0; z-index: 2800; background: #fff; }
+#pdOvlMapa { position: absolute; inset: 0; }
+.pd-ovl-top { position: absolute; z-index: 1000; top: calc(10px + env(safe-area-inset-top)); left: 10px; right: 10px; display: flex; gap: 8px; align-items: flex-start; }
+.pd-ovl-x { width: 44px; height: 44px; padding: 0; flex: none; border-radius: 50%; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
+.pd-ovl-sel { display: flex; flex-wrap: wrap; gap: 6px; }
+.pd-ovl-sel button { width: auto; height: 44px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
+.pd-ovl-sel button.on { background: var(--celeste); border-color: var(--celeste); }
+.pd-ovl-info { position: absolute; z-index: 1000; left: 10px; right: 10px; bottom: calc(76px + env(safe-area-inset-bottom)); background: var(--tinta); color: #fff; border-radius: 14px; padding: 10px 14px; text-align: center; font-weight: 700; font-size: 14px; }
+.pd-ovl-ok { position: absolute; z-index: 1000; left: 10px; right: 10px; bottom: calc(12px + env(safe-area-inset-bottom)); width: auto; }
+
+/* Invitado: aceptar / pedido tomado */
+.pd-aceptar { height: 60px; font-size: 18px; }

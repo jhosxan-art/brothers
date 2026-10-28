@@ -7,14 +7,17 @@
 const PedidosAdmin = (() => {
   const O = Ordenes, esc = O.esc, el = (id) => document.getElementById(id);
   let ordenes = {}, ref = null, primera = true, listo = false;
-  let tempMarca = null, timerClick = null, popupCerrado = 0, busqAbierta = false, pick = null;
+  let tempMarca = null, timerClick = null, popupCerrado = 0, busqAbierta = false, ovl = null;
+  let regSel = "", creando = false, firmaSel = "";   // repartidor elegido (sobrevive a repintados) y candado anti doble envío
+  let refChatInv = null, resInv = {}, primeraInv = true, sinLeerInv = {}, chatInvAbierto = null;   // chat Admin ↔ invitado
+  const RUTA_INV = { chats: "chatsInvitado", resumen: "chatsInvitadoResumen", fotos: "fotosInvitado", leido: "leidosInvitado" };
   const lugarSel = { entrega: null };   // coordenadas fijadas de la entrega
   let retirosForm = [{ texto: "", ll: null, producto: "" }];   // varios retiros, cada uno con su producto
   let modoAsig = "registrado";
 
   /* ---------- Utilidades ---------- */
   const activa = (o) => ["pendiente", "asignado", "retirado"].includes(o.estado);
-  const nombreOrden = (o) => (o.asignacion && (o.asignacion.nombre || (o.asignacion.tipo === "invitado" ? "Invitado (sin abrir enlace)" : ""))) || "Sin asignar";
+  const nombreOrden = (o) => (o.asignacion && (o.asignacion.nombre || (o.asignacion.tipo === "invitado" ? "Invitado (sin aceptar)" : ""))) || "Sin asignar";
   function copiar(texto) {
     const ok = () => toast("Enlace copiado ✓");
     if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(texto).then(ok).catch(() => prompt("Copia el enlace:", texto));
@@ -34,7 +37,6 @@ const PedidosAdmin = (() => {
 
   /* admin.js llama aquí en cada toque del mapa que no esté ocupado por otra herramienta */
   function clickMapa(ll) {
-    if (pick) return fijarDesdeMapa(pick, ll);
     if (busqAbierta || Date.now() - popupCerrado < 350) return;       // ese toque solo cerraba la búsqueda o una ventanita
     if (!el("modalAdmin").classList.contains("oculto")) return;
     cancelarClick();
@@ -80,7 +82,7 @@ const PedidosAdmin = (() => {
   /* ============================================================
      2) PEDIDOS Y REPARTIDORES INVITADOS
      ============================================================ */
-  const okMsg = (ll) => (ll ? `✓ Ubicación fijada (${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)})` : "Sin coordenadas: no habrá ruta automática. Usa 🔎 o 📍.");
+  const okMsg = (ll) => (ll ? `✓ Ubicación fijada (${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)})` : "Sin coordenadas: no habrá ruta automática. Usa 📍 para fijarlo en el mapa.");
   function pintarOk(span, ll) { if (!span) return; span.textContent = okMsg(ll); span.style.color = ll ? "#17602B" : "#8A5A00"; }
   const filaEl = (i) => el("pdRetiros").querySelector(`[data-i="${i}"]`);
   const hitLugar = (v) => { const n = (s) => String(s || "").toLowerCase().trim(); return Object.values(lugares).find((l) => n(l.nombre) === n(v) && typeof l.lat === "number"); };
@@ -89,8 +91,7 @@ const PedidosAdmin = (() => {
     const n = retirosForm.length;
     el("pdRetiros").innerHTML = retirosForm.map((r, i) => `<div class="pd-retiro" data-i="${i}">
       <div class="pd-lugar">
-        <label>📦 Lugar de retiro${n > 1 ? " " + (i + 1) : ""} <input data-f="texto" list="pdLugares" maxlength="160" autocomplete="off" placeholder="Negocio o dirección" value="${esc(r.texto)}"></label>
-        <button data-a="bus" type="button" aria-label="Buscar lugar">🔎</button>
+        <label>📦 Lugar de retiro${n > 1 ? " " + (i + 1) : ""} <input data-f="texto" maxlength="160" autocomplete="off" placeholder="Negocio o dirección" value="${esc(r.texto)}"></label>
         <button data-a="mapa" type="button" aria-label="Elegir en el mapa">📍</button>
         <span class="pd-ok"></span>
       </div>
@@ -115,42 +116,93 @@ const PedidosAdmin = (() => {
     if (lugarSel.entrega && lugarSel.entrega.texto !== el("pdEntrega").value) lugarSel.entrega = null;
     pintarOk(el("pdEntregaOk"), lugarSel.entrega);
   }
-  function llenarLugares() {
-    el("pdLugares").innerHTML = Object.values(lugares).map((l) => `<option value="${esc(l.nombre)}"></option>`).join("");
+  /* ============================================================
+     MAPA EN BLANCO DEL FORMULARIO: solo Retiro → Entrega, con distancia (km) y ETA
+     (sin negocios ni repartidores; es una instancia de mapa aparte)
+     ============================================================ */
+  const okLL = (ll) => !!ll && typeof ll.lat === "number" && typeof ll.lng === "number";
+  const fmtKm = (m) => (m / 1000).toFixed(1) + " km";
+  const fmtEta = (s) => { const mi = Math.max(1, Math.round(s / 60)); return mi >= 60 ? Math.floor(mi / 60) + " h " + (mi % 60) + " min" : mi + " min"; };
+  function puntosForm() {
+    const n = retirosForm.length;
+    const l = retirosForm.map((r, i) => ({ cual: "retiro", i, ll: r.ll, nombre: n > 1 ? "📦 Retiro " + (i + 1) : "📦 Retiro" }));
+    l.push({ cual: "entrega", i: 0, ll: lugarSel.entrega, nombre: "🏠 Entrega" });
+    return l;
   }
-  async function buscarLugar(cual, i) {
-    const q = (cual === "retiro" ? retirosForm[i].texto : el("pdEntrega").value).trim(); if (!q) return toast("Escribe algo para buscar.");
-    toast("Buscando…");
-    let res = [];
-    try { res = (await Buscar.buscar(q, mapa.getBounds())).slice(0, 6); } catch (err) { return toast("No se pudo buscar: " + err.message); }
-    if (!res.length) return toast("Sin resultados. Prueba con el nombre y la ciudad, o usa 📍.");
-    modal(`<h2>Elige el lugar</h2>${res.map((r, k) => `<div class="item-busq" data-i="${k}" style="cursor:pointer"><strong>${esc(r.nombre)}</strong><small>${esc(r.detalle || "")}</small></div>`).join("")}
-      <button id="pdBusqNo" class="oscuro" type="button">Cancelar</button>`);
-    el("pdBusqNo").onclick = () => { el("modalCaja").onclick = null; cerrarModal(); };
-    el("modalCaja").onclick = (e) => {
-      const it = e.target.closest("[data-i]"); if (!it) return;
-      const r = res[+it.dataset.i];
-      if (cual === "retiro") fijarRetiro(i, r, retirosForm[i].texto.trim() || r.nombre); else fijarEntrega(r, el("pdEntrega").value.trim() || r.nombre);
-      cerrarModal(); el("modalCaja").onclick = null;
+  function cerrarMapaForm() {
+    if (!ovl) return false;
+    try { ovl.m.remove(); } catch (_) {}
+    ovl.div.remove(); ovl = null;
+    return true;
+  }
+  function abrirMapaForm(cual, i) {
+    cerrarMapaForm();
+    const div = document.createElement("div");
+    div.className = "pd-ovl";
+    div.innerHTML = `<div id="pdOvlMapa"></div>
+      <div class="pd-ovl-top"><button type="button" class="pd-ovl-x" aria-label="Cerrar mapa">✕</button><div class="pd-ovl-sel" id="pdOvlSel"></div></div>
+      <div class="pd-ovl-info" id="pdOvlInfo">Toca el mapa para fijar el punto elegido arriba.</div>
+      <button type="button" class="primario pd-ovl-ok">Listo</button>`;
+    document.body.appendChild(div);
+    const m = L.map(div.querySelector("#pdOvlMapa"), { zoomControl: false }).setView(mapa ? mapa.getCenter() : [-12.0464, -77.0428], mapa ? Math.max(mapa.getZoom(), 13) : 14);
+    L.control.zoom({ position: "bottomright" }).addTo(m);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(m);
+    ovl = { div, m, capa: L.layerGroup().addTo(m), rutaCapa: L.layerGroup().addTo(m), activo: { cual, i: i || 0 }, seq: 0 };
+    const info = (t) => { const e = div.querySelector("#pdOvlInfo"); if (e) e.innerHTML = t; };
+
+    async function trazar(encuadrar) {
+      const mio = ovl, seq = ++mio.seq;
+      mio.rutaCapa.clearLayers();
+      const pts = puntosForm().filter((p) => okLL(p.ll));
+      if (pts.length < 2) {
+        if (pts.length === 1 && encuadrar) m.setView([pts[0].ll.lat, pts[0].ll.lng], 16);
+        return info("Fija el retiro y la entrega para ver la ruta, la distancia y el tiempo.");
+      }
+      info("Calculando ruta por calles…");
+      let dist = 0, dur = 0;
+      for (let k = 0; k < pts.length - 1; k++) {
+        let r = null;
+        try { r = await O.rutaCalles({ lat: pts[k].ll.lat, lng: pts[k].ll.lng }, { lat: pts[k + 1].ll.lat, lng: pts[k + 1].ll.lng }); } catch (_) {}
+        if (ovl !== mio || seq !== mio.seq) return;   // se cerró o cambió un punto mientras calculaba
+        if (!r) return info("No se pudo calcular la ruta por calles. Cambia un punto o intenta de nuevo.");
+        dist += r.dist; dur += r.dur;
+        L.polyline([[pts[k].ll.lat, pts[k].ll.lng], ...r.pts, [pts[k + 1].ll.lat, pts[k + 1].ll.lng]], { color: "#0A86C9", weight: 6, opacity: .9 }).addTo(mio.rutaCapa);
+      }
+      info(`🛣 <b>${fmtKm(dist)}</b> · ⏱ ETA <b>≈ ${fmtEta(dur)}</b>`);
+      if (encuadrar) m.fitBounds(L.latLngBounds(pts.map((p) => [p.ll.lat, p.ll.lng])), { padding: [70, 70], maxZoom: 17 });
+    }
+    function dibujar(encuadrar) {
+      ovl.capa.clearLayers();
+      const ps = puntosForm(), a = ovl.activo;
+      div.querySelector("#pdOvlSel").innerHTML = ps.map((p, k) => `<button type="button" data-k="${k}" class="${p.cual === a.cual && p.i === a.i ? "on" : ""}">${p.nombre}${okLL(p.ll) ? " ✓" : ""}</button>`).join("");
+      ps.forEach((p) => { if (okLL(p.ll)) L.marker([p.ll.lat, p.ll.lng], { icon: O.pinIcono(p.cual, p.cual === "retiro" ? "📦" : "🏠") }).addTo(ovl.capa); });
+      trazar(encuadrar);
+    }
+    div.querySelector("#pdOvlSel").onclick = (e) => {
+      const b = e.target.closest("button[data-k]"); if (!b) return;
+      const p = puntosForm()[+b.dataset.k]; ovl.activo = { cual: p.cual, i: p.i };
+      dibujar(false);
+      if (okLL(p.ll)) m.panTo([p.ll.lat, p.ll.lng]);
     };
-  }
-  function elegirEnMapa(cual, i) {
-    document.querySelector('.tabs button[data-tab="panelMapa"]').click();
-    pick = { cual, i };   // se activa DESPUÉS del clic de la pestaña (que lo reinicia)
-    toast(`Toca el mapa para fijar el lugar de ${cual === "retiro" ? "retiro" : "entrega"}.`);
-  }
-  function fijarDesdeMapa(p, ll) {
-    pick = null;
-    const ll6 = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) }, auto = `Punto del mapa (${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)})`;
-    document.querySelector('.tabs button[data-tab="panelPedidos"]').click();
-    if (p.cual === "retiro") fijarRetiro(p.i, ll6, retirosForm[p.i].texto.trim() || auto); else fijarEntrega(ll6, el("pdEntrega").value.trim() || auto);
+    m.on("click", (e) => {
+      const ll = { lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6) }, auto = `Punto del mapa (${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)})`, a = ovl.activo;
+      if (a.cual === "retiro") fijarRetiro(a.i, ll, (retirosForm[a.i] && retirosForm[a.i].texto.trim()) || auto);
+      else fijarEntrega(ll, el("pdEntrega").value.trim() || auto);
+      dibujar(false);
+    });
+    div.querySelector(".pd-ovl-x").onclick = cerrarMapaForm;
+    div.querySelector(".pd-ovl-ok").onclick = cerrarMapaForm;
+    setTimeout(() => { if (ovl && ovl.m === m) { m.invalidateSize(); dibujar(true); } }, 80);
   }
 
   function pintarSelectorReg() {
-    const ids = Object.keys(registrados).sort((a, b) => nombreUid(a).localeCompare(nombreUid(b)));
-    const previo = el("pdRegSel").value;
-    el("pdRegSel").innerHTML = '<option value="">— Elige un repartidor —</option>' + ids.map((u) => `<option value="${esc(u)}">${esc(nombreUid(u))} · ${ETIQUETA[estadoDe(u)][0]}</option>`).join("");
-    if (previo && ids.includes(previo)) el("pdRegSel").value = previo;
+    const sel = el("pdRegSel"), ids = Object.keys(registrados).sort((a, b) => nombreUid(a).localeCompare(nombreUid(b)));
+    const opts = ids.map((u) => `<option value="${esc(u)}">${esc(nombreUid(u))} · ${ETIQUETA[estadoDe(u)][0]}</option>`).join("");
+    if (opts === firmaSel) return;                 // nada cambió: no se toca el <select> (evita el parpadeo)
+    if (document.activeElement === sel) return;    // se está usando: no se reconstruye (cerraría la lista en el móvil)
+    firmaSel = opts;
+    sel.innerHTML = '<option value="">— Elige un repartidor —</option>' + opts;
+    if (regSel && ids.includes(regSel)) sel.value = regSel;
   }
   function modoAsignacion(m) {
     modoAsig = m;
@@ -168,30 +220,47 @@ const PedidosAdmin = (() => {
     el("pdIvaRap").querySelectorAll("button").forEach((x) => x.classList.toggle("on", O.r2(x.dataset.iva) === i && (i > 0 || x.dataset.iva === "0" && el("pdIva").value !== "")));
   }
 
-  async function crearPedido() {
+  /* Mensaje visible dentro de la pestaña Pedidos (el toast vive en el mapa y ahí no se ve) */
+  function aviso(txt, tipo = "") {
+    const m = el("pdMsg"); if (!m) return;
+    m.textContent = txt || ""; m.className = "estado " + tipo + (txt ? "" : " oculto");
+    if (txt && m.scrollIntoView) m.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  async function crearPedido(ev) {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    if (creando) return;
+    const falla = (t) => { aviso(t, "error"); toast(t); };
+    aviso("");
     const cliente = el("pdCliente").value.trim(), en = el("pdEntrega").value.trim();
-    const retiros = retirosForm.filter((r) => r.texto.trim()).map((r) => Object.assign({ texto: r.texto.trim(), producto: r.producto.trim() }, r.ll));
-    if (!cliente) return toast("Escribe el nombre del cliente.");
-    if (!retiros.length || !en) return toast("Indica al menos un lugar de retiro y el de entrega.");
+    const retiros = retirosForm.filter((r) => r.texto.trim()).map((r) => Object.assign({ texto: r.texto.trim(), producto: (r.producto || "").trim() }, r.ll || {}));
+    if (!cliente) return falla("Escribe el nombre del cliente.");
+    if (!retiros.length || !en) return falla("Indica al menos un lugar de retiro y el de entrega.");
     let asignacion;
     if (modoAsig === "registrado") {
-      const uid = el("pdRegSel").value;
-      if (!uid) return toast("Elige un repartidor registrado, o cambia a “Enlace de invitado”.");
+      const uid = regSel || el("pdRegSel").value;
+      if (!uid) return falla("Elige un repartidor registrado, o cambia a “Enlace de invitado”.");
       asignacion = { tipo: "registrado", uid, nombre: nombreUid(uid) };
     } else asignacion = { tipo: "invitado" };
-    el("pdCrear").disabled = true;
+    creando = true; el("pdCrear").disabled = true; aviso("Creando pedido…", "ok");
     try {
-      const { token, orden } = await O.crear(db, {
+      // JSON ida y vuelta: Firebase rechaza los valores "undefined" y haría fallar la escritura completa
+      const datos = JSON.parse(JSON.stringify({
         cliente, paquete: el("pdPaquete").value, retiros, delivery: parseFloat(el("pdDelivery").value) || 0,
         iva: asignacion.tipo === "registrado" ? parseFloat(el("pdIva").value) || 0 : 0,
-        entrega: Object.assign({ texto: en }, lugarSel.entrega), asignacion
-      });
+        entrega: Object.assign({}, lugarSel.entrega || {}, { texto: en }), asignacion
+      }));
+      const { token, orden } = await O.crear(db, datos);
       ["pdCliente", "pdEntrega", "pdPaquete", "pdDelivery", "pdIva"].forEach((id) => { el(id).value = ""; }); pintarTotalDelivery();
       lugarSel.entrega = null; retirosForm = [{ texto: "", ll: null, producto: "" }]; pintarRetiros(); pintarOk(el("pdEntregaOk"), null);
-      if (asignacion.tipo === "invitado") mostrarEnlaces(token, orden);
-      else toast(`Pedido ${orden.codigo} enviado a ${asignacion.nombre} ✓ Le llega el aviso con todos los detalles (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".") + " Enlace del cliente: botón 💬 en la lista.");
-    } catch (err) { toast("No se pudo crear el pedido: " + err.message); }
-    el("pdCrear").disabled = false;
+      if (asignacion.tipo === "invitado") { aviso(""); mostrarEnlaces(token, orden); }
+      else {
+        const t = `Pedido ${orden.codigo} enviado a ${asignacion.nombre} ✓ (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".");
+        aviso(t, "ok"); toast(t);
+      }
+    } catch (err) {
+      console.error("crearPedido", err);
+      falla("No se pudo crear el pedido: " + ((err && (err.code ? err.code + " · " : "") + err.message) || err) + (err && err.code === "PERMISSION_DENIED" ? " (revisa las reglas de Firebase)" : ""));
+    } finally { creando = false; el("pdCrear").disabled = false; }
   }
 
   function mostrarEnlaces(t, o) {
@@ -247,7 +316,7 @@ const PedidosAdmin = (() => {
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
       <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
-        ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}
+        ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}
         ${o.estado === "pendiente" && !a.tipo ? btn("asignar", "Asignar", "pri") : ""}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
       </div></div>`;
@@ -255,6 +324,37 @@ const PedidosAdmin = (() => {
   function pintarOrdenes() {
     const ids = Object.keys(ordenes).sort((a, b) => (ordenes[b].creado || 0) - (ordenes[a].creado || 0));
     el("listaPedidos").innerHTML = ids.length ? ids.map(tarjeta).join("") : '<p class="ayuda">Aún no hay pedidos. Crea el primero arriba.</p>';
+    const c = el("pdCuenta"); if (c) c.textContent = ids.length;
+  }
+
+  /* ---------- Chat Admin ↔ repartidor invitado (nodo chatsInvitado/{token}) ---------- */
+  function abrirChatInv(t) {
+    const o = ordenes[t]; if (!o) return;
+    const nom = (o.asignacion && o.asignacion.nombre) || "Invitado";
+    chatInvAbierto = t; sinLeerInv[t] = 0; pintarOrdenes();
+    Chat.iniciar({
+      token: t, yo: "admin", ruta: RUTA_INV, pedido: o.codigo, nombreRepartidor: nom, puedeBorrar: true, avisos: false,
+      titulo: () => "Chat con " + nom, subtitulo: () => "Pedido " + o.codigo + " · invitado",
+      alCerrar: () => { chatInvAbierto = null; }
+    });
+    Chat.abrir();
+  }
+  function escucharChatInv() {
+    if (refChatInv) refChatInv.off();
+    primeraInv = true;
+    refChatInv = db.ref("chatsInvitadoResumen");
+    refChatInv.on("value", (s) => {
+      const n = s.val() || {};
+      if (!primeraInv) Object.entries(n).forEach(([t, r]) => {
+        const antes = (resInv[t] && resInv[t].ts) || 0;
+        if (r.ultimoDe === "repartidor" && (r.ts || 0) > antes) {
+          if (chatInvAbierto !== t) sinLeerInv[t] = (sinLeerInv[t] || 0) + 1;
+          const txt = `💬 ${r.repartidor || "Invitado"} (pedido ${r.pedido || ""}): ${r.ultimo || ""}`;
+          toast(txt); O.hablar("Mensaje del repartidor invitado " + (r.repartidor || ""));
+        }
+      });
+      primeraInv = false; resInv = n; pintarOrdenes();
+    }, () => {});
   }
 
   /* Avisos en vivo (texto + VOZ ALTA): el invitado abrió el enlace, retiró un producto, entregó */
@@ -263,7 +363,7 @@ const PedidosAdmin = (() => {
     Object.entries(nuevo).forEach(([t, o]) => {
       const a = ordenes[t]; if (!a) return;
       const nom = (o.asignacion && o.asignacion.nombre) || "El repartidor", pa = O.paradas(a), po = O.paradas(o);
-      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) decir(`🔗 ${nom} abrió el enlace de invitado del pedido ${o.codigo}`);
+      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) decir(`🔗 ${nom} aceptó el pedido ${o.codigo}`);
       po.forEach((p, k) => {
         if (!p.retirado || (pa[k] && pa[k].retirado)) return;   // solo retiros nuevos
         const falta = po.filter((x) => !x.retirado).length;
@@ -303,9 +403,10 @@ const PedidosAdmin = (() => {
       mapa.on("popupclose", () => { popupCerrado = Date.now(); });
       mapa.on("dblclick zoomstart movestart", cancelarClick);
       new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) quitarTemp(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });
-      document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { pick = null; if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
+      document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { cerrarMapaForm(); if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
       el("pdModo").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) modoAsignacion(b.dataset.m); };
       el("pdCrear").onclick = crearPedido;
+      el("pdRegSel").addEventListener("change", (e) => { regSel = e.target.value; });
       el("pdDelivery").addEventListener("input", pintarTotalDelivery); el("pdIva").addEventListener("input", pintarTotalDelivery);
       el("pdIvaRap").onclick = (e) => { const b = e.target.closest("button[data-iva]"); if (!b) return; el("pdIva").value = b.dataset.iva === "0" ? "" : b.dataset.iva; pintarTotalDelivery(); if (b.dataset.iva === "0") b.classList.add("on"); };
       pintarTotalDelivery();
@@ -316,22 +417,19 @@ const PedidosAdmin = (() => {
         const f = e.target.closest("[data-i]"), campo = e.target.dataset.f; if (!f) return; const i = +f.dataset.i;
         if (campo === "texto") alEscribirRetiro(i, e.target.value); else if (campo === "producto") retirosForm[i].producto = e.target.value;
       });
-      rc.addEventListener("focusin", (e) => { if (e.target.dataset.f === "texto") llenarLugares(); });
       rc.addEventListener("click", (e) => {
         const b = e.target.closest("button[data-a]"), f = e.target.closest("[data-i]"); if (!b || !f) return; const i = +f.dataset.i;
-        if (b.dataset.a === "bus") buscarLugar("retiro", i);
-        else if (b.dataset.a === "mapa") elegirEnMapa("retiro", i);
+        if (b.dataset.a === "mapa") abrirMapaForm("retiro", i);
         else if (b.dataset.a === "quitar") { retirosForm.splice(i, 1); pintarRetiros(); }
       });
       el("pdEntrega").addEventListener("input", alEscribirEntrega);
-      el("pdEntrega").addEventListener("focus", llenarLugares);
-      el("pdEntregaBus").onclick = () => buscarLugar("entrega");
-      el("pdEntregaMapa").onclick = () => elegirEnMapa("entrega");
+      el("pdEntregaMapa").onclick = () => abrirMapaForm("entrega");
       pintarOk(el("pdEntregaOk"), null);
       el("listaPedidos").onclick = (e) => {
         const b = e.target.closest("button[data-pa]"); if (!b) return;
         const t = b.dataset.t, o = ordenes[t], a = b.dataset.pa; if (!o) return;
-        if (a === "linkinv") mostrarEnlaces(t, o);
+        if (a === "chatinv") abrirChatInv(t);
+        else if (a === "linkinv") mostrarEnlaces(t, o);
         else if (a === "linkcli") copiar(O.urlCliente(t));
         else if (a === "asignar") asignarExistente(t);
         else if (a === "cancelar") cancelarOrden(t);
@@ -339,6 +437,7 @@ const PedidosAdmin = (() => {
       };
       modoAsignacion("registrado");
     }
+    escucharChatInv();
     ref = db.ref("ordenes").orderByChild("creado").limitToLast(60);
     ref.on("value", (s) => {
       const nuevo = s.val() || {};
@@ -347,7 +446,7 @@ const PedidosAdmin = (() => {
       pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista();
     }, () => { el("listaPedidos").innerHTML = '<p class="ayuda">Sin permiso para leer “ordenes”. Revisa las reglas de Firebase (ver LEEME).</p>'; });
   }
-  function detener() { if (ref) { ref.off(); ref = null; } ordenes = {}; quitarTemp(); cancelarClick(); }
+  function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } ordenes = {}; resInv = {}; sinLeerInv = {}; cerrarMapaForm(); quitarTemp(); cancelarClick(); }
 
-  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado };
+  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, cerrarMapaForm };
 })();
