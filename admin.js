@@ -88,7 +88,7 @@ function mostrar(vista) {
   $("vistaApp").classList.toggle("oculto", vista !== "app");
   $("btnSalir").classList.toggle("oculto", vista !== "app");
 }
-const PANELES = ["panelMapa", "panelChats", "panelEquipo"];
+const PANELES = ["panelMapa", "panelPedidos", "panelChats", "panelEquipo"];
 document.querySelectorAll(".tabs button").forEach((b) => {
   b.onclick = () => {
     document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("activa", x === b));
@@ -136,7 +136,8 @@ function initMapa() {
   mapa.on("click movestart", () => { $("resBusq").classList.add("oculto"); $("busq").blur(); });   // tocar o mover el mapa cierra la búsqueda
   mapa.on("click", (e) => {
     if (modoNegocio) { terminarModoNegocio(); return formNegocio({ lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6) }); }
-    if (selUid) fijarGuia(selUid, e.latlng);   // el mapa se puede mover y explorar libremente; solo un toque marca la guía
+    if (selUid) return fijarGuia(selUid, e.latlng);   // el mapa se puede mover y explorar libremente; solo un toque marca la guía
+    if (typeof PedidosAdmin !== "undefined") PedidosAdmin.clickMapa(e.latlng);   // toque libre: asignar Retiro/Entrega a un repartidor (ordenes-admin.js)
   });
   mapa.on("zoomend", () => mapa.getContainer().classList.toggle("zoom-lejos", mapa.getZoom() < 15));   // nombres de negocios solo de cerca
   mapa.getContainer().classList.add("zoom-lejos");   // con un repartidor elegido, tocar el mapa = marcar dónde está el cliente
@@ -203,7 +204,7 @@ function popupRep(uid) {
   const est = estadoDe(uid), [texto, clase] = ETIQUETA[est], n = sinLeerEq[uid] || 0;
   return `<div class="pop-rep"><strong>${esc(nombreUid(uid))}</strong>
     <span class="chip ${clase}">${texto}</span>
-    <small>${esc(descripcion(uid, est))}${guias[uid] ? " · 📍 guía activa" : ""}</small>
+    <small>${esc(descripcion(uid, est))}${guias[uid] ? " · 📍 guía activa" : ""}${typeof PedidosAdmin !== "undefined" ? esc(PedidosAdmin.notaRep(uid)) : ""}</small>
     <div class="acciones-fila">
       <button class="mini pri" data-pa="guiar" data-uid="${esc(uid)}" type="button">📍 Guiar</button>
       <button class="mini" data-pa="chat" data-uid="${esc(uid)}" type="button">💬 Chat${n ? " (" + n + ")" : ""}</button>
@@ -262,6 +263,7 @@ async function marcarEntregado(token) {
       lat: null, lng: null, rumbo: null, velocidad: null, precision: null, destLat: null, destLng: null, distancia: null, cerca: null, cliente: null
     });
     if (guias[d.repartidorUid] && guias[d.repartidorUid].token === token) db.ref("guias/" + d.repartidorUid).remove().catch(() => {});
+    if (typeof PedidosAdmin !== "undefined") PedidosAdmin.cerrarInvitado(token, d.repartidorUid);   // pedido de un invitado: cierra también su orden
     toast(`Pedido ${d.pedido || ""} marcado como entregado ✓`);
   } catch (e) { toast("No se pudo marcar: " + e.message); }
 }
@@ -559,6 +561,8 @@ function iniciarMonitoreo() {
     primeraEq = false; resEquipo = n; pintarChats(); pintarLista();
   }, fallo);
 
+  if (typeof PedidosAdmin !== "undefined") PedidosAdmin.iniciar();   // pedidos del administrador e invitados
+
   // Pedidos en ruta (para saber quién lleva qué)
   consultaActivos = db.ref("pedidos").orderByChild("estado").equalTo("en_ruta");
   const alCambiar = (s) => { activos[s.key] = s.val(); pintarClientes(); refrescar(); };
@@ -583,6 +587,7 @@ function iniciarMonitoreo() {
   }, fallo);
 }
 function detener() {
+  if (typeof PedidosAdmin !== "undefined") PedidosAdmin.detener();
   if (refUbic) { refUbic.off(); refUbic = null; }
   if (consultaActivos) { consultaActivos.off(); consultaActivos = null; }
   if (consultaChats) { consultaChats.off(); consultaChats = null; }
@@ -763,7 +768,8 @@ $("btnSelBorrar").onclick = () => {
 /* ---------- Equipo: agregar y quitar repartidores ---------- */
 function pintarEquipo() {
   const ids = Object.keys(registrados);
-  if (!ids.length) { $("listaEquipo").innerHTML = '<p class="ayuda">Aún no hay repartidores registrados.</p>'; return; }
+  const invitados = typeof PedidosAdmin !== "undefined" ? PedidosAdmin.htmlInvitados() : "";   // repartidores invitados activos
+  if (!ids.length && !invitados) { $("listaEquipo").innerHTML = '<p class="ayuda">Aún no hay repartidores registrados.</p>'; return; }
   $("listaEquipo").innerHTML = ids.map((uid) => {
     const i = infoReg(uid), est = estadoDe(uid), [texto, clase] = ETIQUETA[est];
     return `<div class="tarjeta-rep">
@@ -777,7 +783,7 @@ function pintarEquipo() {
         ${i.email ? `<button class="mini" data-accion="reset" data-uid="${esc(uid)}">Restablecer clave</button>` : ""}
         <button class="mini peligro" data-accion="quitar" data-uid="${esc(uid)}">Quitar</button>
       </div></div>`;
-  }).join("");
+  }).join("") + (invitados ? '<h3 class="sec">Invitados activos</h3>' + invitados : "");
 }
 $("listaEquipo").onclick = (e) => {
   const b = e.target.closest("button[data-accion]"); if (!b) return;

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="ordenes.css">
 </head>
 <body class="admin">
   <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
@@ -105,10 +106,40 @@
       <div id="listaNegocios" class="acciones" style="margin-top:10px"></div>
     </section>
 
+    <!-- Pedidos: formulario, asignación (registrado o invitado) y estado en vivo -->
+    <section id="panelPedidos" class="oculto">
+      <div class="pd-form">
+        <h2>Nuevo pedido</h2>
+        <label>Cliente <input id="pdCliente" maxlength="60" autocomplete="off" placeholder="Nombre del cliente"></label>
+        <div class="pd-lugar">
+          <label>📦 Lugar de retiro <input id="pdRetiro" list="pdLugares" maxlength="160" autocomplete="off" placeholder="Negocio o dirección"></label>
+          <button id="pdRetiroBus" type="button" aria-label="Buscar lugar de retiro">🔎</button>
+          <button id="pdRetiroMapa" type="button" aria-label="Elegir retiro en el mapa">📍</button>
+          <span id="pdRetiroOk" class="pd-ok"></span>
+        </div>
+        <div class="pd-lugar">
+          <label>🏠 Lugar de entrega <input id="pdEntrega" list="pdLugares" maxlength="160" autocomplete="off" placeholder="Dirección del cliente"></label>
+          <button id="pdEntregaBus" type="button" aria-label="Buscar lugar de entrega">🔎</button>
+          <button id="pdEntregaMapa" type="button" aria-label="Elegir entrega en el mapa">📍</button>
+          <span id="pdEntregaOk" class="pd-ok"></span>
+        </div>
+        <datalist id="pdLugares"></datalist>
+        <label>Detalles del paquete <textarea id="pdPaquete" maxlength="400" placeholder="Qué lleva, tamaño, indicaciones…"></textarea></label>
+        <div><small>Asignación</small>
+          <div class="pd-seg" id="pdModo"><button type="button" data-m="registrado" class="on">Repartidor registrado</button><button type="button" data-m="invitado">🔗 Enlace de invitado</button></div></div>
+        <label id="pdRegBox">Repartidor <select id="pdRegSel"></select></label>
+        <p id="pdInvBox" class="ayuda oculto">Se generará un enlace. Quien lo abra solo escribe su nombre y ve la ruta, el chat con el cliente y los botones Retirado / Entregado.</p>
+        <button id="pdCrear" class="primario" type="button">Crear y asignar pedido</button>
+      </div>
+      <h2>Pedidos</h2>
+      <div id="listaPedidos" class="acciones"></div>
+    </section>
+
     <div id="modalAdmin" class="modal-rep oculto" role="dialog" aria-modal="true"><div class="modal-rep-caja" id="modalCaja" style="text-align:left"></div></div>
 
     <nav class="tabs">
       <button class="activa" data-tab="panelMapa">Mapa en vivo</button>
+      <button data-tab="panelPedidos">Pedidos</button>
       <button data-tab="panelChats">Chats</button>
       <button data-tab="panelEquipo">Equipo</button>
     </nav>
@@ -125,6 +156,8 @@
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>
+  <script src="ordenes-core.js"></script>
   <script src="admin.js"></script>
+  <script src="ordenes-admin.js"></script>
 </body>
 </html>

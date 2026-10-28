@@ -1,0 +1,64 @@
+/* ============================================================
+   Estilos de los módulos nuevos (prefijo pd-): asignación rápida,
+   pedidos/invitados y sub-factura. Reutiliza las variables de style.css
+   ============================================================ */
+.pd-seg { display: grid; grid-auto-flow: column; gap: 6px; }
+.pd-seg button { height: 44px; font-size: 14px; }
+.pd-seg button.on { background: var(--celeste); border-color: var(--celeste); }
+.pd-coord { font-size: 13px; font-weight: 700; background: var(--gris); border-radius: 12px; padding: 8px 12px; text-align: center; }
+.pd-lista-rep { display: grid; gap: 6px; max-height: 34vh; overflow-y: auto; }
+.pd-rep { display: flex; align-items: center; gap: 10px; text-align: left; height: auto; min-height: 48px; padding: 8px 12px; }
+.pd-rep.on { border-color: var(--celeste-prof); background: var(--celeste-suave); }
+.pd-rep span { flex: 1; min-width: 0; }
+.pd-rep small { display: block; font-weight: 600; color: var(--texto2); font-size: 12px; }
+.pd-tag { font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: #FFF3D6; color: #7A4B00; }
+.pd-form { display: grid; gap: 12px; background: #fff; border: 1px solid var(--linea); border-radius: 18px; padding: 14px; }
+.pd-form h2, #panelPedidos > h2 { font-size: 18px; font-weight: 800; }
+#panelPedidos { padding: 14px; display: grid; gap: 12px; align-content: start; overflow-y: auto; }
+.pd-lugar { display: grid; grid-template-columns: 1fr 44px 44px; gap: 6px; align-items: end; }
+.pd-lugar button { height: 52px; padding: 0; }
+.pd-lugar .pd-ok { grid-column: 1 / -1; font-size: 12px; font-weight: 700; color: #17602B; }
+textarea { font: inherit; font-weight: 500; width: 100%; min-height: 84px; padding: 12px 14px; border: 1.5px solid var(--linea); border-radius: 14px; background: var(--gris); color: var(--tinta); resize: vertical; }
+select { font: inherit; font-weight: 600; width: 100%; height: 52px; padding: 0 12px; border: 1.5px solid var(--linea); border-radius: 14px; background: var(--gris); color: var(--tinta); }
+.pd-orden { display: grid; gap: 8px; }
+.pd-orden .ruta { font-size: 13px; color: var(--texto2); overflow-wrap: anywhere; }
+.chip.pend { background: #FFF3D6; color: #7A4B00; }
+.chip.ret { background: #E5E0FF; color: #3B2A8C; }
+.chip.ent { background: #E2F6E6; color: #17602B; }
+.pd-enlace { font-size: 12px; word-break: break-all; background: var(--gris); border-radius: 12px; padding: 10px; color: var(--texto2); user-select: all; }
+.pd-pin { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; background: #fff; border: 3px solid var(--celeste-prof); box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+.pd-pin.retiro { border-color: #F59E0B; }
+.pd-pin.entrega { border-color: var(--rojo); }
+.pd-pin.temp { border-style: dashed; animation: latido 1.4s infinite; }
+
+/* Página del invitado */
+body.pd-invitado { display: flex; flex-direction: column; height: 100%; }
+.pd-inv-entrada { width: 100%; max-width: 480px; margin: 0 auto; padding: 16px; display: grid; gap: 12px; align-content: start; }
+.pd-inv-mapa { position: relative; flex: 1; min-height: 200px; }
+#mapaInv { position: absolute; inset: 0; }
+.pd-inv-panel { position: relative; z-index: 5; background: #fff; border-radius: 22px 22px 0 0; margin-top: -18px; padding: 14px; display: grid; gap: 10px; border-top: 1px solid var(--linea); max-height: 56vh; overflow-y: auto; }
+.pd-inv-datos { display: grid; gap: 2px; font-size: 14px; }
+.pd-inv-datos b { font-weight: 800; }
+.pd-chat { display: grid; grid-template-rows: auto auto; gap: 8px; }
+.pd-msgs { display: grid; gap: 6px; max-height: 22vh; overflow-y: auto; align-content: start; padding: 4px; }
+.pd-msg { max-width: 82%; padding: 8px 12px; border-radius: 14px; font-size: 14px; background: var(--gris); justify-self: start; overflow-wrap: anywhere; }
+.pd-msg.yo { background: var(--celeste); justify-self: end; }
+.pd-chat form { display: grid; grid-template-columns: 1fr 76px; gap: 6px; }
+.pd-chat form button { height: 52px; padding: 0; }
+.pd-fin { text-align: center; padding: 24px 12px; display: grid; gap: 8px; }
+
+/* Sub-factura (repartidor) */
+.pd-sub { display: grid; gap: 8px; border: 2px dashed var(--celeste-prof); border-radius: 14px; padding: 10px; background: var(--celeste-suave); }
+.pd-sub h4 { font-size: 14px; font-weight: 800; }
+.pd-sub .fila-prod { display: grid; grid-template-columns: 1fr 92px 40px; gap: 6px; }
+.pd-sub .fila-prod input { height: 44px; }
+.pd-sub .fila-prod button { height: 44px; padding: 0; }
+.pd-sub-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; padding: 6px 0; border-bottom: 1px solid var(--linea); }
+.pd-sub-item button { width: 32px; height: 32px; padding: 0; border-radius: 50%; }
+.pd-etiqueta { display: inline-block; font-size: 11px; font-weight: 800; background: var(--tinta); color: #fff; border-radius: 999px; padding: 3px 10px; }
+.pd-desglose { display: grid; gap: 4px; background: #fff; border: 1px solid var(--linea); border-radius: 12px; padding: 10px; font-size: 14px; }
+.pd-desglose div { display: flex; justify-content: space-between; gap: 8px; }
+.pd-desglose .gran { font-size: 17px; font-weight: 800; border-top: 2px solid var(--tinta); padding-top: 6px; margin-top: 4px; }
+
+/* Pestañas del admin: ahora son 4 */
+.tabs { grid-template-columns: repeat(4, 1fr) !important; }

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3DB8F5">
+  <title>Brother’s Deliverys — Repartidor invitado</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="ordenes.css">
+</head>
+<body class="pd-invitado">
+  <header class="barra-marca">
+    <span class="insignia" data-rider></span>
+    <div class="titulo"><strong>Brother’s Deliverys</strong><small id="subTitulo">Repartidor invitado</small></div>
+  </header>
+
+  <!-- Cargando / enlace inválido -->
+  <main id="vCarga" class="pd-inv-entrada"><div class="estado" id="msgCarga">Abriendo tu pedido…</div></main>
+
+  <!-- 1) Entrada: solo el nombre -->
+  <main id="vEntrada" class="pd-inv-entrada oculto">
+    <div class="hero"><div class="gran-icono" data-rider></div><h1>¡Hola! Tienes un pedido</h1><p>Escribe tu nombre para ver la ruta y avisar al cliente.</p></div>
+    <div class="tarjeta-rep"><div class="pd-inv-datos" id="resumenEntrada"></div></div>
+    <label>Tu nombre <input id="inNombre" maxlength="24" autocomplete="given-name" placeholder="Ej. Carlos"></label>
+    <div id="msgEntrada" class="estado error oculto"></div>
+    <button id="btnEntrar" class="primario" type="button">Empezar entrega</button>
+  </main>
+
+  <!-- 2) UI temporal del invitado: mapa + estado + chat -->
+  <section id="vApp" class="oculto" style="flex:1;min-height:0;display:flex;flex-direction:column">
+    <div class="pd-inv-mapa">
+      <div id="mapaInv"></div>
+      <div class="estado chip-gps" id="estadoGps">Obteniendo ubicación…</div>
+    </div>
+    <div class="pd-inv-panel">
+      <div class="fila-repartidor" style="border:0;padding:0">
+        <div class="pd-inv-datos" style="flex:1" id="datosPedido"></div>
+        <span class="chip" id="chipEstado"></span>
+      </div>
+      <div class="acciones-fila">
+        <button id="btnNavegar" class="mini" type="button">🧭 Abrir navegación</button>
+      </div>
+      <div class="acciones-fila">
+        <button id="btnRetirado" class="oscuro" type="button">📦 Retirado</button>
+        <button id="btnEntregado" class="primario" type="button" disabled>✅ Entregado</button>
+      </div>
+      <div class="pd-chat">
+        <button id="btnChat" class="mini" type="button">💬 Chat con el cliente <span id="chatBadge" class="badge oculto">0</span></button>
+        <div id="chatBox" class="oculto">
+          <div id="msgs" class="pd-msgs"></div>
+          <form id="formChat" autocomplete="off"><input id="chatTexto" maxlength="600" placeholder="Escribe un mensaje…" aria-label="Mensaje"><button class="primario" type="submit">Enviar</button></form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3) Final -->
+  <main id="vFin" class="pd-inv-entrada oculto"><div class="pd-fin"><div class="gran-check" style="font-size:64px">✓</div><h2 id="finTitulo"></h2><p id="finTxt" class="ayuda"></p></div></main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="iconos.js"></script>
+  <script src="ordenes-core.js"></script>
+  <script src="invitado.js"></script>
+</body>
+</html>

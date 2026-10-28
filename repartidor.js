@@ -349,7 +349,7 @@ function crearViaje(info) {
   const v = {
     token: info.token, tel: info.tel || "", pedido: info.pedido || "", cliente: info.cliente || "",
     destManual: !!info.destManual, sinFactura: !!info.sinFactura, cerrando: false, refEstado: null, destino: null, cliPos: null, cerca: false, dist: null,
-    marca: null, marcaCli: null, refCli: null, refChat: null, noLeidos: 0, chatListo: false,
+    marca: null, marcaCli: null, refCli: null, refChat: null, noLeidos: 0, chatListo: false, factura: null, sub: null, refExtra: [],
     rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null
   };
   viajes[v.token] = v;
@@ -357,8 +357,19 @@ function crearViaje(info) {
   escucharCliente(v);
   escucharChat(v);
   escucharEstado(v);
+  escucharSubfactura(v);
   return v;
 }
+
+/* Factura original + sub-factura del pedido (sincronizadas en pedidos/{token}) */
+function escucharSubfactura(v) {
+  const base = db.ref("pedidos/" + v.token);
+  const f = base.child("factura"), s = base.child("subfactura");
+  f.on("value", (x) => { v.factura = x.val(); refrescarTextos(); }, () => {});
+  s.on("value", (x) => { v.sub = x.val(); refrescarTextos(); }, () => {});
+  v.refExtra = [f, s];
+}
+const ctxSub = { db, usuario: () => usuario, wa: (m) => abrirWhatsApp(m), alCambiar: () => refrescarTextos() };
 
 /* Si Brothers marca el pedido como entregado (o se cancela), desaparece también de este teléfono */
 function escucharEstado(v) {
@@ -392,7 +403,8 @@ Factura.alEnviar = (f) => {
   const ex = viajes[f.token];
   if (ex) {   // la factura usa un enlace de contacto que ya estaba abierto: mismo token, ahora con factura
     ex.sinFactura = false; ex.cliente = f.cliente || ex.cliente; ex.pedido = f.pedido;
-    db.ref("pedidos/" + f.token).update({ pedido: f.pedido, sinFactura: null }).catch(() => {});
+    ex.factura = SubFactura.instantanea(f);
+    db.ref("pedidos/" + f.token).update({ pedido: f.pedido, sinFactura: null, factura: ex.factura }).catch(() => {});
     guardarViajes(); sincronizarContactos(); renderLista();
     seleccionado = f.token; irA("mapa"); seleccionar(f.token, false);
     setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
@@ -404,7 +416,7 @@ Factura.alEnviar = (f) => {
   // El pedido se crea en la nube (se aplica de inmediato en el aparato y se sincroniza)
   db.ref("pedidos/" + f.token).set({
     estado: "en_ruta", pedido: f.pedido, inicio: TS,
-    repartidorUid: uidActual, repartidorNombre: usuario
+    repartidorUid: uidActual, repartidorNombre: usuario, factura: SubFactura.instantanea(f)
   }).catch((e) => {
     quitarViaje(f.token);
     alert("No se pudo activar el seguimiento: " + e.message);
@@ -446,7 +458,7 @@ function reanudarViajes() {
 }
 
 function soltarViajesEnMemoria() {   // al cerrar sesión: no borra nada en la nube ni en localStorage
-  orden.forEach((t) => { const v = viajes[t]; if (!v) return; v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off(); if (mapa) { v.marca && mapa.removeLayer(v.marca); v.marcaCli && mapa.removeLayer(v.marcaCli); } delete viajes[t]; });
+  orden.forEach((t) => { const v = viajes[t]; if (!v) return; v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off(); (v.refExtra || []).forEach((r) => r.off()); if (mapa) { v.marca && mapa.removeLayer(v.marca); v.marcaCli && mapa.removeLayer(v.marcaCli); } delete viajes[t]; });
   orden = []; seleccionado = null; chatToken = null; rastro = [];
   try { Chat.detener(); } catch (_) {}
   renderLista(); actualizarNav();
@@ -459,7 +471,7 @@ function guardarRastro() {   // el recorrido sobrevive aunque Android cierre la 
 }
 function quitarViaje(token) {
   const v = viajes[token]; if (!v) return;
-  v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off();
+  v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off(); (v.refExtra || []).forEach((r) => r.off());
   if (chatToken === token) { Chat.detener(); chatToken = null; }   // el repartidor no conserva rastro del chat
   if (mapa) { v.marca && mapa.removeLayer(v.marca); v.marcaCli && mapa.removeLayer(v.marcaCli); }
   delete viajes[token];
@@ -554,6 +566,7 @@ function soltarAdmin() {
   if (refGuia) { refGuia.off(); refGuia = null; }
   if (refLugares) { refLugares.off(); refLugares = null; }
   lugares = {}; pintarLugares(); quitarLugarDestino();
+  OrdenAdminRep.detener();
   guiaActual = null; guiaTsVisto = undefined; noLeidosAdmin = 0; pintarBadgeAdmin(); pintarGuia();
 }
 function escucharAdmin() {
@@ -579,6 +592,7 @@ function escucharAdmin() {
   refGuia = db.ref("guias/" + uidActual);
   refGuia.on("value", (s) => {
     const g = s.val(), primera = guiaTsVisto === undefined;
+    if (g && g.ordenId) OrdenAdminRep.seguir(g.ordenId);   // pedido asignado por el administrador: tarjeta con Retirado / Entregado
     if (!g || typeof g.lat !== "number") { guiaActual = null; guiaTsVisto = null; pintarGuia(); dibujarRuta(); return; }
     if (primera && g.ts && Date.now() - g.ts > 12 * 3600 * 1000) { guiaTsVisto = g.ts; return; }   // guía vieja de otro día: se ignora
     const nueva = !primera && g.ts !== guiaTsVisto;
@@ -600,9 +614,10 @@ function aplicarGuia(g, nueva) {
   if (g.tipo === "negocio") {   // Brothers te manda a un negocio: se abre como destino con su ruta por calles
     irALugar({ nombre: g.nombre || "Negocio", lat: g.lat, lng: g.lng, icono: g.icono || "📍" }, !!nueva);
     if (nueva) {
-      Voz.hablar("Brothers te ha indicado la ubicación de " + (g.nombre || "un negocio"), { forzar: true });
+      const aviso = g.punto ? `Brothers te asignó un punto de ${g.punto}` : "Brothers te ha indicado la ubicación de " + (g.nombre || "un negocio");
+      Voz.hablar(aviso, { forzar: true });
       navigator.vibrate && navigator.vibrate([300, 150, 300]);
-      notificarTexto("Brothers", "Te indicó la ubicación de " + (g.nombre || "un negocio"), "Guía", { equipo: "guia" });
+      notificarTexto("Brothers", g.punto ? `Te asignó un punto de ${g.punto}` : "Te indicó la ubicación de " + (g.nombre || "un negocio"), "Guía", { equipo: "guia" });
     }
     return;
   }
@@ -724,9 +739,9 @@ function actualizarBanner() {
 
 /* ---------- Lista de pedidos (hoja inferior del mapa) ---------- */
 function renderLista() {
-  const cont = $("hojaPedidos");
-  if (!orden.length) { cont.innerHTML = '<p class="ayuda">No hay pedidos en ruta. Haz una factura y envíala por WhatsApp para iniciar el seguimiento.</p>'; return; }
-  cont.innerHTML = '<p class="ayuda">Toca un pedido para verlo en el mapa. Entrégalos en el orden que prefieras.</p>' + orden.map((t, i) => {
+  const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html();
+  if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Haz una factura y envíala por WhatsApp para iniciar el seguimiento.</p>'); return; }
+  cont.innerHTML = delAdmin + '<p class="ayuda">Toca un pedido para verlo en el mapa. Entrégalos en el orden que prefieras.</p>' + orden.map((t, i) => {
     const v = viajes[t];
     return `<div class="pedido-card${t === seleccionado ? " sel" : ""}" data-token="${t}">
       <div class="pc-top">
@@ -739,6 +754,7 @@ function renderLista() {
         <button class="oscuro" data-acc="entregado" type="button">✓ Entregado</button>
       </div>
       <div class="pc-mas">
+        <button class="mini pri" data-acc="sub" type="button">➕ Productos <span id="subbd-${t}"></span></button>
         <button class="mini" data-acc="wa" type="button">Reenviar al negocio</button>
         <button class="mini oculto" data-acc="usarcli" id="usarcli-${t}" type="button">Usar ubic. del cliente</button>
         <button class="mini peligro" data-acc="cancelar" type="button">Cancelar</button>
@@ -752,6 +768,7 @@ function textoSub(v) {
   if (v.sinFactura) p.push("enlace de contacto (aún sin factura)");
   p.push(v.destino ? (v.dist != null ? "a " + formatoDist(v.dist) : "calculando…") : "sin destino");
   if (v.rutaDur) p.push("≈ " + Math.max(1, Math.round(v.rutaDur / 60)) + " min");
+  if (v.sub && v.sub.items && v.sub.items.length) p.push("🧾 " + SubFactura.ETIQUETA + ": gran total " + SubFactura.money(SubFactura.calcular(v.factura, v.sub).gran));
   p.push(v.destManual ? "destino marcado por ti" : !v.cliPos ? "el cliente aún no comparte ubicación" : v.cliPos.manual ? "ubicación marcada por el cliente" : esVivo(v) ? "cliente en vivo" : "cliente sin señal");
   return p.join(" · ");
 }
@@ -765,6 +782,7 @@ function refrescarTextos() {
     chip.className = "chip " + (v.cerca ? "alerta" : "vivo");
     const bd = $("bd-" + t); bd.textContent = v.noLeidos; bd.classList.toggle("oculto", !v.noLeidos);
     $("usarcli-" + t).classList.toggle("oculto", !(v.destManual && v.cliPos));
+    const sb = $("subbd-" + t); if (sb) sb.textContent = v.sub && v.sub.items && v.sub.items.length ? "(" + v.sub.items.length + ")" : "";
     pintarCliente(v);
   });
   actualizarNav();
@@ -772,6 +790,7 @@ function refrescarTextos() {
 setInterval(() => { if (orden.length) refrescarTextos(); }, 15000);   // el estado "en vivo" caduca solo
 
 $("hojaPedidos").onclick = (e) => {
+  if (OrdenAdminRep.alClick(e)) return;   // tarjeta del pedido asignado por el administrador
   const card = e.target.closest(".pedido-card"); if (!card) return;
   const v = viajes[card.dataset.token]; if (!v) return;
   const b = e.target.closest("button[data-acc]");
@@ -780,6 +799,7 @@ $("hojaPedidos").onclick = (e) => {
   if (acc === "chat") abrirChat(v);
   else if (acc === "entregado") cerrarViaje(v.token, "entregado");
   else if (acc === "cancelar") cerrarViaje(v.token, "cancelado");
+  else if (acc === "sub") SubFactura.abrir(v, ctxSub);
   else if (acc === "wa") abrirWhatsApp(mensajeSeguimiento(v));
   else if (acc === "usarcli") usarUbicacionCliente(v);
 };
@@ -1132,7 +1152,7 @@ $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); i
 /* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
 Atras.iniciar([
   () => Chat.cerrarCapa(),
-  () => { for (const id of ["modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
+  () => { for (const id of ["modalSub", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
   () => {   // ventanas de la factura
     if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
     if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
@@ -1146,3 +1166,7 @@ Atras.iniciar([
   () => { if ($("invoiceContainer").style.display === "none") { hideStats(); return true; } return false; },   // pantalla de estadísticas
   () => { if (vistaActual === "mapa" && uidActual) { irA("factura"); return true; } return false; }
 ]);
+
+
+/* ---------- Pedido asignado por el administrador (ordenes-repartidor.js) ---------- */
+OrdenAdminRep.init({ db, alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino() });

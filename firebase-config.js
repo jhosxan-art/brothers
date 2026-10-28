@@ -20,3 +20,6 @@ const URL_RASTREO = "https://jhosxan-art.github.io/brothers/rastreo.html";
 const APP = window.NOMBRE_APP
   ? firebase.initializeApp(FIREBASE_CONFIG, window.NOMBRE_APP)
   : firebase.initializeApp(FIREBASE_CONFIG);
+
+/* (Opcional) URL pública de invitado.html. Si no la defines, se usa la misma carpeta que rastreo.html. */
+// const URL_INVITADO = "https://jhosxan-art.github.io/brothers/invitado.html";

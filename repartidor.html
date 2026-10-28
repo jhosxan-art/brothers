@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="factura.css">
+  <link rel="stylesheet" href="ordenes.css">
 </head>
 <body class="rep">
   <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
@@ -179,6 +180,24 @@
     </div>
   </div>
 
+  <!-- Sub-factura: adiciones del cliente a un pedido en curso -->
+  <div id="modalSub" class="modal-rep oculto" role="dialog" aria-modal="true">
+    <div class="modal-rep-caja" style="text-align:left">
+      <h2>🧾 Sub-factura <span class="pd-etiqueta">Adiciones del cliente</span></h2>
+      <small id="subCab"></small>
+      <div id="subSinFactura" class="ayuda oculto">Este pedido aún no tiene factura original: el total original se muestra en C$ 0.00.</div>
+      <div class="pd-sub">
+        <h4>Agregar productos nuevos</h4>
+        <div class="fila-prod"><input id="subNombre" placeholder="Producto" autocomplete="off"><input id="subPrecio" type="number" inputmode="decimal" min="0" step="0.01" placeholder="C$"><button id="btnSubAgregar" class="primario" type="button" aria-label="Agregar">+</button></div>
+        <div id="subItems"></div>
+        <label>🛵 Envío extra por estas adiciones (C$) <input id="subEnvio" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></label>
+      </div>
+      <div id="subDesglose"></div>
+      <button id="btnSubWa" class="whatsapp" type="button">Enviar sub-factura por WhatsApp</button>
+      <button id="btnSubCerrar" class="oscuro" type="button">Listo</button>
+    </div>
+  </div>
+
   <!-- Elegir a qué cliente contactar (cuando hay varios pedidos) -->
   <div id="modalContacto" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
@@ -304,6 +323,9 @@
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>
+  <script src="ordenes-core.js"></script>
+  <script src="subfactura.js"></script>
+  <script src="ordenes-repartidor.js"></script>
   <script src="factura.js"></script>
   <script src="repartidor.js"></script>
 </body>
