@@ -19,7 +19,11 @@
   /* ---------- Arranque ---------- */
   async function arrancar() {
     if (!/^[a-z0-9]{8,32}$/i.test(t)) return msgCarga("Este enlace no es válido. Pide uno nuevo al administrador.");
-    try { await auth.signInAnonymously(); } catch (_) { /* si las reglas permiten acceso sin sesión, se sigue igual */ }
+    try { await auth.signInAnonymously(); }
+    catch (e) {
+      const off = e.code === "auth/operation-not-allowed" || e.code === "auth/admin-restricted-operation";
+      return msgCarga(off ? "Falta activar el inicio de sesión anónimo en Firebase (Authentication → Sign-in method → Anonymous)." : "No se pudo iniciar la sesión de invitado: " + (e.code || e.message));
+    }
     try {
       const s = await db.ref("ordenes/" + t).once("value");
       if (!s.exists()) return msgCarga("Este pedido no existe o fue eliminado.");
