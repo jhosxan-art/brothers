@@ -616,8 +616,8 @@ function pintarGuia() {   // sin pedido en curso se dibuja el pin de la guía; c
 function aplicarGuia(g, nueva) {
   guiaActual = g;
   if (g.tipo === "negocio") {   // Brothers te manda a un negocio: se abre como destino con su ruta por calles
-    irALugar({ nombre: g.nombre || "Negocio", lat: g.lat, lng: g.lng, icono: g.icono || "📍" }, !!nueva);
-    if (nueva) {
+    irALugar({ nombre: g.negocio || g.nombre || "Negocio", lat: g.lat, lng: g.lng, icono: g.icono || "📍", producto: g.producto, etiqueta: !!g.ordenId, clase: g.punto === "entrega" ? "entrega" : "retiro" }, !!nueva);
+    if (nueva && !g.ordenId) {   // los pedidos del administrador ya avisan con su propia ventana de "pedido nuevo"
       const aviso = g.punto ? `Brothers te asignó un punto de ${g.punto}` : "Brothers te ha indicado la ubicación de " + (g.nombre || "un negocio");
       Voz.hablar(aviso, { forzar: true });
       navigator.vibrate && navigator.vibrate([300, 150, 300]);
@@ -682,7 +682,7 @@ $("resBusqRep").onclick = (e) => {
 };
 function irALugar(l, enfocar) {
   if (!l) return;
-  lugarDestino = { nombre: l.nombre, lat: l.lat, lng: l.lng, icono: l.icono || "📍" }; rutaLugar = null;
+  lugarDestino = { nombre: l.nombre, lat: l.lat, lng: l.lng, icono: l.icono || "📍", producto: l.producto || "", etiqueta: !!l.etiqueta, clase: l.clase || "retiro" }; rutaLugar = null;
   $("resBusqRep").classList.add("oculto"); $("busqRep").blur();
   if (enfocar && vistaActual !== "mapa") irA("mapa");   // al restaurar una guía vieja no se cambia de pantalla
   initMapa(); pintarLugarDestino();
@@ -692,7 +692,9 @@ function irALugar(l, enfocar) {
 function pintarLugarDestino() {
   if (!mapa) return;
   if (!lugarDestino) { if (marcaLugar) { mapa.removeLayer(marcaLugar); marcaLugar = null; } return; }
-  const p = [lugarDestino.lat, lugarDestino.lng], ic = Lugares.iconoMapa(lugarDestino, true);
+  const p = [lugarDestino.lat, lugarDestino.lng];
+  /* Pedido del administrador: el pin lleva el nombre del negocio y lo que hay que retirar */
+  const ic = lugarDestino.etiqueta ? Ordenes.pinEtiqueta(lugarDestino.clase, lugarDestino.icono, lugarDestino.nombre, lugarDestino.producto) : Lugares.iconoMapa(lugarDestino, true);
   if (!marcaLugar) marcaLugar = L.marker(p, { icon: ic, zIndexOffset: 900 }).addTo(mapa); else { marcaLugar.setLatLng(p); marcaLugar.setIcon(ic); }
 }
 function quitarLugarDestino() {
@@ -733,21 +735,14 @@ function actualizarBanner() {
   const b = $("bannerRuta"); if (!b) return;
   const n = lugarDestino ? rutaLugar : viajes[seleccionado];
   const titulo = lugarDestino ? `${lugarDestino.icono} ${lugarDestino.nombre}` : (n ? "👤 " + nombreDe(n) : "");
-  if (n && !n.rutaPasos && n.rutaEn && Date.now() - n.rutaEn > 20000) { /* la ruta tarda: se sigue reintentando */ }
   if (!lugarDestino && !(n && n.destino)) { b.classList.add("oculto"); return; }
   b.classList.remove("oculto");
   const cerrar = lugarDestino ? '<button id="brX" type="button" aria-label="Quitar destino">✕</button>' : "";
-  if (!n || !n.rutaPasos || !ultimaPos) {
-    const txt = !ultimaPos ? `Esperando tu ubicación para trazar la ruta a ${titulo}…` : n && n.rutaFallo ? "No se pudo calcular la ruta por calles. Reintentando…" : `Calculando ruta a ${titulo}…`;
-    b.innerHTML = `<div class="br-fila"><span class="br-ic">🧭</span><div class="br-txt"><b>${escHtml(txt)}</b></div>${cerrar}</div>`;
-  }
-  else {
-    const aqui = [ultimaPos.lat, ultimaPos.lng], pasos = n.rutaPasos;
-    while (n.rutaIdx < pasos.length - 1 && Ruta.dist(aqui, [pasos[n.rutaIdx].loc.lat, pasos[n.rutaIdx].loc.lng]) < 30) n.rutaIdx++;
-    const p = pasos[n.rutaIdx], [ic, tx] = Ordenes.textoPaso(p), d = Math.round(Ruta.dist(aqui, [p.loc.lat, p.loc.lng]));
-    b.innerHTML = `<div class="br-fila"><span class="br-ic">${ic}</span><div class="br-txt"><b>${escHtml(tx)}</b><small>${p.tipo === "arrive" ? "" : "en " + formatoDist(d) + " · "}${escHtml(titulo)}</small></div>${cerrar}</div>
-      <small>${formatoDist(n.rutaDist)} · ≈ ${Math.max(1, Math.round(n.rutaDur / 60))} min${Ordenes.callesDe(pasos) ? " · Vía: " + escHtml(Ordenes.callesDe(pasos)) : ""}</small>`;
-  }
+  /* Solo distancia, tiempo y destino: ya no se muestra el cartel de "gira a la izquierda…" */
+  let txt;
+  if (!n || !n.rutaPasos || !ultimaPos) txt = escHtml(!ultimaPos ? `Esperando tu ubicación para trazar la ruta a ${titulo}…` : n && n.rutaFallo ? "No se pudo calcular la ruta por calles. Reintentando…" : `Calculando ruta a ${titulo}…`);
+  else txt = `<b>${formatoDist(n.rutaDist)}</b> · ≈ ${Math.max(1, Math.round(n.rutaDur / 60))} min · ${escHtml(titulo)}`;
+  b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt">${txt}</span>${cerrar}`;
   const x = $("brX"); if (x) x.onclick = quitarLugarDestino;
 }
 
@@ -1167,7 +1162,7 @@ $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); i
 /* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
 Atras.iniciar([
   () => Chat.cerrarCapa(),
-  () => { for (const id of ["modalSub", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
+  () => { for (const id of ["modalNuevoPedido", "modalSub", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
   () => {   // ventanas de la factura
     if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
     if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
@@ -1184,4 +1179,15 @@ Atras.iniciar([
 
 
 /* ---------- Pedido asignado por el administrador (ordenes-repartidor.js) ---------- */
-OrdenAdminRep.init({ db, alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino() });
+/* Pedido NUEVO asignado por el administrador: ventana con todos los detalles + voz + vibración + notificación */
+function nuevoPedidoAsignado(id, o) {
+  const total = Ordenes.totalDelivery(o), sig = Ordenes.siguienteRetiro(o);
+  $("nuevoPedidoCuerpo").innerHTML = OrdenAdminRep.detallesHtml(o);
+  $("modalNuevoPedido").classList.remove("oculto");
+  Voz.hablar("Tienes un nuevo pedido" + (total ? ". Delivery " + total + " córdobas" : ""), { forzar: true });
+  navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]);
+  notificarTexto("🛵 Nuevo pedido " + o.codigo, `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia" });
+}
+$("btnNuevoVer").onclick = () => { $("modalNuevoPedido").classList.add("oculto"); irA("mapa"); };
+$("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
+OrdenAdminRep.init({ db, alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado });

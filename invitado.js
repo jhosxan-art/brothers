@@ -37,9 +37,8 @@
     vista("vEntrada");
   }
   const listaParadas = (o) => O.paradas(o).map((p, k) => `<span>${p.retirado ? "✅" : "📦"} Retiro ${O.paradas(o).length > 1 ? k + 1 + ": " : ": "}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}</span>`).join("");
-  const resumenHtml = (o) => `<b>Pedido ${esc(o.codigo)}</b>
+  const resumenHtml = (o) => `${O.precioHtml(o)}<b>Pedido ${esc(o.codigo)}</b>
     ${listaParadas(o)}<span>🏠 Entrega: ${esc((o.entrega && o.entrega.texto) || "—")}</span>
-    ${o.delivery ? `<span>🛵 Delivery: <b>${O.money(o.delivery)}</b></span>` : ""}
     ${o.paquete ? `<span>📝 ${esc(o.paquete)}</span>` : ""}`;
 
   $("btnEntrar").onclick = () => {
@@ -88,8 +87,8 @@
     $("datosPedido").innerHTML = `<b>Pedido ${esc(orden.codigo)} · ${esc(orden.cliente || "")}</b>
       <span>${d.etiqueta === "Entrega" ? "🏠" : "📦"} Ahora: <b>${esc(d.etiqueta)}</b> — ${esc(d.texto || "sin dirección")}${d.producto ? " · <b>" + esc(d.producto) + "</b>" : ""}</span>
       ${O.paradas(orden).length > 1 ? "<small>Retiros del pedido:</small>" + listaParadas(orden) : ""}
-      ${orden.delivery ? `<span>🛵 Delivery: <b>${O.money(orden.delivery)}</b></span>` : ""}
       ${orden.paquete ? `<span>📝 ${esc(orden.paquete)}</span>` : ""}`;
+    $("precioGrande").innerHTML = O.precioHtml(orden);
     $("chipEstado").textContent = txt; $("chipEstado").className = "chip " + cls;
     const sig = O.siguienteRetiro(orden);
     $("btnRetirado").disabled = !sig;
@@ -114,6 +113,14 @@
       }
     } catch (e) { alert("No se pudo actualizar el estado: " + e.message); }
   }
+  /* Minimizar / ver los detalles (el precio y los botones siempre quedan a la vista) */
+  $("btnMinPanel").onclick = () => {
+    const min = $("panelInv").classList.toggle("min");
+    $("detallesPanel").classList.toggle("oculto", min);
+    $("btnMinPanel").setAttribute("aria-expanded", String(!min));
+    $("txtMin").textContent = min ? "Ver detalles ▴" : "Ocultar detalles ▾";
+    setTimeout(() => mapa && mapa.invalidateSize(), 80);
+  };
   $("btnRetirado").onclick = () => cambiar("retirado");
   $("btnEntregado").onclick = () => cambiar("entregado");
   $("btnNavegar").onclick = () => {
@@ -145,16 +152,20 @@
   }
   function pintarPuntos() {
     if (!mapa || !orden) return;
-    const poner = (actual, p, clase, emoji) => {
+    const poner = (actual, p, icono) => {
       if (!O.valido(p)) { if (actual) mapa.removeLayer(actual); return null; }
-      if (!actual) return L.marker([p.lat, p.lng], { icon: O.pinIcono(clase, emoji) }).addTo(mapa);
-      actual.setLatLng([p.lat, p.lng]); return actual;
+      if (!actual) return L.marker([p.lat, p.lng], { icon: icono, zIndexOffset: 300 }).addTo(mapa);
+      actual.setLatLng([p.lat, p.lng]); actual.setIcon(icono); return actual;
     };
     const ps = O.paradas(orden);
     while (pinsRetiro.length > ps.length) { const x = pinsRetiro.pop(); if (x) mapa.removeLayer(x); }
-    ps.forEach((p, k) => { pinsRetiro[k] = poner(pinsRetiro[k], p, "retiro", p.retirado ? "✅" : ps.length > 1 ? String(k + 1) : "📦"); });
-    pinEntrega = poner(pinEntrega, orden.entrega, "entrega", "🏠");
-    pinGuia = poner(pinGuia, orden.guia, orden.guia && orden.guia.punto === "entrega" ? "entrega" : "retiro", "📍");
+    /* Sobre cada local de retiro: nombre del negocio + lo que hay que retirar (al retirarlo queda solo el ✅) */
+    ps.forEach((p, k) => {
+      const num = ps.length > 1 ? String(k + 1) : "📦";
+      pinsRetiro[k] = poner(pinsRetiro[k], p, p.retirado ? O.pinIcono("retiro", "✅") : O.pinEtiqueta("retiro", num, p.texto || "Retiro", p.producto));
+    });
+    pinEntrega = poner(pinEntrega, orden.entrega, O.pinIcono("entrega", "🏠"));
+    pinGuia = poner(pinGuia, orden.guia, O.pinIcono(orden.guia && orden.guia.punto === "entrega" ? "entrega" : "retiro", "📍"));
     if (!yaEncuadrado) encuadrar();
   }
   function encuadrar() {
@@ -184,12 +195,11 @@
   }
   function limpiarRuta() { ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: ruta.en }; linea.setLatLngs([]); flechasCapa.clearLayers(); }
   const fmtDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m");
+  /* Aviso corto de la ruta: distancia, tiempo y destino. Ya no se muestra el cartel de "gira a la izquierda…". */
   function banner(paso, aviso) {
     const b = $("bannerRuta"); b.classList.remove("oculto");
-    if (!paso) { b.innerHTML = `<div class="br-fila"><span class="br-ic">🧭</span><div class="br-txt"><b>${esc(aviso)}</b></div></div>`; return; }
-    const [ic, tx] = O.textoPaso(paso), aqui = pos, dm = Math.round(O.distM(aqui, paso.loc)), calles = O.callesDe(ruta.pasos);
-    b.innerHTML = `<div class="br-fila"><span class="br-ic">${ic}</span><div class="br-txt"><b>${esc(tx)}</b><small>${paso.tipo === "arrive" ? "" : "en " + fmtDist(dm) + " · "}${esc(destinoActual().etiqueta)}</small></div></div>
-      <small>${fmtDist(ruta.dist)} · ≈ ${Math.max(1, Math.round(ruta.dur / 60))} min${calles ? " · Vía: " + esc(calles) : ""}</small>`;
+    if (!paso) { b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt">${esc(aviso)}</span>`; return; }
+    b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt"><b>${fmtDist(ruta.dist)}</b> · ≈ ${Math.max(1, Math.round(ruta.dur / 60))} min · ${esc(destinoActual().etiqueta)}</span>`;
   }
   function avanzarBanner() {   // pasa al siguiente giro cuando ya estás encima del anterior
     if (!ruta.pasos || !pos) return;

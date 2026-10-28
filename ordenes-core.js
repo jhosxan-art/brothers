@@ -45,6 +45,15 @@ const Ordenes = (() => {
     } catch (_) {}
   }
   const money = (x) => "C$ " + (Math.round((+x || 0) * 100) / 100).toFixed(2);
+  const r2 = (x) => Math.max(0, Math.round((+x || 0) * 100) / 100);
+  /* Delivery = base + IVA (el IVA solo existe en pedidos de repartidor registrado). "delivery" guarda la base. */
+  const totalDelivery = (o) => r2(r2(o && o.delivery) + r2(o && o.iva));
+  const textoDelivery = (o) => { const b = r2(o && o.delivery), i = r2(o && o.iva); return i ? `${money(b + i)} (${money(b)} + ${money(i)} IVA)` : money(b); };
+  /* Precio del delivery EN GRANDE, con el desglose debajo cuando lleva IVA */
+  const precioHtml = (o) => {
+    const b = r2(o && o.delivery), i = r2(o && o.iva); if (!b && !i) return "";
+    return `<div class="pd-precio"><small>🛵 DELIVERY A COBRAR</small><b>${money(b + i)}</b>${i ? `<span>${money(b)} + ${money(i)} IVA</span>` : ""}</div>`;
+  };
   /* Un pedido puede tener varios retiros (cada uno con su producto). Pedidos viejos traen solo "retiro". */
   const paradas = (o) => (o && Array.isArray(o.retiros) && o.retiros.length ? o.retiros : o && o.retiro ? [o.retiro] : []);
   const pendientes = (o) => paradas(o).map((p, i) => ({ i, p })).filter((x) => !x.p.retirado);
@@ -68,11 +77,19 @@ const Ordenes = (() => {
     tipo: "negocio", punto, nombre: PUNTOS[punto].nombre, icono: PUNTOS[punto].icono
   }, extra || {});
 
+  /* Guía de retiro i: lleva negocio y producto para rotular el pin en el mapa del repartidor.
+     Si el retiro no tiene coordenadas igual se escribe la guía (solo ordenId) para que el repartidor reciba el pedido. */
+  const guiaRetiro = (t, orden, i) => {
+    const ps = paradas(orden), p = ps[i];
+    return valido(p) ? datosGuia("retiro", p, { ordenId: t, nombre: textoRetiro(p, ps.length, i), negocio: p.texto || "Retiro", producto: p.producto || "" })
+      : { ts: TS, por: "admin", ordenId: t };
+  };
+  const guiaEntrega = (t, orden) => datosGuia("entrega", orden.entrega, { ordenId: t, negocio: "Entrega · " + (orden.cliente || "cliente") });
   const textoRetiro = (p, n, k) => `Retiro${n > 1 ? " " + (k + 1) + "/" + n : ""}${p.texto ? ": " + p.texto : ""}`.slice(0, 80);
   /* pedidos/{token}: lo que ve el cliente (seguimiento, chat y avisos de voz). Se crea al asignar. */
   const nodoCliente = (t, orden, uid, nombre) => ({
     estado: "en_ruta", pedido: orden.codigo, inicio: TS, repartidorUid: uid, repartidorNombre: nombre || "",
-    clienteNombre: orden.cliente, adminOrden: true, delivery: orden.delivery || 0
+    clienteNombre: orden.cliente, adminOrden: true, delivery: totalDelivery(orden)
   });
 
   async function crear(db, d) {
@@ -81,16 +98,17 @@ const Ordenes = (() => {
     const orden = {
       codigo: codigo(), cliente: String(d.cliente || "").trim().slice(0, 60),
       retiros, retiro: retiros[0] || { texto: "" }, entrega: limpiarPunto(d.entrega), paquete: String(d.paquete || "").trim().slice(0, 400),
-      delivery: Math.max(0, Math.round((+d.delivery || 0) * 100) / 100),
+      delivery: r2(d.delivery),
       estado: "pendiente", creado: TS, actualizado: TS
     };
+    if (r2(d.iva) > 0) orden.iva = r2(d.iva);
     const upd = { ["ordenes/" + t]: orden };
     const a = d.asignacion;
     if (a && a.tipo === "registrado") {
       orden.estado = "asignado";
       orden.asignacion = { tipo: "registrado", uid: a.uid, nombre: a.nombre || "" };
       upd["pedidos/" + t] = nodoCliente(t, orden, a.uid, a.nombre);
-      if (valido(retiros[0])) upd["guias/" + a.uid] = datosGuia("retiro", retiros[0], { ordenId: t, nombre: textoRetiro(retiros[0], retiros.length, 0) });
+      upd["guias/" + a.uid] = guiaRetiro(t, orden, 0);
     } else if (a && a.tipo === "invitado") {
       orden.asignacion = { tipo: "invitado" };   // el nombre llega cuando el invitado abre el enlace
       upd["pedidos/" + t] = nodoCliente(t, orden, uidInvitado(t), "");
@@ -105,7 +123,7 @@ const Ordenes = (() => {
     if (asignacion.tipo === "registrado") {
       upd["pedidos/" + t] = nodoCliente(t, orden, asignacion.uid, asignacion.nombre);
       const sig = siguienteRetiro(orden);
-      if (sig && valido(sig.p)) upd["guias/" + asignacion.uid] = datosGuia("retiro", sig.p, { ordenId: t, nombre: textoRetiro(sig.p, paradas(orden).length, sig.i) });
+      if (sig) upd["guias/" + asignacion.uid] = guiaRetiro(t, orden, sig.i);
     } else upd["pedidos/" + t] = nodoCliente(t, orden, uidInvitado(t), "");
     await db.ref().update(upd);
   }
@@ -127,11 +145,11 @@ const Ordenes = (() => {
     if (faltan.length) {
       const sig = ps.findIndex((x, k) => !x.retirado && k !== i);
       avisoCliente(upd, db, t, `📦 Ya retiraron ${prod}${p.texto ? " en " + p.texto : ""} (${hechos}/${ps.length}). Faltan ${faltan.length} retiro${faltan.length > 1 ? "s" : ""}, ¡atento!`, "retiro");
-      if (a.tipo === "registrado" && a.uid && valido(ps[sig])) upd["guias/" + a.uid] = datosGuia("retiro", ps[sig], { ordenId: t, nombre: textoRetiro(ps[sig], ps.length, sig) });
+      if (a.tipo === "registrado" && a.uid && valido(ps[sig])) upd["guias/" + a.uid] = guiaRetiro(t, orden, sig);
     } else {
       upd[`ordenes/${t}/estado`] = "retirado"; upd[`ordenes/${t}/retiradoTs`] = TS;
       avisoCliente(upd, db, t, `📦 Tu pedido completo ya fue retirado y va en camino hacia ti. ¡Está pendiente!`, "retirado");
-      if (a.tipo === "registrado" && a.uid && valido(orden.entrega)) upd["guias/" + a.uid] = datosGuia("entrega", orden.entrega, { ordenId: t });
+      if (a.tipo === "registrado" && a.uid && valido(orden.entrega)) upd["guias/" + a.uid] = guiaEntrega(t, orden);
     }
     await db.ref().update(upd);
   }
@@ -142,16 +160,9 @@ const Ordenes = (() => {
     upd["ordenes/" + t + (estado === "retirado" ? "/retiradoTs" : "/entregadoTs")] = TS;
     const a = orden && orden.asignacion;
     if (a && a.tipo === "registrado" && a.uid) {
-      if (estado === "retirado" && valido(orden.entrega)) upd["guias/" + a.uid] = datosGuia("entrega", orden.entrega, { ordenId: t });   // la ruta pasa sola al punto de entrega
+      if (estado === "retirado" && valido(orden.entrega)) upd["guias/" + a.uid] = guiaEntrega(t, orden);   // la ruta pasa sola al punto de entrega
       if (estado === "entregado") upd["guias/" + a.uid] = null;
     }
-    await db.ref().update(upd);
-  }
-
-  /* Asignar un pedido pendiente (o reasignarlo) a un repartidor registrado o generar enlace de invitado */
-  async function asignar(db, t, orden, asignacion) {
-    const upd = { ["ordenes/" + t + "/asignacion"]: asignacion, ["ordenes/" + t + "/estado"]: "asignado", ["ordenes/" + t + "/actualizado"]: TS };
-    if (asignacion.tipo === "registrado" && valido(orden.retiro)) upd["guias/" + asignacion.uid] = datosGuia("retiro", orden.retiro, { ordenId: t });
     if (estado === "entregado") { upd[`pedidos/${t}/estado`] = "entregado"; avisoCliente(upd, db, t, "✅ Tu pedido fue entregado. ¡Gracias por tu compra!", "entregado"); }
     await db.ref().update(upd);
   }
@@ -224,5 +235,12 @@ const Ordenes = (() => {
   };
   const pinIcono = (clase, emoji) => L.divIcon({ className: "", html: `<div class="pd-pin ${clase}"><b>${emoji}</b></div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
 
-  return { TS, ESTADOS, PUNTOS, esc, token, uidInvitado, esInvitadoUid, urlInvitado, urlCliente, valido, crear, asignar, marcar, marcarRetiro, avisoCliente, hablar, money, paradas, pendientes, siguienteRetiro, destinoDe, textoRetiro, puntoRapido, rutaOSRM, rutaCalles, textoPaso, callesDe, flechas, distM, pinIcono };
+  /* Pin con rótulo encima: nombre del negocio y lo que hay que retirar */
+  const pinEtiqueta = (clase, emoji, nombre, producto) => L.divIcon({
+    className: "",
+    html: `<div class="pd-pin-et"><div class="pd-et"><b>${esc(nombre || "")}</b>${producto ? `<span>${esc(producto)}</span>` : ""}</div><div class="pd-pin ${clase}"><b>${emoji}</b></div></div>`,
+    iconSize: [34, 34], iconAnchor: [17, 17]
+  });
+
+  return { r2, totalDelivery, textoDelivery, precioHtml, pinEtiqueta, TS, ESTADOS, PUNTOS, esc, token, uidInvitado, esInvitadoUid, urlInvitado, urlCliente, valido, crear, asignar, marcar, marcarRetiro, avisoCliente, hablar, money, paradas, pendientes, siguienteRetiro, destinoDe, textoRetiro, puntoRapido, rutaOSRM, rutaCalles, textoPaso, callesDe, flechas, distM, pinIcono };
 })();

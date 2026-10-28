@@ -157,7 +157,7 @@
       </div>
       <div id="resBusqRep" class="res-busq oculto"></div>
       <div class="estado chip-gps" id="estadoGps">Obteniendo ubicación…</div>
-      <div id="bannerRuta" class="banner-ruta oculto"></div>
+      <div id="bannerRuta" class="info-ruta oculto"></div>
       <div id="avisoMarcar" class="aviso-marcar oculto">Toca el mapa para marcar el destino del pedido seleccionado.</div>
     </div>
     <div id="hojaPedidos" class="hoja-pedidos"></div>
@@ -177,6 +177,17 @@
       <p id="entregadoTxt"></p>
       <button id="btnOtraFactura" class="primario" type="button">🧾 Hacer otra factura</button>
       <button id="btnVerMapa" class="oscuro" type="button">🗺️ Ver mapa y pedidos</button>
+    </div>
+  </div>
+
+  <!-- Pedido nuevo asignado por el administrador -->
+  <div id="modalNuevoPedido" class="modal-rep oculto" role="dialog" aria-modal="true">
+    <div class="modal-rep-caja" style="text-align:left;max-height:90vh;overflow-y:auto">
+      <div class="gran-check" style="text-align:center">🛵</div>
+      <h2 style="text-align:center">¡Tienes un pedido nuevo!</h2>
+      <div id="nuevoPedidoCuerpo" style="display:grid;gap:10px"></div>
+      <button id="btnNuevoVer" class="primario" type="button">🗺️ Ver ruta en el mapa</button>
+      <button id="btnNuevoCerrar" class="oscuro" type="button">Cerrar</button>
     </div>
   </div>
 

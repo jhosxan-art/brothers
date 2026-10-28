@@ -35,15 +35,19 @@
     <div class="pd-inv-mapa">
       <div id="mapaInv"></div>
       <div class="estado chip-gps" id="estadoGps">Obteniendo ubicación…</div>
-      <div id="bannerRuta" class="banner-ruta oculto" style="bottom:auto;top:52px"></div>
+      <div id="bannerRuta" class="info-ruta oculto" style="bottom:auto;top:52px"></div>
     </div>
-    <div class="pd-inv-panel">
-      <div class="fila-repartidor" style="border:0;padding:0">
-        <div class="pd-inv-datos" style="flex:1" id="datosPedido"></div>
-        <span class="chip" id="chipEstado"></span>
-      </div>
-      <div class="acciones-fila">
-        <button id="btnNavegar" class="mini" type="button">🧭 Abrir navegación</button>
+    <div class="pd-inv-panel" id="panelInv">
+      <button id="btnMinPanel" class="pd-min" type="button" aria-expanded="true" aria-controls="detallesPanel"><span class="pd-barra"></span><span id="txtMin">Ocultar detalles ▾</span></button>
+      <div id="precioGrande"></div>
+      <div id="detallesPanel" style="display:grid;gap:10px">
+        <div class="fila-repartidor" style="border:0;padding:0">
+          <div class="pd-inv-datos" style="flex:1" id="datosPedido"></div>
+          <span class="chip" id="chipEstado"></span>
+        </div>
+        <div class="acciones-fila">
+          <button id="btnNavegar" class="mini" type="button">🧭 Abrir navegación</button>
+        </div>
       </div>
       <div class="acciones-fila">
         <button id="btnRetirado" class="oscuro" type="button">📦 Retirado</button>

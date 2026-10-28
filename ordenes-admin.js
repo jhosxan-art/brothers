@@ -157,7 +157,15 @@ const PedidosAdmin = (() => {
     el("pdModo").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
     el("pdRegBox").classList.toggle("oculto", m !== "registrado");
     el("pdInvBox").classList.toggle("oculto", m !== "invitado");
+    el("pdIvaBox").classList.toggle("oculto", m !== "registrado");   // el IVA solo aplica con repartidor registrado
     el("pdCrear").textContent = m === "invitado" ? "Crear pedido y generar enlace" : "Crear y asignar pedido";
+  }
+
+  /* Delivery + IVA = total que verá el repartidor */
+  function pintarTotalDelivery() {
+    const b = O.r2(el("pdDelivery").value), i = O.r2(el("pdIva").value);
+    el("pdTotalDel").innerHTML = b || i ? `Total para el repartidor: <b>${O.money(b + i)}</b>${i ? ` (${O.money(b)} + ${O.money(i)} IVA)` : ""}` : "Escribe el delivery y, si aplica, el IVA.";
+    el("pdIvaRap").querySelectorAll("button").forEach((x) => x.classList.toggle("on", O.r2(x.dataset.iva) === i && (i > 0 || x.dataset.iva === "0" && el("pdIva").value !== "")));
   }
 
   async function crearPedido() {
@@ -175,12 +183,13 @@ const PedidosAdmin = (() => {
     try {
       const { token, orden } = await O.crear(db, {
         cliente, paquete: el("pdPaquete").value, retiros, delivery: parseFloat(el("pdDelivery").value) || 0,
+        iva: asignacion.tipo === "registrado" ? parseFloat(el("pdIva").value) || 0 : 0,
         entrega: Object.assign({ texto: en }, lugarSel.entrega), asignacion
       });
-      ["pdCliente", "pdEntrega", "pdPaquete", "pdDelivery"].forEach((id) => { el(id).value = ""; });
+      ["pdCliente", "pdEntrega", "pdPaquete", "pdDelivery", "pdIva"].forEach((id) => { el(id).value = ""; }); pintarTotalDelivery();
       lugarSel.entrega = null; retirosForm = [{ texto: "", ll: null, producto: "" }]; pintarRetiros(); pintarOk(el("pdEntregaOk"), null);
       if (asignacion.tipo === "invitado") mostrarEnlaces(token, orden);
-      else toast(`Pedido ${orden.codigo} asignado a ${asignacion.nombre} ✓` + (O.valido(orden.retiros[0]) ? " Su ruta al primer retiro ya aparece en su app." : "") + " Enlace del cliente: botón 💬 en la lista.");
+      else toast(`Pedido ${orden.codigo} enviado a ${asignacion.nombre} ✓ Le llega el aviso con todos los detalles (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".") + " Enlace del cliente: botón 💬 en la lista.");
     } catch (err) { toast("No se pudo crear el pedido: " + err.message); }
     el("pdCrear").disabled = false;
   }
@@ -236,7 +245,7 @@ const PedidosAdmin = (() => {
     return `<div class="tarjeta-rep pd-orden">
       <div class="fila"><div class="datos"><strong>${esc(o.codigo)} · ${esc(o.cliente || "Sin nombre")}</strong>
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
-      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery ? "<br>🛵 Delivery: <b>" + O.money(o.delivery) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}</div>
+      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
         ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}
         ${o.estado === "pendiente" && !a.tipo ? btn("asignar", "Asignar", "pri") : ""}
@@ -297,6 +306,9 @@ const PedidosAdmin = (() => {
       document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { pick = null; if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
       el("pdModo").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) modoAsignacion(b.dataset.m); };
       el("pdCrear").onclick = crearPedido;
+      el("pdDelivery").addEventListener("input", pintarTotalDelivery); el("pdIva").addEventListener("input", pintarTotalDelivery);
+      el("pdIvaRap").onclick = (e) => { const b = e.target.closest("button[data-iva]"); if (!b) return; el("pdIva").value = b.dataset.iva === "0" ? "" : b.dataset.iva; pintarTotalDelivery(); if (b.dataset.iva === "0") b.classList.add("on"); };
+      pintarTotalDelivery();
       pintarRetiros();
       el("pdAddRetiro").onclick = () => { retirosForm.push({ texto: "", ll: null, producto: "" }); pintarRetiros(); const f = filaEl(retirosForm.length - 1); f && f.querySelector("input").focus(); };
       const rc = el("pdRetiros");

@@ -122,6 +122,11 @@
         </div>
         <datalist id="pdLugares"></datalist>
         <label>🛵 Precio del delivery (C$) <input id="pdDelivery" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></label>
+        <div id="pdIvaBox" class="pd-iva">
+          <label>➕ IVA del delivery (C$) <input id="pdIva" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Ej. 7.00"></label>
+          <div class="pd-seg" id="pdIvaRap"><button type="button" data-iva="0">Sin IVA</button><button type="button" data-iva="5">+5</button><button type="button" data-iva="7">+7</button><button type="button" data-iva="10">+10</button></div>
+          <div id="pdTotalDel" class="pd-coord"></div>
+        </div>
         <label>Detalles del paquete <textarea id="pdPaquete" maxlength="400" placeholder="Qué lleva, tamaño, indicaciones…"></textarea></label>
         <div><small>Asignación</small>
           <div class="pd-seg" id="pdModo"><button type="button" data-m="registrado" class="on">Repartidor registrado</button><button type="button" data-m="invitado">🔗 Enlace de invitado</button></div></div>
