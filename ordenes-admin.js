@@ -450,6 +450,18 @@ const PedidosAdmin = (() => {
       toast(ent ? "Pedido entregado ✓ El repartidor salió del mapa." : "Pedido cancelado. El repartidor salió del mapa.");
     } catch (err) { toast("No se pudo actualizar: " + err.message); }
   }
+  /* Expulsar a un invitado sin importar en qué paso va: cancela su pedido, corta su ubicación y lo saca del mapa */
+  async function expulsarInvitado(uid) {
+    const t = tokenInv(uid), o = ordenes[t], nom = nombreUid(uid);
+    if (!confirm(`⛔ ¿EXPULSAR a ${nom}?\nSe cancela su pedido${o ? " " + o.codigo : ""}, pierde el acceso y sale del mapa. No se puede deshacer.`)) return;
+    const upd = { ["ubicaciones/" + uid]: null, ["guias/" + uid]: null };
+    if (o) { upd[`ordenes/${t}/estado`] = "cancelado"; upd[`ordenes/${t}/expulsado`] = true; upd[`ordenes/${t}/actualizado`] = O.TS; }
+    try {
+      if ((await db.ref("pedidos/" + t).once("value")).exists()) upd[`pedidos/${t}/estado`] = "cancelado";
+      await db.ref().update(upd);
+      toast(`${nom} fue expulsado ⛔`);
+    } catch (err) { toast("No se pudo expulsar: " + err.message); }
+  }
   /* Si el admin marca entregado un pedido de un invitado desde el mapa */
   function cerrarInvitado(token, uid) {
     if (!O.esInvitadoUid(uid)) return;
@@ -523,5 +535,5 @@ const PedidosAdmin = (() => {
   }
   function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } ordenes = {}; resInv = {}; sinLeerInv = {}; cerrarMapaForm(); quitarTemp(); cancelarClick(); }
 
-  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "" };
+  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "" };
 })();

@@ -204,9 +204,10 @@ function initMapa() {
     const el = e.popup.getElement(); if (!el) return;
     el.querySelectorAll("button[data-ir]").forEach((b) => b.onclick = () => { mapa.closePopup(); irALugar(lugares[b.dataset.ir], true); });
   });
-  mapa.on("click", (e) => { if (marcando) fijarDestinoManual(e.latlng.lat, e.latlng.lng); });
+  mapa.on("click", (e) => { if (Policia.clickMapa(e.latlng)) return; if (marcando) fijarDestinoManual(e.latlng.lat, e.latlng.lng); });
   mapa.on("dragstart", () => { seguirme = false; });
   if (ultimaPos) { pintarYo(); mapa.setView([ultimaPos.lat, ultimaPos.lng], 15); }
+  Policia.pintar();
   orden.forEach((t) => pintarCliente(viajes[t]));
   dibujarRuta();
   pintarGuia();
@@ -566,6 +567,7 @@ function abrirChatAdmin() {
 }
 $("btnChatAdmin").onclick = abrirChatAdmin;
 function soltarAdmin() {
+  Policia.detener();
   if (refAdminChat) { refAdminChat.off(); refAdminChat = null; }
   if (refGuia) { refGuia.off(); refGuia = null; }
   if (refLugares) { refLugares.off(); refLugares = null; }
@@ -589,6 +591,7 @@ function escucharAdmin() {
   refAdminChat.once("value", () => { adminListo = true; });
 
   // Guía de Brothers: solo para este repartidor (cada uno tiene la suya en guias/{su uid})
+  Policia.iniciar({ db, mapa: () => mapa, uid: () => uidActual, nombre: () => usuario || "Repartidor", rol: "repartidor", pos: () => ultimaPos, alVer: () => irA("mapa") });
   if (refLugares) refLugares.off();
   refLugares = db.ref("lugares");
   refLugares.on("value", (s) => { lugares = s.val() || {}; pintarLugares(); if (!$("resBusqRep").classList.contains("oculto")) mostrarBusquedaRep(); }, () => {});

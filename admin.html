@@ -59,6 +59,7 @@
         <!-- Herramientas del mapa (columna a la derecha, sin tapar nada) -->
         <div class="barra-herr">
           <button id="btnVerNegocios" class="herr on" type="button" aria-label="Mostrar u ocultar negocios"><b>🏪</b><small>Negocios</small></button>
+          <button id="btnPolicia" class="herr" type="button" aria-label="Reportar policía"><b>🚨</b><small>Policía</small></button>
           <button id="btnOcultar" class="herr" type="button" aria-label="Elegir qué repartidores se ven en el mapa"><b>👁</b><small>Repartidores</small></button>
           <button id="btnNegocio" class="herr" type="button" aria-label="Agregar negocio"><b>➕</b><small>Agregar</small></button>
           <button id="btnIconoMas" class="herr" type="button" aria-label="Iconos de repartidor más grandes"><b>🛵＋</b><small>Más grande</small></button>
@@ -103,6 +104,9 @@
       <h2>Facturas del día</h2>
       <label>Día <input id="diaStats" type="date"></label>
       <div id="statsDia" class="acciones" style="margin:10px 0"></div>
+      <h3 class="sec">⭐ Calificaciones de clientes</h3>
+      <label>Periodo <select id="califRango"><option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="0">Todo el tiempo</option></select></label>
+      <div id="califLista" class="acciones" style="margin:10px 0"></div>
       <h2>Tu equipo</h2>
       <div id="listaEquipo" class="acciones"></div>
       <h2>Negocios del mapa</h2>
@@ -165,6 +169,7 @@
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>
+  <script src="policia.js"></script>
   <script src="ordenes-core.js"></script>
   <script src="admin.js"></script>
   <script src="ordenes-admin.js"></script>

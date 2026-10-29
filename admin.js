@@ -120,6 +120,7 @@ auth.onAuthStateChanged(async (user) => {
   mostrar("app");
   initMapa();
   iniciarMonitoreo();
+  Policia.iniciar({ db, mapa: () => mapa, uid: () => auth.currentUser && auth.currentUser.uid, nombre: () => "Brothers (admin)", rol: "admin", pos: () => null });
 });
 $("btnSalir").onclick = () => { if (confirm("¿Cerrar sesión?")) auth.signOut(); };
 
@@ -136,6 +137,7 @@ function initMapa() {
   iniciarPopups();
   mapa.on("click movestart", () => { $("resBusq").classList.add("oculto"); $("busq").blur(); });   // tocar o mover el mapa cierra la búsqueda
   mapa.on("click", (e) => {
+    if (Policia.clickMapa(e.latlng)) return;   // reporte de policía: el toque marca el retén
     if (modoNegocio) { terminarModoNegocio(); return formNegocio({ lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6) }); }
     if (selUid) return fijarGuia(selUid, e.latlng);   // el mapa se puede mover y explorar libremente; solo un toque marca la guía
     if (typeof PedidosAdmin !== "undefined") PedidosAdmin.clickMapa(e.latlng);   // toque libre: asignar Retiro/Entrega a un repartidor (ordenes-admin.js)
@@ -215,6 +217,7 @@ function popupRep(uid) {
       <button class="mini" data-pa="chat" data-uid="${esc(uid)}" type="button">💬 Chat al repartidor</button>
       ${guias[uid] ? `<button class="mini peligro" data-pa="quitarguia" data-uid="${esc(uid)}" type="button">Quitar guía</button>` : ""}
       <button class="mini peligro" data-pa="invcancel" data-uid="${esc(uid)}" type="button">✖ Cancelar pedido</button>
+      <button class="mini peligro" data-pa="invexp" data-uid="${esc(uid)}" type="button">⛔ Expulsar</button>
     </div></div>`;
   }
   return `<div class="pop-rep"><strong>${esc(nombreUid(uid))}</strong>
@@ -249,6 +252,7 @@ function iniciarPopups() {
         if (a === "guiar") { selUid = uid; pintarSeleccion(); }
         else if (a === "chat") { if (Ordenes.esInvitadoUid(uid) && typeof PedidosAdmin !== "undefined") PedidosAdmin.chatInvitado(uid); else abrirChatRep(uid); }
         else if (a === "invent") PedidosAdmin.accionInvitado(uid, "entregado");
+        else if (a === "invexp") PedidosAdmin.expulsarInvitado(uid);
         else if (a === "invcancel") PedidosAdmin.accionInvitado(uid, "cancelado");
         else if (a === "quitarguia") db.ref("guias/" + uid).remove().then(() => toast("Guía quitada.")).catch((err) => toast(err.message));
         else if (a === "guiarbus" && datosBusq) { if (selUid) fijarGuia(selUid, datosBusq); }
@@ -580,7 +584,7 @@ function iniciarMonitoreo() {
   refUbic.on("child_removed", (s) => { delete ubic[s.key]; quitarMarcador(s.key); pintarLista(); });
 
   // Facturas del día (cada repartidor suma la suya al enviar)
-  $("diaStats").value = Dia.clave(); cargarStats();
+  $("diaStats").value = Dia.clave(); cargarStats(); cargarCalif();
 
   // Negocios agregados al mapa
   refLugares = db.ref("lugares");
@@ -639,6 +643,8 @@ function iniciarMonitoreo() {
   }, fallo);
 }
 function detener() {
+  Policia.detener();
+  if (refCalif) { refCalif.off(); refCalif = null; } calif = {};
   if (typeof PedidosAdmin !== "undefined") PedidosAdmin.detener();
   if (refUbic) { refUbic.off(); refUbic = null; }
   if (consultaActivos) { consultaActivos.off(); consultaActivos = null; }
@@ -929,3 +935,42 @@ function revisarVoz() { const a = $("avisoVoz"); if (a) a.classList.toggle("ocul
 $("btnActivarVoz").onclick = () => { Voz.activar(); Voz.hablar(Voz.FRASES.prueba, { forzar: true }); revisarVoz(); };
 const timerVoz = setInterval(() => { revisarVoz(); if (Voz.lista()) clearInterval(timerVoz); }, 1000);
 revisarVoz();
+
+/* ---------- Calificaciones de los clientes (calificaciones/{token}) ---------- */
+let refCalif = null, calif = {};
+function cargarCalif() {
+  if (refCalif) refCalif.off();
+  refCalif = db.ref("calificaciones").orderByChild("ts").limitToLast(1000);
+  refCalif.on("value", (s) => { calif = s.val() || {}; pintarCalif(); }, (e) => { $("califLista").innerHTML = `<p class="ayuda">No se pudieron leer las calificaciones: ${esc(e.message)}</p>`; });
+}
+$("califRango").onchange = () => pintarCalif();
+function estrellasTxt(n) { const r = Math.round(n); return "★".repeat(r) + "☆".repeat(5 - r); }
+function chispaCalif(rs) {   // promedio por semana (últimas 8): sube o baja en el tiempo
+  const SEM = 7 * 864e5, ahora = Date.now(), b = Array.from({ length: 8 }, () => []);
+  rs.forEach((r) => { const i = 7 - Math.floor((ahora - r.ts) / SEM); if (i >= 0 && i < 8) b[i].push(r.estrellas); });
+  const pts = b.map((a, i) => a.length ? [i * 12 + 4, 26 - ((a.reduce((x, y) => x + y, 0) / a.length) - 1) / 4 * 22] : null).filter(Boolean);
+  if (pts.length < 2) return "";
+  return `<svg width="100" height="30" viewBox="0 0 100 30" aria-label="Evolución semanal"><polyline fill="none" stroke="#F59E0B" stroke-width="2.5" stroke-linejoin="round" points="${pts.map((p) => p.map((v) => v.toFixed(1)).join(",")).join(" ")}"/>${pts.map((p) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5" fill="#F59E0B"/>`).join("")}</svg>`;
+}
+function pintarCalif() {
+  const caja = $("califLista"); if (!caja) return;
+  const dias = +$("califRango").value, desde = dias ? Date.now() - dias * 864e5 : 0;
+  const todas = Object.entries(calif).map(([t, r]) => Object.assign({ token: t }, r)).filter((r) => typeof r.estrellas === "number" && r.ts);
+  if (!todas.length) { caja.innerHTML = '<p class="ayuda">Aún no hay calificaciones de clientes.</p>'; return; }
+  const grupos = {};
+  todas.forEach((r) => { const u = r.repartidorUid || "sin"; (grupos[u] = grupos[u] || []).push(r); });
+  const prom = (a) => a.reduce((x, r) => x + r.estrellas, 0) / a.length;
+  const filas = Object.entries(grupos).map(([u, rs]) => {
+    const rango = rs.filter((r) => r.ts >= desde), ult = rs.slice().sort((a, b) => b.ts - a.ts);
+    const nombre = (ubic[u] || registrados[u]) ? nombreUid(u) : ((ult.find((r) => r.repartidorNombre) || {}).repartidorNombre || (u.startsWith("inv_") ? "Invitado" : "Repartidor"));
+    return { u, nombre, rs, rango, total: prom(rs), pr: rango.length ? prom(rango) : null, ult };
+  }).sort((a, b) => (b.pr || 0) - (a.pr || 0) || b.rs.length - a.rs.length);
+  const g = todas.length, gp = prom(todas);
+  caja.innerHTML = `<div class="stats-total"><b>${gp.toFixed(1)}</b> ★ promedio general · ${g} calificación${g === 1 ? "" : "es"}</div>` + filas.map((f) =>
+    `<details class="stats-fila" style="display:block"><summary style="display:flex;justify-content:space-between;gap:8px;align-items:center;cursor:pointer">
+      <div><strong>${esc(f.nombre)}${f.u.startsWith("inv_") ? ' <i class="pd-tag">Invitado</i>' : ""}</strong>
+      <small style="display:block">${f.pr == null ? "Sin calificaciones en este periodo" : `<b style="color:#F59E0B">${estrellasTxt(f.pr)}</b> ${f.pr.toFixed(1)} · ${f.rango.length} en el periodo`}</small>
+      <small style="display:block">Acumulado: ${f.total.toFixed(1)} ★ · ${f.rs.length} en total</small></div>${chispaCalif(f.rs)}</summary>
+      ${f.ult.slice(0, 8).map((r) => `<div style="padding:6px 0;border-top:1px solid #eee"><b style="color:#F59E0B">${estrellasTxt(r.estrellas)}</b> <small>${new Date(r.ts).toLocaleDateString()}${r.pedido ? " · pedido " + esc(r.pedido) : ""}</small>${r.comentario ? `<div>${esc(r.comentario)}</div>` : ""}</div>`).join("")}
+    </details>`).join("");
+}
