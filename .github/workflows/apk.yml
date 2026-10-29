@@ -33,6 +33,23 @@ jobs:
       - name: Crear proyecto Android
         run: npx cap add android
 
+      - name: Firebase (notificaciones push)
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil, sys
+          if not os.path.exists('google-services.json'):
+              print('::error::Falta google-services.json en la raiz del repositorio. Descargalo de Firebase: Configuracion del proyecto > Tus apps > app Android.')
+              sys.exit(1)
+          pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
+          gs = json.load(open('google-services.json', encoding='utf-8'))
+          nombres = [c['client_info']['android_client_info']['package_name'] for c in gs.get('client', [])]
+          if pkg not in nombres:
+              print('::error::google-services.json es de otra app (%s). Debe ser de %s.' % (nombres, pkg))
+              sys.exit(1)
+          shutil.copy('google-services.json', 'android/app/google-services.json')
+          print('google-services.json listo para', pkg)
+          PY
+
       - name: Generar iconos
         run: npx --yes @capacitor/assets generate --android
 
@@ -41,9 +58,13 @@ jobs:
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p, encoding='utf-8').read()
-          perms = ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "POST_NOTIFICATIONS", "WAKE_LOCK", "CAMERA", "SYSTEM_ALERT_WINDOW", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"]
+          perms = ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "VIBRATE", "POST_NOTIFICATIONS", "WAKE_LOCK", "CAMERA", "SYSTEM_ALERT_WINDOW", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"]
           add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if x not in s)
           s = s.replace('<application', add + '    <application', 1)
+          # Canal por defecto de las notificaciones push: ventana emergente con sonido (se crea en la app con el mismo nombre)
+          meta = '        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="pedidos" />\n'
+          if 'default_notification_channel_id' not in s:
+              s = s.replace('</application>', meta + '    </application>', 1)
           # Abrir con la app del repartidor: compartir texto/ubicación (WhatsApp...), geo: y enlaces de mapas
           filtros = '''
             <intent-filter>
@@ -92,11 +113,13 @@ jobs:
           import json, os, shutil
           pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
           d = 'android/app/src/main/java/' + pkg.replace('.', '/')
-          if not os.path.exists('NativoPlugin.java.txt') or not os.path.exists(d + '/MainActivity.java'):
+          # acepta el nombre correcto y el que pone GitHub si se subió dos veces (NativoPlugin.java-1.txt)
+          fuente = next((f for f in ('NativoPlugin.java.txt', 'NativoPlugin.java-1.txt') if os.path.exists(f)), None)
+          if not fuente or not os.path.exists(d + '/MainActivity.java'):
               print('Sin NativoPlugin.java.txt: se omite el código nativo')
               raise SystemExit
           shutil.copy(d + '/MainActivity.java', '/tmp/MainActivity.java.orig')
-          codigo = open('NativoPlugin.java.txt', encoding='utf-8').read().replace('__PKG__', pkg)
+          codigo = open(fuente, encoding='utf-8').read().replace('__PKG__', pkg)
           open(d + '/NativoPlugin.java', 'w', encoding='utf-8').write(codigo)
           main = ('package %s;\n\nimport android.os.Bundle;\nimport com.getcapacitor.BridgeActivity;\n\n'
                   'public class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n'
