@@ -551,7 +551,8 @@ async function fijarGuia(uid, ll, tokenForzado, extra) {
   const dato = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), ts: firebase.database.ServerValue.TIMESTAMP, por: "admin" };
   const tk = tokenForzado || (extra ? "" : $("guiaPedido").value); if (tk) dato.token = tk;
   if (extra) Object.assign(dato, extra);   // guía a un negocio: nombre e icono
-  try { await db.ref("guias/" + uid).set(dato); if (Ordenes.esInvitadoUid(uid)) db.ref("ordenes/" + PedidosAdmin.tokenInv(uid) + "/guiaAdmin").set(dato).catch(() => {}); toast(`Guía enviada a ${nombreUid(uid)} ✓ Solo la ve él.`); }
+  try { await db.ref("guias/" + uid).set(dato); if (typeof PushAdmin !== "undefined" && !Ordenes.esInvitadoUid(uid)) PushAdmin.guia(uid, extra && extra.nombre ? extra.nombre : "");
+    if (Ordenes.esInvitadoUid(uid)) db.ref("ordenes/" + PedidosAdmin.tokenInv(uid) + "/guiaAdmin").set(dato).catch(() => {}); toast(`Guía enviada a ${nombreUid(uid)} ✓ Solo la ve él.`); }
   catch (e) { return toast("No se pudo enviar la guía: " + e.message); }
   selUid = null; pintarSeleccion(); pintarLista();   // listo: los demás repartidores no se tocan
 }
@@ -566,6 +567,7 @@ function abrirChatRep(uid) {
     token: uid, yo: "admin", ruta: RUTA_EQ, pedido: "Equipo", nombreRepartidor: nombreUid(uid), puedeBorrar: true, avisos: false,
     titulo: () => "Chat con " + nombreUid(uid),
     subtitulo: () => "Equipo · Brothers ↔ repartidor",
+    alEnviar: (m) => { if (typeof PushAdmin !== "undefined") PushAdmin.mensaje(uid, m); },   // aviso push al celular del repartidor
     alCerrar: () => { chatEqAbierto = null; }
   });
   Chat.abrir();

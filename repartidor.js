@@ -897,8 +897,8 @@ async function prepararNotificaciones(pedir) {
 }
 
 /* ---------- Push (FCM): llega aunque la app esté cerrada o en otra app ---------- */
-// ⚠️ Déjalo en false hasta completar GUIA-PUSH.md (google-services.json + plugin). Con true y sin eso, la app se cierra al abrir.
-const PUSH_HABILITADO = false;
+// ⚠️ Pásalo a false si la app se cierra sola al abrir: significa que falta android/app/google-services.json (ver los pasos de la guía).
+const PUSH_HABILITADO = true;
 let pushActivo = false, abrirPendiente = null;
 async function registrarPush() {
   if (!PUSH_HABILITADO) return;
@@ -906,17 +906,23 @@ async function registrarPush() {
   if (!PN || !uidActual) return;
   try {
     let p = await PN.checkPermissions();
-    if (p.receive !== "granted") p = await PN.requestPermissions();
+    if (p.receive !== "granted") p = await PN.requestPermissions();   // ventana de Android 13+: "¿Permitir notificaciones?"
     if (p.receive !== "granted") return;
-    await PN.createChannel({ id: "mensajes", name: "Mensajes de clientes", description: "Avisos cuando un cliente te escribe", importance: 5, visibility: 1, vibration: true });
+    // Canales: "pedidos" (pedidos y guías de Brothers) y "mensajes" (chat). Importancia 5 = aparece como ventana emergente con sonido.
+    await PN.createChannel({ id: "mensajes", name: "Mensajes", description: "Avisos cuando Brothers o un cliente te escribe", importance: 5, visibility: 1, vibration: true, lights: true });
+    await PN.createChannel({ id: "pedidos", name: "Pedidos nuevos", description: "Pedidos y guías que te asigna Brothers", importance: 5, visibility: 1, vibration: true, lights: true });
     await PN.removeAllListeners();
-    PN.addListener("registration", (t) => {
-      pushActivo = true;   // con push activo no hace falta la notificación local (evita duplicados)
-      db.ref(`repartidores/${uidActual}/fcmToken`).set(t.value).catch((e) => console.warn("fcmToken:", e.message));
+    PN.addListener("registration", (t) => {   // se dispara al registrar y cada vez que Google renueva el token
+      pushActivo = true;   // con push activo, los avisos de Brothers no se duplican con la notificación local
+      const u = uidActual; if (!u) return;
+      db.ref().update({ [`repartidores/${u}/fcmToken`]: t.value, [`repartidores/${u}/fcmTs`]: TS }).catch((e) => console.warn("fcmToken:", e.message));
     });
     PN.addListener("registrationError", (e) => console.warn("Push:", e));
     PN.addListener("pushNotificationActionPerformed", (ev) => {   // tocó la notificación
-      const tk = ev.notification && ev.notification.data && ev.notification.data.token;
+      const d = (ev.notification && ev.notification.data) || {};
+      if (d.tipo === "mensaje") return abrirChatAdmin();
+      if (d.tipo === "pedido" || d.tipo === "guia") return irA("mapa");   // el pedido o la guía ya están cargados en vivo
+      const tk = d.token;
       if (!tk) return;
       if (viajes[tk]) { irA("mapa"); abrirChat(viajes[tk]); } else abrirPendiente = tk;
     });
@@ -928,13 +934,14 @@ async function registrarPush() {
 function notificarTexto(titulo, cuerpo, resumen, extra) {
   const ln = plug("LocalNotifications");
   if (!ln || !document.hidden) return;   // con la app a la vista basta la voz y la burbuja
+  if (pushActivo && extra && extra.equipo) return;   // los avisos de Brothers ya llegan por push: evita la notificación doble
   ln.schedule({ notifications: [{
     id: Math.floor(Math.random() * 2000000000), title: titulo, body: cuerpo, largeBody: cuerpo, summaryText: resumen,
     channelId: "mensajes", actionTypeId: "MENSAJE", extra
   }] }).catch(() => {});
 }
 function notificarMensaje(v, m) {
-  if (pushActivo) return;
+   // (los mensajes de clientes no viajan por push: siempre se avisa con la notificación local)
   notificarTexto(v.cliente ? "Cliente · " + v.cliente : "Cliente · Pedido " + v.pedido, m.texto ? m.texto : "📷 Te envió una foto", "Pedido " + v.pedido, { token: v.token });
 }
 function alAccionNotificacion(ev) {

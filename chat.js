@@ -175,7 +175,11 @@ const Chat = (() => {
     if (foto) upd[`${r.fotos}/${tk}/${id}`] = foto;
     await db.ref().update(upd);
   }
-  const enviar = (texto, foto) => enviarA(token, yo, ctx, texto, foto, R);
+  /* opciones.alEnviar({ texto, foto }) se llama después de enviar bien (el administrador lo usa para mandar el aviso push) */
+  const enviar = (texto, foto) => enviarA(token, yo, ctx, texto, foto, R).then((r) => {
+    try { if (opciones && typeof opciones.alEnviar === "function") opciones.alEnviar({ texto: texto || "", foto: !!foto }); } catch (_) {}
+    return r;
+  });
 
   /* ---------- Confirmación de lectura: ✓ enviado · ✓✓ leído (cuando el otro abrió el chat) ---------- */
   const lectorDe = (m) => (m.de === "cliente" || m.de === "admin" ? "repartidor" : (R.leido === "leidosEquipo" ? "admin" : "cliente"));

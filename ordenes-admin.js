@@ -73,6 +73,7 @@ const PedidosAdmin = (() => {
       el("pdAsignar").disabled = true;
       try {
         await O.puntoRapido(db, uid, punto, ll);
+        if (typeof PushAdmin !== "undefined") PushAdmin.punto(uid, punto);   // push al celular del repartidor
         cerrarModal();
         toast(`${O.PUNTOS[punto].icono} ${O.PUNTOS[punto].nombre} enviado a ${nombreUid(uid)} ✓ Su ruta se traza sola.`);
       } catch (err) { toast("No se pudo asignar: " + err.message); el("pdAsignar").disabled = false; }
@@ -277,6 +278,7 @@ const PedidosAdmin = (() => {
       else {
         const t = `Pedido ${orden.codigo} enviado a ${asignacion.nombre} ✓ (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".");
         aviso(t, "ok"); toast(t);
+        if (typeof PushAdmin !== "undefined") PushAdmin.pedidoAsignado(asignacion.uid, Object.assign({ token }, orden));   // push al celular del repartidor
       }
     } catch (err) {
       console.error("crearPedido", err);
@@ -316,6 +318,7 @@ const PedidosAdmin = (() => {
         await O.asignar(db, t, o, { tipo: "registrado", uid, nombre: nombreUid(uid) });
         await db.ref("ordenes/" + t).update({ estado_asignacion: "pendiente" });   // el nuevo repartidor debe aceptar de nuevo
         cerrarModal(); toast(`Asignado a ${nombreUid(uid)} ✓`);
+        if (typeof PushAdmin !== "undefined") PushAdmin.pedidoAsignado(uid, Object.assign({ token: t }, o));   // push al celular del repartidor
       }
       catch (err) { toast("No se pudo asignar: " + err.message); }
     };
