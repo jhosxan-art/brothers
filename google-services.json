@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "985252496445",
+    "firebase_url": "https://brothers-deliverys-default-rtdb.firebaseio.com",
+    "project_id": "brothers-deliverys",
+    "storage_bucket": "brothers-deliverys.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:985252496445:android:8dc3c07bdff07ceeb39654",
+        "android_client_info": {
+          "package_name": "com.brothers.deliverys"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANnq4gZ-W6eGSUFinYJ1f9a_OR2PuyPRA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

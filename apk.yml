@@ -1,0 +1,160 @@
+name: Construir APK del repartidor
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Preparar la app web
+        run: |
+          mkdir -p www
+          cp *.html *.css *.js www/
+          cp repartidor.html www/index.html
+
+      - name: Instalar dependencias
+        run: npm install --legacy-peer-deps
+
+      - name: Crear proyecto Android
+        run: npx cap add android
+
+      - name: Firebase (notificaciones push)
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil, sys
+          if not os.path.exists('google-services.json'):
+              print('::error::Falta google-services.json en la raiz del repositorio. Descargalo de Firebase: Configuracion del proyecto > Tus apps > app Android.')
+              sys.exit(1)
+          pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
+          gs = json.load(open('google-services.json', encoding='utf-8'))
+          nombres = [c['client_info']['android_client_info']['package_name'] for c in gs.get('client', [])]
+          if pkg not in nombres:
+              print('::error::google-services.json es de otra app (%s). Debe ser de %s.' % (nombres, pkg))
+              sys.exit(1)
+          shutil.copy('google-services.json', 'android/app/google-services.json')
+          print('google-services.json listo para', pkg)
+          PY
+
+      - name: Generar iconos
+        run: npx --yes @capacitor/assets generate --android
+
+      - name: Permisos y enlaces de Android
+        run: |
+          python3 - <<'PY'
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p, encoding='utf-8').read()
+          perms = ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "VIBRATE", "POST_NOTIFICATIONS", "WAKE_LOCK", "CAMERA", "SYSTEM_ALERT_WINDOW", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"]
+          add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if x not in s)
+          s = s.replace('<application', add + '    <application', 1)
+          # Canal por defecto de las notificaciones push: ventana emergente con sonido (se crea en la app con el mismo nombre)
+          meta = '        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="pedidos" />\n'
+          if 'default_notification_channel_id' not in s:
+              s = s.replace('</application>', meta + '    </application>', 1)
+          # Abrir con la app del repartidor: compartir texto/ubicación (WhatsApp...), geo: y enlaces de mapas
+          filtros = '''
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="maps.app.goo.gl" />
+                <data android:host="maps.google.com" />
+                <data android:host="waze.com" />
+                <data android:host="www.waze.com" />
+                <data android:host="ul.waze.com" />
+                <data android:host="maps.apple.com" />
+                <data android:host="www.openstreetmap.org" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="www.google.com" />
+                <data android:host="google.com" />
+                <data android:host="goo.gl" />
+                <data android:pathPrefix="/maps" />
+            </intent-filter>
+          '''
+          if 'maps.app.goo.gl' not in s:
+              s = s.replace('</activity>', filtros + '        </activity>', 1)
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
+
+      - name: Código nativo (burbuja flotante y enlaces)
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil
+          pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
+          d = 'android/app/src/main/java/' + pkg.replace('.', '/')
+          # acepta el nombre correcto y el que pone GitHub si se subió dos veces (NativoPlugin.java-1.txt)
+          fuente = next((f for f in ('NativoPlugin.java.txt', 'NativoPlugin.java-1.txt') if os.path.exists(f)), None)
+          if not fuente or not os.path.exists(d + '/MainActivity.java'):
+              print('Sin NativoPlugin.java.txt: se omite el código nativo')
+              raise SystemExit
+          shutil.copy(d + '/MainActivity.java', '/tmp/MainActivity.java.orig')
+          codigo = open(fuente, encoding='utf-8').read().replace('__PKG__', pkg)
+          open(d + '/NativoPlugin.java', 'w', encoding='utf-8').write(codigo)
+          main = ('package %s;\n\nimport android.os.Bundle;\nimport com.getcapacitor.BridgeActivity;\n\n'
+                  'public class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n'
+                  '        registerPlugin(NativoPlugin.class);\n        super.onCreate(savedInstanceState);\n    }\n}\n') % pkg
+          open(d + '/MainActivity.java', 'w', encoding='utf-8').write(main)
+          PY
+
+      - name: Sincronizar
+        run: npx cap sync android
+
+      - name: Compilar (con burbuja)
+        id: con_nativo
+        continue-on-error: true
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Compilar sin código nativo (respaldo si falló)
+        if: steps.con_nativo.outcome == 'failure'
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil
+          pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
+          d = 'android/app/src/main/java/' + pkg.replace('.', '/')
+          if os.path.exists('/tmp/MainActivity.java.orig'):
+              shutil.copy('/tmp/MainActivity.java.orig', d + '/MainActivity.java')
+          if os.path.exists(d + '/NativoPlugin.java'):
+              os.remove(d + '/NativoPlugin.java')
+          PY
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Subir APK a Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: APK-Repartidor
+          path: android/app/build/outputs/apk/debug/app-debug.apk
