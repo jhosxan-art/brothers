@@ -22,7 +22,7 @@ const TS = firebase.database.ServerValue.TIMESTAMP;
 
 /* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
    Sirve para avisar al administrador (push en su APK Admin) cuando escribes en un chat. Mientras diga "TU-WORKER" no se envía nada. */
-const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
+const WORKER_URL_BROTHERS = "https://brothers-push.jhosxan.workers.dev";
 const PRIORIDAD_EXTRA = 10;   // C$ de propina cuando el cliente prioriza su pedido
 
 let watchId = null, bgId = null, bgPlugin = null, latido = null, wakeLock = null;
