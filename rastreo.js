@@ -11,9 +11,8 @@ const token = new URLSearchParams(location.search).get("id");
 
 /* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
    Sirve para avisar al administrador cuando abres el enlace. Mientras diga "TU-WORKER" no se envía nada y todo lo demás funciona. */
-const WORKER_URL_BROTHERS = "https://brothers-push.jhosxan.workers.dev";
+const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
 const PRIORIDAD_MONTO = 10;                 // C$ que se suman al total al priorizar
-const PRIORIDAD_ESPERA_MS = 600000;        // 10 minutos antes de ofrecer la prioridad
 
 // Mapa (Leaflet + OpenStreetMap)
 const mapa = L.map("mapa", { ...GestosMapa.opciones, attributionControl: false }).setView([-12.0464, -77.0428], 14);
@@ -237,8 +236,9 @@ async function pedirPermisosAlAbrir() {
       al enviarla u omitirla se oculta y aparece la pantalla tradicional de "Pedido entregado".
       Se guarda en pedidos/{token}/calificacion y en calificaciones/{token} (lo que lee el panel del administrador).
    2) Factura: tarjeta colapsable con productos, delivery y total a pagar (pedidos/{token}/detalle).
-   3) Prioridad: a los 10 min de abrir el enlace, si el pedido no se entregó, ofrece priorizarlo por 10 C$:
+   3) Prioridad: al abrir el enlace (sin esperas), si el pedido no se entregó, ofrece priorizarlo por 10 C$:
       guarda pedidos/{token}/prioridad = true y suma 10 C$ al total de la factura.
+   3b) Panel inferior minimizable: deja una barra compacta con Total compras, Delivery y Total a pagar; al tocarla se expande.
    4) Aviso al administrador la primera vez que se abre el enlace (push, vía el Worker de Cloudflare).
    Va dentro de un objeto para no chocar con los nombres de otros archivos.
    ============================================================ */
@@ -250,7 +250,7 @@ const BrothersExtras = (() => {
   const dinero = (n) => "C$ " + Number(n || 0).toFixed(2);
   const lista = (v) => (Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : []);
 
-  let ultimoEstado = null, hayPrioridad = false, descartado = false, enviandoPrioridad = false, timerPri = null, ultimaFirma = "", detalleActual = null, abrioAvisado = false;
+  let ultimoEstado = null, hayPrioridad = false, descartado = false, enviandoPrioridad = false, ultimaFirma = "", detalleActual = null, abrioAvisado = false;
 
   /* ---------- Normaliza el desglose (pedidos/{token}/detalle, o la factura vieja si no hay detalle) ---------- */
   function normalizar(d) {
@@ -277,55 +277,91 @@ const BrothersExtras = (() => {
   function pintarFactura(d) {
     const card = $("facturaCard"), det = normalizar(d);
     detalleActual = det;
-    if (!det) { card.classList.add("oculto"); return; }
+    if (!det) { card.classList.add("oculto"); ultimaFirma = ""; pintarBarraMin(null); return; }
     const firma = JSON.stringify(det);
     card.classList.remove("oculto");
     if (firma === ultimaFirma) return;
     ultimaFirma = firma;
-    $("facTotalResumen").textContent = det.total != null ? dinero(det.total) : "";
-    let h = "";
+    let lista = "";
     if (det.productos.length) {
-      h += '<div class="fac-sub">Productos</div>';
-      h += det.productos.map((p) => `<div class="fac-fila"><span>${esc(p.nombre)}</span>${p.precio != null ? `<b>${dinero(p.precio)}</b>` : ""}</div>`).join("");
-      if (det.subtotal != null && det.productos.some((p) => p.precio != null)) h += `<div class="fac-fila"><span>Costo de los productos</span><b>${dinero(det.subtotal)}</b></div>`;
+      lista += '<div class="fac-sub">Productos</div>';
+      lista += det.productos.map((p) => `<div class="fac-fila"><span>${esc(p.nombre)}</span>${p.precio != null ? `<b>${dinero(p.precio)}</b>` : ""}</div>`).join("");
     }
-    if (det.delivery != null) h += `<div class="fac-fila"><span>Costo del delivery</span><b>${dinero(det.delivery)}</b></div>`;
-    if (det.monto) h += `<div class="fac-fila fac-pri"><span>⚡ Prioridad (propina)</span><b>${dinero(det.monto)}</b></div>`;
-    if (det.total != null) h += `<div class="fac-total"><span>Total a pagar</span><b>${dinero(det.total)}</b></div>`;
-    $("facCuerpo").innerHTML = h;
+    $("facLista").innerHTML = lista;
+    $("facLista").classList.toggle("oculto", !lista);
+    let tot = "";
+    if (det.subtotal != null) tot += `<div class="fac-fila"><span>Total compras</span><b>${dinero(det.subtotal)}</b></div>`;
+    if (det.delivery != null) tot += `<div class="fac-fila"><span>Costo del delivery</span><b>${dinero(det.delivery)}</b></div>`;
+    if (det.monto) tot += `<div class="fac-fila fac-pri"><span>⚡ Prioridad (propina)</span><b>${dinero(det.monto)}</b></div>`;
+    if (det.total != null) tot += `<div class="fac-total"><span>Total a pagar</span><b>${dinero(det.total)}</b></div>`;
+    $("facTotales").innerHTML = tot;
+    pintarBarraMin(det);
   }
 
-  /* ---------- Prioridad por 10 C$ ---------- */
+  /* ---------- Panel inferior minimizable ---------- */
+  // Barra compacta: resumen de la factura (o el estado del viaje si aún no hay factura)
+  function pintarBarraMin(det) {
+    $("bmFactura").classList.toggle("oculto", !det);
+    $("bmEstado").classList.toggle("oculto", !!det);
+    if (!det) return;
+    $("bmCompras").textContent = det.subtotal != null ? dinero(det.subtotal) : "—";
+    $("bmDelivery").textContent = det.delivery != null ? dinero(det.delivery) : "—";
+    $("bmTotal").textContent = det.total != null ? dinero(det.total) : "—";
+  }
+  function sincronizarEstadoMin() {
+    const e = $("estadoTxt").textContent, dd = $("distTxt").textContent;
+    $("bmEstado").textContent = dd ? e + " · " + dd : e;
+  }
+  function aplicarPanel(minimizado) {
+    $("hoja").classList.toggle("oculto", minimizado);
+    $("barraMin").classList.toggle("oculto", !minimizado);
+    $("btnMinimizar").setAttribute("aria-expanded", String(!minimizado));
+    document.body.classList.toggle("panel-min", minimizado);
+    // el mapa cambia de alto: Leaflet debe recalcular su tamaño para ocupar todo el espacio
+    requestAnimationFrame(() => mapa.invalidateSize({ animate: false }));
+    setTimeout(() => mapa.invalidateSize({ animate: false }), 250);
+  }
+  $("btnMinimizar").onclick = () => aplicarPanel(true);
+  $("barraMin").onclick = () => aplicarPanel(false);
+  const obsEstado = new MutationObserver(sincronizarEstadoMin);
+  obsEstado.observe($("estadoTxt"), { childList: true, characterData: true, subtree: true });
+  obsEstado.observe($("distTxt"), { childList: true, characterData: true, subtree: true });
+  sincronizarEstadoMin();
+
+  /* ---------- Prioridad por 10 C$ (se ofrece al instante, al abrir el enlace) ---------- */
   const bannerPri = () => $("bannerPrioridad");
   const estadoFinal = () => ultimoEstado === "entregado" || ultimoEstado === "cancelado";
   function ocultarBanner() { bannerPri().classList.add("oculto"); }
   function mostrarBannerPrioridad() {
-    if (!ultimoEstado || estadoFinal() || hayPrioridad || descartado) return;
+    if (!token || estadoFinal() || hayPrioridad || descartado) return;
     if (!$("pantallaCerca").classList.contains("oculto")) { setTimeout(mostrarBannerPrioridad, 15000); return; }   // no tapa la alarma de llegada
     const b = $("btnPriorizar"); b.disabled = false; b.textContent = "Priorizar";
     bannerPri().classList.remove("oculto");
-  }
-  function iniciarTemporizadorPrioridad() {
-    if (timerPri || !token) return;
-    timerPri = setTimeout(() => { timerPri = null; mostrarBannerPrioridad(); }, PRIORIDAD_ESPERA_MS);   // 10 minutos desde que se abre el enlace
   }
   function toastPri(texto) {
     const t = document.createElement("div"); t.className = "pri-ok"; t.textContent = texto; document.body.appendChild(t);
     setTimeout(() => t.remove(), 4500);
   }
   function aceptarPrioridad() {
-    if (enviandoPrioridad || hayPrioridad) return;
+    if (enviandoPrioridad || hayPrioridad || !token) return;
     enviandoPrioridad = true;
     const b = $("btnPriorizar"); b.disabled = true; b.textContent = "Enviando…";
-    const cambios = { prioridad: true, prioridadMonto: PRIORIDAD_MONTO, prioridadTs: TS };
-    const det = detalleActual;
-    if (det && det.dePrioridad && det.totalBase != null) {   // suma 10 C$ al importe total de la factura (siempre desde el total base: nunca se suma dos veces)
-      cambios["detalle/totalBase"] = det.totalBase;
-      cambios["detalle/prioridad"] = PRIORIDAD_MONTO;
-      cambios["detalle/total"] = Math.round((det.totalBase + PRIORIDAD_MONTO) * 100) / 100;
-    }
-    db.ref("pedidos/" + token).update(cambios).then(() => {
-      hayPrioridad = true; ocultarBanner(); toastPri("⚡ ¡Listo! Tu pedido fue priorizado (+10 C$).");
+    const ref = db.ref("pedidos/" + token);
+    // Se lee el pedido justo antes de escribir: como el aviso sale al instante, quizá aún no llegaron los datos
+    ref.once("value").then((snap) => {
+      const d = snap.val();
+      if (!d || d.estado === "entregado" || d.estado === "cancelado") { ocultarBanner(); return; }
+      if (d.prioridad === true) { hayPrioridad = true; ocultarBanner(); return; }
+      const cambios = { prioridad: true, prioridadMonto: PRIORIDAD_MONTO, prioridadTs: TS };
+      const det = normalizar(d);
+      if (det && det.dePrioridad && det.totalBase != null) {   // suma 10 C$ al importe total de la factura (siempre desde el total base: nunca se suma dos veces)
+        cambios["detalle/totalBase"] = det.totalBase;
+        cambios["detalle/prioridad"] = PRIORIDAD_MONTO;
+        cambios["detalle/total"] = Math.round((det.totalBase + PRIORIDAD_MONTO) * 100) / 100;
+      }
+      return ref.update(cambios).then(() => {
+        hayPrioridad = true; ocultarBanner(); toastPri("⚡ ¡Listo! Tu pedido fue priorizado (+10 C$).");
+      });
     }).catch(() => {
       b.disabled = false; b.textContent = "Reintentar"; toastPri("No se pudo priorizar. Revisa tu internet.");
     }).then(() => { enviandoPrioridad = false; });
@@ -409,11 +445,11 @@ const BrothersExtras = (() => {
 
   /* Cuando el rastreo termina por cualquier motivo */
   function alTerminar() {
-    clearTimeout(timerPri); timerPri = null; ocultarBanner();
+    ocultarBanner();
     ultimoEstado = ultimoEstado || "cancelado";
   }
 
-  iniciarTemporizadorPrioridad();   // 10 minutos desde que se abre el enlace
+  mostrarBannerPrioridad();   // sin temporizador: el aviso de prioridad sale al instante al abrir el enlace
   return { alDatos, alEntregar, alTerminar };
 })();
 

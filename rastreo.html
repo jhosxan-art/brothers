@@ -10,44 +10,6 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
-  <style>
-    /* ===== Detalle de factura (tarjeta colapsable) ===== */
-    .fac-card{margin:10px 0 4px;border:1.5px solid #cfe9f8;border-radius:14px;background:#f4fbff;overflow:hidden}
-    .fac-card>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;font-weight:700;font-size:15px;color:#0b4a6b}
-    .fac-card>summary::-webkit-details-marker{display:none}
-    .fac-card>summary b{color:#E5322D;font-size:16px;white-space:nowrap}
-    .fac-card>summary::after{content:"▾";margin-left:6px;color:#0A86C9;transition:transform .2s}
-    .fac-card[open]>summary::after{transform:rotate(180deg)}
-    .fac-cuerpo{padding:2px 14px 12px;font-size:14px;color:#1f2933}
-    .fac-fila{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px dashed #d6e6ef}
-    .fac-fila span{min-width:0;overflow-wrap:anywhere}
-    .fac-fila b{white-space:nowrap}
-    .fac-sub{margin-top:6px;font-weight:700;color:#0b4a6b;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
-    .fac-pri{color:#b45309;font-weight:700}
-    .fac-total{display:flex;justify-content:space-between;gap:12px;margin-top:8px;padding-top:8px;border-top:2px solid #0A86C9;font-size:17px;font-weight:800;color:#111}
-    .fac-total b{color:#E5322D}
-    .fac-nota{margin:6px 0 0;font-size:12px;color:#5b6b76}
-    /* ===== Banner de prioridad (parte inferior, discreto) ===== */
-    .pri-banner{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom));z-index:1200;width:calc(100% - 24px);max-width:420px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:9px 10px 9px 14px;border-radius:14px;background:#111;color:#fff;box-shadow:0 6px 22px rgba(0,0,0,.35);font-size:14px;line-height:1.25}
-    .pri-banner.oculto{display:none}
-    .pri-banner .pri-txt{flex:1}
-    .pri-banner b{color:#7fd3ff}
-    .pri-banner button{border:0;font:inherit;cursor:pointer}
-    .pri-banner #btnPriorizar{background:#E5322D;color:#fff;font-weight:800;border-radius:10px;padding:9px 12px;white-space:nowrap}
-    .pri-banner #btnPriorizar:disabled{opacity:.6}
-    .pri-banner #btnPriCerrar{background:none;color:#cbd5dd;font-size:18px;padding:4px 6px}
-    .pri-ok{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom));z-index:1200;max-width:420px;padding:10px 16px;border-radius:14px;background:#0A86C9;color:#fff;font-weight:700;font-size:14px;box-shadow:0 6px 22px rgba(0,0,0,.3)}
-    /* ===== Calificación (se muestra ANTES de la pantalla de "Pedido entregado") ===== */
-    #pantallaCalif{z-index:3000;overflow-y:auto}
-    .cal-caja{width:100%;max-width:420px;margin:0 auto;text-align:center}
-    .cal-estrellas{display:flex;justify-content:center;gap:6px;margin:10px 0 4px}
-    .cal-estrellas button{border:0;background:none;font-size:44px;line-height:1;padding:0 2px;cursor:pointer;color:#c4ccd2}
-    .cal-estrellas button.on{color:#F59E0B}
-    .cal-texto{min-height:24px;margin:2px 0 8px;font-weight:700;color:#b45309}
-    #calComentario{width:100%;box-sizing:border-box;border:2px solid #d4dde3;border-radius:12px;padding:10px;font:inherit;resize:none;background:#fff;color:#111}
-    #btnCalEnviar:disabled{opacity:.5}
-    .cal-omitir{display:block;width:100%;margin-top:8px;border:0;background:none;padding:10px;font-size:14px;font-weight:600;font-family:inherit;color:#5b6b76;cursor:pointer;text-decoration:underline}
-  </style>
 </head>
 <body class="cliente">
   <div id="mapa"></div>
@@ -57,38 +19,60 @@
     <div><strong>Brother’s Deliverys</strong><small id="pedidoTxt">Seguimiento en vivo</small></div>
   </header>
 
-  <section class="hoja">
-    <h1 id="estadoTxt">Conectando…</h1>
-    <p id="distTxt" class="distancia"></p>
-    <div class="progreso" aria-hidden="true"><i id="progresoBarra"></i></div>
+  <!-- Panel inferior: se puede minimizar para ver el mapa completo -->
+  <section id="hoja" class="hoja">
+    <button id="btnMinimizar" class="hoja-asa" type="button" aria-expanded="true" aria-controls="hojaCuerpo">
+      <span class="asa-barra" aria-hidden="true"></span>
+      <span class="asa-txt">Minimizar</span>
+      <span class="asa-flecha" aria-hidden="true">▾</span>
+    </button>
+    <div id="hojaCuerpo" class="hoja-cuerpo">
+      <h1 id="estadoTxt">Conectando…</h1>
+      <p id="distTxt" class="distancia"></p>
+      <div class="progreso" aria-hidden="true"><i id="progresoBarra"></i></div>
 
-    <div class="fila-repartidor">
-      <span class="avatar" data-rider></span>
-      <div><strong id="nombreRepartidor">Tu repartidor</strong><small id="horaTxt">Esperando señal…</small></div>
-    </div>
-    <!-- Detalle de tu pedido: productos, delivery y total a pagar (colapsable) -->
-    <details id="facturaCard" class="fac-card oculto">
-      <summary><span>🧾 Detalle de tu pedido</span><b id="facTotalResumen"></b></summary>
-      <div id="facCuerpo" class="fac-cuerpo"></div>
-    </details>
-    <!-- Mi ubicación: se comparte en tiempo real con el repartidor -->
-    <div id="ubicCaja" class="ubic-caja">
-      <div id="ubicTxt" class="estado">Activando tu ubicación…</div>
-      <div id="barraManual" class="barra-manual oculto">
-        <p id="textoManual">Tu ubicación actual es el punto azul. Toca el mapa o arrastra el pin para elegir otro lugar de entrega.</p>
-        <div class="dos-botones">
-          <button id="btnConfirmarUbic" class="primario" type="button">Confirmar ubicación</button>
-          <button id="btnCancelarUbic" type="button">Cancelar</button>
+      <div class="fila-repartidor">
+        <span class="avatar" data-rider></span>
+        <div><strong id="nombreRepartidor">Tu repartidor</strong><small id="horaTxt">Esperando señal…</small></div>
+      </div>
+      <!-- Detalle de tu pedido: productos (con scroll propio), delivery y total a pagar -->
+      <section id="facturaCard" class="fac-card oculto" aria-label="Detalle de tu pedido">
+        <div class="fac-cab">🧾 Detalle de tu pedido</div>
+        <div class="fac-cuerpo">
+          <div id="facLista" class="fac-lista"></div>
+          <div id="facTotales" class="fac-totales"></div>
+        </div>
+      </section>
+      <!-- Mi ubicación: se comparte en tiempo real con el repartidor -->
+      <div id="ubicCaja" class="ubic-caja">
+        <div id="ubicTxt" class="estado">Activando tu ubicación…</div>
+        <div id="barraManual" class="barra-manual oculto">
+          <p id="textoManual">Tu ubicación actual es el punto azul. Toca el mapa o arrastra el pin para elegir otro lugar de entrega.</p>
+          <div class="dos-botones">
+            <button id="btnConfirmarUbic" class="primario" type="button">Confirmar ubicación</button>
+            <button id="btnCancelarUbic" type="button">Cancelar</button>
+          </div>
+        </div>
+        <div id="filaUbic" class="dos-botones">
+          <button id="btnCambiarUbic" type="button">Cambiar mi ubicación</button>
+          <button id="btnVolverVivo" class="oculto" type="button">Usar mi ubicación en vivo</button>
         </div>
       </div>
-      <div id="filaUbic" class="dos-botones">
-        <button id="btnCambiarUbic" type="button">Cambiar mi ubicación</button>
-        <button id="btnVolverVivo" class="oculto" type="button">Usar mi ubicación en vivo</button>
-      </div>
+      <button id="btnChat" class="primario boton-chat">Escribir al repartidor <span id="badgeChat" class="badge oculto">0</span></button>
+      <small class="credito">Mapa © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></small>
     </div>
-    <button id="btnChat" class="primario boton-chat">Escribir al repartidor <span id="badgeChat" class="badge oculto">0</span></button>
-    <small class="credito">Mapa © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></small>
   </section>
+
+  <!-- Barra compacta (panel minimizado): resumen de la factura. Al tocarla, el panel se expande -->
+  <button id="barraMin" class="barra-min oculto" type="button" aria-expanded="false" aria-controls="hoja" aria-label="Expandir el detalle del pedido">
+    <span id="bmFactura" class="bm-datos oculto">
+      <span class="bm-dato"><small>Total compras</small><b id="bmCompras">—</b></span>
+      <span class="bm-dato"><small>Delivery</small><b id="bmDelivery">—</b></span>
+      <span class="bm-dato total"><small>Total a pagar</small><b id="bmTotal">—</b></span>
+    </span>
+    <span id="bmEstado" class="bm-estado"></span>
+    <span class="bm-flecha" aria-hidden="true">▴</span>
+  </button>
 
   <!-- Permisos al abrir el enlace: ubicación en tiempo real + alertas de voz -->
   <div id="permisos" class="modal-rep oculto" role="dialog" aria-modal="true">
@@ -128,7 +112,7 @@
     </div>
   </div>
 
-  <!-- Prioridad: aparece pasados 10 minutos si el pedido aún no se entrega -->
+  <!-- Prioridad: aparece de inmediato al abrir el enlace (si el pedido aún no se entrega ni se priorizó) -->
   <div id="bannerPrioridad" class="pri-banner oculto" role="status">
     <span class="pri-txt">¿Tu pedido tarda? Priorízalo por <b>10 C$</b> adicionales</span>
     <button id="btnPriorizar" type="button">Priorizar</button>
