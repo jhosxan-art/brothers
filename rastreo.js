@@ -11,7 +11,7 @@ const token = new URLSearchParams(location.search).get("id");
 
 /* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
    Sirve para avisar al administrador cuando abres el enlace. Mientras diga "TU-WORKER" no se envía nada y todo lo demás funciona. */
-const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
+const WORKER_URL_BROTHERS = "https://brothers-push.jhosxan.workers.dev";
 const PRIORIDAD_MONTO = 10;                 // C$ que se suman al total al priorizar
 const PRIORIDAD_ESPERA_MS = 600000;        // 10 minutos antes de ofrecer la prioridad
 
