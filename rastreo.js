@@ -9,6 +9,12 @@ const $ = (id) => document.getElementById(id);
 const TS = firebase.database.ServerValue.TIMESTAMP;
 const token = new URLSearchParams(location.search).get("id");
 
+/* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
+   Sirve para avisar al administrador cuando abres el enlace. Mientras diga "TU-WORKER" no se envía nada y todo lo demás funciona. */
+const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
+const PRIORIDAD_MONTO = 10;                 // C$ que se suman al total al priorizar
+const PRIORIDAD_ESPERA_MS = 600000;        // 10 minutos antes de ofrecer la prioridad
+
 // Mapa (Leaflet + OpenStreetMap)
 const mapa = L.map("mapa", { ...GestosMapa.opciones, attributionControl: false }).setView([-12.0464, -77.0428], 14);
 GestosMapa.aplicar(mapa);   // un dedo solo desliza; el zoom es con botones, doble toque o pellizco
@@ -78,6 +84,7 @@ $("pantallaCerca").addEventListener("pointerdown", () => {
 
 /* ---------- Pantalla final ---------- */
 function terminar(titulo, mensaje) {
+  BrothersExtras.alTerminar();
   Chat.detener();
   if (referencia) referencia.off("value");
   detenerUbicacion();
@@ -224,6 +231,192 @@ async function pedirPermisosAlAbrir() {
   $("permisos").classList.remove("oculto");
 }
 
+/* ============================================================
+   EXTRAS DEL CLIENTE
+   1) Calificación del servicio: al pasar a "entregado" se muestra PRIMERO (1 a 5 estrellas + comentario opcional);
+      al enviarla u omitirla se oculta y aparece la pantalla tradicional de "Pedido entregado".
+      Se guarda en pedidos/{token}/calificacion y en calificaciones/{token} (lo que lee el panel del administrador).
+   2) Factura: tarjeta colapsable con productos, delivery y total a pagar (pedidos/{token}/detalle).
+   3) Prioridad: a los 10 min de abrir el enlace, si el pedido no se entregó, ofrece priorizarlo por 10 C$:
+      guarda pedidos/{token}/prioridad = true y suma 10 C$ al total de la factura.
+   4) Aviso al administrador la primera vez que se abre el enlace (push, vía el Worker de Cloudflare).
+   Va dentro de un objeto para no chocar con los nombres de otros archivos.
+   ============================================================ */
+const BrothersExtras = (() => {
+  const esc = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+  const num = (x) => { const n = typeof x === "string" ? parseFloat(x.replace(/[^\d.,-]/g, "").replace(",", ".")) : x; return typeof n === "number" && isFinite(n) ? n : null; };
+  const dinero = (n) => "C$ " + Number(n || 0).toFixed(2);
+  const lista = (v) => (Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : []);
+
+  let ultimoEstado = null, hayPrioridad = false, descartado = false, enviandoPrioridad = false, timerPri = null, ultimaFirma = "", detalleActual = null, abrioAvisado = false;
+
+  /* ---------- Normaliza el desglose (pedidos/{token}/detalle, o la factura vieja si no hay detalle) ---------- */
+  function normalizar(d) {
+    const x = d.detalle && typeof d.detalle === "object" ? d.detalle : null;
+    const f = !x && d.factura && typeof d.factura === "object" ? d.factura : null;
+    const fuente = x || f; if (!fuente) return null;
+    const productos = lista(fuente.productos || fuente.products || fuente.items).map((p) => {
+      if (typeof p === "string") return { nombre: p, precio: null };
+      return { nombre: p && (p.nombre || p.name || p.producto || p.descripcion || p.item) || "Producto", precio: num(p && (p.precio != null ? p.precio : p.price != null ? p.price : p.monto)) };
+    });
+    let delivery = num(fuente.delivery != null ? fuente.delivery : fuente.totalDelivery != null ? fuente.totalDelivery : fuente.envio);
+    let subtotal = num(fuente.subtotal);
+    if (subtotal == null && productos.some((p) => p.precio != null)) subtotal = productos.reduce((a, p) => a + (p.precio || 0), 0);
+    let total = num(fuente.total != null ? fuente.total : fuente.grandTotal != null ? fuente.grandTotal : fuente.gran);
+    if (total == null && (subtotal != null || delivery != null)) total = (subtotal || 0) + (delivery || 0);
+    const monto = d.prioridad === true ? (num(d.prioridadMonto) || PRIORIDAD_MONTO) : 0;
+    // Con "detalle" el total guardado ya incluye la propina; con la factura vieja se suma aquí
+    const totalMostrado = total == null ? null : (x ? total : total + monto);
+    if (!productos.length && delivery == null && total == null) return null;
+    return { productos, subtotal, delivery, total: totalMostrado, totalBase: total == null ? null : (x ? (num(x.totalBase) != null ? num(x.totalBase) : total - monto) : total), monto, dePrioridad: !!x };
+  }
+
+  /* ---------- Tarjeta de factura ---------- */
+  function pintarFactura(d) {
+    const card = $("facturaCard"), det = normalizar(d);
+    detalleActual = det;
+    if (!det) { card.classList.add("oculto"); return; }
+    const firma = JSON.stringify(det);
+    card.classList.remove("oculto");
+    if (firma === ultimaFirma) return;
+    ultimaFirma = firma;
+    $("facTotalResumen").textContent = det.total != null ? dinero(det.total) : "";
+    let h = "";
+    if (det.productos.length) {
+      h += '<div class="fac-sub">Productos</div>';
+      h += det.productos.map((p) => `<div class="fac-fila"><span>${esc(p.nombre)}</span>${p.precio != null ? `<b>${dinero(p.precio)}</b>` : ""}</div>`).join("");
+      if (det.subtotal != null && det.productos.some((p) => p.precio != null)) h += `<div class="fac-fila"><span>Costo de los productos</span><b>${dinero(det.subtotal)}</b></div>`;
+    }
+    if (det.delivery != null) h += `<div class="fac-fila"><span>Costo del delivery</span><b>${dinero(det.delivery)}</b></div>`;
+    if (det.monto) h += `<div class="fac-fila fac-pri"><span>⚡ Prioridad (propina)</span><b>${dinero(det.monto)}</b></div>`;
+    if (det.total != null) h += `<div class="fac-total"><span>Total a pagar</span><b>${dinero(det.total)}</b></div>`;
+    $("facCuerpo").innerHTML = h;
+  }
+
+  /* ---------- Prioridad por 10 C$ ---------- */
+  const bannerPri = () => $("bannerPrioridad");
+  const estadoFinal = () => ultimoEstado === "entregado" || ultimoEstado === "cancelado";
+  function ocultarBanner() { bannerPri().classList.add("oculto"); }
+  function mostrarBannerPrioridad() {
+    if (!ultimoEstado || estadoFinal() || hayPrioridad || descartado) return;
+    if (!$("pantallaCerca").classList.contains("oculto")) { setTimeout(mostrarBannerPrioridad, 15000); return; }   // no tapa la alarma de llegada
+    const b = $("btnPriorizar"); b.disabled = false; b.textContent = "Priorizar";
+    bannerPri().classList.remove("oculto");
+  }
+  function iniciarTemporizadorPrioridad() {
+    if (timerPri || !token) return;
+    timerPri = setTimeout(() => { timerPri = null; mostrarBannerPrioridad(); }, PRIORIDAD_ESPERA_MS);   // 10 minutos desde que se abre el enlace
+  }
+  function toastPri(texto) {
+    const t = document.createElement("div"); t.className = "pri-ok"; t.textContent = texto; document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4500);
+  }
+  function aceptarPrioridad() {
+    if (enviandoPrioridad || hayPrioridad) return;
+    enviandoPrioridad = true;
+    const b = $("btnPriorizar"); b.disabled = true; b.textContent = "Enviando…";
+    const cambios = { prioridad: true, prioridadMonto: PRIORIDAD_MONTO, prioridadTs: TS };
+    const det = detalleActual;
+    if (det && det.dePrioridad && det.totalBase != null) {   // suma 10 C$ al importe total de la factura (siempre desde el total base: nunca se suma dos veces)
+      cambios["detalle/totalBase"] = det.totalBase;
+      cambios["detalle/prioridad"] = PRIORIDAD_MONTO;
+      cambios["detalle/total"] = Math.round((det.totalBase + PRIORIDAD_MONTO) * 100) / 100;
+    }
+    db.ref("pedidos/" + token).update(cambios).then(() => {
+      hayPrioridad = true; ocultarBanner(); toastPri("⚡ ¡Listo! Tu pedido fue priorizado (+10 C$).");
+    }).catch(() => {
+      b.disabled = false; b.textContent = "Reintentar"; toastPri("No se pudo priorizar. Revisa tu internet.");
+    }).then(() => { enviandoPrioridad = false; });
+  }
+  $("btnPriorizar").onclick = aceptarPrioridad;
+  $("btnPriCerrar").onclick = () => { descartado = true; ocultarBanner(); };
+
+  /* ---------- Aviso al administrador: el cliente abrió su enlace (solo la primera vez) ---------- */
+  function avisarApertura(d) {
+    if (abrioAvisado) return; abrioAvisado = true;
+    if (d.abiertoAviso || /TU-WORKER/.test(WORKER_URL_BROTHERS)) return;   // ya se avisó, o aún no pegaste la dirección del Worker
+    const k = "abrio_" + token; if (lsGet(k)) return;
+    fetch(WORKER_URL_BROTHERS, { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true, body: JSON.stringify({ accion: "cliente_abrio", pedido: token }) })
+      .then((r) => r.json()).then((j) => { if (j && j.ok) lsSet(k, "1"); }).catch(() => {});
+  }
+
+  /* ---------- Cada actualización del pedido ---------- */
+  function alDatos(d) {
+    ultimoEstado = d.estado || "en_ruta";
+    hayPrioridad = d.prioridad === true;
+    if (hayPrioridad) ocultarBanner();
+    pintarFactura(d);
+    avisarApertura(d);
+  }
+
+  /* ---------- Calificación ---------- */
+  const TEXTOS = ["", "Muy mala atención", "Mala atención", "Regular", "Buena atención", "¡Excelente atención!"];
+  let calMostrada = false, calEstrellas = 0;
+  const mensajeEntregado = (gracias) => "Este paquete ya ha sido entregado. El rastreo ha finalizado. " + (gracias ? "¡Gracias por tu calificación y por confiar en Brother’s Deliverys!" : "¡Gracias por confiar en Brother’s Deliverys!");
+  function irAPantallaFinal(gracias) {
+    $("pantallaCalif").classList.add("oculto");
+    terminar("Paquete entregado", mensajeEntregado(gracias));
+  }
+  function pintarEstrellas() {
+    $("calEstrellas").querySelectorAll("button").forEach((b, i) => { b.classList.toggle("on", i < calEstrellas); b.textContent = i < calEstrellas ? "★" : "☆"; b.setAttribute("aria-checked", String(i + 1 === calEstrellas)); });
+    $("calTexto").textContent = TEXTOS[calEstrellas];
+    $("btnCalEnviar").disabled = !calEstrellas;
+  }
+  function mostrarCalificacion(d) {
+    calMostrada = true;
+    const caja = $("calEstrellas"); caja.innerHTML = "";
+    for (let i = 1; i <= 5; i++) {
+      const b = document.createElement("button"); b.type = "button"; b.setAttribute("role", "radio"); b.setAttribute("aria-label", i + (i > 1 ? " estrellas" : " estrella"));
+      b.onclick = () => { calEstrellas = i; pintarEstrellas(); };
+      caja.appendChild(b);
+    }
+    calEstrellas = 0; pintarEstrellas();
+    $("calSub").innerHTML = d.repartidorNombre ? "¿Cómo fue el servicio de <b>" + esc(d.repartidorNombre) + "</b>?" : "¿Cómo fue el servicio?";
+    $("btnCalOmitir").onclick = () => { lsSet("calif_" + token, "omitida"); irAPantallaFinal(false); };
+    $("btnCalEnviar").onclick = () => {
+      if (!calEstrellas) return;
+      const btn = $("btnCalEnviar"); btn.disabled = true; btn.textContent = "Enviando…";
+      const comentario = $("calComentario").value.trim().slice(0, 300);
+      const nodo = { estrellas: calEstrellas, ts: TS }; if (comentario) nodo.comentario = comentario;
+      const resumen = Object.assign({}, nodo);   // copia para el panel del administrador (calificaciones/{token}) con datos del repartidor
+      if (d.repartidorUid) resumen.repartidorUid = d.repartidorUid;
+      if (d.repartidorNombre) resumen.repartidorNombre = String(d.repartidorNombre).slice(0, 60);
+      if (d.pedido) resumen.pedido = String(d.pedido).slice(0, 30);
+      Promise.allSettled([
+        db.ref("pedidos/" + token + "/calificacion").set(nodo),   // en el nodo del pedido
+        db.ref("calificaciones/" + token).set(resumen)             // lo que lee la pestaña Equipo del admin
+      ]).then((r) => {
+        if (r.every((x) => x.status === "rejected")) { btn.disabled = false; btn.textContent = "Enviar calificación"; $("calTexto").textContent = "No se pudo enviar. Intenta de nuevo."; return; }
+        lsSet("calif_" + token, "1");
+        irAPantallaFinal(true);
+      });
+    };
+    $("pantallaCalif").classList.remove("oculto");
+  }
+
+  /* El pedido pasó a "entregado": primero la calificación, luego la pantalla tradicional */
+  function alEntregar(d) {
+    if (calMostrada) return;
+    ultimoEstado = "entregado"; ocultarBanner();
+    if (referencia) referencia.off("value");   // ya no hace falta escuchar más cambios: se muestra la última foto del pedido
+    detenerUbicacion(); pararAlarma();
+    try { wake?.release(); } catch (_) {}
+    if (d.calificacion || lsGet("calif_" + token)) return terminar("Paquete entregado", mensajeEntregado(!!d.calificacion));   // ya calificó (o la omitió): directo a la pantalla final
+    mostrarCalificacion(d);
+  }
+
+  /* Cuando el rastreo termina por cualquier motivo */
+  function alTerminar() {
+    clearTimeout(timerPri); timerPri = null; ocultarBanner();
+    ultimoEstado = ultimoEstado || "cancelado";
+  }
+
+  iniciarTemporizadorPrioridad();   // 10 minutos desde que se abre el enlace
+  return { alDatos, alEntregar, alTerminar };
+})();
+
 /* ---------- Escucha en tiempo real ---------- */
 if (!token) {
   terminar("Enlace no válido", "Pide a tu repartidor que te reenvíe el enlace de rastreo.");
@@ -241,9 +434,10 @@ if (!token) {
   referencia.on("value", (snap) => {
     const d = snap.val();
     if (!d) return terminar("El rastreo ha finalizado", "Este paquete ya ha sido entregado o el enlace ya no está activo.");
-    if (d.estado === "entregado") return terminar("Paquete entregado", "Este paquete ya ha sido entregado. El rastreo ha finalizado. ¡Gracias por confiar en Brother’s Deliverys!");
+    if (d.estado === "entregado") return BrothersExtras.alEntregar(d);   // primero la calificación, después la pantalla de "Pedido entregado"
     if (d.estado === "cancelado") return terminar("El rastreo ha finalizado", "El viaje fue cancelado. Contacta a Brother's Deliverys si tienes dudas.");
 
+    BrothersExtras.alDatos(d);   // factura, prioridad y aviso de apertura
     if (d.pedido) $("pedidoTxt").textContent = "Pedido " + d.pedido;
     Chat.setContexto({ pedido: d.pedido, nombreRepartidor: d.repartidorNombre });
     if (d.repartidorNombre) $("nombreRepartidor").textContent = "Tu repartidor: " + d.repartidorNombre;

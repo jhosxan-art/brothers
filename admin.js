@@ -120,9 +120,73 @@ auth.onAuthStateChanged(async (user) => {
   mostrar("app");
   initMapa();
   iniciarMonitoreo();
+  registrarPushAdmin(user.uid);   // APK: permisos de notificaciones + token FCM en admin_tokens
   Policia.iniciar({ db, mapa: () => mapa, uid: () => auth.currentUser && auth.currentUser.uid, nombre: () => "Brothers (admin)", rol: "admin", pos: () => null });
 });
-$("btnSalir").onclick = () => { if (confirm("¿Cerrar sesión?")) auth.signOut(); };
+$("btnSalir").onclick = async () => { if (!confirm("¿Cerrar sesión?")) return; await quitarPushAdmin(); auth.signOut(); };
+
+/* ---------- APK Admin: notificaciones push (FCM) ----------
+   Al iniciar sesión (solo dentro de la APK) se piden los permisos nativos de notificaciones y el token FCM
+   de este celular se guarda en  admin_tokens/{uid}/{clave-del-aparato} = { token, ts, plataforma }.
+   El Worker de Cloudflare lee ese nodo para avisarte cuando:
+     · un repartidor escribe en un chat, y
+     · un cliente abre por primera vez su enlace de rastreo.
+   En el navegador normal no hace nada (las push nativas solo existen en la APK). */
+const adminEsNativo = () => { const C = window.Capacitor; return !!(C && ((C.isNativePlatform && C.isNativePlatform()) || (C.getPlatform && C.getPlatform() !== "web"))); };
+function adminPlug(nombre) {
+  const C = window.Capacitor;
+  if (!adminEsNativo()) return null;
+  if (C.isPluginAvailable && !C.isPluginAvailable(nombre)) return null;
+  return (C.Plugins && C.Plugins[nombre]) || (C.registerPlugin && C.registerPlugin(nombre)) || null;
+}
+let adminPushUid = null, adminPushClave = null;
+const claveDeToken = (t) => String(t || "").replace(/[.#$\[\]\/]/g, "_").slice(-40);   // clave válida en Firebase y única por aparato
+function irAPestana(id) { const b = document.querySelector('.tabs button[data-tab="' + id + '"]'); if (b) b.click(); }
+async function registrarPushAdmin(uid) {
+  const PN = adminPlug("PushNotifications");
+  if (!PN || !uid) return;
+  adminPushUid = uid;
+  try {
+    let p = await PN.checkPermissions();
+    if (p.receive !== "granted") p = await PN.requestPermissions();   // ventana de Android 13+: "¿Permitir notificaciones?"
+    if (p.receive !== "granted") { toast("Activa las notificaciones de la app en Ajustes para recibir los avisos de tus repartidores."); return; }
+    // Canal \"admin\": importancia 5 = ventana emergente con sonido (mismo nombre que usa el Worker y el AndroidManifest)
+    await PN.createChannel({ id: "admin", name: "Avisos de Brothers", description: "Mensajes de repartidores y clientes que abren su enlace", importance: 5, visibility: 1, vibration: true, lights: true });
+    await PN.removeAllListeners();
+    PN.addListener("registration", (t) => {   // se dispara al registrar y cada vez que Google renueva el token
+      const u = adminPushUid; if (!u || !t || !t.value) return;
+      adminPushClave = claveDeToken(t.value);
+      db.ref("admin_tokens/" + u + "/" + adminPushClave).set({ token: t.value, ts: firebase.database.ServerValue.TIMESTAMP, plataforma: "android" })
+        .catch((e) => console.warn("admin_tokens:", e.message));
+    });
+    PN.addListener("registrationError", (e) => console.warn("Push admin:", e));
+    PN.addListener("pushNotificationReceived", (n) => {   // llegó con la app abierta: el chat ya se avisa por voz con su propio listener
+      const d = (n && n.data) || {};
+      if (d.tipo === "cliente_abrio") { try { Voz.hablar("El cliente " + (d.pedido ? "del pedido " + d.pedido + " " : "") + "abrió su enlace", { forzar: true }); } catch (_) {} }
+    });
+    PN.addListener("pushNotificationActionPerformed", (ev) => {   // tocó la notificación
+      const d = (ev && ev.notification && ev.notification.data) || {};
+      if (d.tipo === "chat_repartidor") {
+        irAPestana("panelChats");
+        if (d.equipo === "1" && d.uid && typeof abrirChatRep === "function") setTimeout(() => { try { abrirChatRep(d.uid); } catch (_) {} }, 300);
+      } else irAPestana("panelMapa");
+    });
+    await PN.register();
+  } catch (e) { console.warn("Push admin:", e); }
+}
+async function quitarPushAdmin() {   // al cerrar sesión: este celular deja de recibir avisos del administrador
+  try { if (adminPushUid && adminPushClave) await db.ref("admin_tokens/" + adminPushUid + "/" + adminPushClave).remove(); } catch (_) {}
+  adminPushUid = null; adminPushClave = null;
+}
+
+/* ---------- Teléfono (WhatsApp) del repartidor ---------- */
+/* Solo números con código de país. Si escribes 8 dígitos (número de Nicaragua) se le antepone 505. Devuelve "" si no es válido. */
+function normalizarTelefono(t) {
+  let d = String(t == null ? "" : t).replace(/\D+/g, "");
+  if (d.indexOf("00") === 0) d = d.slice(2);
+  if (d.length === 8) d = "505" + d;
+  return d.length >= 10 && d.length <= 15 ? d : "";
+}
 
 /* ---------- Mapa ---------- */
 function initMapa() {
@@ -836,10 +900,12 @@ function pintarEquipo() {
       <div class="fila">
         <span class="avatar">${RIDER_SVG}</span>
         <div class="datos"><strong>${esc(nombreUid(uid))}</strong>
-          <small>${i.email ? esc(i.email) : "Sin correo registrado · " + esc(uid.slice(0, 8)) + "…"}</small></div>
+          <small>${i.email ? esc(i.email) : "Sin correo registrado · " + esc(uid.slice(0, 8)) + "…"}</small>
+          <small>📱 ${i.telefono ? "WhatsApp +" + esc(i.telefono) : "Sin WhatsApp guardado"}</small></div>
         <span class="chip ${clase}">${texto}</span>
       </div>
       <div class="acciones-fila">
+        <button class="mini" data-accion="telefono" data-uid="${esc(uid)}">${i.telefono ? "Editar WhatsApp" : "Agregar WhatsApp"}</button>
         ${i.email ? `<button class="mini" data-accion="reset" data-uid="${esc(uid)}">Restablecer clave</button>` : ""}
         <button class="mini peligro" data-accion="quitar" data-uid="${esc(uid)}">Quitar</button>
       </div></div>`;
@@ -848,6 +914,16 @@ function pintarEquipo() {
 $("listaEquipo").onclick = (e) => {
   const b = e.target.closest("button[data-accion]"); if (!b) return;
   const uid = b.dataset.uid, i = infoReg(uid), nombre = nombreUid(uid);
+  if (b.dataset.accion === "telefono") {   // guardar / cambiar el WhatsApp al que llegan los pedidos nuevos
+    const escrito = prompt(`WhatsApp de ${nombre} con código de país (ej. 50588887777). Déjalo vacío para quitarlo:`, i.telefono || "");
+    if (escrito === null) return;
+    const tel = escrito.trim() ? normalizarTelefono(escrito) : "";
+    if (escrito.trim() && !tel) return setMsg("msgEquipo", "Ese teléfono no es válido. Usa solo números con código de país, ej. 50588887777.", "error");
+    db.ref("repartidores/" + uid + "/telefono").set(tel || null)
+      .then(() => setMsg("msgEquipo", tel ? `WhatsApp de ${nombre} guardado: +${tel}` : `Se quitó el WhatsApp de ${nombre}.`, "ok"))
+      .catch((err) => setMsg("msgEquipo", "No se pudo guardar el teléfono: " + err.message, "error"));
+    return;
+  }
   if (b.dataset.accion === "quitar") {
     if (!confirm(`¿Quitar a ${nombre}?${viajeDe(uid) ? " Tiene un viaje en curso." : ""} Ya no podrá usar la app ni aparecerá en el mapa.`)) return;
     db.ref().update({ ["repartidores/" + uid]: null, ["ubicaciones/" + uid]: null })
@@ -863,7 +939,9 @@ $("listaEquipo").onclick = (e) => {
 $("btnAgregar").onclick = async () => {
   const email = $("nuevoCorreo").value.trim().toLowerCase();
   const clave = $("nuevaClave").value;
+  const telefono = normalizarTelefono($("nuevoTelefono").value);
   if (!email || clave.length < 6) return setMsg("msgEquipo", "Escribe el correo y una contraseña de al menos 6 caracteres.", "error");
+  if ($("nuevoTelefono").value.trim() && !telefono) return setMsg("msgEquipo", "El número de WhatsApp no es válido. Usa solo números con código de país, ej. 50588887777.", "error");
   setMsg("msgEquipo", "Creando repartidor…");
   $("btnAgregar").disabled = true;
 
@@ -879,8 +957,10 @@ $("btnAgregar").onclick = async () => {
       catch (_) { throw { message: "Ese correo ya existe. Escribe su contraseña actual para volver a registrarlo, o usa “Restablecer clave”." }; }
     }
     // El nombre de usuario lo elige el propio repartidor la primera vez que entra
-    await db.ref("repartidores/" + uid).set({ email, nombre: nombreDesdeCorreo(email), creado: firebase.database.ServerValue.TIMESTAMP });
-    $("nuevoCorreo").value = ""; $("nuevaClave").value = "";
+    const ficha = { email, nombre: nombreDesdeCorreo(email), creado: firebase.database.ServerValue.TIMESTAMP };
+    if (telefono) ficha.telefono = telefono;   // WhatsApp: a este número llegan los pedidos que le asignes
+    await db.ref("repartidores/" + uid).set(ficha);
+    $("nuevoCorreo").value = ""; $("nuevaClave").value = ""; $("nuevoTelefono").value = "";
     setMsg("msgEquipo", `Listo: ${email} ya puede entrar a la app. Elegirá su nombre de usuario al iniciar sesión.`, "ok");
   } catch (e) {
     setMsg("msgEquipo", e.code ? errorAuth(e) : e.message, "error");

@@ -10,6 +10,44 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
+  <style>
+    /* ===== Detalle de factura (tarjeta colapsable) ===== */
+    .fac-card{margin:10px 0 4px;border:1.5px solid #cfe9f8;border-radius:14px;background:#f4fbff;overflow:hidden}
+    .fac-card>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;font-weight:700;font-size:15px;color:#0b4a6b}
+    .fac-card>summary::-webkit-details-marker{display:none}
+    .fac-card>summary b{color:#E5322D;font-size:16px;white-space:nowrap}
+    .fac-card>summary::after{content:"▾";margin-left:6px;color:#0A86C9;transition:transform .2s}
+    .fac-card[open]>summary::after{transform:rotate(180deg)}
+    .fac-cuerpo{padding:2px 14px 12px;font-size:14px;color:#1f2933}
+    .fac-fila{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px dashed #d6e6ef}
+    .fac-fila span{min-width:0;overflow-wrap:anywhere}
+    .fac-fila b{white-space:nowrap}
+    .fac-sub{margin-top:6px;font-weight:700;color:#0b4a6b;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+    .fac-pri{color:#b45309;font-weight:700}
+    .fac-total{display:flex;justify-content:space-between;gap:12px;margin-top:8px;padding-top:8px;border-top:2px solid #0A86C9;font-size:17px;font-weight:800;color:#111}
+    .fac-total b{color:#E5322D}
+    .fac-nota{margin:6px 0 0;font-size:12px;color:#5b6b76}
+    /* ===== Banner de prioridad (parte inferior, discreto) ===== */
+    .pri-banner{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom));z-index:1200;width:calc(100% - 24px);max-width:420px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:9px 10px 9px 14px;border-radius:14px;background:#111;color:#fff;box-shadow:0 6px 22px rgba(0,0,0,.35);font-size:14px;line-height:1.25}
+    .pri-banner.oculto{display:none}
+    .pri-banner .pri-txt{flex:1}
+    .pri-banner b{color:#7fd3ff}
+    .pri-banner button{border:0;font:inherit;cursor:pointer}
+    .pri-banner #btnPriorizar{background:#E5322D;color:#fff;font-weight:800;border-radius:10px;padding:9px 12px;white-space:nowrap}
+    .pri-banner #btnPriorizar:disabled{opacity:.6}
+    .pri-banner #btnPriCerrar{background:none;color:#cbd5dd;font-size:18px;padding:4px 6px}
+    .pri-ok{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom));z-index:1200;max-width:420px;padding:10px 16px;border-radius:14px;background:#0A86C9;color:#fff;font-weight:700;font-size:14px;box-shadow:0 6px 22px rgba(0,0,0,.3)}
+    /* ===== Calificación (se muestra ANTES de la pantalla de "Pedido entregado") ===== */
+    #pantallaCalif{z-index:3000;overflow-y:auto}
+    .cal-caja{width:100%;max-width:420px;margin:0 auto;text-align:center}
+    .cal-estrellas{display:flex;justify-content:center;gap:6px;margin:10px 0 4px}
+    .cal-estrellas button{border:0;background:none;font-size:44px;line-height:1;padding:0 2px;cursor:pointer;color:#c4ccd2}
+    .cal-estrellas button.on{color:#F59E0B}
+    .cal-texto{min-height:24px;margin:2px 0 8px;font-weight:700;color:#b45309}
+    #calComentario{width:100%;box-sizing:border-box;border:2px solid #d4dde3;border-radius:12px;padding:10px;font:inherit;resize:none;background:#fff;color:#111}
+    #btnCalEnviar:disabled{opacity:.5}
+    .cal-omitir{display:block;width:100%;margin-top:8px;border:0;background:none;padding:10px;font-size:14px;font-weight:600;font-family:inherit;color:#5b6b76;cursor:pointer;text-decoration:underline}
+  </style>
 </head>
 <body class="cliente">
   <div id="mapa"></div>
@@ -28,6 +66,11 @@
       <span class="avatar" data-rider></span>
       <div><strong id="nombreRepartidor">Tu repartidor</strong><small id="horaTxt">Esperando señal…</small></div>
     </div>
+    <!-- Detalle de tu pedido: productos, delivery y total a pagar (colapsable) -->
+    <details id="facturaCard" class="fac-card oculto">
+      <summary><span>🧾 Detalle de tu pedido</span><b id="facTotalResumen"></b></summary>
+      <div id="facCuerpo" class="fac-cuerpo"></div>
+    </details>
     <!-- Mi ubicación: se comparte en tiempo real con el repartidor -->
     <div id="ubicCaja" class="ubic-caja">
       <div id="ubicTxt" class="estado">Activando tu ubicación…</div>
@@ -71,6 +114,27 @@
     <button id="btnEntendido" class="primario">Entendido</button>
   </div>
 
+  <!-- Calificación del servicio: aparece PRIMERO cuando el pedido pasa a "entregado" -->
+  <div id="pantallaCalif" class="pantalla-final fin oculto" role="dialog" aria-modal="true" aria-labelledby="calTitulo">
+    <div class="cal-caja">
+      <div class="gran-icono" data-rider></div>
+      <h2 id="calTitulo">¡Tu pedido fue entregado!</h2>
+      <p id="calSub">¿Cómo fue el servicio?</p>
+      <div id="calEstrellas" class="cal-estrellas" role="radiogroup" aria-label="Calificación de 1 a 5 estrellas"></div>
+      <div id="calTexto" class="cal-texto" aria-live="polite"></div>
+      <textarea id="calComentario" maxlength="300" rows="3" placeholder="Cuéntanos más (opcional)"></textarea>
+      <button id="btnCalEnviar" class="primario" type="button" disabled>Enviar calificación</button>
+      <button id="btnCalOmitir" class="cal-omitir" type="button">Omitir</button>
+    </div>
+  </div>
+
+  <!-- Prioridad: aparece pasados 10 minutos si el pedido aún no se entrega -->
+  <div id="bannerPrioridad" class="pri-banner oculto" role="status">
+    <span class="pri-txt">¿Tu pedido tarda? Priorízalo por <b>10 C$</b> adicionales</span>
+    <button id="btnPriorizar" type="button">Priorizar</button>
+    <button id="btnPriCerrar" type="button" aria-label="Cerrar aviso">✕</button>
+  </div>
+
   <!-- Pantalla que reemplaza al mapa cuando termina el rastreo -->
   <div id="pantallaFinal" class="pantalla-final fin oculto">
     <div class="gran-icono" data-rider></div>
@@ -88,64 +152,5 @@
   <script src="chat.js"></script>
   <script src="rastreo.js"></script>
   <script src="aviso-cliente.js"></script>
-  <!-- Calificación del repartidor al entregar el pedido -->
-  <script>
-(() => {
-  const t = new URLSearchParams(location.search).get("id"); if (!t || typeof firebase === "undefined") return;
-  const db = (typeof APP !== "undefined" ? APP : firebase.app()).database();
-  const clave = "calif_" + t;
-  const guardado = (k, v) => { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (_) { return null; } };
-  const sesion = (k, v) => { try { return v === undefined ? sessionStorage.getItem(k) : sessionStorage.setItem(k, v); } catch (_) { return null; } };
-  if (guardado(clave)) return;   // ya calificó este pedido
-  const TEXTOS = ["", "Muy mala atención", "Mala atención", "Regular", "Buena atención", "¡Excelente atención!"];
-  let abierto = false;
-
-  function abrir(ped) {
-    if (abierto || guardado(clave) || sesion(clave)) return; abierto = true;
-    const f = document.createElement("div");
-    f.style.cssText = "position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;font-family:system-ui,sans-serif";
-    f.innerHTML = `<div style="width:100%;max-width:440px;background:#fff;border-radius:20px 20px 0 0;padding:20px 18px calc(18px + env(safe-area-inset-bottom));box-sizing:border-box;text-align:center">
-      <div style="font-size:34px">📦✅</div>
-      <h2 style="margin:6px 0 2px;font-size:20px">¡Tu pedido fue entregado!</h2>
-      <p style="margin:0 0 12px;color:#555;font-size:15px">¿Cómo fue la atención${ped && ped.repartidorNombre ? " de <b>" + String(ped.repartidorNombre).replace(/[<>&]/g, "") + "</b>" : " del repartidor"}?</p>
-      <div id="calEst" style="display:flex;justify-content:center;gap:6px"></div>
-      <div id="calTxt" style="min-height:22px;margin:6px 0 8px;font-weight:700;color:#b45309"></div>
-      <textarea id="calCom" maxlength="300" rows="3" placeholder="Comentario (opcional)" style="width:100%;box-sizing:border-box;border:2px solid #ddd;border-radius:12px;padding:10px;font:inherit;resize:none"></textarea>
-      <button id="calOk" type="button" disabled style="width:100%;margin-top:10px;border:0;border-radius:12px;padding:13px;font:700 16px system-ui;background:#0A86C9;color:#fff;opacity:.5">Enviar calificación</button>
-      <button id="calNo" type="button" style="width:100%;margin-top:6px;border:0;background:none;padding:10px;font:600 14px system-ui;color:#666">Ahora no</button></div>`;
-    document.body.appendChild(f);
-    const caja = f.querySelector("#calEst"), txt = f.querySelector("#calTxt"), ok = f.querySelector("#calOk");
-    let n = 0;
-    const pinta = () => {
-      caja.querySelectorAll("button").forEach((b, i) => { b.textContent = i < n ? "★" : "☆"; b.style.color = i < n ? "#F59E0B" : "#bbb"; });
-      txt.textContent = TEXTOS[n]; ok.disabled = !n; ok.style.opacity = n ? "1" : ".5";
-    };
-    for (let i = 1; i <= 5; i++) {
-      const b = document.createElement("button"); b.type = "button"; b.setAttribute("aria-label", i + " estrella" + (i > 1 ? "s" : ""));
-      b.style.cssText = "border:0;background:none;font-size:42px;line-height:1;padding:0 2px;cursor:pointer";
-      b.onclick = () => { n = i; pinta(); };
-      caja.appendChild(b);
-    }
-    pinta();
-    f.querySelector("#calNo").onclick = () => { sesion(clave, "1"); f.remove(); abierto = false; };
-    ok.onclick = () => {
-      if (!n) return; ok.disabled = true; ok.textContent = "Enviando…";
-      const d = { estrellas: n, ts: firebase.database.ServerValue.TIMESTAMP };
-      const c = f.querySelector("#calCom").value.trim(); if (c) d.comentario = c.slice(0, 300);
-      if (ped) { if (ped.repartidorUid) d.repartidorUid = ped.repartidorUid; if (ped.repartidorNombre) d.repartidorNombre = String(ped.repartidorNombre).slice(0, 60); if (ped.pedido) d.pedido = String(ped.pedido).slice(0, 30); }
-      db.ref("calificaciones/" + t).set(d).then(() => {
-        guardado(clave, "1");
-        f.querySelector("div").innerHTML = '<div style="font-size:42px">🙏</div><h2 style="margin:8px 0">¡Gracias por tu calificación!</h2><button id="calCerrar" type="button" style="margin-top:8px;border:0;border-radius:12px;padding:12px 22px;font:700 15px system-ui;background:#111;color:#fff">Cerrar</button>';
-        f.querySelector("#calCerrar").onclick = () => f.remove();
-        setTimeout(() => f.remove(), 4000);
-      }).catch(() => { ok.disabled = false; ok.textContent = "Enviar calificación"; txt.textContent = "No se pudo enviar. Intenta de nuevo."; });
-    };
-  }
-  db.ref("pedidos/" + t + "/estado").on("value", (s) => {
-    if (s.val() !== "entregado") return;
-    db.ref("pedidos/" + t).once("value").then((p) => setTimeout(() => abrir(p.val() || {}), 2500)).catch(() => {});   // deja oír primero el aviso de "entregado"
-  });
-})();
-  </script>
 </body>
 </html>

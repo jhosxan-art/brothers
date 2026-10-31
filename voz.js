@@ -14,6 +14,8 @@ const Voz = (() => {
     mensajeAdmin: "Brothers te ha escrito",
     guiaAdmin: "Brothers te ha indicado la ubicación del cliente",
     cerca: "El repartidor está cerca",
+    // Prioridad: el cliente pagó 10 C$ extra para que su pedido salga primero
+    prioridadCliente: (id) => "El cliente de la factura " + String(id == null || id === "" ? "sin número" : id).split("").join(" ") + " quiere priorizar su pedido",
     prueba: "Alertas de voz activadas"
   };
   const soporta = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
@@ -113,5 +115,8 @@ const Voz = (() => {
 
   const lista = () => desbloqueada;
 
-  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio };
+  /* Alerta de prioridad (se repite 2 veces para que se oiga aunque el repartidor esté manejando) */
+  const prioridad = (id) => hablar(FRASES.prioridadCliente(id), { forzar: true, repetir: 2, pausaMs: 2000 });
+
+  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad };
 })();

@@ -421,7 +421,12 @@ window.Factura = { alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCod
 
       document.getElementById('generatedInvoiceDisplay').innerHTML = invoiceHTML;
 
-      facturaActual = { token, pedido: pickupCode, cliente: customerName, tel: '', texto: invoiceText, total: grandTotal, delivery: totalDelivery, link };
+      facturaActual = {
+          token, pedido: pickupCode, cliente: customerName, tel: '', texto: invoiceText, total: grandTotal, delivery: totalDelivery, link,
+          // Desglose que ve el cliente en su enlace de rastreo (repartidor.js lo guarda en pedidos/{token}/detalle)
+          productos: products.map((p) => ({ nombre: String(p.name), precio: Number(p.price) || 0 })),
+          subtotal: subtotal, deliveryBase: deliveryPrice, mandadoExtra: extraErrand
+      };
 
       dailyStats.totalOrders += 1;
       dailyStats.totalEarnings += totalDelivery;

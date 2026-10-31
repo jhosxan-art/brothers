@@ -8,6 +8,10 @@
 const OrdenAdminRep = (() => {
   const O = Ordenes, esc = O.esc;
   let ctx = null, id = null, ref = null, orden = null, minimizada = false;
+  let refPri = null, prioridad = false, prioLista = false, avisoPri = false, detallePub = null;   // prioridad que paga el cliente (pedidos/{id}/prioridad)
+  const EXTRA_PRI = 10;   // C$ de propina por prioridad
+  const dinero = (n) => (O.money ? O.money(n) : "C$ " + Number(n || 0).toFixed(2));
+  const baseTotal = (o) => (O.r2 ? O.r2(o.delivery) + O.r2(o.iva) : (Number(o.delivery) || 0) + (Number(o.iva) || 0));   // lo que cobra el repartidor sin propina
 
   const init = (c) => { ctx = c; };
   /* Asignado por el administrador y todavía sin respuesta del repartidor (Aceptar / Rechazar) */
@@ -41,10 +45,28 @@ const OrdenAdminRep = (() => {
       <div class="pd-det"><span>🏠 Entrega</span><b>${esc((o.entrega && o.entrega.texto) || "—")}</b></div>
       ${o.paquete ? `<div class="pd-det"><span>📝 Detalles del paquete</span><b>${esc(o.paquete)}</b></div>` : ""}</div>`;
   }
-  function detener() { if (ref) { ref.off(); ref = null; } id = null; orden = null; }
+  function detener() {
+    if (ref) { ref.off(); ref = null; }
+    if (refPri) { refPri.off(); refPri = null; }
+    id = null; orden = null; prioridad = false; prioLista = false; avisoPri = false; detallePub = null;
+  }
+  /* Dispara la alerta una sola vez cuando ya se conocen la orden (código de factura) y la prioridad */
+  function revisarPrioridad() {
+    if (prioridad && !avisoPri && orden && ctx.alPrioridad) { avisoPri = true; ctx.alPrioridad(id, orden); }
+  }
+  /* Etiqueta visual + total con los 10 C$ de propina por prioridad */
+  function prioridadHtml(o) {
+    if (!prioridad) return "";
+    return `<div class="pd-prio" style="margin:6px 0;padding:7px 10px;border-radius:10px;background:#FFF4E5;border:1.5px solid #F59E0B;color:#7c3a00;font-size:13px;font-weight:600;line-height:1.35"><span class="chip alerta">⚡ PRIORIDAD</span> +${dinero(EXTRA_PRI)} en concepto de propina por prioridad<br>Total a cobrar: <b>${dinero(baseTotal(o) + EXTRA_PRI)}</b></div>`;
+  }
   function seguir(ordenId) {
     if (!ordenId || ordenId === id) return;
     detener(); id = ordenId;
+    refPri = ctx.db.ref("pedidos/" + id + "/prioridad");
+    refPri.on("value", (s) => {
+      prioridad = s.val() === true; prioLista = true;
+      revisarPrioridad(); ctx.alCambiar();
+    }, () => {});
     ref = ctx.db.ref("ordenes/" + id);
     ref.on("value", (s) => {
       const o = s.val(), tenia = !!orden;
@@ -53,6 +75,7 @@ const OrdenAdminRep = (() => {
       orden = o && !rechazado && !deOtro && ["pendiente", "asignado", "retirado"].includes(o.estado) ? o : null;   // terminado, cancelado o rechazado: la tarjeta desaparece
       if (tenia && !orden && (rechazado || deOtro) && ctx.alRechazado) ctx.alRechazado();
       if (orden && esNuevo(id, orden) && ctx.alNuevo) ctx.alNuevo(id, orden);
+      revisarPrioridad();
       ctx.alCambiar();
     }, () => {});
   }
@@ -67,6 +90,7 @@ const OrdenAdminRep = (() => {
         <span class="chip ${cls}">${txt}</span>
         <button class="mini pd-min-btn" data-oa="min" type="button" aria-label="${minimizada ? "Ver detalles" : "Ocultar detalles"}">${minimizada ? "▴" : "▾"}</button></div>
       ${O.precioHtml(orden)}
+      ${prioridadHtml(orden)}
       <div class="pd-ahora">${ahora}</div>
       ${minimizada ? "" : detallesHtml(orden, true)}
       ${porResponder ? `<div class="pc-botones">
@@ -109,6 +133,16 @@ const OrdenAdminRep = (() => {
     if (O.valido(ent)) {
       ped.destLat = ent.lat; ped.destLng = ent.lng; ped.distancia = Math.round(O.distM(base, ent));
       if (!O.siguienteRetiro(orden)) ped.cerca = ped.distancia <= 200;
+    }
+    if (prioLista && detallePub !== id) {   // desglose para la factura del cliente (una vez por pedido; el total ya incluye la propina si el cliente priorizó)
+      detallePub = id;
+      const base = baseTotal(orden);
+      const items = O.paradas(orden).filter((p) => p.producto).map((p) => ({ nombre: String(p.producto).slice(0, 80) }));
+      if (!items.length && orden.paquete) items.push({ nombre: String(orden.paquete).slice(0, 80) });
+      if (items.length) ped["detalle/productos"] = items;
+      ped["detalle/delivery"] = base; ped["detalle/totalBase"] = base;
+      ped["detalle/total"] = Math.round((base + (prioridad ? EXTRA_PRI : 0)) * 100) / 100;
+      if (prioridad) ped["detalle/prioridad"] = EXTRA_PRI;
     }
     ctx.db.ref("pedidos/" + id).update(ped).catch(() => {});
   }

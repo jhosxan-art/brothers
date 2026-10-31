@@ -20,6 +20,11 @@ const db = APP.database();
 const $ = (id) => document.getElementById(id);
 const TS = firebase.database.ServerValue.TIMESTAMP;
 
+/* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
+   Sirve para avisar al administrador (push en su APK Admin) cuando escribes en un chat. Mientras diga "TU-WORKER" no se envía nada. */
+const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
+const PRIORIDAD_EXTRA = 10;   // C$ de propina cuando el cliente prioriza su pedido
+
 let watchId = null, bgId = null, bgPlugin = null, latido = null, wakeLock = null;
 let uidActual = null, usuario = null, ultimaPos = null, ultimaEscritura = 0;
 const INTERVALO_MS = 4000;   // máximo 1 escritura de GPS cada 4 s
@@ -366,13 +371,63 @@ function crearViaje(info) {
   return v;
 }
 
+/* ---------- Push al administrador cuando el repartidor escribe en un chat (lo envía el Worker de Cloudflare) ---------- */
+async function avisarAlAdminChat(a) {
+  try {
+    if (/TU-WORKER/.test(WORKER_URL_BROTHERS)) return;
+    const u = auth.currentUser; if (!u) return;
+    const idToken = await u.getIdToken();
+    fetch(WORKER_URL_BROTHERS, {
+      method: "POST", keepalive: true,
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+      body: JSON.stringify(Object.assign({ accion: "admin_chat" }, a, { texto: String(a.texto || "").slice(0, 240) }))
+    }).catch(() => {});
+  } catch (_) {}
+}
+
+/* ---------- Prioridad: el cliente pagó 10 C$ para que su pedido salga primero ---------- */
+/* Desglose que ve el cliente en su enlace (pedidos/{token}/detalle). Si el cliente ya priorizó, el total ya lleva la propina. */
+function detalleDeFactura(f, conPrioridad) {
+  const base = Number(f.total) || 0;
+  const d = {
+    productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre).slice(0, 80), precio: Number(p.precio) || 0 })),
+    subtotal: Number(f.subtotal) || 0, delivery: Number(f.delivery) || 0, totalBase: base, total: base
+  };
+  if (conPrioridad) { d.prioridad = PRIORIDAD_EXTRA; d.total = Math.round((base + PRIORIDAD_EXTRA) * 100) / 100; }
+  return JSON.parse(JSON.stringify(d));
+}
+/* Voz (TTS) + vibración + notificación. Se avisa una sola vez por pedido en este aparato. */
+function alertaPrioridad(token, codigo) {
+  const k = "prioAvisada_" + token;
+  try { if (localStorage.getItem(k)) return; localStorage.setItem(k, "1"); } catch (_) {}
+  const frase = Voz.FRASES.prioridadCliente(codigo);
+  Voz.prioridad(codigo);   // “El cliente de la factura [número] quiere priorizar su pedido”
+  navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 400]);
+  notificarTexto("⚡ Prioridad", frase, "Prioridad", { token });
+  if (!document.hidden) setEstado("⚡ " + frase + " (+C$ " + PRIORIDAD_EXTRA.toFixed(2) + " de propina por prioridad)", "ok");
+}
+const money2 = (n) => "C$ " + Number(n || 0).toFixed(2);
+/* Total visible del pedido con la propina de prioridad ya sumada (o null si no se conoce el total) */
+function totalConPropina(v) {
+  if (v.detalle && typeof v.detalle.total === "number") return v.detalle.total;   // el cliente ya lo dejó sumado
+  if (v.factura && typeof v.factura.total === "number") return v.factura.total + PRIORIDAD_EXTRA;
+  return null;
+}
+
 /* Factura original + sub-factura del pedido (sincronizadas en pedidos/{token}) */
 function escucharSubfactura(v) {
   const base = db.ref("pedidos/" + v.token);
-  const f = base.child("factura"), s = base.child("subfactura");
+  const f = base.child("factura"), s = base.child("subfactura"), dt = base.child("detalle"), pr = base.child("prioridad");
   f.on("value", (x) => { v.factura = x.val(); refrescarTextos(); }, () => {});
   s.on("value", (x) => { v.sub = x.val(); refrescarTextos(); }, () => {});
-  v.refExtra = [f, s];
+  dt.on("value", (x) => { v.detalle = x.val(); refrescarTextos(); }, () => {});
+  pr.on("value", (x) => {   // el cliente tocó "Priorizar": alerta de voz + etiqueta en la tarjeta
+    const activa = x.val() === true, era = v.prioridad === true;
+    v.prioridad = activa;
+    if (activa && !era) alertaPrioridad(v.token, v.pedido);
+    refrescarTextos();
+  }, () => {});
+  v.refExtra = [f, s, dt, pr];
 }
 const ctxSub = { db, usuario: () => usuario, wa: (m) => abrirWhatsApp(m), alCambiar: () => refrescarTextos() };
 
@@ -409,7 +464,7 @@ Factura.alEnviar = (f) => {
   if (ex) {   // la factura usa un enlace de contacto que ya estaba abierto: mismo token, ahora con factura
     ex.sinFactura = false; ex.cliente = f.cliente || ex.cliente; ex.pedido = f.pedido;
     ex.factura = SubFactura.instantanea(f);
-    db.ref("pedidos/" + f.token).update({ pedido: f.pedido, sinFactura: null, factura: ex.factura }).catch(() => {});
+    db.ref("pedidos/" + f.token).update({ pedido: f.pedido, sinFactura: null, factura: ex.factura, detalle: detalleDeFactura(f, ex.prioridad === true) }).catch(() => {});
     guardarViajes(); sincronizarContactos(); renderLista();
     seleccionado = f.token; irA("mapa"); seleccionar(f.token, false);
     setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
@@ -421,7 +476,7 @@ Factura.alEnviar = (f) => {
   // El pedido se crea en la nube (se aplica de inmediato en el aparato y se sincroniza)
   db.ref("pedidos/" + f.token).set({
     estado: "en_ruta", pedido: f.pedido, inicio: TS,
-    repartidorUid: uidActual, repartidorNombre: usuario, factura: SubFactura.instantanea(f)
+    repartidorUid: uidActual, repartidorNombre: usuario, factura: SubFactura.instantanea(f), detalle: detalleDeFactura(f, false)
   }).catch((e) => {
     quitarViaje(f.token);
     alert("No se pudo activar el seguimiento: " + e.message);
@@ -532,6 +587,7 @@ function escucharChat(v) {
   v.refChat.on("child_added", (s) => {
     if (!v.chatListo) return;                       // mensajes que ya existían al abrir la app
     const m = s.val();
+    if (m && m.de === "repartidor") avisarAlAdminChat({ clave: v.token + "|" + s.key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, pedido: v.pedido, cliente: v.cliente, equipo: false });   // push al admin: escribiste al cliente
     if (!m || m.de !== "cliente") return;
     Voz.hablar(orden.length > 1 && v.cliente ? `El cliente ${v.cliente} te ha escrito` : Voz.FRASES.mensajeCliente);
     navigator.vibrate && navigator.vibrate(200);
@@ -582,6 +638,7 @@ function escucharAdmin() {
   refAdminChat.on("child_added", (s) => {
     if (!adminListo) return;
     const m = s.val();
+    if (m && m.de === "repartidor") avisarAlAdminChat({ clave: "equipo|" + s.key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, equipo: true });   // push al admin: le escribiste a Brothers
     if (!m || m.de !== "admin") return;
     Voz.hablar(Voz.FRASES.mensajeAdmin);   // “Brothers te ha escrito”
     navigator.vibrate && navigator.vibrate(200);
@@ -793,6 +850,7 @@ function renderListaBase() {
         <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small>Pedido ${escHtml(v.pedido)}</small><small class="pc-sub" id="sub-${t}"></small></div>
         <span class="chip" id="chip-${t}"></span>
       </div>
+      <div class="pc-prio oculto" id="prio-${t}" style="margin:6px 0;padding:7px 10px;border-radius:10px;background:#FFF4E5;border:1.5px solid #F59E0B;color:#7c3a00;font-size:13px;font-weight:600;line-height:1.35"></div>
       <div class="pc-botones">
         <button class="boton-chat" data-acc="chat" type="button">💬 Chat <span class="badge oculto" id="bd-${t}">0</span></button>
         <button class="oscuro" data-acc="entregado" type="button">✓ Entregado</button>
@@ -827,6 +885,14 @@ function refrescarTextos() {
     const bd = $("bd-" + t); bd.textContent = v.noLeidos; bd.classList.toggle("oculto", !v.noLeidos);
     $("usarcli-" + t).classList.toggle("oculto", !(v.destManual && v.cliPos));
     const sb = $("subbd-" + t); if (sb) sb.textContent = v.sub && v.sub.items && v.sub.items.length ? "(" + v.sub.items.length + ")" : "";
+    const pe = $("prio-" + t);   // etiqueta de prioridad + total con la propina sumada
+    if (pe) {
+      if (v.prioridad) {
+        const tot = totalConPropina(v);
+        pe.innerHTML = '<span class="chip alerta">⚡ PRIORIDAD</span> +' + money2(PRIORIDAD_EXTRA) + " en concepto de propina por prioridad" + (tot != null ? "<br>Total a cobrar: <b>" + money2(tot) + "</b>" : "");
+        pe.classList.remove("oculto");
+      } else { pe.classList.add("oculto"); pe.innerHTML = ""; }
+    }
     pintarCliente(v);
   });
   actualizarNav();
@@ -1237,5 +1303,6 @@ $("btnNuevoAceptar").onclick = async () => { if (await OrdenAdminRep.responder("
 $("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado")) $("modalNuevoPedido").classList.add("oculto"); };
 OrdenAdminRep.init({
   db, usuario: () => usuario, uid: () => uidActual,
-  alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado
+  alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
+  alPrioridad: (id, o) => alertaPrioridad(id, o && o.codigo)   // el cliente priorizó un pedido asignado por el administrador
 });
