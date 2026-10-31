@@ -14,7 +14,7 @@
    Se carga DESPUÉS de admin.js (usa sus globales: db, auth, toast).
    ============================================================ */
 const PushAdmin = (() => {
-  const URL_PUSH = "https://TU-WORKER.TU-CUENTA.workers.dev";   // ← PEGA AQUÍ la dirección de tu Worker de Cloudflare
+  const URL_PUSH = "https://brothers-push.jhosxan.workers.dev";   // ← PEGA AQUÍ la dirección de tu Worker de Cloudflare
 
   const configurado = () => !/TU-WORKER/.test(URL_PUSH);
   const recorta = (t, n) => { t = String(t == null ? "" : t); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
