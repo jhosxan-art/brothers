@@ -1,0 +1,92 @@
+name: Construir APK del Admin
+
+# Se ejecuta a mano: GitHub → pestaña Actions → "Construir APK del Admin" → Run workflow.
+# Genera una APK INDEPENDIENTE de la del repartidor (otro appId: com.brothers.admin) cuya pantalla de inicio es admin.html.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Preparar la app web (entrada = admin.html)
+        run: |
+          mkdir -p www
+          cp *.html *.css *.js www/
+          cp admin.html www/index.html
+          # La configuración de Capacitor del Admin reemplaza (solo en esta máquina de GitHub) a la del repartidor
+          cp capacitor.config.admin.json capacitor.config.json
+
+      - name: Instalar dependencias
+        run: npm install --legacy-peer-deps
+
+      - name: Crear proyecto Android
+        run: npx cap add android
+
+      - name: Firebase (notificaciones push del Admin)
+        run: |
+          python3 - <<'PY'
+          import json, os, shutil, sys
+          origen = 'google-services-admin.json'
+          if not os.path.exists(origen):
+              print('::error::Falta google-services-admin.json en la raiz del repositorio. En Firebase: Configuracion del proyecto > Tus apps > Agregar app Android con el nombre de paquete com.brothers.admin, y sube ese archivo con el nombre google-services-admin.json.')
+              sys.exit(1)
+          pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
+          gs = json.load(open(origen, encoding='utf-8'))
+          nombres = [c['client_info']['android_client_info']['package_name'] for c in gs.get('client', [])]
+          if pkg not in nombres:
+              print('::error::google-services-admin.json es de otra app (%s). Debe ser de %s.' % (nombres, pkg))
+              sys.exit(1)
+          shutil.copy(origen, 'android/app/google-services.json')
+          print('google-services.json listo para', pkg)
+          PY
+
+      - name: Generar iconos
+        run: |
+          # Si existe la carpeta assets-admin (icon-only.png, icon-foreground.png, icon-background.png...) se usa para distinguir esta app
+          if [ -d assets-admin ]; then rm -rf assets && cp -r assets-admin assets; fi
+          npx --yes @capacitor/assets generate --android
+
+      - name: Permisos y canal de notificaciones
+        run: |
+          python3 - <<'PY'
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p, encoding='utf-8').read()
+          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK"]
+          add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if 'android.permission.%s"' % x not in s)
+          s = s.replace('<application', add + '    <application', 1)
+          # Canal por defecto de las push del Admin: ventana emergente con sonido (la app lo crea con este mismo nombre: "admin")
+          meta = '        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="admin" />\n'
+          if 'default_notification_channel_id' not in s:
+              s = s.replace('</application>', meta + '    </application>', 1)
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
+
+      - name: Sincronizar
+        run: npx cap sync android
+
+      - name: Compilar
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Subir APK a Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: APK-Admin
+          path: android/app/build/outputs/apk/debug/app-debug.apk
