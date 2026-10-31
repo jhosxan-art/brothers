@@ -2,7 +2,6 @@
    ORDENES-ADMIN · Funciones 1 y 2 del panel de administración
    1) Toque en el mapa → modal para elegir repartidor activo y punto Retiro/Entrega
    2) Pestaña "Pedidos": formulario, asignación (registrado o enlace de invitado) y estado en vivo
-      (FASE 2: también muestra en vivo la factura que el repartidor envía a la app del cliente: ordenes/{id}/facturaResumen)
    Se carga DESPUÉS de admin.js y usa sus globales (db, mapa, ubic, registrados, toast, modal…).
    ============================================================ */
 const PedidosAdmin = (() => {
@@ -17,6 +16,8 @@ const PedidosAdmin = (() => {
   let modoAsig = "registrado";
 
   /* ---------- Utilidades ---------- */
+  /* Código tal como se VE en pantalla: pedido hecho desde la app → APP12345 (en Firebase sigue guardado como BD12345) */
+  const cod = (c) => { const d = String(c == null ? "" : c).replace(/\D/g, ""); return d ? "APP" + d.padStart(5, "0") : String(c == null ? "" : c); };
   const activa = (o) => ["pendiente", "asignado", "retirado"].includes(o.estado);
   const nombreOrden = (o) => (o.asignacion && (o.asignacion.nombre || (o.asignacion.tipo === "invitado" ? "Invitado (sin aceptar)" : ""))) || "Sin asignar";
   function copiar(texto) {
@@ -277,7 +278,7 @@ const PedidosAdmin = (() => {
       lugarSel.entrega = null; retirosForm = [{ texto: "", ll: null, producto: "" }]; pintarRetiros(); pintarOk(el("pdEntregaOk"), null); ocultarSugs();
       if (asignacion.tipo === "invitado") { aviso(""); mostrarEnlaces(token, orden); }
       else {
-        const t = `Pedido ${orden.codigo} enviado a ${asignacion.nombre} ✓ (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".");
+        const t = `Pedido ${cod(orden.codigo)} enviado a ${asignacion.nombre} ✓ (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".");
         aviso(t, "ok"); toast(t);
         if (typeof PushAdmin !== "undefined") PushAdmin.pedidoAsignado(asignacion.uid, Object.assign({ token }, orden));   // push al celular del repartidor
       }
@@ -290,7 +291,7 @@ const PedidosAdmin = (() => {
   function mostrarEnlaces(t, o) {
     const li = O.urlInvitado(t), lc = O.urlCliente(t);
     modal(`<h2>🔗 Enlace de invitado</h2>
-      <p class="ayuda">Pedido <b>${esc(o.codigo)}</b> · ${esc(o.cliente)}. Envía este enlace a quien hará la entrega: solo tendrá que escribir su nombre.</p>
+      <p class="ayuda">Pedido <b>${esc(cod(o.codigo))}</b> · ${esc(o.cliente)}. Envía este enlace a quien hará la entrega: solo tendrá que escribir su nombre.</p>
       <div class="pd-enlace">${esc(li)}</div>
       <button id="pdCopiarInv" class="primario" type="button">📋 Copiar enlace del invitado</button>
       <button id="pdWaInv" class="whatsapp" type="button">Enviar por WhatsApp</button>
@@ -300,14 +301,14 @@ const PedidosAdmin = (() => {
       <button id="pdCerrarEnl" class="oscuro" type="button">Listo</button>`);
     el("pdCopiarInv").onclick = () => copiar(li);
     el("pdCopiarCli").onclick = () => copiar(lc);
-    el("pdWaInv").onclick = () => wa(`🛵 Brother’s Deliverys · Pedido ${o.codigo}\nAbre este enlace, escribe tu nombre y sigue la ruta:\n${li}`);
+    el("pdWaInv").onclick = () => wa(`🛵 Brother’s Deliverys · Pedido ${cod(o.codigo)}\nAbre este enlace, escribe tu nombre y sigue la ruta:\n${li}`);
     el("pdCerrarEnl").onclick = cerrarModal;
   }
 
   function asignarExistente(t) {
     const o = ordenes[t]; if (!o) return;
     const ids = Object.keys(registrados).sort((a, b) => nombreUid(a).localeCompare(nombreUid(b)));
-    modal(`<h2>Asignar pedido ${esc(o.codigo)}</h2>
+    modal(`<h2>Asignar pedido ${esc(cod(o.codigo))}</h2>
       <label>Repartidor registrado<select id="pdAsSel"><option value="">— Elige —</option>${ids.map((u) => `<option value="${esc(u)}">${esc(nombreUid(u))}</option>`).join("")}</select></label>
       <button id="pdAsOk" class="primario" type="button">Asignar</button>
       <button id="pdAsInv" type="button">🔗 Generar enlace de invitado</button>
@@ -329,7 +330,7 @@ const PedidosAdmin = (() => {
     };
   }
   async function cancelarOrden(t) {
-    const o = ordenes[t]; if (!o || !confirm(`¿Cancelar el pedido ${o.codigo}?`)) return;
+    const o = ordenes[t]; if (!o || !confirm(`¿Cancelar el pedido ${cod(o.codigo)}?`)) return;
     const upd = { [`ordenes/${t}/estado`]: "cancelado", [`ordenes/${t}/actualizado`]: O.TS };
     const a = o.asignacion || {};
     if (a.tipo === "registrado" && guias[a.uid] && guias[a.uid].ordenId === t) upd["guias/" + a.uid] = null;
@@ -341,9 +342,9 @@ const PedidosAdmin = (() => {
     const o = ordenes[t], [txt, cls] = O.ESTADOS[o.estado] || O.ESTADOS.pendiente, a = o.asignacion || {};
     const inv = a.tipo === "invitado", btn = (acc, label, extra) => `<button class="mini ${extra || ""}" data-pa="${acc}" data-t="${esc(t)}" type="button">${label}</button>`;
     return `<div class="tarjeta-rep pd-orden">
-      <div class="fila"><div class="datos"><strong>${esc(o.codigo)} · ${esc(o.cliente || "Sin nombre")}</strong>
+      <div class="fila"><div class="datos"><strong>${esc(cod(o.codigo))} · ${esc(o.cliente || "Sin nombre")}</strong>
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
-      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${o.facturaResumen && typeof o.facturaResumen.total === "number" ? "<br>🧾 Factura enviada al cliente: <b>" + O.money(o.facturaResumen.total) + "</b>" + (o.facturaResumen.prioridad ? " · ⚡ incluye prioridad " + O.money(o.facturaResumen.prioridad) : "") : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}</div>
+      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
         ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}
         ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
@@ -363,7 +364,7 @@ const PedidosAdmin = (() => {
     chatInvAbierto = t; sinLeerInv[t] = 0; pintarOrdenes();
     Chat.iniciar({
       token: t, yo: "admin", ruta: RUTA_INV, pedido: o.codigo, nombreRepartidor: nom, puedeBorrar: true, avisos: false,
-      titulo: () => "Chat con " + nom, subtitulo: () => "Pedido " + o.codigo + " · invitado",
+      titulo: () => "Chat con " + nom, subtitulo: () => "Pedido " + cod(o.codigo) + " · invitado",
       alCerrar: () => { chatInvAbierto = null; }
     });
     Chat.abrir();
@@ -390,7 +391,7 @@ const PedidosAdmin = (() => {
   function alertaRechazo(t, o, quien) {
     if (!el("modalAdmin").classList.contains("oculto")) return;   // hay otra ventana abierta: basta el aviso (toast) y la voz
     modal(`<h2>❌ Pedido rechazado</h2>
-      <p>El repartidor <b>${esc(quien)}</b> rechazó el pedido <b>${esc(o.codigo)}</b>${o.cliente ? " (" + esc(o.cliente) + ")" : ""}.</p>
+      <p>El repartidor <b>${esc(quien)}</b> rechazó el pedido <b>${esc(cod(o.codigo))}</b>${o.cliente ? " (" + esc(o.cliente) + ")" : ""}.</p>
       <button id="pdRechReasig" class="primario" type="button">Reasignar a otro repartidor</button>
       <button id="pdRechCerrar" class="oscuro" type="button">Cerrar</button>`);
     el("pdRechCerrar").onclick = cerrarModal;
@@ -399,25 +400,24 @@ const PedidosAdmin = (() => {
 
   /* Avisos en vivo (texto + VOZ ALTA): el invitado abrió el enlace, retiró un producto, entregó */
   function avisarCambios(nuevo) {
-    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅❌🔗🛵🧾⚡]/gu, "")); };
+    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅❌🔗🛵]/gu, "")); };
     Object.entries(nuevo).forEach(([t, o]) => {
       const a = ordenes[t]; if (!a) return;
       /* El repartidor registrado aceptó o rechazó el pedido asignado */
       const resp = o.estado_asignacion;
       if (resp !== a.estado_asignacion && (resp === "aceptado" || resp === "rechazado") && o.asignacion && o.asignacion.tipo === "registrado") {
         const quien = o.asignacion.nombre || "repartidor";
-        if (resp === "aceptado") decir(`✅ El repartidor ${quien} aceptó el pedido ${o.codigo}`);
-        else { decir(`❌ El repartidor ${quien} rechazó el pedido ${o.codigo}`); alertaRechazo(t, o, quien); }
+        if (resp === "aceptado") decir(`✅ El repartidor ${quien} aceptó el pedido ${cod(o.codigo)}`);
+        else { decir(`❌ El repartidor ${quien} rechazó el pedido ${cod(o.codigo)}`); alertaRechazo(t, o, quien); }
       }
       const nom = (o.asignacion && o.asignacion.nombre) || "El repartidor", pa = O.paradas(a), po = O.paradas(o);
-      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) decir(`🔗 ${nom} aceptó el pedido ${o.codigo}`);
+      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) decir(`🔗 ${nom} aceptó el pedido ${cod(o.codigo)}`);
       po.forEach((p, k) => {
         if (!p.retirado || (pa[k] && pa[k].retirado)) return;   // solo retiros nuevos
         const falta = po.filter((x) => !x.retirado).length;
-        decir(`📦 ${nom} ya retiró ${p.producto ? p.producto : "un producto"}${p.texto ? " en " + p.texto : ""}. ${falta ? "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "") + " del pedido " + o.codigo : "Pedido " + o.codigo + " completo, va hacia el cliente"}`);
+        decir(`📦 ${nom} ya retiró ${p.producto ? p.producto : "un producto"}${p.texto ? " en " + p.texto : ""}. ${falta ? "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "") + " del pedido " + cod(o.codigo) : "Pedido " + cod(o.codigo) + " completo, va hacia el cliente"}`);
       });
-      if (o.facturaResumen && typeof o.facturaResumen.total === "number" && !a.facturaResumen) decir(`🧾 ${nom} envió la factura del pedido ${o.codigo} a la app del cliente por ${O.money(o.facturaResumen.total)}${o.facturaResumen.prioridad ? ", con prioridad" : ""}`);
-      if (o.estado !== a.estado && o.estado === "entregado") decir(`✅ ${nom} entregó el pedido ${o.codigo}`);
+      if (o.estado !== a.estado && o.estado === "entregado") decir(`✅ ${nom} entregó el pedido ${cod(o.codigo)}`);
     });
   }
 
@@ -426,7 +426,7 @@ const PedidosAdmin = (() => {
     return Object.entries(ordenes).filter(([, o]) => o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && ["asignado", "retirado"].includes(o.estado)).map(([t, o]) => {
       const [tx] = ETIQUETA[estadoDe(O.uidInvitado(t))], [et, ec] = O.ESTADOS[o.estado];
       return `<div class="tarjeta-rep"><div class="fila"><span class="avatar">${RIDER_SVG}</span>
-        <div class="datos"><strong>${esc(o.asignacion.nombre)} <i class="pd-tag">Invitado</i></strong><small>Pedido ${esc(o.codigo)} · ${esc(o.cliente)} · ${tx}</small></div>
+        <div class="datos"><strong>${esc(o.asignacion.nombre)} <i class="pd-tag">Invitado</i></strong><small>Pedido ${esc(cod(o.codigo))} · ${esc(o.cliente)} · ${tx}</small></div>
         <span class="chip ${ec}">${et}</span></div></div>`;
     }).join("");
   }
@@ -434,7 +434,7 @@ const PedidosAdmin = (() => {
   function notaRep(uid) {
     const e = Object.entries(ordenes).find(([t, o]) => ["asignado", "retirado"].includes(o.estado) && o.asignacion &&
       ((o.asignacion.tipo === "invitado" && O.uidInvitado(t) === uid) || (o.asignacion.tipo === "registrado" && o.asignacion.uid === uid)));
-    return e ? ` · 📦 ${e[1].codigo}: ${O.ESTADOS[e[1].estado][0]}` : "";
+    return e ? ` · 📦 ${cod(e[1].codigo)}: ${O.ESTADOS[e[1].estado][0]}` : "";
   }
   /* ---------- Repartidor invitado tocado en el mapa: Entregado / Cancelar / Chat ---------- */
   const tokenInv = (uid) => String(uid).replace(/^inv_/, "");
@@ -443,7 +443,7 @@ const PedidosAdmin = (() => {
   async function accionInvitado(uid, accion) {
     const t = tokenInv(uid), o = ordenes[t]; if (!o) return toast("No encuentro el pedido de este invitado.");
     const ent = accion === "entregado", est = ent ? "entregado" : "cancelado";
-    if (!confirm(ent ? `¿Marcar como ENTREGADO el pedido ${o.codigo}? El repartidor saldrá del mapa.` : `¿Cancelar el pedido ${o.codigo}? El repartidor saldrá del mapa.`)) return;
+    if (!confirm(ent ? `¿Marcar como ENTREGADO el pedido ${cod(o.codigo)}? El repartidor saldrá del mapa.` : `¿Cancelar el pedido ${cod(o.codigo)}? El repartidor saldrá del mapa.`)) return;
     const upd = { [`ordenes/${t}/estado`]: est, [`ordenes/${t}/actualizado`]: O.TS, ["ubicaciones/" + uid]: null, ["guias/" + uid]: null };
     if (ent) upd[`ordenes/${t}/entregadoTs`] = O.TS;
     try {
@@ -458,7 +458,7 @@ const PedidosAdmin = (() => {
   /* Expulsar a un invitado sin importar en qué paso va: cancela su pedido, corta su ubicación y lo saca del mapa */
   async function expulsarInvitado(uid) {
     const t = tokenInv(uid), o = ordenes[t], nom = nombreUid(uid);
-    if (!confirm(`⛔ ¿EXPULSAR a ${nom}?\nSe cancela su pedido${o ? " " + o.codigo : ""}, pierde el acceso y sale del mapa. No se puede deshacer.`)) return;
+    if (!confirm(`⛔ ¿EXPULSAR a ${nom}?\nSe cancela su pedido${o ? " " + cod(o.codigo) : ""}, pierde el acceso y sale del mapa. No se puede deshacer.`)) return;
     const upd = { ["ubicaciones/" + uid]: null, ["guias/" + uid]: null };
     if (o) { upd[`ordenes/${t}/estado`] = "cancelado"; upd[`ordenes/${t}/expulsado`] = true; upd[`ordenes/${t}/actualizado`] = O.TS; }
     try {

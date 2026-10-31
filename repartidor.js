@@ -73,11 +73,50 @@ function enlaceDe(token, extra) {
 }
 /* FASE 3: leyenda persuasiva que acompaña al enlace en WhatsApp */
 const leyendaEnlace = (link) =>
-  "📍 *Paso importante para recibir su pedido*\n" +
-  "Para que su repartidor sepa con exactitud dónde se encuentra y su pedido llegue lo más rápido posible, " +
-  "*es vital que abra el enlace de abajo y permita compartir su ubicación en tiempo real*. " +
-  "Sin su ubicación, la entrega puede retrasarse.\n\n" +
-  "👉 *Abra aquí ahora (toma 5 segundos):*\n" + link;
+  "📍 *Importante:* abra el enlace y comparta su ubicación en tiempo real para que su repartidor lo encuentre y su pedido llegue más rápido.\n" +
+  "👉 " + link;
+
+/* ============================================================
+   CÓDIGOS DE RETIRO COMPARTIDOS (BD00001 … BD99999)
+   Un solo contador en Firebase (codigosRetiro/contador) reparte los códigos a TODOS los repartidores en un orden
+   pseudoaleatorio sin repetir ninguno hasta agotar los 99999. Cada aparato reserva un lote por adelantado (funciona sin internet
+   mientras le queden códigos) y los códigos reservados nunca se pierden aunque se cierre la app o cambie el repartidor.
+   Fórmula: código = (índice × A) mod P, con P = 100003 (primo) → cada índice da un valor distinto; los 3 valores >99999 se omiten.
+   ============================================================ */
+const CodigosBD = (() => {
+  const P = 100003, A = 48271, LOTE = 25, MINIMO = 8, CLAVE = "brothersCodigosBDReservados";
+  let cola = [], pidiendo = false;
+  try { const a = JSON.parse(localStorage.getItem(CLAVE)); if (Array.isArray(a)) cola = a.filter((c) => /^BD\d{5}$/.test(c)); } catch (_) {}
+  const guardar = () => { try { localStorage.setItem(CLAVE, JSON.stringify(cola)); } catch (_) {} };
+  async function reponer() {
+    if (pidiendo || !uidActual) return;
+    pidiendo = true;
+    try {
+      const r = await db.ref("codigosRetiro/contador").transaction((c) => (Number(c) || 0) + LOTE);
+      if (r.committed) {
+        const fin = Number(r.snapshot.val()) || 0;
+        for (let k = fin - LOTE; k < fin; k++) {
+          const idx = (k % (P - 1)) + 1, v = (idx * A) % P;      // idx 1…P-1 → v 1…P-1 (todos distintos en cada ciclo)
+          if (v >= 1 && v <= 99999) cola.push("BD" + String(v).padStart(5, "0"));
+        }
+        guardar();
+      }
+    } catch (_) { /* sin conexión o sin permisos: se reintenta en el próximo código */ }
+    pidiendo = false;
+  }
+  function siguiente() {
+    const c = cola.shift() || null;
+    if (c) guardar();
+    if (cola.length < MINIMO) reponer();
+    return c;   // null = no hay reservados (primer uso sin internet): factura.js usa un código local de respaldo
+  }
+  return { siguiente, reponer };
+})();
+/* Código tal como se ve en la app: WA12345 (factura por WhatsApp) / APP12345 (pedido hecho desde la app). En Firebase y en el texto de WhatsApp sigue como BD12345. */
+const etiquetaPedido = (codigo, origen) => (window.Factura && typeof window.Factura.etiquetaPedido === "function")
+  ? window.Factura.etiquetaPedido(codigo, origen)
+  : (((origen === "app" ? "APP" : "WA") + String(codigo == null ? "" : codigo).replace(/\D/g, "").padStart(5, "0")));
+const etiquetaWA = (v) => etiquetaPedido(v && v.pedido, "wa");
 const num = (x) => (Number.isFinite(x) ? x : null);
 const formatoDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m");
 function distanciaM(lat1, lng1, lat2, lng2) {
@@ -86,7 +125,7 @@ function distanciaM(lat1, lng1, lat2, lng2) {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
-const nombreDe = (v) => v.cliente || ("Pedido " + v.pedido);
+const nombreDe = (v) => v.cliente || ("Pedido " + etiquetaWA(v));
 const esVivo = (v) => !!(v.cliPos && !v.cliPos.manual && v.cliPos.ts && Date.now() - v.cliPos.ts < FRESCO_MS);
 
 /* ---------- Pantallas ---------- */
@@ -186,6 +225,8 @@ async function entrarTurno() {
   // Si se corta la conexión, el administrador lo verá como "desconectado"
   db.ref("ubicaciones/" + uidActual).onDisconnect().update({ enLinea: false, enViaje: false, ts: TS });
   Factura.nombreRepartidor = usuario;
+  Factura.codigoCompartido = () => CodigosBD.siguiente();
+  CodigosBD.reponer();
   reanudarViajes();                 // por si la app se cerró con pedidos en ruta
   vistaActual = orden.length ? "mapa" : "factura";   // la factura es lo primero, salvo que ya lleve un pedido en camino
   mostrar("app");
@@ -448,7 +489,7 @@ function escucharSubfactura(v) {
   pr.on("value", (x) => {   // el cliente tocó "Priorizar": alerta de voz + etiqueta en la tarjeta
     const activa = x.val() === true, era = v.prioridad === true;
     v.prioridad = activa;
-    if (activa && !era) alertaPrioridad(v.token, v.pedido);
+    if (activa && !era) alertaPrioridad(v.token, etiquetaWA(v));
     refrescarTextos();
   }, () => {});
   v.refExtra = [f, s, dt, pr];
@@ -618,7 +659,7 @@ const PedidoRep = (() => {
     }
     b.disabled = facturada;
     b.innerHTML = facturada ? '<span aria-hidden="true">✅</span> Factura enviada' : '<span aria-hidden="true">🧾</span> Crear Factura';
-    b.setAttribute("aria-label", facturada ? "La factura ya fue enviada al cliente" : "Crear factura del pedido " + ((datos && datos.codigo) || ""));
+    b.setAttribute("aria-label", facturada ? "La factura ya fue enviada al cliente" : "Crear factura del pedido " + ((datos && datos.codigo) ? etiquetaPedido(datos.codigo, "app") : ""));
   }
   function abrirFactura() {
     if (!aceptado() || !datos) return;
@@ -767,7 +808,7 @@ function abrirChat(v) {
   Chat.iniciar({
     token: v.token, yo: "repartidor", pedido: v.pedido, nombreRepartidor: usuario, avisos: false,
     titulo: () => "Chat con " + (v.cliente || "el cliente"),
-    subtitulo: () => "Pedido " + v.pedido,
+    subtitulo: () => "Pedido " + etiquetaWA(v),
     alCerrar: () => { chatToken = null; }
   });
   chatToken = v.token; v.noLeidos = 0;
@@ -1015,7 +1056,7 @@ function renderListaBase() {
     return `<div class="pedido-card${t === seleccionado ? " sel" : ""}" data-token="${t}">
       <div class="pc-top">
         <span class="pc-num">${i + 1}</span>
-        <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small>Pedido ${escHtml(v.pedido)}</small><small class="pc-sub" id="sub-${t}"></small></div>
+        <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small>Pedido ${escHtml(etiquetaWA(v))}</small><small class="pc-sub" id="sub-${t}"></small></div>
         <span class="chip" id="chip-${t}"></span>
       </div>
       <div class="pc-prio oculto" id="prio-${t}" style="margin:6px 0;padding:7px 10px;border-radius:10px;background:#FFF4E5;border:1.5px solid #F59E0B;color:#7c3a00;font-size:13px;font-weight:600;line-height:1.35"></div>
@@ -1176,7 +1217,7 @@ function notificarTexto(titulo, cuerpo, resumen, extra) {
 }
 function notificarMensaje(v, m) {
    // (los mensajes de clientes no viajan por push: siempre se avisa con la notificación local)
-  notificarTexto(v.cliente ? "Cliente · " + v.cliente : "Cliente · Pedido " + v.pedido, m.texto ? m.texto : "📷 Te envió una foto", "Pedido " + v.pedido, { token: v.token });
+  notificarTexto(v.cliente ? "Cliente · " + v.cliente : "Cliente · Pedido " + etiquetaWA(v), m.texto ? m.texto : "📷 Te envió una foto", "Pedido " + etiquetaWA(v), { token: v.token });
 }
 function alAccionNotificacion(ev) {
   const extra = (ev && ev.notification && ev.notification.extra) || {};
@@ -1225,7 +1266,7 @@ function apagarNativo() { const n = nativo(); if (n) n.activar({ activo: false }
 /* Lista para elegir un pedido (chat, destino…) */
 function elegirPedido(titulo, cb, etiqueta, extra) {
   $("elegirTitulo").textContent = titulo; alElegirCb = cb;
-  $("elegirLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${etiqueta || ""}${escHtml(nombreDe(viajes[t]))} · ${escHtml(viajes[t].pedido)}</button>`).join("") + (extra || "");
+  $("elegirLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${etiqueta || ""}${escHtml(nombreDe(viajes[t]))} · ${escHtml(etiquetaWA(viajes[t]))}</button>`).join("") + (extra || "");
   $("modalElegir").classList.remove("oculto");
 }
 $("elegirLista").onclick = (e) => {
@@ -1383,7 +1424,7 @@ function nuevoContacto() {   // crea el MISMO enlace de seguimiento que crea la 
 }
 $("btnContactoCliente").onclick = () => {
   if (!orden.length) return nuevoContacto();
-  $("contactoLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${escHtml(nombreDe(viajes[t]))} · ${escHtml(viajes[t].pedido)}${viajes[t].sinFactura ? " (sin factura)" : ""}</button>`).join("") +
+  $("contactoLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${escHtml(nombreDe(viajes[t]))} · ${escHtml(etiquetaWA(viajes[t]))}${viajes[t].sinFactura ? " (sin factura)" : ""}</button>`).join("") +
     '<button class="primario" data-t="__nuevo" type="button">➕ Cliente nuevo (aún sin factura)</button>';
   $("modalContacto").classList.remove("oculto");
 };
@@ -1464,7 +1505,7 @@ function nuevoPedidoAsignado(id, o) {
   hojaOculta = false; aplicarHoja();   // un pedido nuevo siempre se ve
   Voz.hablar("Tienes un nuevo pedido" + (total ? ". Delivery " + total + " córdobas" : ""), { forzar: true });
   navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]);
-  notificarTexto("🛵 Nuevo pedido " + o.codigo, `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia" });
+  notificarTexto("🛵 Nuevo pedido " + etiquetaPedido(o.codigo, "app"), `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia" });
 }
 $("btnNuevoVer").onclick = () => { $("modalNuevoPedido").classList.add("oculto"); irA("mapa"); };
 $("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
@@ -1473,5 +1514,5 @@ $("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder(
 OrdenAdminRep.init({
   db, usuario: () => usuario, uid: () => uidActual,
   alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
-  alPrioridad: (id, o) => alertaPrioridad(id, o && o.codigo)   // el cliente priorizó un pedido asignado por el administrador
+  alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))   // el cliente priorizó un pedido asignado por el administrador
 });

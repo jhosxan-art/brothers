@@ -11,7 +11,7 @@
 (function () {
 'use strict';
 window.Factura = {
-    alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCodigo: () => getUniqueCode(), refrescarContactos: () => refrescarContactos(),
+    alEnviar: null, codigoCompartido: null, nombreRepartidor: '', contactos: [], nuevoCodigo: () => getUniqueCode(), refrescarContactos: () => refrescarContactos(),
     /* Pedidos asignados por el administrador: los conecta repartidor.js */
     alEnviarPedido: null,           // async (factura) → guarda la factura en Firebase para el cliente
     alTerminarPedido: null,         // (factura) → se llama al cerrar la ventana de una factura ya enviada
@@ -21,6 +21,7 @@ window.Factura = {
     enModoPedido: () => !!pedidoSistema,
     recalcular: () => calculateTotal(),
     enlaceRastreo: (token, extra) => enlaceRastreo(token, extra),
+    etiquetaPedido: (codigo, origen) => etiquetaPedido(codigo, origen),
     leyendaEnlace: (link) => leyendaEnlace(link)
   };
 
@@ -121,13 +122,19 @@ window.Factura = {
       }
   }
 
+  /* Etiqueta con la que se MUESTRA el código en la app: WA12345 (factura enviada por WhatsApp) o APP12345 (pedido hecho desde la app).
+     El código guardado en Firebase y el texto de WhatsApp siguen con el formato BD12345; solo cambia lo que se ve en pantalla. */
+  function etiquetaPedido(codigo, origen) {
+      const txt = String(codigo == null ? '' : codigo).trim();
+      const digitos = txt.replace(/\D/g, '');
+      if (!digitos) return txt;
+      return (origen === 'app' ? 'APP' : 'WA') + digitos.padStart(5, '0');
+  }
+
   /* FASE 3 — Leyenda persuasiva que acompaña al enlace en WhatsApp */
   function leyendaEnlace(link) {
-      return '📍 *Paso importante para recibir su pedido*\n' +
-          'Para que su repartidor sepa con exactitud dónde se encuentra y su pedido llegue lo más rápido posible, ' +
-          '*es vital que abra el enlace de abajo y permita compartir su ubicación en tiempo real*. ' +
-          'Sin su ubicación, la entrega puede retrasarse.\n\n' +
-          '👉 *Abra aquí ahora (toma 5 segundos):*\n' + link;
+      return '📍 *Importante:* abra el enlace y comparta su ubicación en tiempo real para que su repartidor lo encuentre y su pedido llegue más rápido.\n' +
+          '👉 ' + link;
   }
 
   /* Enlaces de contacto abiertos (los crea repartidor.js con "Contactarme al cliente") */
@@ -147,23 +154,29 @@ window.Factura = {
       if (c && c.cliente && !campo.value.trim()) campo.value = c.cliente;
   }
 
+  /* Código de retiro: "BD" + 5 dígitos (BD00001–BD99999). Lo reparte Firebase (repartidor.js → Factura.codigoCompartido) para que
+     NINGÚN repartidor repita código hasta agotar los 99999. Si el aparato no tiene códigos reservados (primer uso sin internet),
+     usa un código local de respaldo que no se repite en este aparato. */
   function getUniqueCode() {
-      let codes = JSON.parse(localStorage.getItem('brothersDeliveryAvailableCodes'));
-      let today = getBusinessDayString();
-      let lastReset = localStorage.getItem('brothersDeliveryCodeResetDate');
-
-      if (!codes || codes.length === 0 || lastReset !== today) {
-          codes = [];
-          for (let i = 1; i <= 1500; i++) {
-              codes.push('BD' + i.toString().padStart(4, '0'));
+      try {
+          if (typeof window.Factura.codigoCompartido === 'function') {
+              const c = window.Factura.codigoCompartido();
+              if (c) return c;
           }
-          localStorage.setItem('brothersDeliveryCodeResetDate', today);
+      } catch (e) {}
+      let usados = [];
+      try { usados = JSON.parse(localStorage.getItem('brothersDeliveryUsedCodesLocal')) || []; } catch (e) { usados = []; }
+      const set = new Set(usados);
+      let codigo = '';
+      for (let i = 0; i < 300; i++) {
+          const n = 1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 99999);   // 1–99999
+          codigo = 'BD' + String(n).padStart(5, '0');
+          if (!set.has(codigo)) break;
       }
-
-      const randomIndex = Math.floor(Math.random() * codes.length);
-      const selectedCode = codes.splice(randomIndex, 1)[0];
-      localStorage.setItem('brothersDeliveryAvailableCodes', JSON.stringify(codes));
-      return selectedCode;
+      usados.push(codigo);
+      if (usados.length > 5000) usados = usados.slice(-5000);
+      localStorage.setItem('brothersDeliveryUsedCodesLocal', JSON.stringify(usados));
+      return codigo;
   }
 
   function persistDepositInvoices() {
@@ -465,7 +478,7 @@ window.Factura = {
       if (prioridad > 0) invoiceHTML += `<tr><td>⚡ Prioridad:</td><td>C$ ${prioridad.toFixed(2)}</td></tr>`;
       invoiceHTML += `<tr class="total-row"><td>TOTAL:</td><td>C$ ${grandTotal.toFixed(2)}</td></tr>`;
       invoiceHTML += '</table>';
-      invoiceHTML += `<div style="text-align:center; font-weight:700; color:var(--red); margin-top:10px; font-size:1em;">CÓDIGO DE RETIRO: ${pickupCode}</div>`;
+      invoiceHTML += `<div style="text-align:center; font-weight:700; color:var(--red); margin-top:10px; font-size:1em;">CÓDIGO DE RETIRO: ${enPedido ? etiquetaPedido(pickupCode, 'app') : pickupCode}</div>`;
       invoiceHTML += `<div class="invoice-track"><b>📍 Paso importante: abra el enlace</b>Es vital que lo abra y comparta su ubicación en tiempo real para que su repartidor sepa dónde está y su pedido llegue más rápido.<div class="lnk">${escHtml(link)}</div></div>`;
       invoiceHTML += '<div class="invoice-footer">¡Vuelve a pedir con nosotros cuando quieras! 🚀 Siempre listos para ayudarte 🙌</div>';
 
@@ -475,6 +488,7 @@ window.Factura = {
       invoiceText += `Productos: C$ ${subtotal.toFixed(2)}\n`;
       invoiceText += `Delivery: C$ ${deliveryMensaje.toFixed(2)}\n`;
       invoiceText += `*TOTAL: C$ ${grandTotal.toFixed(2)}*\n`;
+      invoiceText += `*CÓDIGO DE RETIRO: ${pickupCode}*\n`;
       invoiceText += '━━━━━━━━━━━━━━\n\n';
       invoiceText += leyendaEnlace(link);
 
@@ -584,7 +598,7 @@ window.Factura = {
       g('deliverySistema').style.display = on ? '' : 'none';
       g('btnContactoCliente').style.display = on ? 'none' : '';
       if (on) {
-          g('pedidoBannerCod').textContent = pedidoSistema.codigo;
+          g('pedidoBannerCod').textContent = etiquetaPedido(pedidoSistema.codigo, 'app');
           g('pedidoBannerTxt').textContent = 'Se envía directo a la app del cliente' + (pedidoSistema.cliente ? ' · ' + pedidoSistema.cliente : '');
           g('deliverySistemaMonto').textContent = formatMoney(pedidoSistema.delivery);
           g('contactoFila').style.display = 'none';
