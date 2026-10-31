@@ -2,6 +2,7 @@
    ORDENES-ADMIN · Funciones 1 y 2 del panel de administración
    1) Toque en el mapa → modal para elegir repartidor activo y punto Retiro/Entrega
    2) Pestaña "Pedidos": formulario, asignación (registrado o enlace de invitado) y estado en vivo
+      (FASE 2: también muestra en vivo la factura que el repartidor envía a la app del cliente: ordenes/{id}/facturaResumen)
    Se carga DESPUÉS de admin.js y usa sus globales (db, mapa, ubic, registrados, toast, modal…).
    ============================================================ */
 const PedidosAdmin = (() => {
@@ -342,7 +343,7 @@ const PedidosAdmin = (() => {
     return `<div class="tarjeta-rep pd-orden">
       <div class="fila"><div class="datos"><strong>${esc(o.codigo)} · ${esc(o.cliente || "Sin nombre")}</strong>
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
-      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}</div>
+      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${o.facturaResumen && typeof o.facturaResumen.total === "number" ? "<br>🧾 Factura enviada al cliente: <b>" + O.money(o.facturaResumen.total) + "</b>" + (o.facturaResumen.prioridad ? " · ⚡ incluye prioridad " + O.money(o.facturaResumen.prioridad) : "") : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
         ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}
         ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
@@ -398,7 +399,7 @@ const PedidosAdmin = (() => {
 
   /* Avisos en vivo (texto + VOZ ALTA): el invitado abrió el enlace, retiró un producto, entregó */
   function avisarCambios(nuevo) {
-    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅❌🔗🛵]/gu, "")); };
+    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅❌🔗🛵🧾⚡]/gu, "")); };
     Object.entries(nuevo).forEach(([t, o]) => {
       const a = ordenes[t]; if (!a) return;
       /* El repartidor registrado aceptó o rechazó el pedido asignado */
@@ -415,6 +416,7 @@ const PedidosAdmin = (() => {
         const falta = po.filter((x) => !x.retirado).length;
         decir(`📦 ${nom} ya retiró ${p.producto ? p.producto : "un producto"}${p.texto ? " en " + p.texto : ""}. ${falta ? "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "") + " del pedido " + o.codigo : "Pedido " + o.codigo + " completo, va hacia el cliente"}`);
       });
+      if (o.facturaResumen && typeof o.facturaResumen.total === "number" && !a.facturaResumen) decir(`🧾 ${nom} envió la factura del pedido ${o.codigo} a la app del cliente por ${O.money(o.facturaResumen.total)}${o.facturaResumen.prioridad ? ", con prioridad" : ""}`);
       if (o.estado !== a.estado && o.estado === "entregado") decir(`✅ ${nom} entregó el pedido ${o.codigo}`);
     });
   }

@@ -12,6 +12,40 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="factura.css">
   <link rel="stylesheet" href="ordenes.css">
+  <style>
+    /* ---- FASE 2 · factura de un pedido aceptado ---- */
+    /* Botón "Crear Factura" que se inyecta sobre el mapa cuando el repartidor acepta un pedido */
+    .btn-crear-factura { position: absolute; left: 12px; bottom: 14px; z-index: 900; display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px; border: 0; border-radius: 24px; background: #0E141B; color: #fff; font: 800 15px/1 "Plus Jakarta Sans", system-ui, sans-serif; box-shadow: 0 6px 18px rgba(14, 20, 27, .38); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .btn-crear-factura:active { transform: scale(.97); }
+    .btn-crear-factura:focus-visible { outline: 3px solid #3DB8F5; outline-offset: 3px; }
+    .btn-crear-factura:disabled { background: #1E9B5A; opacity: 1; cursor: default; }
+    /* Aviso breve en el marcador del cliente cuando comparte su ubicación nueva */
+    @keyframes pinActualizado { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1); } }
+    .pin-actualizado .pin-cli { animation: pinActualizado 1s ease-out 1; }
+    @media (prefers-reduced-motion: reduce) { .pin-actualizado .pin-cli { animation: none; } }
+    /* Banner dentro de la factura */
+    .fx .fx-pedido-banner { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #E8F6EE; border: 2px solid #1E9B5A; color: #0E141B; }
+    .fx .fx-pedido-banner > div { flex: 1; min-width: 0; display: grid; gap: 2px; }
+    .fx .fx-pedido-banner b { font-size: 14px; font-weight: 800; }
+    .fx .fx-pedido-banner small { font-size: 12px; font-weight: 600; color: #2F5D44; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fx .fx-pedido-banner button { flex: none; width: 34px; height: 34px; border-radius: 10px; background: #fff; font-size: 15px; font-weight: 800; color: #0E141B; display: grid; place-items: center; }
+    /* Delivery fijado por el sistema (no se escribe a mano) */
+    .fx .fx-sistema { display: grid; gap: 1px; align-content: center; height: 46px; padding: 0 12px; border-radius: 12px; background: #E8F6EE; border: 2px solid #1E9B5A; }
+    .fx .fx-sistema b { font-size: 16px; font-weight: 800; color: #0E141B; line-height: 1.1; }
+    .fx .fx-sistema small { font-size: 10.5px; font-weight: 700; color: #17602B; line-height: 1; }
+    /* Cargo de prioridad que aceptó el cliente */
+    .fx .fx-prio-fila { display: none; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: #FFF4E5; border: 2px solid #F59E0B; color: #7C3A00; font-size: 13px; font-weight: 700; }
+    .fx .fx-prio-fila b { font-weight: 800; }
+    /* Estado del envío silencioso en la ventana "Factura lista" */
+    .fx .fx-envio-app { display: flex; align-items: center; gap: 10px; text-align: left; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: #F1F5F9; border: 2px solid #BDC3C7; }
+    .fx .fx-envio-app.ok { background: #E8F6EE; border-color: #1E9B5A; }
+    .fx .fx-envio-app.error { background: #FDECEA; border-color: #E74C3C; }
+    .fx .fx-envio-app > span { font-size: 24px; line-height: 1; }
+    .fx .fx-envio-app > div { flex: 1; min-width: 0; display: grid; gap: 2px; }
+    .fx .fx-envio-app b { font-size: 14px; font-weight: 800; color: #2C3E50; }
+    .fx .fx-envio-app small { font-size: 12px; font-weight: 600; color: #4A5A6A; }
+    .fx .fx-envio-app button { flex: none; padding: 8px 12px; border-radius: 10px; background: #2C3E50; color: #fff; font-size: 13px; font-weight: 800; }
+  </style>
 </head>
 <body class="rep">
   <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
@@ -52,6 +86,11 @@
   <!-- 1) FACTURA: lo primero que ve el repartidor al entrar -->
   <div id="vistaFactura" class="fx oculto">
 <div class="invoice-container" id="invoiceContainer">
+        <div id="pedidoBanner" class="fx-pedido-banner" style="display:none">
+            <div><b>🧾 Factura del pedido <span id="pedidoBannerCod"></span></b><small id="pedidoBannerTxt"></small></div>
+            <button type="button" onclick="Factura.salirModoPedido()" aria-label="Salir de la factura de este pedido">✕</button>
+        </div>
+
         <div id="contactoFila" class="fx-campo" style="display:none">
             <span class="fx-et">🔗 Enlace de contacto ya abierto</span>
             <select id="contactoSel" onchange="alElegirContacto()" aria-label="Enlace de contacto"></select>
@@ -68,7 +107,8 @@
         <div class="fx-fila2">
             <div class="fx-campo fx-delivery">
                 <span class="fx-et">🛵 Delivery</span>
-                <div class="fx-moneda"><i>C$</i><input type="number" id="deliveryPrice" value="" placeholder="0" min="0" step="0.01" oninput="calculateTotal()" inputmode="decimal"></div>
+                <div class="fx-moneda" id="deliveryManual"><i>C$</i><input type="number" id="deliveryPrice" value="" placeholder="0" min="0" step="0.01" oninput="calculateTotal()" inputmode="decimal"></div>
+                <div class="fx-sistema" id="deliverySistema" style="display:none"><b id="deliverySistemaMonto">C$ 0.00</b><small>Precio del sistema</small></div>
             </div>
             <div class="fx-campo fx-grow">
                 <span class="fx-et">➕ Mandado extra</span>
@@ -100,6 +140,8 @@
             <div><small>Delivery</small><b id="deliveryCost">C$ 0.00</b></div>
             <div class="gran"><small>Total a pagar</small><b id="grandTotal">C$ 0.00</b></div>
         </div>
+
+        <div id="fxPrioFila" class="fx-prio-fila"><span>⚡ Prioridad aceptada por el cliente</span><b id="fxPrioMonto">+C$ 0.00</b></div>
 
         <div class="fx-acciones">
             <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">🧾 Generar factura</button>
@@ -324,7 +366,12 @@
                 </svg>
                 Enviar factura por WhatsApp
             </button>
-            <p class="track-note">Se envía al WhatsApp del negocio, se activa el seguimiento y pasas al mapa.</p>
+            <p class="track-note" id="fxTrackNote">Se envía al WhatsApp del negocio, se activa el seguimiento y pasas al mapa.</p>
+            <div id="fxEnvioApp" class="fx-envio-app" style="display:none" role="status" aria-live="polite">
+                <span id="fxEnvioIcono">⏳</span>
+                <div><b id="fxEnvioTitulo">Enviando a la app del cliente…</b><small id="fxEnvioTxt"></small></div>
+                <button type="button" id="fxEnvioReintentar" style="display:none" onclick="reintentarEnvioPedido()">Reintentar</button>
+            </div>
             <button type="button" class="add-product-btn" style="background-color: var(--sky-blue); margin-top: 10px;" onclick="downloadInvoiceImage()">📥 Guardar Factura en Imagen</button>
             <button type="button" class="close-popup-btn" onclick="closePopup()">Cerrar</button>
         </div>

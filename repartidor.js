@@ -9,6 +9,9 @@
    4) El cliente comparte su ubicación al abrir el enlace; aquí se ve en tiempo real.
    - Turno: la ubicación del repartidor se comparte SIEMPRE mientras haya sesión (mapa del administrador)
    - En el APK (Capacitor) el GPS sigue en segundo plano; en el navegador solo con la pantalla activa
+   FASE 2 (PedidoRep): al aceptar un pedido del administrador aparece "Crear Factura" sobre el mapa; la factura se guarda
+   directo en Firebase (la ve el cliente en su rastreo, con la prioridad de C$ 10 si la aceptó) y la ubicación del cliente
+   se actualiza en el mapa en el mismo instante en que él la cambia.
    ============================================================ */
 /* Si algo falla al cargar (p. ej. faltan archivos por subir), el motivo aparece escrito bajo el formulario */
 window.addEventListener("error", (e) => {
@@ -22,7 +25,7 @@ const TS = firebase.database.ServerValue.TIMESTAMP;
 
 /* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
    Sirve para avisar al administrador (push en su APK Admin) cuando escribes en un chat. Mientras diga "TU-WORKER" no se envía nada. */
-const WORKER_URL_BROTHERS = "https://brothers-push.jhosxan.workers.dev";
+const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
 const PRIORIDAD_EXTRA = 10;   // C$ de propina cuando el cliente prioriza su pedido
 
 let watchId = null, bgId = null, bgPlugin = null, latido = null, wakeLock = null;
@@ -55,7 +58,26 @@ function generarToken(largo = 14) {
   const bytes = crypto.getRandomValues(new Uint8Array(largo));
   return Array.from(bytes, (b) => abc[b % abc.length]).join("");
 }
-const enlaceDe = (token) => `${URL_RASTREO}?id=${token}`;
+/* FASE 3: enlace de rastreo limpio (solo ?id=TOKEN). Usa el mismo constructor que factura.js. */
+function enlaceDe(token, extra) {
+  if (window.Factura && typeof window.Factura.enlaceRastreo === "function") return window.Factura.enlaceRastreo(token, extra);
+  try {
+    const u = new URL(String(URL_RASTREO), window.location.href);
+    u.hash = "";
+    Array.from(u.searchParams.keys()).forEach((k) => { if (/^(utm_|fbclid$|gclid$|ref$|source$|debug$|v$|t$|ts$|cb$|nocache$)/i.test(k)) u.searchParams.delete(k); });
+    u.pathname = u.pathname.replace(/\/index\.html?$/i, "/");
+    u.searchParams.set("id", token);
+    if (extra) Object.keys(extra).forEach((k) => u.searchParams.set(k, extra[k]));
+    return u.toString();
+  } catch (e) { return `${URL_RASTREO}?id=${token}` + (extra ? "&" + Object.keys(extra).map((k) => k + "=" + extra[k]).join("&") : ""); }
+}
+/* FASE 3: leyenda persuasiva que acompaña al enlace en WhatsApp */
+const leyendaEnlace = (link) =>
+  "📍 *Paso importante para recibir su pedido*\n" +
+  "Para que su repartidor sepa con exactitud dónde se encuentra y su pedido llegue lo más rápido posible, " +
+  "*es vital que abra el enlace de abajo y permita compartir su ubicación en tiempo real*. " +
+  "Sin su ubicación, la entrega puede retrasarse.\n\n" +
+  "👉 *Abra aquí ahora (toma 5 segundos):*\n" + link;
 const num = (x) => (Number.isFinite(x) ? x : null);
 const formatoDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m");
 function distanciaM(lat1, lng1, lat2, lng2) {
@@ -216,6 +238,7 @@ function initMapa() {
   orden.forEach((t) => pintarCliente(viajes[t]));
   dibujarRuta();
   pintarGuia();
+  PedidoRep.pintarCliente();
   pintarLugares();
   if (lugarDestino) { pintarLugarDestino(); dibujarRutaLugar(); }
   actualizarBanner();
@@ -268,6 +291,7 @@ function encuadrar(soloSeleccionado) {
   const lista = soloSeleccionado && seleccionado ? [seleccionado] : orden;
   lista.forEach((t) => { const v = viajes[t]; if (v && v.destino) pts.push([v.destino.lat, v.destino.lng]); });
   if (guiaCliente() && !orden.length) pts.push([guiaActual.lat, guiaActual.lng]);
+  const cliPed = PedidoRep.posCliente(); if (cliPed) pts.push([cliPed.lat, cliPed.lng]);
   if (pts.length > 1) mapa.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 17 });
   else if (pts.length === 1) mapa.setView(pts[0], 16);
 }
@@ -488,6 +512,148 @@ Factura.alEnviar = (f) => {
   setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
 };
 
+/* ============================================================
+   PEDIDO DEL ADMINISTRADOR YA ACEPTADO (FASE 2)
+   1) Botón "Crear Factura" sobre el mapa.
+   2) La factura usa el delivery del sistema y se guarda directo en Firebase (pedidos/{id}) → el cliente la ve en vivo.
+   3) La ubicación del cliente (pedidos/{id}/cliente) mueve su marcador en el mapa al instante.
+   Solo lee ordenes/{id} (el mismo pedido que ya sigue OrdenAdminRep) y escribe en pedidos/{id}, como el flujo normal.
+   ============================================================ */
+/* Pequeño "salto" en un marcador de Leaflet para que se note que acaba de moverse */
+function pulsarMarca(m) {
+  const e = m && m.getElement && m.getElement(); if (!e) return;
+  e.classList.remove("pin-actualizado"); void e.offsetWidth; e.classList.add("pin-actualizado");
+  setTimeout(() => e.classList.remove("pin-actualizado"), 1100);
+}
+
+const PedidoRep = (() => {
+  const ACTIVO = ["pendiente", "asignado", "retirado"];
+  let id = null, datos = null, prio = false, prioPed = false, facturada = false, refs = [], cli = null, marca = null;
+
+  /* Delivery del sistema = el total que el administrador fijó al crear el pedido (delivery + IVA, si lleva) */
+  function precioDelivery(o) {
+    try { if (typeof Ordenes !== "undefined" && typeof Ordenes.totalDelivery === "function") { const t = Number(Ordenes.totalDelivery(o)); if (Number.isFinite(t)) return t; } } catch (_) {}
+    return Math.round(((Number(o.delivery) || 0) + (Number(o.iva) || 0)) * 100) / 100;
+  }
+  const prioridad = () => prio || prioPed;   // el cliente pagó los 10 C$ para salir primero
+  const aceptado = () => !!(datos && datos.estado_asignacion === "aceptado" && ACTIVO.includes(datos.estado));
+  const nombre = () => (datos && datos.cliente) || "Cliente";
+
+  /* ---------- Escucha del pedido ---------- */
+  function seguir(nuevo) {
+    if (!nuevo || nuevo === id) return;
+    soltar();
+    id = nuevo;
+    const escuchar = (ref, cb) => { ref.on("value", cb, () => {}); refs.push(ref); };
+    escuchar(db.ref("ordenes/" + nuevo), (s) => {
+      if (id !== nuevo) return;
+      const d = s.val();
+      const ajeno = d && d.asignacion && d.asignacion.tipo === "registrado" && d.asignacion.uid && d.asignacion.uid !== uidActual;   // lo reasignaron a otro
+      if (!d || ajeno || ["entregado", "cancelado"].includes(d.estado)) return soltar();
+      datos = d; prio = d.prioridad === true;
+      pintarBoton(); alCambiarPrioridad(); pintarCliente();
+    });
+    escuchar(db.ref("pedidos/" + nuevo + "/cliente"), (s) => aplicarCliente(s.val()));            // ubicación del cliente en vivo
+    escuchar(db.ref("pedidos/" + nuevo + "/prioridad"), (s) => { prioPed = s.val() === true; alCambiarPrioridad(); });
+    escuchar(db.ref("pedidos/" + nuevo + "/factura"), (s) => { facturada = s.val() != null; pintarBoton(); });
+  }
+  function soltar() {
+    refs.forEach((r) => r.off()); refs = [];
+    const hubo = !!id;
+    id = null; datos = null; prio = false; prioPed = false; facturada = false; cli = null;
+    if (mapa && marca) { mapa.removeLayer(marca); }
+    marca = null;
+    try { if (hubo && Factura.enModoPedido()) Factura.salirModoPedido(true); } catch (_) {}
+    pintarBoton();
+  }
+
+  /* ---------- Marcador del cliente: se mueve en el mismo instante en que él actualiza su ubicación ---------- */
+  function aplicarCliente(c) {
+    const antes = cli;
+    cli = c && typeof c.lat === "number" && typeof c.lng === "number" ? { lat: c.lat, lng: c.lng, manual: !!c.manual, ts: c.ts || 0 } : null;
+    pintarCliente();
+    if (cli && (!antes || antes.lat !== cli.lat || antes.lng !== cli.lng)) {
+      pulsarMarca(marca);
+      if (antes && !document.hidden) setEstado("📍 " + nombre() + " actualizó su ubicación", "ok");
+    }
+  }
+  function pintarCliente() {
+    if (!mapa) return;
+    if (!cli || !id) { if (marca) { mapa.removeLayer(marca); marca = null; } return; }
+    const p = [cli.lat, cli.lng], vivo = !cli.manual && !!cli.ts && Date.now() - cli.ts < FRESCO_MS, clave = [nombre(), vivo].join("|");
+    if (!marca) { marca = L.marker(p, { icon: iconoCliente("👤", nombre(), true, vivo), zIndexOffset: 850 }).addTo(mapa); marca._clave = clave; }
+    else {
+      marca.setLatLng(p);
+      if (marca._clave !== clave) { marca.setIcon(iconoCliente("👤", nombre(), true, vivo)); marca._clave = clave; }
+    }
+  }
+
+  /* ---------- Prioridad: si el cliente la acepta, el total lleva +10 C$ ---------- */
+  function alCambiarPrioridad() {
+    try { if (Factura.enModoPedido()) Factura.recalcular(); } catch (_) {}   // la factura abierta se actualiza sola
+    if (facturada && prioridad()) sumarPrioridadAlDetalle();                  // la factura ya estaba enviada: se corrige lo que ve el cliente
+  }
+  async function sumarPrioridadAlDetalle() {
+    const mio = id; if (!mio) return;
+    try {
+      const ref = db.ref("pedidos/" + mio + "/detalle"), d = (await ref.once("value")).val();
+      if (!d || d.prioridad || id !== mio) return;   // ya lleva la propina (la suma el cliente o la hizo antes la app)
+      const base = typeof d.totalBase === "number" ? d.totalBase : Number(d.total) || 0;
+      const total = Math.round((base + PRIORIDAD_EXTRA) * 100) / 100;
+      await ref.update({ prioridad: PRIORIDAD_EXTRA, total });
+      db.ref("ordenes/" + mio + "/facturaResumen").update({ prioridad: PRIORIDAD_EXTRA, total }).catch(() => {});
+    } catch (_) {}
+  }
+
+  /* ---------- Botón "Crear Factura" (se inyecta en la ventana del mapa) ---------- */
+  function pintarBoton() {
+    const caja = document.querySelector("#vistaMapa .mapa-caja"); if (!caja) return;
+    let b = $("btnCrearFactura");
+    if (!(uidActual && usuario && aceptado())) { if (b) b.remove(); return; }
+    if (!b) {
+      b = document.createElement("button");
+      b.id = "btnCrearFactura"; b.type = "button"; b.className = "btn-crear-factura";
+      b.onclick = abrirFactura;
+      caja.appendChild(b);
+    }
+    b.disabled = facturada;
+    b.innerHTML = facturada ? '<span aria-hidden="true">✅</span> Factura enviada' : '<span aria-hidden="true">🧾</span> Crear Factura';
+    b.setAttribute("aria-label", facturada ? "La factura ya fue enviada al cliente" : "Crear factura del pedido " + ((datos && datos.codigo) || ""));
+  }
+  function abrirFactura() {
+    if (!aceptado() || !datos) return;
+    if (facturada) return alert("Este pedido ya tiene su factura enviada al cliente.");
+    Factura.prepararPedido({ id, codigo: datos.codigo || id, cliente: datos.cliente || "", delivery: precioDelivery(datos) });   // delivery: del sistema, sin teclearlo
+    irA("factura");
+  }
+
+  /* ---------- Envío silencioso: guarda la factura en pedidos/{id} y el cliente la ve en vivo ---------- */
+  async function enviarFactura(f) {
+    if (!uidActual || !usuario) throw new Error("Tu sesión no está activa.");
+    if (!id || f.token !== id || !aceptado()) throw new Error("Este pedido ya no está en curso.");
+    const mio = id, conPrio = (Number(f.prioridad) || 0) > 0 || prioridad();
+    const detalle = detalleDeFactura(f, conPrio);   // el total ya suma los +10 C$ si el cliente aceptó la prioridad
+    const datosFactura = JSON.parse(JSON.stringify({ pedido: f.pedido, factura: SubFactura.instantanea(f), detalle }));
+    const estado = (await db.ref("pedidos/" + mio + "/estado").once("value")).val();
+    if (!estado) Object.assign(datosFactura, { estado: "en_ruta", inicio: TS, repartidorUid: uidActual, repartidorNombre: usuario });   // el cliente aún no había abierto su enlace
+    await db.ref("pedidos/" + mio).update(datosFactura);
+    if (id === mio) { facturada = true; pintarBoton(); }
+    contarFactura(f);
+    // Resumen para el panel del administrador (si las reglas no lo permiten, no afecta al cliente)
+    db.ref("ordenes/" + mio + "/facturaResumen").set({
+      total: detalle.total, subtotal: Number(f.subtotal) || 0, delivery: Number(f.delivery) || 0, prioridad: detalle.prioridad || 0,
+      items: (f.productos || []).length, deposito: !!f.deposito, ts: TS, repartidor: usuario
+    }).catch(() => {});
+    navigator.vibrate && navigator.vibrate(120);
+    return true;
+  }
+
+  return { seguir, soltar, pintarCliente, pintarBoton, posCliente: () => cli, prioridadExtra: () => (aceptado() && prioridad() ? PRIORIDAD_EXTRA : 0), enviarFactura };
+})();
+Factura.alEnviarPedido = (f) => PedidoRep.enviarFactura(f);
+Factura.alTerminarPedido = () => irA("mapa");   // factura enviada: de vuelta al mapa
+Factura.prioridadExtra = () => PedidoRep.prioridadExtra();
+
 /* Al abrir la app: recuperar los pedidos que seguían en ruta */
 function reanudarViajes() {
   let guardados = [];
@@ -548,10 +714,11 @@ function quitarViaje(token) {
 function escucharCliente(v) {
   v.refCli = db.ref("pedidos/" + v.token + "/cliente");
   v.refCli.on("value", (s) => {
-    const c = s.val();
+    const c = s.val(), antes = v.cliPos;
     v.cliPos = c && typeof c.lat === "number" ? { lat: c.lat, lng: c.lng, manual: !!c.manual, ts: c.ts || 0, precision: c.precision || 0 } : null;
     if (v.cliPos && !v.destManual) v.destino = { lat: v.cliPos.lat, lng: v.cliPos.lng };
-    pintarCliente(v);
+    pintarCliente(v);   // el marcador se mueve YA: antes de recalcular la ruta o los textos
+    if (v.cliPos && (!antes || antes.lat !== v.cliPos.lat || antes.lng !== v.cliPos.lng)) pulsarMarca(v.destManual ? v.marcaCli : v.marca);
     if (v.token === seleccionado) { dibujarRuta(); pedirRuta(v); }
     evaluarViaje(v);
     refrescarTextos();
@@ -629,6 +796,7 @@ function soltarAdmin() {
   if (refLugares) { refLugares.off(); refLugares = null; }
   lugares = {}; pintarLugares(); quitarLugarDestino();
   OrdenAdminRep.detener();
+  PedidoRep.soltar();
   guiaActual = null; guiaTsVisto = undefined; noLeidosAdmin = 0; pintarBadgeAdmin(); pintarGuia();
 }
 function escucharAdmin() {
@@ -656,7 +824,7 @@ function escucharAdmin() {
   refGuia = db.ref("guias/" + uidActual);
   refGuia.on("value", (s) => {
     const g = s.val(), primera = guiaTsVisto === undefined;
-    if (g && g.ordenId) OrdenAdminRep.seguir(g.ordenId);   // pedido asignado por el administrador: tarjeta con Retirado / Entregado
+    if (g && g.ordenId) { OrdenAdminRep.seguir(g.ordenId); PedidoRep.seguir(g.ordenId); }   // pedido asignado por el administrador: tarjeta con Retirado / Entregado
     if (!g || typeof g.lat !== "number") { guiaActual = null; guiaTsVisto = null; pintarGuia(); dibujarRuta(); return; }
     if (primera && g.ts && Date.now() - g.ts > 12 * 3600 * 1000) { guiaTsVisto = g.ts; return; }   // guía vieja de otro día: se ignora
     const nueva = !primera && g.ts !== guiaTsVisto;
@@ -897,7 +1065,7 @@ function refrescarTextos() {
   });
   actualizarNav();
 }
-setInterval(() => { if (orden.length) refrescarTextos(); }, 15000);   // el estado "en vivo" caduca solo
+setInterval(() => { if (orden.length) refrescarTextos(); PedidoRep.pintarCliente(); }, 15000);   // el estado "en vivo" caduca solo
 
 $("hojaPedidos").onclick = (e) => {
   if (OrdenAdminRep.alClick(e)) return;   // tarjeta del pedido asignado por el administrador
@@ -1196,7 +1364,7 @@ function procesarPosicion(c) {
 
 /* ---------- "Contactarme al cliente": el negocio avisa al cliente con un enlace que abre el chat ---------- */
 function enviarContacto(v) {
-  const enlace = enlaceDe(v.token) + "&chat=1";   // abre el chat directamente en la página del cliente
+  const enlace = enlaceDe(v.token, { chat: "1" });   // abre el chat directamente en la página del cliente
   abrirWhatsApp(
     `📞 *SOLICITUD DE CONTACTO*\n🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · Cliente: " + v.cliente : ""}\n\n` +
     `💬 El repartidor desea contactarse con usted, por favor presione el enlace para responderle:\n${enlace}`);
@@ -1231,7 +1399,7 @@ $("btnContactoCancelar").onclick = () => $("modalContacto").classList.add("ocult
 const NEGOCIO_WA = "50586265619";
 function abrirWhatsApp(msg) { window.open(`https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(msg)}`, "_system"); }
 const mensajeSeguimiento = (v) =>
-  `🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n📍 Seguimiento en tiempo real: ${enlaceDe(v.token)}`;
+  `🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n\n` + leyendaEnlace(enlaceDe(v.token));
 
 /* ---------- Entregar / cancelar un pedido ---------- */
 async function cerrarViaje(token, estadoFinal) {
@@ -1289,6 +1457,7 @@ Atras.iniciar([
 /* ---------- Pedido asignado por el administrador (ordenes-repartidor.js) ---------- */
 /* Pedido NUEVO asignado por el administrador: ventana con todos los detalles + voz + vibración + notificación */
 function nuevoPedidoAsignado(id, o) {
+  PedidoRep.seguir(id);   // desde ya se escucha el pedido: al aceptarlo aparece "Crear Factura" en el mapa
   const total = Ordenes.totalDelivery(o), sig = Ordenes.siguienteRetiro(o);
   $("nuevoPedidoCuerpo").innerHTML = OrdenAdminRep.detallesHtml(o);
   $("modalNuevoPedido").classList.remove("oculto");
