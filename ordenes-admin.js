@@ -566,3 +566,96 @@ const PedidosAdmin = (() => {
 
   return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "" };
 })();
+
+
+/* ============================================================
+   ACTUALIZACIONES OBLIGATORIAS (In-App Updates) · app Admin / Controlador
+   Firebase: configuracion/actualizaciones/admin = { version: 2, novedades: "texto", url: "https://…apk" }
+   Si version > APP_VERSION_ADMIN se bloquea la app con una pantalla que no se puede cerrar.
+   Además: botón "🚀 Lanzar actualización" (pestaña Equipo) para publicar versiones de admin o repartidor.
+   ============================================================ */
+const APP_VERSION_ADMIN = 1;
+const ActualizacionAdmin = (() => {
+  const BASE = "configuracion/actualizaciones/", g = (id) => document.getElementById(id);
+  let ref = null;
+  const bd = () => (typeof db !== "undefined" ? db : null);
+  const urlSegura = (u) => { try { const x = new URL(String(u || "").trim()); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch (_) { return ""; } };
+
+  /* ---------- Bloqueo ---------- */
+  function mostrar(d) {
+    const url = urlSegura(d.url), btn = g("btnActualizarApp");
+    g("updNovedades").textContent = String(d.novedades || "").trim() || "Mejoras de rendimiento y correcciones.";
+    g("updVersionTxt").textContent = "Tu versión: " + APP_VERSION_ADMIN + " · Nueva versión: " + Number(d.version);
+    if (url) {
+      btn.href = url; btn.removeAttribute("aria-disabled");
+      btn.onclick = (e) => { e.preventDefault(); try { window.open(url, "_system"); } catch (_) { window.location.href = url; } };
+    } else {
+      btn.removeAttribute("href"); btn.setAttribute("aria-disabled", "true"); btn.onclick = (e) => e.preventDefault();
+    }
+    g("modalActualizacion").classList.remove("oculto");
+    document.body.classList.add("upd-bloqueado");
+    try { btn.focus(); } catch (_) {}
+  }
+  function ocultar() {
+    g("modalActualizacion").classList.add("oculto");
+    document.body.classList.remove("upd-bloqueado");
+  }
+  function evaluar(d) { if (d && Number(d.version) > APP_VERSION_ADMIN) mostrar(d); else ocultar(); }
+  function vigilar() {
+    const base = bd(); if (ref || !base) return;
+    ref = base.ref(BASE + "admin");
+    ref.on("value", (s) => evaluar(s.val()), () => { ref = null; });   // sin permiso todavía (sin sesión): se reintenta al iniciar sesión
+  }
+
+  /* ---------- Lanzar actualización (modal del admin) ---------- */
+  function lanzar() {
+    const base = bd(); if (!base) return;
+    modal(`<h2>🚀 Lanzar actualización</h2>
+      <p class="ayuda">Las apps con una versión menor quedarán bloqueadas hasta que instalen el nuevo APK.</p>
+      <label>Tipo de app <select id="updTipo"><option value="repartidor">Repartidor</option><option value="admin">Admin / Controlador</option></select></label>
+      <small id="updActual" class="ayuda">Versión actual en la nube: …</small>
+      <label>Nueva versión (número entero, ej. 2) <input id="updVersion" type="number" inputmode="numeric" min="1" step="1" placeholder="2"></label>
+      <label>Novedades <textarea id="updNov" rows="4" maxlength="600" placeholder="Qué trae esta versión…"></textarea></label>
+      <label>Enlace del nuevo APK <input id="updUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://…"></label>
+      <div id="updMsg" class="estado oculto" role="status"></div>
+      <button id="updPublicar" class="primario" type="button">Publicar actualización</button>
+      <button id="updCancelar" class="oscuro" type="button">Cancelar</button>`);
+    const msg = (t, tipo) => { const m = g("updMsg"); m.textContent = t || ""; m.className = "estado " + (tipo || "") + (t ? "" : " oculto"); };
+    async function mostrarActual() {
+      const tipo = g("updTipo").value;
+      g("updActual").textContent = "Versión actual en la nube: …";
+      try {
+        const v = (await base.ref(BASE + tipo).once("value")).val();
+        if (g("updTipo") && g("updTipo").value === tipo) g("updActual").textContent = "Versión actual en la nube: " + (v && v.version != null ? v.version : "ninguna") + " · Instalada en este aparato (admin): " + APP_VERSION_ADMIN;
+      } catch (_) { if (g("updActual")) g("updActual").textContent = "No se pudo leer la versión actual (revisa las reglas de Firebase)."; }
+    }
+    mostrarActual();
+    g("updTipo").onchange = mostrarActual;
+    g("updCancelar").onclick = cerrarModal;
+    g("updPublicar").onclick = async () => {
+      const tipo = g("updTipo").value, version = Number(g("updVersion").value), novedades = g("updNov").value.trim(), url = urlSegura(g("updUrl").value);
+      if (!Number.isInteger(version) || version < 1) return msg("Escribe la versión como número entero (1, 2, 3…).", "error");
+      if (!novedades) return msg("Escribe las novedades de esta versión.", "error");
+      if (!url) return msg("El enlace del APK debe empezar con http:// o https://", "error");
+      if (tipo === "admin" && version > APP_VERSION_ADMIN && !confirm("Esta versión es mayor que la instalada en este aparato: tú también quedarás bloqueado hasta instalar el nuevo APK. ¿Continuar?")) return;
+      let actual = null;
+      try { actual = (await base.ref(BASE + tipo).once("value")).val(); } catch (_) {}
+      if (actual && Number(actual.version) >= version && !confirm("En la nube ya está la versión " + actual.version + ". Con un número igual o menor nadie se bloquea. ¿Publicar de todos modos?")) return;
+      g("updPublicar").disabled = true; msg("Publicando…", "ok");
+      try {
+        await base.ref(BASE + tipo).set({ version, novedades, url, publicado: firebase.database.ServerValue.TIMESTAMP });
+        cerrarModal(); toast("Actualización " + version + " publicada para " + (tipo === "admin" ? "Admin" : "Repartidores") + " ✓");
+      } catch (err) {
+        g("updPublicar").disabled = false;
+        msg("No se pudo publicar: " + ((err && err.message) || err) + (err && err.code === "PERMISSION_DENIED" ? " (revisa las reglas de Firebase)" : ""), "error");
+      }
+    };
+  }
+
+  /* ---------- Arranque ---------- */
+  const btnLanzar = g("btnLanzarUpd");
+  if (btnLanzar) btnLanzar.onclick = lanzar;
+  vigilar();
+  if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) vigilar(); });
+  return { vigilar, lanzar, evaluar };
+})();

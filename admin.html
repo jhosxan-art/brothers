@@ -114,6 +114,7 @@
       <p class="ayuda">Los repartidores ven estos negocios en su mapa y los pueden buscar por nombre.</p>
       <button id="btnNuevoNegocio" class="primario" type="button">➕ Agregar negocio</button>
       <div id="listaNegocios" class="acciones" style="margin-top:10px"></div>
+      <div style="margin-top:22px;text-align:center"><button id="btnLanzarUpd" class="mini" type="button" style="opacity:.55">🚀 Lanzar actualización</button></div>
     </section>
 
     <!-- Pedidos: formulario, asignación (registrado o invitado) y estado en vivo -->
@@ -162,6 +163,21 @@
       <button data-tab="panelChats">Chats</button>
       <button data-tab="panelEquipo">Equipo</button>
     </nav>
+  </div>
+
+  <!-- Bloqueo por actualización obligatoria (sin botón de cerrar; se muestra desde JS) -->
+  <div id="modalActualizacion" class="upd-fondo oculto" role="alertdialog" aria-modal="true" aria-labelledby="updTitulo" aria-describedby="updNovedades">
+    <div class="upd-caja">
+      <div class="upd-icono" aria-hidden="true">🚀</div>
+      <h2 id="updTitulo">¡Actualización Disponible!</h2>
+      <p class="upd-sub">Para seguir usando la app debes instalar la nueva versión.</p>
+      <div class="upd-novedades">
+        <small>Novedades</small>
+        <p id="updNovedades">Mejoras de rendimiento y correcciones.</p>
+      </div>
+      <a id="btnActualizarApp" class="upd-btn" href="#" target="_blank" rel="noopener">ACTUALIZA TU APP</a>
+      <span id="updVersionTxt" class="upd-ver"></span>
+    </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

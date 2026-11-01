@@ -23,6 +23,47 @@ const db = APP.database();
 const $ = (id) => document.getElementById(id);
 const TS = firebase.database.ServerValue.TIMESTAMP;
 
+/* ============================================================
+   ACTUALIZACIONES OBLIGATORIAS (In-App Updates) · app Repartidor
+   Firebase: configuracion/actualizaciones/repartidor = { version: 2, novedades: "texto", url: "https://…apk" }
+   Si version > APP_VERSION se bloquea la app con una pantalla que no se puede cerrar.
+   Va al principio para que el bloqueo funcione aunque más abajo algo falle.
+   ============================================================ */
+const APP_VERSION = 1;
+const ActualizacionApp = (() => {
+  const RUTA = "configuracion/actualizaciones/repartidor";
+  let ref = null;
+  const g = (id) => document.getElementById(id);
+  const urlSegura = (u) => { try { const x = new URL(String(u || "").trim()); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch (_) { return ""; } };
+  function mostrar(d) {
+    const url = urlSegura(d.url), btn = g("btnActualizarApp");
+    g("updNovedades").textContent = String(d.novedades || "").trim() || "Mejoras de rendimiento y correcciones.";   // textContent: nunca se interpreta como HTML
+    g("updVersionTxt").textContent = "Tu versión: " + APP_VERSION + " · Nueva versión: " + Number(d.version);
+    if (url) {
+      btn.href = url; btn.removeAttribute("aria-disabled");
+      btn.onclick = (e) => { e.preventDefault(); try { window.open(url, "_system"); } catch (_) { window.location.href = url; } };   // _system: abre el navegador desde el APK
+    } else {
+      btn.removeAttribute("href"); btn.setAttribute("aria-disabled", "true"); btn.onclick = (e) => e.preventDefault();
+    }
+    g("modalActualizacion").classList.remove("oculto");
+    document.body.classList.add("upd-bloqueado");
+    try { btn.focus(); } catch (_) {}
+  }
+  function ocultar() {
+    g("modalActualizacion").classList.add("oculto");
+    document.body.classList.remove("upd-bloqueado");
+  }
+  function evaluar(d) { if (d && Number(d.version) > APP_VERSION) mostrar(d); else ocultar(); }
+  function vigilar() {
+    if (ref) return;
+    ref = db.ref(RUTA);
+    ref.on("value", (s) => evaluar(s.val()), () => { ref = null; });   // si aún no hay permiso (sin sesión), se reintenta al iniciar sesión
+  }
+  return { vigilar, evaluar };
+})();
+ActualizacionApp.vigilar();
+auth.onAuthStateChanged((u) => { if (u) ActualizacionApp.vigilar(); });
+
 /* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
    Sirve para avisar al administrador (push en su APK Admin) cuando escribes en un chat. Mientras diga "TU-WORKER" no se envía nada. */
 const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
