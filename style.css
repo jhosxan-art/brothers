@@ -535,28 +535,51 @@ input.sw:checked::after { transform: translateX(22px); }
 #panelPedidos #pdIvaBase { background: var(--celeste-suave); border-color: #cfe9f8; }   /* se rellena solo */
 #panelPedidos #pdIvaBase:focus { background: #fff; border-color: var(--celeste-prof); }
 
-/* Lugares de retiro y de entrega: tarjeta con cabecera (título + estado de ubicación) y campo + 📍 en una línea */
-#panelPedidos .pd-form .pd-retiros { display: grid; gap: 8px; }
-#panelPedidos .pd-form .pd-lugar { position: relative; display: grid; gap: 4px; }
-#panelPedidos .pd-form .pd-retiro, #panelPedidos .pd-form .pd-entrega { position: relative; display: grid; gap: 6px; padding: 8px 10px 10px; border: 1.5px solid var(--linea); border-left: 4px solid var(--celeste); border-radius: 14px; background: #fff; }
-#panelPedidos .pd-form .pd-entrega { border-left-color: var(--rojo); }
-/* El bloque interno de cada lugar (retiro o entrega) no lleva borde, relleno ni fondo propios: la tarjeta es la de fuera (evita el doble borde) */
-#panelPedidos .pd-form .pd-retiro > .pd-lugar, #panelPedidos .pd-form .pd-entrega > .pd-lugar { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; min-width: 0; }
-#panelPedidos .pd-form .pd-retiro, #panelPedidos .pd-form .pd-entrega { min-width: 0; margin: 0; box-sizing: border-box; }
-#panelPedidos .pd-lh { display: flex; align-items: center; gap: 8px; min-height: 24px; }
-#panelPedidos .pd-lt { flex: none; font-size: 12px; font-weight: 800; color: var(--texto2); }
-#panelPedidos .pd-ok { flex: 1 1 auto; min-width: 0; text-align: right; font-size: 11px; font-weight: 700; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
-#panelPedidos .pd-lin { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; }
-#panelPedidos .pd-form .pd-lin button { width: 44px; height: 44px; padding: 0; font-size: 18px; border-radius: 12px; background: var(--celeste-suave); border-color: #cfe9f8; }
-#panelPedidos .pd-form .pd-x { flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: var(--rojo-suave); color: var(--rojo); font-size: 12px; line-height: 1; }
-#panelPedidos .pd-form #pdAddRetiro { flex: none; width: 100%; height: 36px; padding: 0 12px; font-size: 13px; background: #fff; border: 1.5px dashed var(--celeste-prof); }
+/* Tarjeta única "Lugar de Retiro y Entrega": filas que se tocan para fijar el punto en el mapa */
+#panelPedidos .pdl-card { display: grid; gap: 8px; min-width: 0; padding: 10px; border: 1.5px solid var(--linea); border-radius: 16px; background: #fff; box-sizing: border-box; }
+#panelPedidos .pdl-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#panelPedidos .pdl-titulo { font-size: 14px; font-weight: 800; color: var(--tinta); line-height: 1.2; }
+#panelPedidos .pdl-card .pdl-mapa { flex: none; width: auto; height: 36px; padding: 0 12px; font-size: 13px; font-weight: 800; border-radius: 12px; background: var(--celeste-suave); border: 1.5px solid #cfe9f8; color: var(--tinta); }
+#panelPedidos .pdl-lista { display: grid; gap: 8px; min-width: 0; }
+#panelPedidos .pdl-fila { display: grid; gap: 6px; min-width: 0; padding: 6px; border: 1.5px solid var(--linea); border-left: 4px solid var(--celeste); border-radius: 12px; background: var(--gris); box-sizing: border-box; }
+#panelPedidos .pdl-fila.entrega { border-left-color: var(--rojo); }
+#panelPedidos .pdl-card .pdl-pt { display: flex; align-items: center; gap: 10px; width: 100%; height: auto; min-height: 46px; margin: 0; padding: 4px 6px; border: 0; border-radius: 10px; background: transparent; box-shadow: none; text-align: left; color: var(--tinta); font-family: inherit; }
+#panelPedidos .pdl-ico { flex: none; font-size: 22px; line-height: 1; }
+#panelPedidos .pdl-txt { flex: 1 1 auto; min-width: 0; display: grid; gap: 1px; }
+#panelPedidos .pdl-txt b { font-size: 13px; font-weight: 800; color: var(--tinta); }
+#panelPedidos .pdl-txt small { font-size: 12px; font-weight: 600; line-height: 1.25; color: var(--texto2); overflow-wrap: anywhere; }
+#panelPedidos .pdl-est { flex: none; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+#panelPedidos .pdl-est.ok { background: #E3F6E8; color: #17602B; }
+#panelPedidos .pdl-est.med { background: #E6F1FB; color: #0A5C8F; }
+#panelPedidos .pdl-est.no { background: #FFF1D6; color: #8A5A00; }
+#panelPedidos .pdl-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+#panelPedidos .pdl-card .pdl-add button { width: 100%; height: 42px; padding: 0 6px; font-size: 13px; font-weight: 800; line-height: 1.1; border-radius: 12px; background: #fff; border: 1.5px dashed var(--celeste-prof); color: var(--tinta); }
 
-/* Burbujas de coincidencia con negocios guardados */
-#panelPedidos .pd-form .pd-sug { position: absolute; z-index: 30; left: 0; right: 0; top: 100%; margin-top: 4px; max-height: 38vh; overflow-y: auto; background: #fff; border: 1.5px solid var(--linea); border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,.2); }
-#panelPedidos .pd-form .pd-burbuja { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; min-height: 42px; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--linea); border-radius: 0; background: #fff; text-align: left; font-weight: 600; font-size: 14px; }
-#panelPedidos .pd-form .pd-burbuja:last-child { border-bottom: 0; }
-#panelPedidos .pd-form .pd-burbuja b { flex: none; font-weight: 800; }
-#panelPedidos .pd-form .pd-burbuja small { min-width: 0; color: var(--texto2); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Mapa del formulario (pantalla completa): selector Retiro/Entrega arriba, editor de dirección abajo */
+.pdm { position: fixed; inset: 0; z-index: 3000; background: #dfe6ec; }
+.pdm .pdm-mapa { position: absolute; inset: 0; z-index: 0; }
+.pdm .pdm-top { position: absolute; z-index: 1100; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 8px; padding: calc(10px + env(safe-area-inset-top)) 10px 6px; pointer-events: none; }
+.pdm .pdm-top > * { pointer-events: auto; }
+.pdm .pdm-x { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: #fff; color: var(--tinta); font-size: 18px; font-weight: 800; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+.pdm .pdm-chips { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; padding: 2px; overflow-x: auto; scrollbar-width: none; }
+.pdm .pdm-chips::-webkit-scrollbar { display: none; }
+.pdm .pdm-chips button { flex: none; height: 44px; padding: 0 14px; border: 2px solid #fff; border-radius: 22px; background: #fff; color: var(--tinta); font-size: 14px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+.pdm .pdm-chips button.on { background: var(--tinta); color: #fff; border-color: var(--celeste); }
+.pdm .pdm-panel { position: absolute; z-index: 1100; left: 0; right: 0; bottom: 0; display: grid; gap: 8px; max-height: 62vh; overflow-y: auto; padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: #fff; border-radius: 20px 20px 0 0; box-shadow: 0 -6px 24px rgba(0,0,0,.25); box-sizing: border-box; }
+.pdm .pdm-info { font-size: 13px; line-height: 1.3; color: var(--texto2); }
+.pdm .pdm-ed-t { font-size: 13px; font-weight: 800; color: var(--tinta); line-height: 1.25; }
+.pdm .pdm-panel input { width: 100%; height: 46px; padding: 0 12px; box-sizing: border-box; border: 1.5px solid var(--linea); border-radius: 12px; background: var(--gris); color: var(--tinta); font-size: 16px; font-family: inherit; }
+.pdm .pdm-fila2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.pdm .pdm-panel button { width: 100%; height: 46px; padding: 0 8px; border: 1.5px solid var(--linea); border-radius: 12px; background: #fff; color: var(--tinta); font-size: 14px; font-weight: 800; line-height: 1.1; font-family: inherit; }
+.pdm .pdm-panel .pdm-add { border: 1.5px dashed var(--celeste-prof); }
+.pdm .pdm-panel .pdm-quitar { background: var(--rojo-suave); color: var(--rojo); border-color: transparent; }
+.pdm .pdm-panel .pdm-ok { background: var(--celeste); border-color: var(--celeste); color: var(--tinta); }
+.pdm .pdm-sug { display: grid; max-height: 24vh; overflow-y: auto; border: 1.5px solid var(--linea); border-radius: 12px; background: #fff; }
+.pdm .pdm-panel .pdm-burb { display: flex; align-items: center; justify-content: flex-start; gap: 8px; height: auto; min-height: 42px; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--linea); border-radius: 0; text-align: left; font-size: 14px; font-weight: 600; }
+.pdm .pdm-panel .pdm-burb:last-child { border-bottom: 0; }
+.pdm .pdm-burb .pdm-bn { flex: none; max-width: 60%; font-weight: 600; overflow-wrap: anywhere; }
+.pdm .pdm-burb .pdm-bn b { font-weight: 800; color: var(--celeste-prof); }
+.pdm .pdm-burb small { min-width: 0; color: var(--texto2); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Asignación: dos botones en una fila */
 #panelPedidos .pd-asig > small { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--texto2); }
