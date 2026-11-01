@@ -540,9 +540,12 @@ input.sw:checked::after { transform: translateX(22px); }
 #panelPedidos .pd-form .pd-lugar { position: relative; display: grid; gap: 4px; }
 #panelPedidos .pd-form .pd-retiro, #panelPedidos .pd-form .pd-entrega { position: relative; display: grid; gap: 6px; padding: 8px 10px 10px; border: 1.5px solid var(--linea); border-left: 4px solid var(--celeste); border-radius: 14px; background: #fff; }
 #panelPedidos .pd-form .pd-entrega { border-left-color: var(--rojo); }
+/* El bloque interno de cada lugar (retiro o entrega) no lleva borde, relleno ni fondo propios: la tarjeta es la de fuera (evita el doble borde) */
+#panelPedidos .pd-form .pd-retiro > .pd-lugar, #panelPedidos .pd-form .pd-entrega > .pd-lugar { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; min-width: 0; }
+#panelPedidos .pd-form .pd-retiro, #panelPedidos .pd-form .pd-entrega { min-width: 0; margin: 0; box-sizing: border-box; }
 #panelPedidos .pd-lh { display: flex; align-items: center; gap: 8px; min-height: 24px; }
 #panelPedidos .pd-lt { flex: none; font-size: 12px; font-weight: 800; color: var(--texto2); }
-#panelPedidos .pd-ok { flex: 1 1 auto; min-width: 0; text-align: right; font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#panelPedidos .pd-ok { flex: 1 1 auto; min-width: 0; text-align: right; font-size: 11px; font-weight: 700; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
 #panelPedidos .pd-lin { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; }
 #panelPedidos .pd-form .pd-lin button { width: 44px; height: 44px; padding: 0; font-size: 18px; border-radius: 12px; background: var(--celeste-suave); border-color: #cfe9f8; }
 #panelPedidos .pd-form .pd-x { flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: var(--rojo-suave); color: var(--rojo); font-size: 12px; line-height: 1; }

@@ -124,13 +124,15 @@
         <input id="pdCliente" maxlength="60" autocomplete="off" placeholder="Nombre del cliente" aria-label="Cliente">
         <div id="pdRetiros" class="pd-retiros"></div>
         <button id="pdAddRetiro" class="mini" type="button">➕ Agregar otro lugar de retiro</button>
-        <div class="pd-lugar pd-entrega">
-          <div class="pd-lh"><span class="pd-lt">🏠 Lugar de entrega</span><span id="pdEntregaOk" class="pd-ok"></span></div>
-          <div class="pd-lin">
-            <input id="pdEntrega" maxlength="160" autocomplete="off" placeholder="Dirección del cliente" aria-label="Lugar de entrega">
-            <button id="pdEntregaMapa" type="button" aria-label="Elegir entrega en el mapa">📍</button>
+        <div class="pd-entrega">
+          <div class="pd-lugar">
+            <div class="pd-lh"><span class="pd-lt">🏠 Lugar de entrega</span><span id="pdEntregaOk" class="pd-ok"></span></div>
+            <div class="pd-lin">
+              <input id="pdEntrega" maxlength="160" autocomplete="off" placeholder="Dirección del cliente" aria-label="Lugar de entrega">
+              <button id="pdEntregaMapa" type="button" aria-label="Elegir entrega en el mapa">📍</button>
+            </div>
+            <div id="pdEntregaSug" class="pd-sug oculto"></div>
           </div>
-          <div id="pdEntregaSug" class="pd-sug oculto"></div>
         </div>
         <!-- Dinero: delivery + IVA base (automático, editable) + IVA extra, todo en una fila -->
         <div class="pd-fila pd-dinero">
