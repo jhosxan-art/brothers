@@ -6,12 +6,11 @@
    Va dentro de una función para no chocar con los nombres de repartidor.js.
    FASE 2: modo "pedido asignado" (Factura.prepararPedido): el delivery lo fija el sistema, suma la prioridad
    de C$ 10 si el cliente la aceptó y la factura se guarda en Firebase sin pasar por WhatsApp.
-   FASE 3: mensaje de WhatsApp minimalista, leyenda persuasiva para abrir el enlace y enlace de rastreo limpio (solo ?id=).
    ============================================================ */
 (function () {
 'use strict';
 window.Factura = {
-    alEnviar: null, codigoCompartido: null, nombreRepartidor: '', contactos: [], nuevoCodigo: () => getUniqueCode(), refrescarContactos: () => refrescarContactos(),
+    alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCodigo: () => getUniqueCode(), refrescarContactos: () => refrescarContactos(),
     /* Pedidos asignados por el administrador: los conecta repartidor.js */
     alEnviarPedido: null,           // async (factura) → guarda la factura en Firebase para el cliente
     alTerminarPedido: null,         // (factura) → se llama al cerrar la ventana de una factura ya enviada
@@ -19,10 +18,7 @@ window.Factura = {
     prepararPedido: (info) => prepararPedido(info),
     salirModoPedido: (forzar) => salirModoPedido(forzar),
     enModoPedido: () => !!pedidoSistema,
-    recalcular: () => calculateTotal(),
-    enlaceRastreo: (token, extra) => enlaceRastreo(token, extra),
-    etiquetaPedido: (codigo, origen) => etiquetaPedido(codigo, origen),
-    leyendaEnlace: (link) => leyendaEnlace(link)
+    recalcular: () => calculateTotal()
   };
 
   let products = [];
@@ -103,38 +99,40 @@ window.Factura = {
       return Array.from(bytes, (b) => abc[b % abc.length]).join('');
   }
 
+  /* Abre un enlace fuera de la app (WhatsApp).
+     - APK (Capacitor): app/navegador externo con "_system".
+     - Safari de iPhone/iPad: window.open("_system") abre una pestaña EN BLANCO y deja la app en segundo plano, donde iOS la descarta y la reinicia.
+       Se navega en la misma pestaña: Safari entrega wa.me directo a WhatsApp y al volver la app sigue ahí.
+     - Otros navegadores: pestaña nueva; si el bloqueador de ventanas la impide, se navega en la misma pestaña. */
+  function abrirEnlaceExterno(url) {
+      const C = window.Capacitor, nativo = !!(C && ((C.isNativePlatform && C.isNativePlatform()) || (C.getPlatform && C.getPlatform() !== 'web')));
+      const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (!nativo && ios) { window.location.href = url; return; }
+      let w = null;
+      try { w = window.open(url, nativo ? '_system' : '_blank'); } catch (_) {}
+      if (!w && !nativo) window.location.href = url;
+  }
 
-  /* FASE 3 — Enlace de rastreo limpio: solo lleva ?id=TOKEN (sin utm_, fbclid, index.html, #hash ni otros parámetros de ruido).
-     Si necesitas "&chat=1" u otro parámetro funcional, pásalo en `extra`. */
-  function enlaceRastreo(token, extra) {
+  /* Borrador de la factura: si iOS descarta la pestaña y la app se reinicia, lo que ya se había armado vuelve solo */
+  const CLAVE_BORRADOR = 'brothersDeliveryBorrador';
+  function guardarBorrador() {
       try {
-          const u = new URL(String(URL_RASTREO), window.location.href);
-          u.hash = '';
-          Array.from(u.searchParams.keys()).forEach((k) => {
-              if (/^(utm_|fbclid$|gclid$|ref$|source$|debug$|v$|t$|ts$|cb$|nocache$)/i.test(k)) u.searchParams.delete(k);
-          });
-          u.pathname = u.pathname.replace(/\/index\.html?$/i, '/');
-          u.searchParams.set('id', token);
-          if (extra) Object.keys(extra).forEach((k) => u.searchParams.set(k, extra[k]));
-          return u.toString();
-      } catch (e) {
-          return `${URL_RASTREO}?id=${token}`;
-      }
+          if (pedidoSistema) return;   // la factura de un pedido asignado depende de ese pedido
+          const d = { products, extraErrand, cliente: document.getElementById('customerName').value, delivery: document.getElementById('deliveryPrice').value, ts: Date.now() };
+          if (!products.length && !d.cliente.trim() && !String(d.delivery).trim()) localStorage.removeItem(CLAVE_BORRADOR);
+          else localStorage.setItem(CLAVE_BORRADOR, JSON.stringify(d));
+      } catch (_) {}
   }
-
-  /* Etiqueta con la que se MUESTRA el código en la app: WA12345 (factura enviada por WhatsApp) o APP12345 (pedido hecho desde la app).
-     El código guardado en Firebase y el texto de WhatsApp siguen con el formato BD12345; solo cambia lo que se ve en pantalla. */
-  function etiquetaPedido(codigo, origen) {
-      const txt = String(codigo == null ? '' : codigo).trim();
-      const digitos = txt.replace(/\D/g, '');
-      if (!digitos) return txt;
-      return (origen === 'app' ? 'APP' : 'WA') + digitos.padStart(5, '0');
-  }
-
-  /* FASE 3 — Leyenda persuasiva que acompaña al enlace en WhatsApp */
-  function leyendaEnlace(link) {
-      return '📍 *Importante:* abra el enlace y comparta su ubicación en tiempo real para que su repartidor lo encuentre y su pedido llegue más rápido.\n' +
-          '👉 ' + link;
+  function restaurarBorrador() {
+      try {
+          const d = JSON.parse(localStorage.getItem(CLAVE_BORRADOR) || 'null');
+          if (!d || Date.now() - (Number(d.ts) || 0) > 12 * 3600 * 1000) return localStorage.removeItem(CLAVE_BORRADOR);
+          products = (Array.isArray(d.products) ? d.products : []).filter((p) => p && typeof p.name === 'string' && typeof p.price === 'number' && p.price >= 0)
+              .map((p) => ({ name: p.name, price: p.price }));
+          extraErrand = d.extraErrand === 10 || d.extraErrand === 20 ? d.extraErrand : 0;
+          document.getElementById('customerName').value = String(d.cliente || '');
+          document.getElementById('deliveryPrice').value = String(d.delivery || '');
+      } catch (_) {}
   }
 
   /* Enlaces de contacto abiertos (los crea repartidor.js con "Contactarme al cliente") */
@@ -154,29 +152,23 @@ window.Factura = {
       if (c && c.cliente && !campo.value.trim()) campo.value = c.cliente;
   }
 
-  /* Código de retiro: "BD" + 5 dígitos (BD00001–BD99999). Lo reparte Firebase (repartidor.js → Factura.codigoCompartido) para que
-     NINGÚN repartidor repita código hasta agotar los 99999. Si el aparato no tiene códigos reservados (primer uso sin internet),
-     usa un código local de respaldo que no se repite en este aparato. */
   function getUniqueCode() {
-      try {
-          if (typeof window.Factura.codigoCompartido === 'function') {
-              const c = window.Factura.codigoCompartido();
-              if (c) return c;
+      let codes = JSON.parse(localStorage.getItem('brothersDeliveryAvailableCodes'));
+      let today = getBusinessDayString();
+      let lastReset = localStorage.getItem('brothersDeliveryCodeResetDate');
+
+      if (!codes || codes.length === 0 || lastReset !== today) {
+          codes = [];
+          for (let i = 1; i <= 1500; i++) {
+              codes.push('BD' + i.toString().padStart(4, '0'));
           }
-      } catch (e) {}
-      let usados = [];
-      try { usados = JSON.parse(localStorage.getItem('brothersDeliveryUsedCodesLocal')) || []; } catch (e) { usados = []; }
-      const set = new Set(usados);
-      let codigo = '';
-      for (let i = 0; i < 300; i++) {
-          const n = 1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 99999);   // 1–99999
-          codigo = 'BD' + String(n).padStart(5, '0');
-          if (!set.has(codigo)) break;
+          localStorage.setItem('brothersDeliveryCodeResetDate', today);
       }
-      usados.push(codigo);
-      if (usados.length > 5000) usados = usados.slice(-5000);
-      localStorage.setItem('brothersDeliveryUsedCodesLocal', JSON.stringify(usados));
-      return codigo;
+
+      const randomIndex = Math.floor(Math.random() * codes.length);
+      const selectedCode = codes.splice(randomIndex, 1)[0];
+      localStorage.setItem('brothersDeliveryAvailableCodes', JSON.stringify(codes));
+      return selectedCode;
   }
 
   function persistDepositInvoices() {
@@ -396,6 +388,7 @@ window.Factura = {
       const prioridad = prioridadActual();
       const grandTotal = subtotal + totalDelivery + prioridad;
 
+      guardarBorrador();
       document.getElementById('subtotal').textContent = `C$ ${subtotal.toFixed(2)}`;
       document.getElementById('deliveryCost').textContent = `C$ ${totalDelivery.toFixed(2)}`;
       document.getElementById('grandTotal').textContent = `C$ ${grandTotal.toFixed(2)}`;
@@ -430,7 +423,10 @@ window.Factura = {
       const contacto = enPedido ? null : (window.Factura.contactos || []).find((x) => x.token === document.getElementById('contactoSel').value);
       const pickupCode = enPedido ? pedidoSistema.codigo : (contacto ? contacto.pedido : getUniqueCode());
       const token = enPedido ? pedidoSistema.id : (contacto ? contacto.token : crearToken());
-      const link = enlaceRastreo(token);   // FASE 3: enlace limpio, solo ?id=
+      const link = `${URL_RASTREO}?id=${token}`;
+      // Si el pedido nació con "Contactar con el cliente", el cliente YA recibió su enlace: la factura no vuelve a poner un enlace de seguimiento
+      // (así no parece un segundo pedido). El token es el mismo, el seguimiento sigue funcionando en ese enlace.
+      const sinEnlace = !!contacto;
 
       let invoiceHTML = '<div class="invoice-header-popup">🏍️ BROTHERS DELIVERY</div>';
       invoiceHTML += '<div class="invoice-divider"></div>';
@@ -445,15 +441,17 @@ window.Factura = {
       invoiceHTML += '<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">📦 PRODUCTOS</div>';
       invoiceHTML += '<table class="invoice-products-table">';
 
-      /* FASE 3 — Texto de WhatsApp minimalista: repartidor, productos con precio, costo de productos, delivery y total */
-      const nombreRep = (window.Factura && window.Factura.nombreRepartidor) ? String(window.Factura.nombreRepartidor).trim() : '';
-      let invoiceText = '🏍️ *BROTHERS DELIVERY*\n';
-      if (nombreRep) invoiceText += `Repartidor: ${nombreRep}\n`;
-      invoiceText += '\n*Productos*\n';
+      let invoiceText = '━━━━━━━━━━━━━━━━━━━━\n';
+      invoiceText += '🏍️ *BROTHERS DELIVERY*\n';
+      invoiceText += '━━━━━━━━━━━━━━━━━━━━\n\n';
+      if (window.Factura && window.Factura.nombreRepartidor) invoiceText += `🏍️ *Repartidor:* ${window.Factura.nombreRepartidor}\n`;
+      if (customerName) invoiceText += `👤 *Cliente:* ${customerName}\n`;
+      invoiceText += `💳 *Depósito:* ${depositPaid ? 'SÍ' : 'NO'}\n\n`;
+      invoiceText += '📦 *PRODUCTOS:*\n';
 
       products.forEach(product => {
           invoiceHTML += `<tr><td>${escHtml(product.name)}</td><td>C$ ${product.price.toFixed(2)}</td></tr>`;
-          invoiceText += `• ${product.name} — C$ ${product.price.toFixed(2)}\n`;
+          invoiceText += `${product.name} → C$ ${product.price.toFixed(2)}\n`;
       });
 
       invoiceHTML += '</table>';
@@ -478,19 +476,35 @@ window.Factura = {
       if (prioridad > 0) invoiceHTML += `<tr><td>⚡ Prioridad:</td><td>C$ ${prioridad.toFixed(2)}</td></tr>`;
       invoiceHTML += `<tr class="total-row"><td>TOTAL:</td><td>C$ ${grandTotal.toFixed(2)}</td></tr>`;
       invoiceHTML += '</table>';
-      invoiceHTML += `<div style="text-align:center; font-weight:700; color:var(--red); margin-top:10px; font-size:1em;">CÓDIGO DE RETIRO: ${enPedido ? etiquetaPedido(pickupCode, 'app') : pickupCode}</div>`;
-      invoiceHTML += `<div class="invoice-track"><b>📍 Paso importante: abra el enlace</b>Es vital que lo abra y comparta su ubicación en tiempo real para que su repartidor sepa dónde está y su pedido llegue más rápido.<div class="lnk">${escHtml(link)}</div></div>`;
+      invoiceHTML += `<div style="text-align:center; font-weight:700; color:var(--red); margin-top:10px; font-size:1em;">CÓDIGO DE RETIRO: ${pickupCode}</div>`;
+      if (sinEnlace) invoiceHTML += `<div class="invoice-track"><b>📍 Seguimiento en tiempo real</b>Usa el mismo enlace de seguimiento que ya te enviamos.</div>`;
+      else invoiceHTML += `<div class="invoice-track"><b>📍 Seguimiento en tiempo real</b>Toca el enlace y verás la ubicación de tu paquete en tiempo real.<div class="lnk">${escHtml(link)}</div></div>`;
       invoiceHTML += '<div class="invoice-footer">¡Vuelve a pedir con nosotros cuando quieras! 🚀 Siempre listos para ayudarte 🙌</div>';
 
-      // El delivery del mensaje incluye mandado extra y prioridad (si hay) para que la suma siempre cuadre con el total final
-      const deliveryMensaje = r2(totalDelivery + prioridad);
-      invoiceText += '\n━━━━━━━━━━━━━━\n';
-      invoiceText += `Productos: C$ ${subtotal.toFixed(2)}\n`;
-      invoiceText += `Delivery: C$ ${deliveryMensaje.toFixed(2)}\n`;
-      invoiceText += `*TOTAL: C$ ${grandTotal.toFixed(2)}*\n`;
-      invoiceText += `*CÓDIGO DE RETIRO: ${pickupCode}*\n`;
-      invoiceText += '━━━━━━━━━━━━━━\n\n';
-      invoiceText += leyendaEnlace(link);
+      invoiceText += '\n━━━━━━━━━━━━━━━━━━━━\n';
+      invoiceText += `*Subtotal:* C$ ${subtotal.toFixed(2)}\n`;
+
+      if (extraErrand > 0) {
+          invoiceText += `*Delivery:* C$ ${deliveryPrice.toFixed(2)}\n`;
+          invoiceText += `*Mandado Extra:* C$ ${extraErrand.toFixed(2)}\n`;
+          invoiceText += `*Total Delivery:* C$ ${totalDelivery.toFixed(2)}\n`;
+      } else {
+          invoiceText += `*Delivery:* C$ ${totalDelivery.toFixed(2)}\n`;
+      }
+
+      if (prioridad > 0) invoiceText += `*⚡ Prioridad:* C$ ${prioridad.toFixed(2)}\n`;
+      invoiceText += '━━━━━━━━━━━━━━━━━━━━\n';
+      invoiceText += `*TOTAL:* C$ ${grandTotal.toFixed(2)}\n`;
+      invoiceText += `*CÓDIGO DE RETIRO:* *${pickupCode}*\n`;
+      invoiceText += '━━━━━━━━━━━━━━━━━━━━\n\n';
+      if (sinEnlace) {
+          invoiceText += '📍 Sigue tu paquete en tiempo real con el mismo enlace de seguimiento que ya te enviamos.\n\n';
+      } else {
+          invoiceText += '📍 *Sigue tu paquete en tiempo real:*\n';
+          invoiceText += `${link}\n`;
+          invoiceText += '👆 Toca el enlace y verás la ubicación de tu paquete en tiempo real en el mapa.\n\n';
+      }
+      invoiceText += '¡Vuelve a pedir con nosotros cuando quieras! 🚀 Siempre listos para ayudarte 🙌';
 
       document.getElementById('generatedInvoiceDisplay').innerHTML = invoiceHTML;
 
@@ -499,7 +513,7 @@ window.Factura = {
           // Desglose que ve el cliente en su enlace de rastreo (repartidor.js lo guarda en pedidos/{token}/detalle)
           productos: products.map((p) => ({ nombre: String(p.name), precio: Number(p.price) || 0 })),
           subtotal: subtotal, deliveryBase: deliveryPrice, mandadoExtra: extraErrand,
-          prioridad, deposito: depositPaid, deSistema: enPedido, enviada: false
+          prioridad, deposito: depositPaid, deSistema: enPedido, enlaceYaEnviado: sinEnlace, enviada: false
       };
 
       // En un pedido asignado la factura cuenta una sola vez, aunque haya que reintentar el envío
@@ -547,7 +561,7 @@ window.Factura = {
       facturaActual = null;   // evita iniciar dos veces con un doble toque
       const url = `https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(f.texto)}`;
       if (window.Factura && typeof window.Factura.alEnviar === 'function') window.Factura.alEnviar(f);
-      window.open(url, '_system');
+      abrirEnlaceExterno(url);
       document.getElementById('invoicePopup').classList.remove('show');
       resetForm();
   }
@@ -598,7 +612,7 @@ window.Factura = {
       g('deliverySistema').style.display = on ? '' : 'none';
       g('btnContactoCliente').style.display = on ? 'none' : '';
       if (on) {
-          g('pedidoBannerCod').textContent = etiquetaPedido(pedidoSistema.codigo, 'app');
+          g('pedidoBannerCod').textContent = pedidoSistema.codigo;
           g('pedidoBannerTxt').textContent = 'Se envía directo a la app del cliente' + (pedidoSistema.cliente ? ' · ' + pedidoSistema.cliente : '');
           g('deliverySistemaMonto').textContent = formatMoney(pedidoSistema.delivery);
           g('contactoFila').style.display = 'none';
@@ -708,11 +722,14 @@ window.Factura = {
       }
   });
 
-  toggleExtraErrand(0);
+  restaurarBorrador();
+  renderProductList();
+  document.getElementById('customerName').addEventListener('input', guardarBorrador);
+  toggleExtraErrand(extraErrand);
   calculateTotal();
   checkAndResetStats();
   checkSessionAndLogin();
   renderDepositInvoices();
 
-Object.assign(window, { showCustomAlert, closeCustomAlert, closeCustomConfirm, confirmDeposit, showStats, hideStats, calculateTotal, toggleExtraErrand, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto, reintentarEnvioPedido });
+Object.assign(window, { abrirEnlaceExterno, showCustomAlert, closeCustomAlert, closeCustomConfirm, confirmDeposit, showStats, hideStats, calculateTotal, toggleExtraErrand, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto, reintentarEnvioPedido });
 })();

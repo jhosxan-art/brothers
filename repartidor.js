@@ -1553,7 +1553,11 @@ $("btnContactoCancelar").onclick = () => $("modalContacto").classList.add("ocult
 
 /* ---------- WhatsApp: siempre al chat del negocio (el repartidor no contacta al cliente fuera de la app) ---------- */
 const NEGOCIO_WA = "50586265619";
-function abrirWhatsApp(msg) { window.open(`https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(msg)}`, "_system"); }
+function abrirWhatsApp(msg) {
+  const url = `https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(msg)}`;
+  if (typeof window.abrirEnlaceExterno === "function") window.abrirEnlaceExterno(url);   // Safari de iPhone: misma pestaña (sin pestaña en blanco)
+  else window.open(url, "_system");
+}
 const mensajeSeguimiento = (v) =>
   `🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n\n` + leyendaEnlace(enlaceDe(v.token));
 
