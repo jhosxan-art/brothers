@@ -85,8 +85,9 @@ const PedidosAdmin = (() => {
   /* ============================================================
      2) PEDIDOS Y REPARTIDORES INVITADOS
      ============================================================ */
-  const okMsg = (ll) => (ll ? `✓ Ubicación fijada (${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)})` : "Sin coordenadas: no habrá ruta automática. Usa 📍 para fijarlo en el mapa.");
-  function pintarOk(span, ll) { if (!span) return; span.textContent = okMsg(ll); span.style.color = ll ? "#17602B" : "#8A5A00"; }
+  const okMsg = (ll) => (ll ? "✓ Ubicación fijada" : "Sin ubicación · toca 📍");
+  const okTip = (ll) => (ll ? `Coordenadas: ${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}` : "Sin coordenadas no habrá ruta automática. Usa 📍 para fijar el punto en el mapa.");
+  function pintarOk(span, ll) { if (!span) return; span.textContent = okMsg(ll); span.title = okTip(ll); span.style.color = ll ? "#17602B" : "#8A5A00"; }
   const filaEl = (i) => el("pdRetiros").querySelector(`[data-i="${i}"]`);
   const hitLugar = (v) => { const n = (s) => String(s || "").toLowerCase().trim(); return Object.values(lugares).find((l) => n(l.nombre) === n(v) && typeof l.lat === "number"); };
 
@@ -94,13 +95,15 @@ const PedidosAdmin = (() => {
     const n = retirosForm.length;
     el("pdRetiros").innerHTML = retirosForm.map((r, i) => `<div class="pd-retiro" data-i="${i}">
       <div class="pd-lugar">
-        <label>📦 Lugar de retiro${n > 1 ? " " + (i + 1) : ""} <input data-f="texto" maxlength="160" autocomplete="off" placeholder="Negocio o dirección" value="${esc(r.texto)}"></label>
-        <button data-a="mapa" type="button" aria-label="Elegir en el mapa">📍</button>
-        <span class="pd-ok"></span>
+        <div class="pd-lh"><span class="pd-lt">📦 Lugar de retiro${n > 1 ? " " + (i + 1) : ""}</span><span class="pd-ok"></span>${n > 1 ? '<button data-a="quitar" class="pd-x" type="button" aria-label="Quitar este retiro">✕</button>' : ""}</div>
+        <div class="pd-lin">
+          <input data-f="texto" maxlength="160" autocomplete="off" placeholder="Negocio o dirección" aria-label="Lugar de retiro${n > 1 ? " " + (i + 1) : ""}" value="${esc(r.texto)}">
+          <button data-a="mapa" type="button" aria-label="Elegir en el mapa">📍</button>
+        </div>
         <div class="pd-sug oculto" data-sug></div>
       </div>
-      <label>Producto a retirar aquí <input data-f="producto" maxlength="120" autocomplete="off" placeholder="Ej. 2 pizzas medianas" value="${esc(r.producto)}"></label>
-      ${n > 1 ? '<button data-a="quitar" class="mini peligro" type="button">Quitar este retiro</button>' : ""}</div>`).join("");
+      <input data-f="producto" maxlength="120" autocomplete="off" placeholder="Producto a retirar aquí (ej. 2 pizzas medianas)" aria-label="Producto a retirar en este lugar" value="${esc(r.producto)}">
+    </div>`).join("");
     retirosForm.forEach((r, i) => pintarOk(filaEl(i).querySelector(".pd-ok"), r.ll));
   }
   /* ---------- Burbujas de coincidencias con los negocios guardados ---------- */
@@ -233,15 +236,33 @@ const PedidosAdmin = (() => {
     el("pdModo").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
     el("pdRegBox").classList.toggle("oculto", m !== "registrado");
     el("pdInvBox").classList.toggle("oculto", m !== "invitado");
-    el("pdIvaBox").classList.toggle("oculto", m !== "registrado");   // el IVA solo aplica con repartidor registrado
+    document.querySelectorAll("#panelPedidos .pd-iva-campo").forEach((c) => c.classList.toggle("oculto", m !== "registrado"));   // el IVA solo aplica con repartidor registrado
     el("pdCrear").textContent = m === "invitado" ? "Crear pedido y generar enlace" : "Crear y asignar pedido";
+    pintarTotalDelivery();
   }
 
-  /* Delivery + IVA = total que verá el repartidor */
+  /* ---------- IVA automático ----------
+     Delivery 35 a 190  → IVA base 7
+     Delivery 200 a 300 → IVA base 14
+     (lo que cae entre 190 y 200 se trata como del primer tramo; fuera de 35–300 el IVA base es 0).
+     El IVA base se puede corregir a mano; "IVA extra" se suma encima. Total = delivery + IVA base + IVA extra. */
+  const n2 = (v) => { const x = parseFloat(v); return isFinite(x) && x > 0 ? Math.round(x * 100) / 100 : 0; };
+  function ivaBaseAuto(d) { if (d >= 35 && d < 200) return 7; if (d >= 200 && d <= 300) return 14; return 0; }
+  function totalForm() {
+    const reg = modoAsig === "registrado", d = n2(el("pdDelivery").value);
+    const base = reg ? n2(el("pdIvaBase").value) : 0, extra = reg ? n2(el("pdIvaExtra").value) : 0, iva = n2(base + extra);
+    return { d, base, extra, iva, total: n2(d + iva) };
+  }
   function pintarTotalDelivery() {
-    const b = O.r2(el("pdDelivery").value), i = O.r2(el("pdIva").value);
-    el("pdTotalDel").innerHTML = b || i ? `Total para el repartidor: <b>${O.money(b + i)}</b>${i ? ` (${O.money(b)} + ${O.money(i)} IVA)` : ""}` : "Escribe el delivery y, si aplica, el IVA.";
-    el("pdIvaRap").querySelectorAll("button").forEach((x) => x.classList.toggle("on", O.r2(x.dataset.iva) === i && (i > 0 || x.dataset.iva === "0" && el("pdIva").value !== "")));
+    const t = totalForm(), partes = [t.d.toFixed(2)];
+    if (t.base) partes.push(`${t.base.toFixed(2)} IVA`);
+    if (t.extra) partes.push(`${t.extra.toFixed(2)} extra`);
+    el("pdTotalDel").innerHTML = `<span>Total general<small>${t.d || t.iva ? partes.join(" + ") : "Escribe el delivery: el IVA base se calcula solo"}</small></span><b>${O.money(t.total)}</b>`;
+  }
+  function alEscribirDelivery() {   // cada cambio del delivery recalcula el IVA base (sobrescribe un ajuste manual anterior)
+    const raw = el("pdDelivery").value;
+    el("pdIvaBase").value = raw === "" ? "" : String(ivaBaseAuto(n2(raw)));
+    pintarTotalDelivery();
   }
 
   /* Mensaje visible dentro de la pestaña Pedidos (el toast vive en el mapa y ahí no se ve) */
@@ -266,15 +287,16 @@ const PedidosAdmin = (() => {
       asignacion = { tipo: "registrado", uid, nombre: nombreUid(uid) };
     } else asignacion = { tipo: "invitado" };
     creando = true; el("pdCrear").disabled = true; aviso("Creando pedido…", "ok");
+    const tot = totalForm();   // delivery + IVA base + IVA extra (el repartidor ve el total; "iva" guarda la suma)
     try {
       // JSON ida y vuelta: Firebase rechaza los valores "undefined" y haría fallar la escritura completa
       const datos = JSON.parse(JSON.stringify({
-        cliente, paquete: el("pdPaquete").value, retiros, delivery: parseFloat(el("pdDelivery").value) || 0,
-        iva: asignacion.tipo === "registrado" ? parseFloat(el("pdIva").value) || 0 : 0,
+        cliente, paquete: el("pdPaquete").value, retiros, delivery: tot.d,
+        iva: asignacion.tipo === "registrado" ? tot.iva : 0,
         entrega: Object.assign({}, lugarSel.entrega || {}, { texto: en }), asignacion
       }));
       const { token, orden } = await O.crear(db, datos);
-      ["pdCliente", "pdEntrega", "pdPaquete", "pdDelivery", "pdIva"].forEach((id) => { el(id).value = ""; }); pintarTotalDelivery();
+      ["pdCliente", "pdEntrega", "pdPaquete", "pdDelivery", "pdIvaBase"].forEach((id) => { el(id).value = ""; }); el("pdIvaExtra").value = "0"; pintarTotalDelivery();
       lugarSel.entrega = null; retirosForm = [{ texto: "", ll: null, producto: "" }]; pintarRetiros(); pintarOk(el("pdEntregaOk"), null); ocultarSugs();
       if (asignacion.tipo === "invitado") { aviso(""); mostrarEnlaces(token, orden); }
       else {
@@ -486,8 +508,10 @@ const PedidosAdmin = (() => {
       el("pdModo").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) modoAsignacion(b.dataset.m); };
       el("pdCrear").onclick = crearPedido;
       el("pdRegSel").addEventListener("change", (e) => { regSel = e.target.value; });
-      el("pdDelivery").addEventListener("input", pintarTotalDelivery); el("pdIva").addEventListener("input", pintarTotalDelivery);
-      el("pdIvaRap").onclick = (e) => { const b = e.target.closest("button[data-iva]"); if (!b) return; el("pdIva").value = b.dataset.iva === "0" ? "" : b.dataset.iva; pintarTotalDelivery(); if (b.dataset.iva === "0") b.classList.add("on"); };
+      el("pdDelivery").addEventListener("input", alEscribirDelivery);
+      el("pdIvaBase").addEventListener("input", pintarTotalDelivery);    // ajuste manual del IVA base
+      el("pdIvaExtra").addEventListener("input", pintarTotalDelivery);
+      el("pdIvaExtra").addEventListener("change", () => { if (el("pdIvaExtra").value === "") el("pdIvaExtra").value = "0"; pintarTotalDelivery(); });
       pintarTotalDelivery();
       pintarRetiros();
       el("pdAddRetiro").onclick = () => { retirosForm.push({ texto: "", ll: null, producto: "" }); pintarRetiros(); const f = filaEl(retirosForm.length - 1); f && f.querySelector("input").focus(); };

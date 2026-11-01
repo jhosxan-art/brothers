@@ -517,3 +517,55 @@ input.sw:checked::after { transform: translateX(22px); }
 .poli-bt button { flex: 1; }
 .poli-toast { position: fixed; z-index: 3700; bottom: 90px; left: 50%; transform: translateX(-50%); background: var(--tinta); color: #fff; padding: 9px 14px; border-radius: 12px; font-weight: 700; max-width: calc(100% - 32px); text-align: center; }
 .poli-toast.oculto, .poli-banner.oculto, .poli-aviso.oculto { display: none; }
+
+/* ============================================================
+   NUEVO PEDIDO (admin) — formulario compacto
+   Los selectores llevan #panelPedidos para imponerse a ordenes.css (que se carga después de este archivo)
+   ============================================================ */
+#panelPedidos .pd-form { display: grid; gap: 10px; padding: 14px; background: #fff; border: 1px solid var(--linea); border-radius: 20px; }
+#panelPedidos .pd-form h2 { font-size: 16px; font-weight: 800; line-height: 1.2; }
+#panelPedidos .pd-form label { gap: 4px; font-size: 12px; color: var(--texto2); }
+#panelPedidos .pd-form input:not([type=checkbox]), #panelPedidos .pd-form select { height: 44px; padding: 0 12px; font-size: 16px; border-radius: 12px; }
+#panelPedidos .pd-form select { width: 100%; font-family: inherit; font-weight: 600; border: 1.5px solid var(--linea); background: var(--gris); color: var(--tinta); }
+#panelPedidos .pd-form textarea { min-height: 56px; padding: 10px 12px; font-size: 16px; border-radius: 12px; resize: vertical; }
+#panelPedidos .pd-form input[type=number] { font-variant-numeric: tabular-nums; }
+
+/* Agrupar campos en la misma fila (los campos ocultos no ocupan columna) */
+#panelPedidos .pd-fila { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+#panelPedidos #pdIvaBase { background: var(--celeste-suave); border-color: #cfe9f8; }   /* se rellena solo */
+#panelPedidos #pdIvaBase:focus { background: #fff; border-color: var(--celeste-prof); }
+
+/* Lugares de retiro y de entrega: tarjeta con cabecera (título + estado de ubicación) y campo + 📍 en una línea */
+#panelPedidos .pd-form .pd-retiros { display: grid; gap: 8px; }
+#panelPedidos .pd-form .pd-lugar { position: relative; display: grid; gap: 4px; }
+#panelPedidos .pd-form .pd-retiro, #panelPedidos .pd-form .pd-entrega { position: relative; display: grid; gap: 6px; padding: 8px 10px 10px; border: 1.5px solid var(--linea); border-left: 4px solid var(--celeste); border-radius: 14px; background: #fff; }
+#panelPedidos .pd-form .pd-entrega { border-left-color: var(--rojo); }
+#panelPedidos .pd-lh { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+#panelPedidos .pd-lt { flex: none; font-size: 12px; font-weight: 800; color: var(--texto2); }
+#panelPedidos .pd-ok { flex: 1 1 auto; min-width: 0; text-align: right; font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#panelPedidos .pd-lin { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; }
+#panelPedidos .pd-form .pd-lin button { width: 44px; height: 44px; padding: 0; font-size: 18px; border-radius: 12px; background: var(--celeste-suave); border-color: #cfe9f8; }
+#panelPedidos .pd-form .pd-x { flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: var(--rojo-suave); color: var(--rojo); font-size: 12px; line-height: 1; }
+#panelPedidos .pd-form #pdAddRetiro { flex: none; width: 100%; height: 36px; padding: 0 12px; font-size: 13px; background: #fff; border: 1.5px dashed var(--celeste-prof); }
+
+/* Burbujas de coincidencia con negocios guardados */
+#panelPedidos .pd-form .pd-sug { position: absolute; z-index: 30; left: 0; right: 0; top: 100%; margin-top: 4px; max-height: 38vh; overflow-y: auto; background: #fff; border: 1.5px solid var(--linea); border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,.2); }
+#panelPedidos .pd-form .pd-burbuja { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; min-height: 42px; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--linea); border-radius: 0; background: #fff; text-align: left; font-weight: 600; font-size: 14px; }
+#panelPedidos .pd-form .pd-burbuja:last-child { border-bottom: 0; }
+#panelPedidos .pd-form .pd-burbuja b { flex: none; font-weight: 800; }
+#panelPedidos .pd-form .pd-burbuja small { min-width: 0; color: var(--texto2); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Asignación: dos botones en una fila */
+#panelPedidos .pd-asig > small { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--texto2); }
+#panelPedidos .pd-form .pd-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#panelPedidos .pd-form .pd-seg button { height: 40px; padding: 0 8px; font-size: 13px; border-radius: 12px; background: #fff; }
+#panelPedidos .pd-form .pd-seg button.on { background: var(--celeste); border-color: var(--celeste); }
+
+/* Pie fijo: total en vivo + botón siempre a la vista, sin scroll hasta el final */
+#panelPedidos .pd-pie { position: sticky; bottom: 0; z-index: 5; display: grid; gap: 8px; margin: 2px -14px -14px; padding: 10px 14px 12px; background: #fff; border-top: 1px solid var(--linea); border-radius: 0 0 20px 20px; }
+#panelPedidos .pd-pie .estado { padding: 8px 12px; font-size: 13px; }
+#panelPedidos .pd-pie #pdCrear { height: 48px; }
+#panelPedidos .pd-total { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 14px; border-radius: 12px; background: var(--tinta); color: #fff; }
+#panelPedidos .pd-total > span { display: grid; min-width: 0; font-size: 13px; font-weight: 800; line-height: 1.2; }
+#panelPedidos .pd-total small { font-size: 11px; font-weight: 600; opacity: .75; overflow-wrap: anywhere; }
+#panelPedidos .pd-total b { flex: none; font-size: 20px; font-weight: 800; color: var(--celeste); white-space: nowrap; font-variant-numeric: tabular-nums; }

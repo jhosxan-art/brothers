@@ -151,13 +151,16 @@ function irA(vista) {
     setTimeout(() => { mapa.invalidateSize(); encuadrar(); }, 60);
   }
 }
+/* PedidoRep se define más abajo: estos accesos son seguros aunque aún no exista */
+const noLeidosPedido = () => { try { return PedidoRep.noLeidos(); } catch (_) { return 0; } };
+const htmlPedidoChat = () => { try { return PedidoRep.htmlChat(); } catch (_) { return ""; } };
 function actualizarNav() {
   const hay = !!uidActual && !!usuario;   // Factura ⇄ Mapa siempre disponibles; el mapa también sirve sin pedidos
   $("navApp").classList.toggle("oculto", !hay);
   document.body.classList.toggle("con-nav", !!hay);
   $("navFactura").classList.toggle("activa", vistaActual === "factura");
   $("navMapa").classList.toggle("activa", vistaActual === "mapa");
-  const sinLeer = orden.reduce((t, k) => t + (viajes[k] ? viajes[k].noLeidos : 0), 0);
+  const sinLeer = orden.reduce((t, k) => t + (viajes[k] ? viajes[k].noLeidos : 0), 0) + noLeidosPedido();
   const b = $("badgeNav");
   b.textContent = sinLeer ? "💬 " + sinLeer : String(orden.length);
   b.classList.toggle("rojo", sinLeer > 0);
@@ -570,6 +573,7 @@ function pulsarMarca(m) {
 const PedidoRep = (() => {
   const ACTIVO = ["pendiente", "asignado", "retirado"];
   let id = null, datos = null, prio = false, prioPed = false, facturada = false, refs = [], cli = null, marca = null;
+  let noLeidos = 0, chatListo = false;   // chat con el cliente del pedido asignado por el administrador
 
   /* Delivery del sistema = el total que el administrador fijó al crear el pedido (delivery + IVA, si lleva) */
   function precioDelivery(o) {
@@ -593,19 +597,74 @@ const PedidoRep = (() => {
       if (!d || ajeno || ["entregado", "cancelado"].includes(d.estado)) return soltar();
       datos = d; prio = d.prioridad === true;
       pintarBoton(); alCambiarPrioridad(); pintarCliente();
+      renderLista();   // la tarjeta del chat aparece apenas el pedido está asignado (aceptado o no)
+      if (abrirPendiente === nuevo) { abrirPendiente = null; irA("mapa"); abrirChatPedido(); }   // tocó una notificación de este chat antes de que cargara el pedido
     });
     escuchar(db.ref("pedidos/" + nuevo + "/cliente"), (s) => aplicarCliente(s.val()));            // ubicación del cliente en vivo
     escuchar(db.ref("pedidos/" + nuevo + "/prioridad"), (s) => { prioPed = s.val() === true; alCambiarPrioridad(); });
     escuchar(db.ref("pedidos/" + nuevo + "/factura"), (s) => { facturada = s.val() != null; pintarBoton(); });
+    /* Chat universal del pedido: la MISMA sala chats/{id} que abre el cliente con su enlace */
+    chatListo = false; noLeidos = 0;
+    const rc = db.ref("chats/" + nuevo).limitToLast(1);
+    rc.on("child_added", (s) => { if (chatListo && id === nuevo) alMensajeChat(s.key, s.val()); }, () => {});
+    rc.once("value", () => { chatListo = true; });
+    refs.push(rc);
   }
   function soltar() {
     refs.forEach((r) => r.off()); refs = [];
-    const hubo = !!id;
-    id = null; datos = null; prio = false; prioPed = false; facturada = false; cli = null;
+    const hubo = !!id, viejo = id;
+    if (viejo && chatToken === viejo && !viajes[viejo]) { try { Chat.detener(); } catch (_) {} chatToken = null; }
+    id = null; datos = null; prio = false; prioPed = false; facturada = false; cli = null; noLeidos = 0; chatListo = false;
     if (mapa && marca) { mapa.removeLayer(marca); }
     marca = null;
     try { if (hubo && Factura.enModoPedido()) Factura.salirModoPedido(true); } catch (_) {}
     pintarBoton();
+    if (hubo) { try { renderLista(); actualizarNav(); } catch (_) {} }
+  }
+
+  /* ---------- Chat con el cliente (siempre disponible mientras el pedido siga activo) ---------- */
+  const chatDisponible = () => !!(uidActual && usuario && id && datos && ACTIVO.includes(datos.estado) && datos.estado_asignacion !== "rechazado");
+  const codigoApp = () => etiquetaPedido(datos && datos.codigo, "app");
+  function pintarBadgeChat() {
+    const b = $("bdAdm"); if (b) { b.textContent = noLeidos; b.classList.toggle("oculto", !noLeidos); }
+    actualizarNav();
+  }
+  function alMensajeChat(key, m) {
+    if (!m || !id || m.sistema) return;   // los avisos automáticos (p. ej. "pedido entregado") no son mensajes de chat
+    if (m.de === "repartidor") {   // push al admin: le escribiste al cliente
+      avisarAlAdminChat({ clave: id + "|" + key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, pedido: datos && datos.codigo, cliente: nombre(), equipo: false });
+      return;
+    }
+    if (m.de !== "cliente") return;
+    Voz.hablar(orden.length && datos && datos.cliente ? `El cliente ${datos.cliente} te ha escrito` : Voz.FRASES.mensajeCliente);
+    navigator.vibrate && navigator.vibrate(200);
+    if (chatToken !== id || document.hidden) notificarTexto("Cliente · " + nombre(), m.texto ? m.texto : "📷 Te envió una foto", "Pedido " + codigoApp(), { token: id });
+    if (chatToken !== id) { noLeidos++; pintarBadgeChat(); }
+  }
+  function abrirChatPedido() {
+    if (!chatDisponible()) return;
+    const mio = id;
+    Chat.iniciar({
+      token: mio, yo: "repartidor", pedido: datos.codigo, nombreRepartidor: usuario, avisos: false,
+      titulo: () => "Chat con " + ((datos && datos.cliente) || "el cliente"),
+      subtitulo: () => "Pedido " + codigoApp(),
+      alCerrar: () => { if (chatToken === mio) chatToken = null; }
+    });
+    chatToken = mio; noLeidos = 0; pintarBadgeChat();
+    Chat.abrir();
+  }
+  function responderRapido(texto) {   // respuesta desde la notificación, sin abrir la app
+    if (!id || !texto) return;
+    Chat.enviarA(id, "repartidor", { pedido: datos && datos.codigo, nombreRepartidor: usuario }, String(texto).slice(0, 600), null).catch(() => {});
+  }
+  function htmlChat() {
+    if (!chatDisponible()) return "";
+    return `<div class="pedido-card"><div class="pc-top"><span class="pc-num">💬</span><div class="pc-datos"><strong>${escHtml(nombre())}</strong><small>Pedido ${escHtml(codigoApp())} · chat con el cliente</small></div></div>
+      <div class="pc-botones" style="grid-template-columns:1fr"><button class="boton-chat" data-adm="chat" type="button">💬 Abrir chat con el cliente <span class="badge${noLeidos ? "" : " oculto"}" id="bdAdm">${noLeidos}</span></button></div></div>`;
+  }
+  function alClick(e) {
+    const b = e.target.closest && e.target.closest('button[data-adm="chat"]'); if (!b) return false;
+    abrirChatPedido(); return true;
   }
 
   /* ---------- Marcador del cliente: se mueve en el mismo instante en que él actualiza su ubicación ---------- */
@@ -689,7 +748,11 @@ const PedidoRep = (() => {
     return true;
   }
 
-  return { seguir, soltar, pintarCliente, pintarBoton, posCliente: () => cli, prioridadExtra: () => (aceptado() && prioridad() ? PRIORIDAD_EXTRA : 0), enviarFactura };
+  return {
+    seguir, soltar, pintarCliente, pintarBoton, posCliente: () => cli, prioridadExtra: () => (aceptado() && prioridad() ? PRIORIDAD_EXTRA : 0), enviarFactura,
+    htmlChat, alClick, abrirChat: abrirChatPedido, responderRapido, noLeidos: () => noLeidos, esMio: (t) => !!id && t === id,
+    info: () => (chatDisponible() ? { cliente: nombre(), codigo: codigoApp() } : null)
+  };
 })();
 Factura.alEnviarPedido = (f) => PedidoRep.enviarFactura(f);
 Factura.alTerminarPedido = () => irA("mapa");   // factura enviada: de vuelta al mapa
@@ -1049,7 +1112,7 @@ function actualizarBanner() {
 /* ---------- Lista de pedidos (hoja inferior del mapa) ---------- */
 function renderLista() { renderListaBase(); aplicarHoja(); }
 function renderListaBase() {
-  const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html();
+  const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html() + htmlPedidoChat();
   if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Haz una factura y envíala por WhatsApp para iniciar el seguimiento.</p>'); return; }
   cont.innerHTML = delAdmin + '<p class="ayuda">Toca un pedido para verlo en el mapa. Entrégalos en el orden que prefieras.</p>' + orden.map((t, i) => {
     const v = viajes[t];
@@ -1109,6 +1172,7 @@ function refrescarTextos() {
 setInterval(() => { if (orden.length) refrescarTextos(); PedidoRep.pintarCliente(); }, 15000);   // el estado "en vivo" caduca solo
 
 $("hojaPedidos").onclick = (e) => {
+  if (PedidoRep.alClick(e)) return;       // chat con el cliente del pedido asignado por el administrador
   if (OrdenAdminRep.alClick(e)) return;   // tarjeta del pedido asignado por el administrador
   const card = e.target.closest(".pedido-card"); if (!card) return;
   const v = viajes[card.dataset.token]; if (!v) return;
@@ -1199,7 +1263,9 @@ async function registrarPush() {
       if (d.tipo === "pedido" || d.tipo === "guia") return irA("mapa");   // el pedido o la guía ya están cargados en vivo
       const tk = d.token;
       if (!tk) return;
-      if (viajes[tk]) { irA("mapa"); abrirChat(viajes[tk]); } else abrirPendiente = tk;
+      if (viajes[tk]) { irA("mapa"); abrirChat(viajes[tk]); }
+      else if (PedidoRep.esMio(tk)) { irA("mapa"); PedidoRep.abrirChat(); }
+      else abrirPendiente = tk;
     });
     await PN.register();
   } catch (e) { console.warn("Push:", e); }
@@ -1229,6 +1295,10 @@ function alAccionNotificacion(ev) {
     }
     if (extra.equipo === "guia") { irA("mapa"); return; }
     return abrirChatAdmin();
+  }
+  if (!viajes[extra.token] && PedidoRep.esMio(extra.token)) {   // pedido asignado por el administrador
+    if (ev.actionId === "responder" && texto) return PedidoRep.responderRapido(texto);
+    irA("mapa"); PedidoRep.abrirChat(); return;
   }
   const v = viajes[extra.token]; if (!v) return;
   if (ev.actionId === "responder" && texto) {
@@ -1274,6 +1344,7 @@ $("elegirLista").onclick = (e) => {
   $("modalElegir").classList.add("oculto");
   const cb = alElegirCb; alElegirCb = null; if (!cb) return;
   if (b.dataset.t === "__ir") return cb(null, "ir");
+  if (b.dataset.t === "__adm") return cb({ admin: true });
   if (viajes[b.dataset.t]) cb(viajes[b.dataset.t]);
 };
 $("btnElegirCancelar").onclick = () => { alElegirCb = null; $("modalElegir").classList.add("oculto"); };
@@ -1292,9 +1363,12 @@ function accionBurbuja(a) {
     return;
   }
   if (a === "chat") {
-    if (!orden.length) { irA("factura"); return alert("No tienes clientes en ruta para chatear."); }
-    if (orden.length === 1) { irA("mapa"); return abrirChat(viajes[orden[0]]); }
-    elegirPedido("¿Con qué cliente quieres chatear?", (v) => { irA("mapa"); abrirChat(v); });
+    const adm = PedidoRep.info();   // pedido asignado por el administrador
+    if (!orden.length && !adm) { irA("factura"); return alert("No tienes clientes en ruta para chatear."); }
+    if (!orden.length) { irA("mapa"); return PedidoRep.abrirChat(); }
+    if (orden.length === 1 && !adm) { irA("mapa"); return abrirChat(viajes[orden[0]]); }
+    const extraBtn = adm ? `<button class="oscuro" data-t="__adm" type="button">${orden.length + 1}. 🛵 ${escHtml(adm.cliente)} · ${escHtml(adm.codigo)}</button>` : "";
+    elegirPedido("¿Con qué cliente quieres chatear?", (v) => { irA("mapa"); if (v && v.admin) PedidoRep.abrirChat(); else abrirChat(v); }, "", extraBtn);
   }
 }
 /* Ubicación compartida desde WhatsApp / Google Maps / Waze / geo: → ruta tipo Waze */
