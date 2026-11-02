@@ -8,6 +8,7 @@ const PedidosAdmin = (() => {
   const O = Ordenes, esc = O.esc, el = (id) => document.getElementById(id);
   let ordenes = {}, ref = null, primera = true, listo = false;
   let tempMarca = null, timerClick = null, popupCerrado = 0, busqAbierta = false, ovl = null;
+  let avisoToken = null;   // pedido del aviso "enviado a …" del formulario: se quita cuando ese pedido termina
   let regSel = "", creando = false, firmaSel = "";   // repartidor elegido (sobrevive a repintados) y candado anti doble envío
   let refChatInv = null, resInv = {}, primeraInv = true, sinLeerInv = {}, chatInvAbierto = null;   // chat Admin ↔ invitado
   const RUTA_INV = { chats: "chatsInvitado", resumen: "chatsInvitadoResumen", fotos: "fotosInvitado", leido: "leidosInvitado" };
@@ -335,6 +336,7 @@ const PedidosAdmin = (() => {
   /* Mensaje visible dentro de la pestaña Pedidos (el toast vive en el mapa y ahí no se ve) */
   function aviso(txt, tipo = "") {
     const m = el("pdMsg"); if (!m) return;
+    avisoToken = null;
     m.textContent = txt || ""; m.className = "estado " + tipo + (txt ? "" : " oculto");
     if (txt && m.scrollIntoView) m.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
@@ -377,7 +379,7 @@ const PedidosAdmin = (() => {
       if (asignacion.tipo === "invitado") { aviso(""); mostrarEnlaces(token, orden); }
       else {
         const t = `Pedido ${cod(orden.codigo)} enviado a ${asignacion.nombre} ✓ (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".");
-        aviso(t, "ok"); toast(t);
+        aviso(t, "ok"); avisoToken = token; toast(t);
         if (typeof PushAdmin !== "undefined") PushAdmin.pedidoAsignado(asignacion.uid, Object.assign({ token }, orden));   // push al celular del repartidor
       }
     } catch (err) {
@@ -516,6 +518,7 @@ const PedidosAdmin = (() => {
         decir(`📦 ${nom} ya retiró ${p.producto ? p.producto : "un producto"}${p.texto ? " en " + p.texto : ""}. ${falta ? "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "") + " del pedido " + cod(o.codigo) : "Pedido " + cod(o.codigo) + " completo, va hacia el cliente"}`);
       });
       if (o.estado !== a.estado && o.estado === "entregado") decir(`✅ ${nom} entregó el pedido ${cod(o.codigo)}`);
+      if (o.estado !== a.estado && (o.estado === "entregado" || o.estado === "cancelado") && t === avisoToken) aviso("");   // el pedido ya terminó: se quita el aviso "enviado a …"
     });
   }
 
