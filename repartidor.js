@@ -523,6 +523,18 @@ function totalConPropina(v) {
   return null;
 }
 
+/* Total a cobrar al cliente: compras + delivery (+ productos agregados con la sub-factura) + propina de prioridad, o null si aún no hay factura */
+function totalCobrar(v) {
+  const f = v && v.factura; if (!f || typeof f.total !== "number") return null;
+  const r2n = (n) => Math.round(n * 100) / 100;
+  let base = f.total;   // compras + delivery de la factura (sin propina)
+  try {
+    if (v.sub && v.sub.items && v.sub.items.length) { const g = SubFactura.calcular(f, v.sub).gran; if (typeof g === "number" && isFinite(g)) base = g; }
+  } catch (_) {}
+  const propina = v.prioridad ? PRIORIDAD_EXTRA : 0, delivery = Number(f.delivery) || 0;
+  return { total: r2n(base + propina), delivery: r2n(delivery), propina, compras: r2n(Math.max(0, base - delivery)) };
+}
+
 /* Factura original + sub-factura del pedido (sincronizadas en pedidos/{token}) */
 function escucharSubfactura(v) {
   const base = db.ref("pedidos/" + v.token);
@@ -1163,6 +1175,7 @@ function renderListaBase() {
         <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small>Pedido ${escHtml(etiquetaWA(v))}</small><small class="pc-sub" id="sub-${t}"></small></div>
         <span class="chip" id="chip-${t}"></span>
       </div>
+      <div class="pc-cobro oculto" id="cobro-${t}"></div>
       <div class="pc-prio oculto" id="prio-${t}" style="margin:6px 0;padding:7px 10px;border-radius:10px;background:#FFF4E5;border:1.5px solid #F59E0B;color:#7c3a00;font-size:13px;font-weight:600;line-height:1.35"></div>
       <div class="pc-botones">
         <button class="boton-chat" data-acc="chat" type="button">💬 Chat <span class="badge oculto" id="bd-${t}">0</span></button>
@@ -1201,10 +1214,17 @@ function refrescarTextos() {
     const pe = $("prio-" + t);   // etiqueta de prioridad + total con la propina sumada
     if (pe) {
       if (v.prioridad) {
-        const tot = totalConPropina(v);
-        pe.innerHTML = '<span class="chip alerta">⚡ PRIORIDAD</span> +' + money2(PRIORIDAD_EXTRA) + " en concepto de propina por prioridad" + (tot != null ? "<br>Total a cobrar: <b>" + money2(tot) + "</b>" : "");
+        pe.innerHTML = '<span class="chip alerta">⚡ PRIORIDAD</span> +' + money2(PRIORIDAD_EXTRA) + " en concepto de propina por prioridad";
         pe.classList.remove("oculto");
       } else { pe.classList.add("oculto"); pe.innerHTML = ""; }
+    }
+    const ce = $("cobro-" + t);   // total a cobrar al cliente
+    if (ce) {
+      const c = totalCobrar(v);
+      if (c) {
+        ce.innerHTML = '<span class="pc-cobro-t">💵 Total a cobrar</span><b>' + money2(c.total) + "</b><small>Compras " + money2(c.compras) + " · Delivery " + money2(c.delivery) + (c.propina ? " · Propina " + money2(c.propina) : "") + "</small>";
+        ce.classList.remove("oculto");
+      } else { ce.classList.add("oculto"); ce.innerHTML = ""; }
     }
     pintarCliente(v);
   });

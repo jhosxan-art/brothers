@@ -275,13 +275,16 @@ const BrothersExtras = (() => {
 
   /* ---------- Tarjeta de factura ---------- */
   function pintarFactura(d) {
-    const card = $("facturaCard"), det = normalizar(d);
+    const card = $("totalCaja"), det = normalizar(d);
     detalleActual = det;
-    if (!det) { card.classList.add("oculto"); ultimaFirma = ""; pintarBarraMin(null); return; }
-    const firma = JSON.stringify(det);
+    if (!det) { card.classList.add("oculto"); cerrarFactura(); ultimaFirma = ""; pintarBarraMin(null); return; }
+    const firma = JSON.stringify(det) + "|" + (d.pedido || "");
     card.classList.remove("oculto");
     if (firma === ultimaFirma) return;
     ultimaFirma = firma;
+    $("mfPedido").textContent = d.pedido ? "· Pedido " + d.pedido : "";
+    $("tcTotal").textContent = det.total != null ? dinero(det.total) : "—";   // total visible en el panel, sin abrir la factura
+    $("tcDet").textContent = [det.subtotal != null ? "Compras " + dinero(det.subtotal) : "", det.delivery != null ? "Delivery " + dinero(det.delivery) : "", det.monto ? "⚡ Propina " + dinero(det.monto) : ""].filter(Boolean).join(" · ");
     let lista = "";
     if (det.productos.length) {
       lista += '<div class="fac-sub">Productos</div>';
@@ -297,6 +300,14 @@ const BrothersExtras = (() => {
     $("facTotales").innerHTML = tot;
     pintarBarraMin(det);
   }
+
+  /* ---------- Ventana "Ver factura" ---------- */
+  function abrirFactura() { if (detalleActual) $("modalFactura").classList.remove("oculto"); }
+  function cerrarFactura() { $("modalFactura").classList.add("oculto"); }
+  $("btnVerFactura").onclick = abrirFactura;
+  $("btnCerrarFactura").onclick = cerrarFactura;
+  $("modalFactura").addEventListener("click", (e) => { if (e.target === $("modalFactura")) cerrarFactura(); });   // tocar fuera de la factura también la cierra
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarFactura(); });
 
   /* ---------- Panel inferior minimizable ---------- */
   // Barra compacta: resumen de la factura (o el estado del viaje si aún no hay factura)
@@ -435,6 +446,7 @@ const BrothersExtras = (() => {
   /* El pedido pasó a "entregado": primero la calificación, luego la pantalla tradicional */
   function alEntregar(d) {
     if (calMostrada) return;
+    cerrarFactura();
     ultimoEstado = "entregado"; ocultarBanner();
     if (referencia) referencia.off("value");   // ya no hace falta escuchar más cambios: se muestra la última foto del pedido
     detenerUbicacion(); pararAlarma();
@@ -445,7 +457,7 @@ const BrothersExtras = (() => {
 
   /* Cuando el rastreo termina por cualquier motivo */
   function alTerminar() {
-    ocultarBanner();
+    ocultarBanner(); cerrarFactura();
     ultimoEstado = ultimoEstado || "cancelado";
   }
 

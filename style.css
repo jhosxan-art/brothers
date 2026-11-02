@@ -211,7 +211,7 @@ body.rep { display: flex; flex-direction: column; height: 100%; }
 body.rep > .barra-marca { flex: none; }
 body.rep > #mainAuth { flex: 1; min-height: 0; overflow: auto; width: 100%; max-width: 480px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; align-content: start; }
 body.rep > #vistaFactura { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-body.rep > #vistaMapa { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+body.rep > #vistaMapa { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 #vistaMapa .mapa-caja { position: relative; flex: 1; min-height: 220px; z-index: 0; }
 #mapaRuta { position: absolute; inset: 0; }
 #vistaMapa .flota-mapa.izq { left: 10px; right: auto; }
@@ -222,7 +222,7 @@ body.rep > #vistaMapa { flex: 1; min-height: 0; display: flex; flex-direction: c
 .aviso-marcar { position: absolute; z-index: 1000; left: 10px; right: 10px; bottom: 28px; background: var(--tinta); color: #fff; font-weight: 700; font-size: 13px; border-radius: 12px; padding: 10px 14px; text-align: center; }
 
 /* Hoja inferior con los pedidos */
-.hoja-pedidos { position: relative; z-index: 5; flex: none; max-height: 46vh; overflow-y: auto; background: #fff; border-radius: 22px 22px 0 0; margin-top: -18px; padding: 14px; display: grid; gap: 10px; border-top: 1px solid var(--linea); }
+.hoja-pedidos { position: relative; z-index: 5; flex: 0 1 auto; min-height: 0; max-height: 46vh; max-height: 46dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; background: #fff; border-radius: 22px 22px 0 0; margin-top: -18px; padding: 14px 14px 28px; display: grid; align-content: start; gap: 10px; border-top: 1px solid var(--linea); }
 .pedido-card { border: 2px solid var(--linea); border-radius: 16px; padding: 10px; display: grid; gap: 10px; background: #fff; }
 .pedido-card.sel { border-color: var(--celeste-prof); background: var(--celeste-suave); }
 .pc-top { display: flex; align-items: center; gap: 10px; }
@@ -230,6 +230,11 @@ body.rep > #vistaMapa { flex: 1; min-height: 0; display: flex; flex-direction: c
 .pc-datos { flex: 1; min-width: 0; }
 .pc-datos strong { display: block; }
 .pc-datos small { display: block; color: var(--texto2); font-size: 12px; overflow-wrap: anywhere; }
+/* Total a cobrar al cliente (compras + delivery + propina) */
+.pc-cobro { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; row-gap: 2px; padding: 8px 12px; border-radius: 12px; background: #E8F7EC; border: 1.5px solid #34A853; color: #14532D; }
+.pc-cobro .pc-cobro-t { font-size: 13px; font-weight: 700; }
+.pc-cobro b { font-size: 20px; font-weight: 800; white-space: nowrap; }
+.pc-cobro small { grid-column: 1 / -1; font-size: 12px; font-weight: 600; line-height: 1.3; color: #1F6B3A; }
 .pc-botones { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .pc-botones button { height: 46px; }
 .pc-mas { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -641,3 +646,19 @@ body.upd-bloqueado { overflow: hidden !important; }
 .upd-ver { font-size: 12px; color: var(--texto2); }
 @keyframes updEntra { from { opacity: 0; } to { opacity: 1; } }
 @keyframes updLate { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.07); } }
+
+/* ---------- Cliente: total a pagar en el panel + ventana "Ver factura" ---------- */
+body.cliente .total-caja { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 12px 14px; border-radius: 16px; background: #f4fbff; border: 1.5px solid #cfe9f8; }
+body.cliente .tc-info { display: grid; gap: 1px; min-width: 0; }
+body.cliente .tc-info small { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #0b4a6b; }
+body.cliente .tc-info b { font-size: 26px; font-weight: 800; line-height: 1.1; color: var(--rojo); white-space: nowrap; }
+body.cliente .tc-info span { font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--texto2); overflow-wrap: anywhere; }
+body.cliente .tc-btn { flex: none; width: auto; min-width: 0; height: 48px; padding: 0 16px; border-radius: 14px; background: var(--tinta); border-color: var(--tinta); color: #fff; font-size: 14px; font-weight: 800; }
+body.cliente .modal-fac { position: fixed; inset: 0; z-index: 1800; display: grid; place-items: center; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); background: rgba(14,20,27,.6); }
+body.cliente .mf-caja { width: 100%; max-width: 420px; max-height: 100%; display: flex; flex-direction: column; background: #fff; border-radius: 22px; box-shadow: 0 20px 50px rgba(0,0,0,.4); overflow: hidden; }
+body.cliente .mf-caja .fac-cab { flex: none; padding: 16px 18px 12px; font-size: 17px; }
+body.cliente .mf-caja .fac-cab span { font-size: 13px; font-weight: 600; color: var(--texto2); }
+body.cliente .mf-caja .fac-cuerpo { flex: 1 1 auto; min-height: 0; }
+body.cliente .mf-caja .fac-lista { flex: 1 1 auto; max-height: none; padding: 8px 18px 0; }
+body.cliente .mf-caja .fac-totales { padding: 4px 18px 12px; }
+body.cliente .mf-caja .mf-cerrar { flex: none; width: auto; margin: 0 18px 18px; }
