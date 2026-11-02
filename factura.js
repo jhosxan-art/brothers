@@ -441,17 +441,16 @@ window.Factura = {
       invoiceHTML += '<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">📦 PRODUCTOS</div>';
       invoiceHTML += '<table class="invoice-products-table">';
 
-      let invoiceText = '━━━━━━━━━━━━━━━━━━━━\n';
-      invoiceText += '🏍️ *BROTHERS DELIVERY*\n';
-      invoiceText += '━━━━━━━━━━━━━━━━━━━━\n\n';
-      if (window.Factura && window.Factura.nombreRepartidor) invoiceText += `🏍️ *Repartidor:* ${window.Factura.nombreRepartidor}\n`;
-      if (customerName) invoiceText += `👤 *Cliente:* ${customerName}\n`;
-      invoiceText += `💳 *Depósito:* ${depositPaid ? 'SÍ' : 'NO'}\n\n`;
-      invoiceText += '📦 *PRODUCTOS:*\n';
+      const SEP = '━━━━━━━━━━';   // línea del mensaje de WhatsApp (10 caracteres, como en el formato original)
+      let invoiceText = '🏍️ *BROTHERS DELIVERY*\n';
+      if (customerName) invoiceText += `Cliente: ${customerName}\n`;   // el nombre del cliente va arriba del nombre del repartidor
+      if (window.Factura && window.Factura.nombreRepartidor) invoiceText += `Repartidor: ${window.Factura.nombreRepartidor}\n`;
+      if (depositPaid) invoiceText += 'Depósito: SÍ\n';
+      invoiceText += '\n*Productos*\n';
 
       products.forEach(product => {
           invoiceHTML += `<tr><td>${escHtml(product.name)}</td><td>C$ ${product.price.toFixed(2)}</td></tr>`;
-          invoiceText += `${product.name} → C$ ${product.price.toFixed(2)}\n`;
+          invoiceText += `• ${product.name} – C$ ${product.price.toFixed(2)}\n`;
       });
 
       invoiceHTML += '</table>';
@@ -481,30 +480,20 @@ window.Factura = {
       else invoiceHTML += `<div class="invoice-track"><b>📍 Seguimiento en tiempo real</b>Toca el enlace y verás la ubicación de tu paquete en tiempo real.<div class="lnk">${escHtml(link)}</div></div>`;
       invoiceHTML += '<div class="invoice-footer">¡Vuelve a pedir con nosotros cuando quieras! 🚀 Siempre listos para ayudarte 🙌</div>';
 
-      invoiceText += '\n━━━━━━━━━━━━━━━━━━━━\n';
-      invoiceText += `*Subtotal:* C$ ${subtotal.toFixed(2)}\n`;
-
-      if (extraErrand > 0) {
-          invoiceText += `*Delivery:* C$ ${deliveryPrice.toFixed(2)}\n`;
-          invoiceText += `*Mandado Extra:* C$ ${extraErrand.toFixed(2)}\n`;
-          invoiceText += `*Total Delivery:* C$ ${totalDelivery.toFixed(2)}\n`;
+      invoiceText += `\n${SEP}\n`;
+      invoiceText += `Productos: C$ ${subtotal.toFixed(2)}\n`;
+      invoiceText += `Delivery: C$ ${(extraErrand > 0 ? deliveryPrice : totalDelivery).toFixed(2)}\n`;
+      if (extraErrand > 0) invoiceText += `Mandado extra: C$ ${extraErrand.toFixed(2)}\n`;
+      if (prioridad > 0) invoiceText += `⚡ Prioridad: C$ ${prioridad.toFixed(2)}\n`;
+      invoiceText += `*TOTAL: C$ ${grandTotal.toFixed(2)}*\n`;
+      invoiceText += `*CÓDIGO DE RETIRO: ${pickupCode}*\n`;
+      invoiceText += `${SEP}\n\n`;
+      if (sinEnlace) {   // el cliente ya recibió su enlace con "Contactar con el cliente": no se manda otro
+          invoiceText += '📍 *Importante:* siga compartiendo su ubicación en tiempo real en el mismo enlace de seguimiento que ya le enviamos, para que su repartidor lo encuentre y su pedido llegue más rápido.';
       } else {
-          invoiceText += `*Delivery:* C$ ${totalDelivery.toFixed(2)}\n`;
+          invoiceText += '📍 *Importante:* abra el enlace y comparta su ubicación en tiempo real para que su repartidor lo encuentre y su pedido llegue más rápido.\n';
+          invoiceText += `👉 ${link}`;
       }
-
-      if (prioridad > 0) invoiceText += `*⚡ Prioridad:* C$ ${prioridad.toFixed(2)}\n`;
-      invoiceText += '━━━━━━━━━━━━━━━━━━━━\n';
-      invoiceText += `*TOTAL:* C$ ${grandTotal.toFixed(2)}\n`;
-      invoiceText += `*CÓDIGO DE RETIRO:* *${pickupCode}*\n`;
-      invoiceText += '━━━━━━━━━━━━━━━━━━━━\n\n';
-      if (sinEnlace) {
-          invoiceText += '📍 Sigue tu paquete en tiempo real con el mismo enlace de seguimiento que ya te enviamos.\n\n';
-      } else {
-          invoiceText += '📍 *Sigue tu paquete en tiempo real:*\n';
-          invoiceText += `${link}\n`;
-          invoiceText += '👆 Toca el enlace y verás la ubicación de tu paquete en tiempo real en el mapa.\n\n';
-      }
-      invoiceText += '¡Vuelve a pedir con nosotros cuando quieras! 🚀 Siempre listos para ayudarte 🙌';
 
       document.getElementById('generatedInvoiceDisplay').innerHTML = invoiceHTML;
 
