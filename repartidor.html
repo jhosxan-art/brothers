@@ -51,7 +51,8 @@
   <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
   <header class="barra-marca">
     <span class="insignia" data-rider></span>
-    <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor</small></div>
+    <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span></small></div>
+    <button id="btnFacturaVivo" class="salir chat-admin oculto" type="button" aria-label="Ver mi factura en vivo y agregar mandados extra">🧾</button>
     <button id="btnChatAdmin" class="salir chat-admin oculto" aria-label="Chat con Brothers (administración)">💬<span id="badgeAdmin" class="badge-nav rojo oculto">0</span></button>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
@@ -197,6 +198,7 @@
         <button id="btnVerNegociosRep" class="herr-rep on" type="button" aria-label="Ver u ocultar negocios" aria-pressed="true">🏪</button>
         <button id="btnPolicia" class="herr-rep" type="button" aria-label="Reportar policía">🚨</button>
         <button id="btnMarcarDestino" class="herr-rep" type="button" aria-label="Marcar destino en el mapa">📍</button>
+        <button id="btnSeguir" class="herr-rep" type="button" aria-label="Seguir mi moto (cámara de navegación)">🧭</button>
         <button id="btnVerTodo" class="herr-rep" type="button" aria-label="Ver todo">⛶</button>
       </div>
       <div id="resBusqRep" class="res-busq oculto"></div>
@@ -257,6 +259,32 @@
       <div id="subDesglose"></div>
       <button id="btnSubWa" class="whatsapp" type="button">Enviar sub-factura por WhatsApp</button>
       <button id="btnSubCerrar" class="oscuro" type="button">Listo</button>
+    </div>
+  </div>
+
+  <!-- Factura en vivo del repartidor: productos, delivery, extras y total. Aquí se agregan los Mandados Extra -->
+  <div id="modalFacturaVivo" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="fvTitulo">
+    <div class="modal-rep-caja fv-caja">
+      <h2 id="fvTitulo">🧾 Factura en vivo</h2>
+      <select id="fvSel" class="oculto" aria-label="Elegir pedido"></select>
+      <div id="fvResumen" class="fv-resumen" aria-live="polite"></div>
+      <div id="fvForm" class="fv-form oculto">
+        <h3 class="fv-h">➕ Agregar Mandado Extra</h3>
+        <div class="fv-rapidos" id="fvRapidos">
+          <button type="button" data-m="10">+C$10</button>
+          <button type="button" data-m="20">+C$20</button>
+          <button type="button" data-m="30">+C$30</button>
+          <button type="button" data-m="50">+C$50</button>
+        </div>
+        <div class="fv-fila2">
+          <input id="fvMonto" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Monto C$" aria-label="Monto del mandado extra">
+          <input id="fvNota" type="text" maxlength="80" autocomplete="off" placeholder="Detalle (opcional)" aria-label="Detalle del mandado extra">
+        </div>
+        <button id="btnFvAgregar" class="primario" type="button">➕ Agregar Mandado Extra</button>
+        <small class="fv-ayuda">Puedes agregar tantos mandados extra como necesites. El cliente los ve al instante.</small>
+      </div>
+      <div id="fvAviso" class="estado oculto" role="status"></div>
+      <button id="btnFvCerrar" class="oscuro" type="button">Cerrar</button>
     </div>
   </div>
 
@@ -395,6 +423,8 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Rotación del mapa (modo "hacia adelante"). Si no carga, la cámara sigue funcionando sin rotar. -->
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>

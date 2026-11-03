@@ -662,3 +662,60 @@ body.cliente .mf-caja .fac-cuerpo { flex: 1 1 auto; min-height: 0; }
 body.cliente .mf-caja .fac-lista { flex: 1 1 auto; max-height: none; padding: 8px 18px 0; }
 body.cliente .mf-caja .fac-totales { padding: 4px 18px 12px; }
 body.cliente .mf-caja .mf-cerrar { flex: none; width: auto; margin: 0 18px 18px; }
+
+/* ============================================================
+   FASE 1 · Cámara de navegación inmersiva
+   ============================================================ */
+/* Ícono del repartidor: crece con el zoom (la variable --escala-rep la actualiza repartidor.js / rastreo.js) para respetar el ancho de la calle */
+.leaflet-marker-icon.rep-yo > :first-child { transform: scale(var(--escala-rep, 1)); transform-origin: 50% 28px; transition: transform .35s ease-out; will-change: transform; }
+@media (prefers-reduced-motion: reduce) { .leaflet-marker-icon.rep-yo > :first-child { transition: none; } }
+/* Botón 🧭 (seguir mi moto) del repartidor */
+#btnSeguir.herr-rep { font-size: 18px; }
+#btnSeguir.herr-rep.on { background: var(--celeste); border-color: var(--celeste-prof); }
+/* Botón «Seguir repartidor» del cliente (aparece cuando mueve el mapa o hace zoom) */
+body.cliente .btn-seguir { position: fixed; z-index: 1150; left: 50%; transform: translateX(-50%); top: calc(70px + env(safe-area-inset-top)); width: auto; height: 42px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--tinta); color: #fff; font-size: 14px; font-weight: 800; box-shadow: 0 6px 18px rgba(14,20,27,.4); white-space: nowrap; }
+body.cliente .btn-seguir.oculto { display: none !important; }
+
+/* ============================================================
+   FASE 2 · Indicador de pantalla siempre encendida (cabecera del repartidor)
+   ============================================================ */
+.barra-marca .wake-ind { display: inline-block; margin-left: 4px; font-size: 12px; line-height: 1; vertical-align: baseline; }
+.barra-marca .wake-ind.oculto { display: none !important; }
+
+/* ============================================================
+   FASE 3 · Factura en vivo (repartidor y auditoría del administrador)
+   ============================================================ */
+.fv-caja { text-align: left; max-height: 92vh; max-height: 92dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.fv-caja h2 { text-align: left; }
+.fv-caja select { width: 100%; height: 46px; border: 1.5px solid var(--linea); border-radius: 12px; background: var(--gris); padding: 0 10px; font: inherit; font-weight: 700; color: var(--tinta); }
+.fv-resumen { display: grid; gap: 4px; min-width: 0; }
+.fv-banner { display: grid; gap: 1px; padding: 10px 12px; border-radius: 12px; background: var(--celeste-suave); border: 1.5px solid #cfe9f8; }
+.fv-banner b { font-size: 15px; font-weight: 800; overflow-wrap: anywhere; }
+.fv-banner small { font-size: 12px; font-weight: 600; color: var(--texto2); }
+.fv-sec { margin-top: 6px; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #0b4a6b; }
+.fv-fila { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--linea); font-size: 14px; }
+.fv-fila > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.fv-fila > b { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fv-fila.fv-sub { font-weight: 800; }
+.fv-fila.fv-pri { color: #b45309; font-weight: 700; }
+.fv-fila.fv-ex { color: #7C3A00; background: #FFF9EE; border-radius: 8px; padding: 6px 8px; border-bottom: 0; margin-top: 3px; }
+.fv-del { flex: none; width: 30px; height: 30px; min-width: 0; padding: 0; border: 0; border-radius: 8px; background: rgba(229,50,45,.12); color: var(--rojo); font-size: 14px; font-weight: 800; }
+.fv-total { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: var(--tinta); color: #fff; font-size: 16px; font-weight: 800; }
+.fv-total b { color: var(--celeste); font-size: 24px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fv-form { display: grid; gap: 8px; margin-top: 6px; padding: 12px; border-radius: 14px; background: #FFF9EE; border: 2px solid #F59E0B; }
+.fv-form.oculto { display: none !important; }
+.fv-h { font-size: 14px; font-weight: 800; color: #7C3A00; }
+.fv-rapidos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.fv-rapidos button { height: 38px; padding: 0 4px; font-size: 13px; border-radius: 10px; background: #fff; border: 1.5px solid #F59E0B; color: #7C3A00; }
+.fv-fila2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px; }
+.fv-form input { height: 46px; font-size: 16px; }
+.fv-ayuda { font-size: 12px; font-weight: 600; color: #7C3A00; line-height: 1.3; }
+/* Desglose de mandados extra en la factura del cliente */
+body.cliente .fac-fila.fac-ext { color: #b45309; font-weight: 700; }
+/* Administrador: auditoría de facturas (un bloque por pedido que lleva el motorizado) */
+.fv-bloque { display: grid; gap: 4px; padding: 10px; border: 1.5px solid var(--linea); border-radius: 14px; background: #fff; }
+.fv-bloque + .fv-bloque { margin-top: 10px; }
+.fv-vivo { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; color: #17602B; }
+.fv-vivo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--rojo); animation: latido 1.4s infinite; }
+.fv-lista-pedidos { display: grid; gap: 8px; }
+.fv-lista-pedidos .pd-rep { width: 100%; }

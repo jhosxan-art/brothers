@@ -12,6 +12,11 @@
    FASE 2 (PedidoRep): al aceptar un pedido del administrador aparece "Crear Factura" sobre el mapa; la factura se guarda
    directo en Firebase (la ve el cliente en su rastreo, con la prioridad de C$ 10 si la aceptó) y la ubicación del cliente
    se actualiza en el mapa en el mismo instante en que él la cambia.
+   NAVEGACIÓN INMERSIVA (Camara): zoom dinámico por proximidad al destino, mapa que rota hacia donde avanza la moto (bearing de las
+   últimas dos coordenadas), repartidor fijo en el tercio inferior de la pantalla e ícono que escala con el zoom.
+   PANTALLA ACTIVA (Pantalla): Screen Wake Lock con reconexión automática al volver a la app.
+   FACTURA EN VIVO (FacturaVivo): ícono 🧾 en la cabecera → productos, delivery, prioridad, mandados extra (varios por pedido,
+   guardados en pedidos/{token}/extras) y total. El cliente y el administrador lo ven al instante.
    ============================================================ */
 /* Si algo falla al cargar (p. ej. faltan archivos por subir), el motivo aparece escrito bajo el formulario */
 window.addEventListener("error", (e) => {
@@ -22,6 +27,42 @@ const auth = APP.auth();
 const db = APP.database();
 const $ = (id) => document.getElementById(id);
 const TS = firebase.database.ServerValue.TIMESTAMP;
+
+/* ============================================================
+   PANTALLA ACTIVA · Screen Wake Lock API
+   - pedir(): solicita el wake lock "screen" (al abrir la app, al iniciar turno y al empezar un viaje).
+   - Si el repartidor minimiza la app, el navegador libera el bloqueo solo; al volver (visibilitychange) se vuelve a pedir.
+   - En el APK, si existe el plugin nativo "KeepAwake" también se usa (respaldo para WebViews sin Wake Lock).
+   ============================================================ */
+const Pantalla = (() => {
+  let lock = null, quiere = false;
+  const soportado = () => !!(navigator.wakeLock && typeof navigator.wakeLock.request === "function");
+  const ind = (si) => { const e = document.getElementById("wakeInd"); if (e) e.classList.toggle("oculto", !si); };
+  const nativoKA = () => { try { return typeof plug === "function" ? plug("KeepAwake") : null; } catch (_) { return null; } };
+  async function pedir() {
+    quiere = true;
+    const ka = nativoKA();
+    if (ka && typeof ka.keepAwake === "function") { try { await ka.keepAwake(); ind(true); } catch (_) {} }
+    if (!soportado() || document.visibilityState !== "visible") return;
+    if (lock && !lock.released) return;   // ya está activo
+    try {
+      lock = await navigator.wakeLock.request("screen");
+      ind(true);
+      lock.addEventListener("release", () => { ind(false); });   // el sistema lo soltó (app minimizada, ahorro de batería…): visibilitychange lo reactiva
+    } catch (_) { ind(false); }
+  }
+  function soltar() {
+    quiere = false;
+    try { lock && lock.release(); } catch (_) {}
+    lock = null; ind(false);
+    const ka = nativoKA();
+    if (ka && typeof ka.allowSleep === "function") { try { ka.allowSleep(); } catch (_) {} }
+  }
+  /* Reconexión: al volver a la app (o a la pestaña) se reactiva el bloqueo si se había pedido */
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && quiere) pedir(); });
+  window.addEventListener("pageshow", () => { if (quiere) pedir(); });
+  return { pedir, soltar, soportado };
+})();
 
 /* ============================================================
    ACTUALIZACIONES OBLIGATORIAS (In-App Updates) · app Repartidor
@@ -68,8 +109,10 @@ auth.onAuthStateChanged((u) => { if (u) ActualizacionApp.vigilar(); });
    Sirve para avisar al administrador (push en su APK Admin) cuando escribes en un chat. Mientras diga "TU-WORKER" no se envía nada. */
 const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
 const PRIORIDAD_EXTRA = 10;   // C$ de propina cuando el cliente prioriza su pedido
+/* Suma de los mandados extra de un pedido (pedidos/{token}/extras/{id} = { monto, nota, ts, por }) */
+const sumaExtras = (o) => (o && typeof o === "object" ? Object.values(o).reduce((t, e) => t + (Number(e && e.monto) || 0), 0) : 0);
 
-let watchId = null, bgId = null, bgPlugin = null, latido = null, wakeLock = null;
+let watchId = null, bgId = null, bgPlugin = null, latido = null;
 let uidActual = null, usuario = null, ultimaPos = null, ultimaEscritura = 0;
 const INTERVALO_MS = 4000;   // máximo 1 escritura de GPS cada 4 s
 const RADIO_AVISO_M = 200;   // distancia que dispara "El repartidor está cerca" en el cliente
@@ -177,6 +220,7 @@ function mostrar(vista) {   // "login" | "usuario" | "app"
   $("vistaUsuario").classList.toggle("oculto", vista !== "usuario");
   $("btnSalir").classList.toggle("oculto", vista === "login");
   $("btnChatAdmin").classList.toggle("oculto", vista !== "app");
+  $("btnFacturaVivo").classList.toggle("oculto", vista !== "app");
   if (vista !== "app") {
     ["vistaFactura", "vistaMapa", "navApp"].forEach((id) => $(id).classList.add("oculto"));
   } else irA(vistaActual);
@@ -189,7 +233,7 @@ function irA(vista) {
   if (vista === "mapa") {
     renderLista();
     initMapa();
-    setTimeout(() => { mapa.invalidateSize(); encuadrar(); }, 60);
+    setTimeout(() => { mapa.invalidateSize(); if (seguirme && ultimaPos) Camara.actualizar(true); else encuadrar(); }, 60);
   }
 }
 /* PedidoRep se define más abajo: estos accesos son seguros aunque aún no exista */
@@ -271,6 +315,7 @@ async function entrarTurno() {
   Factura.nombreRepartidor = usuario;
   Factura.codigoCompartido = () => CodigosBD.siguiente();
   CodigosBD.reponer();
+  Pantalla.pedir();                 // pantalla siempre encendida mientras trabajas
   reanudarViajes();                 // por si la app se cerró con pedidos en ruta
   vistaActual = orden.length ? "mapa" : "factura";   // la factura es lo primero, salvo que ya lleve un pedido en camino
   mostrar("app");
@@ -298,7 +343,7 @@ $("btnSalir").onclick = async () => {
    ============================================================ */
 function initMapa() {
   if (mapa) return;
-  mapa = L.map("mapaRuta", GestosMapa.opciones).setView([-12.0464, -77.0428], 14);
+  mapa = L.map("mapaRuta", Object.assign({}, GestosMapa.opciones, Camara.opcionesMapa())).setView([-12.0464, -77.0428], 14);
   L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);   // zoom: botones, doble toque o pellizco
   GestosMapa.aplicar(mapa);
   mapa.on("click movestart", cerrarBusquedaRep);   // tocar o mover el mapa cierra la búsqueda y deja el mapa completo
@@ -311,13 +356,15 @@ function initMapa() {
   capaLugar = L.polyline([], { color: "#F59E0B", weight: 7, opacity: .9, lineCap: "round" }).addTo(mapa);
   flechasLugar = L.layerGroup().addTo(mapa);
   mapa.on("zoomend", () => mapa.getContainer().classList.toggle("zoom-lejos", mapa.getZoom() < 15));
+  mapa.on("zoom zoomend", Camara.aplicarEscala);   // el ícono del repartidor crece con el zoom (respeta el ancho de la calle)
+  Camara.aplicarEscala();
   mapa.getContainer().classList.add("zoom-lejos");
   mapa.on("popupopen", (e) => {   // botón "Ir aquí" dentro de la ventanita de un negocio
     const el = e.popup.getElement(); if (!el) return;
     el.querySelectorAll("button[data-ir]").forEach((b) => b.onclick = () => { mapa.closePopup(); irALugar(lugares[b.dataset.ir], true); });
   });
   mapa.on("click", (e) => { if (Policia.clickMapa(e.latlng)) return; if (marcando) fijarDestinoManual(e.latlng.lat, e.latlng.lng); });
-  mapa.on("dragstart", () => { seguirme = false; });
+  mapa.on("dragstart", () => { seguirme = false; Camara.refrescarBoton(); });   // el repartidor movió el mapa con el dedo: se pausa la cámara (botón 🧭 para retomar)
   if (ultimaPos) { pintarYo(); mapa.setView([ultimaPos.lat, ultimaPos.lng], 15); }
   Policia.pintar();
   orden.forEach((t) => pintarCliente(viajes[t]));
@@ -327,8 +374,98 @@ function initMapa() {
   pintarLugares();
   if (lugarDestino) { pintarLugarDestino(); dibujarRutaLugar(); }
   actualizarBanner();
+  ["pointerdown", "touchstart", "wheel"].forEach((ev) => mapa.getContainer().addEventListener(ev, Camara.gesto, { passive: true, capture: true }));
+  mapa.on("zoomstart", Camara.alZoom);   // se registra al final para ignorar los zooms de arranque
 }
 let seguirme = true;   // el mapa sigue al repartidor hasta que lo mueve con el dedo
+
+/* ============================================================
+   CÁMARA INTELIGENTE (navegación inmersiva)
+   1) Zoom dinámico: cuanto más cerca del destino, más zoom (de ~14.5 lejos a 19 pegado al destino), con pasos de 0.25.
+   2) Bearing: el rumbo se calcula con las dos últimas coordenadas (mínimo 4 m de avance) y el mapa rota para que la moto apunte
+      hacia arriba. Usa el plugin leaflet-rotate; si no está cargado, el mapa queda con el norte arriba y lo demás sigue igual.
+   3) Tercio inferior: el centro del mapa se corre H/6 px "hacia adelante" del rumbo, así el marcador queda en la línea de 2/3
+      de la altura y se ve más ruta por delante.
+   4) Ícono proporcional: --escala-rep (CSS) crece con el zoom: ~0.7 lejos → 1.6 con el máximo acercamiento.
+   ============================================================ */
+const Camara = (() => {
+  const SIGNO_ROTACION = 1;      // si en tu equipo el mapa gira al revés, cambia a -1
+  const MIN_PASO_M = 4;          // avance mínimo entre dos puntos para recalcular el rumbo (evita temblor del GPS parado)
+  const MIN_MS = 900;            // la cámara se mueve como máximo una vez por segundo
+  let prev = null, suave = 0, tieneRumbo = false, ult = 0, ultGesto = 0;
+  const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
+  const rotable = () => !!(mapa && typeof mapa.setBearing === "function");
+  /* Si el repartidor hace zoom con el dedo o los botones, la cámara automática se pausa (🧭 para retomarla) */
+  const gesto = () => { ultGesto = Date.now(); };
+  const alZoom = () => { if (Date.now() - ultGesto < 1500 && seguirme) { seguirme = false; refrescarBoton(); } };
+  const opcionesMapa = () => ({ rotate: true, bearing: 0, touchRotate: false, rotateControl: false, zoomSnap: 0.25, zoomDelta: 1 });
+
+  /* Ángulo (0–360°, desde el norte, horario) entre dos coordenadas */
+  function rumboEntre(a, b) {
+    const dLng = rad(b.lng - a.lng);
+    const y = Math.sin(dLng) * Math.cos(rad(b.lat));
+    const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(dLng);
+    return (deg(Math.atan2(y, x)) + 360) % 360;
+  }
+  function giroSuave(a, b) { const d = ((b - a + 540) % 360) - 180; return (a + d * 0.5 + 360) % 360; }   // camino más corto entre ángulos, suavizado
+  function registrar(lat, lng) {   // se llama con cada lectura del GPS
+    const p = { lat, lng };
+    if (!prev) { prev = p; return; }
+    if (distanciaM(prev.lat, prev.lng, lat, lng) < MIN_PASO_M) return;
+    const r = rumboEntre(prev, p);
+    prev = p;
+    suave = tieneRumbo ? giroSuave(suave, r) : r;
+    tieneRumbo = true;
+  }
+
+  /* Destino activo: negocio/lugar elegido > pedido seleccionado > cliente del pedido del administrador */
+  function destino() {
+    if (lugarDestino) return lugarDestino;
+    const v = viajes[seleccionado];
+    if (v && v.destino) return v.destino;
+    return PedidoRep.posCliente();
+  }
+  function zoomPara(dist) {
+    if (dist == null) return 17;
+    const z = 19 - Math.log2(Math.max(dist, 80) / 80) * 0.75;   // 80 m → 19 · 640 m → 16.75 · 5 km → 14.5
+    return Math.round(Math.min(19, Math.max(14.5, z)) * 4) / 4;
+  }
+  function escalaPara(z) { return Math.round(Math.min(1.6, Math.max(0.7, 0.7 * Math.pow(2, (z - 15) * 0.3))) * 100) / 100; }
+  function aplicarEscala() {
+    if (!mapa) return;
+    try { mapa.getContainer().style.setProperty("--escala-rep", String(escalaPara(mapa.getZoom()))); } catch (_) {}
+  }
+  function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) e.classList.add("rep-yo"); }
+  function refrescarBoton() {
+    const b = $("btnSeguir"); if (!b) return;
+    b.classList.toggle("on", !!seguirme);
+    b.setAttribute("aria-pressed", String(!!seguirme));
+  }
+
+  /* Mueve la cámara: zoom por distancia + rotación + marcador en el tercio inferior */
+  function actualizar(forzar) {
+    if (!mapa || !ultimaPos || !seguirme || vistaActual !== "mapa") return;
+    if (marcando || document.activeElement === $("busqRep") || !$("resBusqRep").classList.contains("oculto")) return;   // no se mueve mientras se busca o se marca un destino
+    const ahora = Date.now();
+    if (!forzar && ahora - ult < MIN_MS) return;
+    ult = ahora;
+    const d = destino(), dist = d ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
+    const z = zoomPara(dist), ang = rotable() && tieneRumbo ? suave : 0;
+    const k = mapa.getSize().y / 6;                 // 1/6 de la altura por debajo del centro = línea del tercio inferior
+    const t = rad(ang), pr = mapa.project([ultimaPos.lat, ultimaPos.lng], z);
+    const centro = mapa.unproject(L.point(pr.x + Math.sin(t) * k, pr.y - Math.cos(t) * k), z);   // punto "por delante" del repartidor
+    if (rotable()) { try { mapa.setBearing((SIGNO_ROTACION * ang + 360) % 360); } catch (_) {} }
+    mapa.setView(centro, z, { animate: !forzar, duration: 0.8, easeLinearity: 0.5, noMoveStart: true });
+    aplicarEscala();
+    refrescarBoton();
+  }
+  /* Vista general (Ver todo, encuadrar un pedido…): norte arriba */
+  function norte() {
+    if (rotable()) { try { mapa.setBearing(0); } catch (_) {} }
+    setTimeout(refrescarBoton, 0);
+  }
+  return { opcionesMapa, registrar, actualizar, norte, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom };
+})();
 
 function pintarYo(rumbo) {
   if (!mapa || !ultimaPos) return;
@@ -338,6 +475,7 @@ function pintarYo(rumbo) {
     marcaYo.setLatLng(p);
     if (nombreYoMarcado !== usuario) { marcaYo.setIcon(iconoRepartidorNombre(usuario)); nombreYoMarcado = usuario; }
   }
+  Camara.marcarIcono();
   if (rastro.length) estelaProp.setLatLngs(rastro);
 }
 function iconoCliente(n, nombre, sel, vivo) {
@@ -371,6 +509,7 @@ function pintarCliente(v) {
 
 function encuadrar(soloSeleccionado) {
   if (!mapa) return;
+  Camara.norte();
   const pts = [];
   if (ultimaPos) pts.push([ultimaPos.lat, ultimaPos.lng]);
   const lista = soloSeleccionado && seleccionado ? [seleccionado] : orden;
@@ -381,6 +520,12 @@ function encuadrar(soloSeleccionado) {
   else if (pts.length === 1) mapa.setView(pts[0], 16);
 }
 $("btnVerTodo").onclick = () => { seguirme = false; encuadrar(false); };
+$("btnSeguir").onclick = () => {   // retoma la cámara de navegación (sigue a la moto, zoom por distancia, rotación)
+  if (!ultimaPos) return setEstado("Esperando tu ubicación para seguirte…", "error");
+  seguirme = true; Camara.refrescarBoton();
+  Camara.actualizar(true);
+};
+Camara.refrescarBoton();
 
 /* ---------- Ruta hacia el pedido seleccionado ---------- */
 // Ruta por calles con el servidor público de OSRM (gratis, para uso ligero). Si falla, se dibuja una línea recta.
@@ -468,10 +613,11 @@ function crearViaje(info) {
   const v = {
     token: info.token, tel: info.tel || "", pedido: info.pedido || "", cliente: info.cliente || "",
     destManual: !!info.destManual, sinFactura: !!info.sinFactura, cerrando: false, refEstado: null, destino: null, cliPos: null, cerca: false, dist: null,
-    marca: null, marcaCli: null, refCli: null, refChat: null, noLeidos: 0, chatListo: false, factura: null, sub: null, refExtra: [],
+    marca: null, marcaCli: null, refCli: null, refChat: null, noLeidos: 0, chatListo: false, factura: null, sub: null, extras: null, refExtra: [],
     rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null
   };
   viajes[v.token] = v;
+  Pantalla.pedir();   // al iniciar un viaje se asegura la pantalla encendida
   if (!orden.includes(v.token)) orden.push(v.token);
   escucharCliente(v);
   escucharChat(v);
@@ -531,8 +677,8 @@ function totalCobrar(v) {
   try {
     if (v.sub && v.sub.items && v.sub.items.length) { const g = SubFactura.calcular(f, v.sub).gran; if (typeof g === "number" && isFinite(g)) base = g; }
   } catch (_) {}
-  const propina = v.prioridad ? PRIORIDAD_EXTRA : 0, delivery = Number(f.delivery) || 0;
-  return { total: r2n(base + propina), delivery: r2n(delivery), propina, compras: r2n(Math.max(0, base - delivery)) };
+  const propina = v.prioridad ? PRIORIDAD_EXTRA : 0, delivery = Number(f.delivery) || 0, extras = sumaExtras(v.extras);
+  return { total: r2n(base + propina + extras), delivery: r2n(delivery), propina, extras: r2n(extras), compras: r2n(Math.max(0, base - delivery)) };
 }
 
 /* Factura original + sub-factura del pedido (sincronizadas en pedidos/{token}) */
@@ -548,7 +694,9 @@ function escucharSubfactura(v) {
     if (activa && !era) alertaPrioridad(v.token, etiquetaWA(v));
     refrescarTextos();
   }, () => {});
-  v.refExtra = [f, s, dt, pr];
+  const ex = base.child("extras");   // mandados extra que agrega el repartidor (también los ve el cliente)
+  ex.on("value", (x) => { v.extras = x.val(); refrescarTextos(); }, () => {});
+  v.refExtra = [f, s, dt, pr, ex];
 }
 const ctxSub = { db, usuario: () => usuario, wa: (m) => abrirWhatsApp(m), alCambiar: () => refrescarTextos() };
 
@@ -804,12 +952,126 @@ const PedidoRep = (() => {
   return {
     seguir, soltar, pintarCliente, pintarBoton, posCliente: () => cli, prioridadExtra: () => (aceptado() && prioridad() ? PRIORIDAD_EXTRA : 0), enviarFactura,
     htmlChat, alClick, abrirChat: abrirChatPedido, responderRapido, noLeidos: () => noLeidos, esMio: (t) => !!id && t === id,
-    info: () => (chatDisponible() ? { cliente: nombre(), codigo: codigoApp() } : null)
+    info: () => (chatDisponible() ? { cliente: nombre(), codigo: codigoApp() } : null),
+    id: () => id,
+    meta: () => (id && datos ? { token: id, cliente: nombre(), codigo: codigoApp() } : null)
   };
 })();
 Factura.alEnviarPedido = (f) => PedidoRep.enviarFactura(f);
 Factura.alTerminarPedido = () => irA("mapa");   // factura enviada: de vuelta al mapa
 Factura.prioridadExtra = () => PedidoRep.prioridadExtra();
+
+/* ============================================================
+   FACTURA EN VIVO (ícono 🧾 de la cabecera, tarjetas de pedido)
+   - Lee pedidos/{token} en tiempo real: productos, delivery, prioridad, mandados extra y total a cobrar.
+   - "Agregar Mandado Extra": suma cargos adicionales UNA, DOS o MÁS veces al mismo pedido.
+     Cada uno se guarda como un registro propio en pedidos/{token}/extras/{id} = { monto, nota, ts, por }
+     (el cliente lo ve al instante en su rastreo y el administrador lo audita en su mapa).
+   ============================================================ */
+const FacturaVivo = (() => {
+  let tokenSel = null, ref = null, datos = null;
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const lst = (x) => (Array.isArray(x) ? x : x && typeof x === "object" ? Object.values(x) : []);
+  const tokens = () => { const l = orden.slice(), m = PedidoRep.meta(); if (m && !l.includes(m.token)) l.push(m.token); return l; };
+  function nombreTok(t) {
+    const v = viajes[t]; if (v) return nombreDe(v) + " · " + etiquetaWA(v);
+    const m = PedidoRep.meta(); if (m && m.token === t) return m.cliente + " · " + m.codigo;
+    return "Pedido";
+  }
+  function aviso(txt, tipo) { const e = $("fvAviso"); e.textContent = txt || ""; e.className = "estado " + (tipo || "") + (txt ? "" : " oculto"); }
+
+  /* Desglose a partir de pedidos/{token}: detalle (lo que ve el cliente) o, si no existe, la factura original */
+  function calc(d) {
+    if (!d) return null;
+    const f = d.factura && typeof d.factura === "object" ? d.factura : null, det = d.detalle && typeof d.detalle === "object" ? d.detalle : null;
+    const fuente = det || f; if (!fuente) return null;
+    const productos = lst(fuente.productos).map((p) => ({ nombre: String((p && p.nombre) || "Producto"), precio: Number(p && p.precio) || 0 }));
+    const delivery = Number(fuente.delivery) || 0;
+    const subtotal = fuente.subtotal != null ? Number(fuente.subtotal) || 0 : productos.reduce((a, p) => a + p.precio, 0);
+    const base = det
+      ? (det.totalBase != null ? Number(det.totalBase) || 0 : Math.max(0, (Number(det.total) || 0) - (Number(det.prioridad) || 0)))
+      : (f.total != null ? Number(f.total) || 0 : subtotal + delivery);
+    const prio = d.prioridad === true || (det && Number(det.prioridad) > 0) ? PRIORIDAD_EXTRA : 0;
+    const extras = Object.entries(d.extras && typeof d.extras === "object" ? d.extras : {}).sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([k, e]) => ({ k, monto: Number(e && e.monto) || 0, nota: String((e && e.nota) || "") }));
+    const extrasTotal = extras.reduce((a, e) => a + e.monto, 0);
+    return { productos, subtotal, delivery, prio, extras, extrasTotal, total: r2(base + prio + extrasTotal) };
+  }
+  const activo = (d) => !!d && (!d.estado || d.estado === "en_ruta");
+
+  function pintar() {
+    const cont = $("fvResumen"), c = calc(datos);
+    $("fvForm").classList.toggle("oculto", !(c && activo(datos)));
+    if (!datos) { cont.innerHTML = '<p class="ayuda">Cargando factura…</p>'; return; }
+    if (!c) { cont.innerHTML = '<div class="fv-banner"><b>' + escHtml(nombreTok(tokenSel)) + '</b></div><p class="ayuda">Este pedido aún no tiene factura. Genera y envía la factura para ver el total y agregar mandados extra.</p>'; return; }
+    let h = '<div class="fv-banner"><b>' + escHtml(nombreTok(tokenSel)) + '</b><small>' + (activo(datos) ? "En ruta · actualizado en vivo" : "Pedido cerrado") + "</small></div>";
+    if (c.productos.length) h += '<div class="fv-sec">Productos</div>' + c.productos.map((p) => '<div class="fv-fila"><span>' + escHtml(p.nombre) + "</span><b>" + money2(p.precio) + "</b></div>").join("");
+    h += '<div class="fv-fila fv-sub"><span>Total compras</span><b>' + money2(c.subtotal) + "</b></div>";
+    h += '<div class="fv-fila"><span>🛵 Costo del delivery</span><b>' + money2(c.delivery) + "</b></div>";
+    if (c.prio) h += '<div class="fv-fila fv-pri"><span>⚡ Prioridad (propina)</span><b>' + money2(c.prio) + "</b></div>";
+    if (c.extras.length) {
+      h += '<div class="fv-sec">Mandados extra (' + c.extras.length + ")</div>";
+      h += c.extras.map((e) => '<div class="fv-fila fv-ex"><span>➕ ' + escHtml(e.nota || "Mandado extra") + "</span><b>" + money2(e.monto) + '</b>' +
+        (activo(datos) ? '<button type="button" class="fv-del" data-del="' + escHtml(e.k) + '" aria-label="Quitar este mandado extra">✕</button>' : "") + "</div>").join("");
+      h += '<div class="fv-fila fv-sub"><span>Total mandados extra</span><b>' + money2(c.extrasTotal) + "</b></div>";
+    }
+    h += '<div class="fv-total"><span>Total a cobrar</span><b>' + money2(c.total) + "</b></div>";
+    cont.innerHTML = h;
+  }
+
+  function pintarSel() {
+    const l = tokens(), s = $("fvSel");
+    s.innerHTML = l.map((t) => '<option value="' + escHtml(t) + '">' + escHtml(nombreTok(t)) + "</option>").join("");
+    if (tokenSel) s.value = tokenSel;
+    s.classList.toggle("oculto", l.length < 2);
+  }
+  function soltar() { if (ref) { ref.off(); ref = null; } }
+  function escuchar() {
+    soltar(); datos = null; pintar();
+    ref = db.ref("pedidos/" + tokenSel);
+    ref.on("value", (s) => { datos = s.val() || {}; pintar(); }, () => aviso("No se pudo leer la factura. Revisa tu internet.", "error"));
+  }
+  function abrir(t) {
+    const l = tokens();
+    if (!l.length) return alert("No tienes pedidos en curso. Cuando generes una factura o aceptes un pedido, aquí verás su detalle en vivo.");
+    tokenSel = t && l.includes(t) ? t : (l.includes(seleccionado) ? seleccionado : l[0]);
+    aviso(""); $("fvMonto").value = ""; $("fvNota").value = "";
+    pintarSel(); escuchar();
+    $("modalFacturaVivo").classList.remove("oculto");
+  }
+  function cerrar() { soltar(); $("modalFacturaVivo").classList.add("oculto"); }
+
+  /* Agregar Mandado Extra: cada toque agrega un cargo nuevo (se puede repetir las veces que haga falta) */
+  function agregar() {
+    const t = tokenSel;
+    if (!t || !calc(datos) || !activo(datos)) return aviso("Primero envía la factura de este pedido.", "error");
+    const monto = r2(Number($("fvMonto").value));
+    if (!(monto > 0)) return aviso("Escribe un monto mayor a 0.", "error");
+    if (monto > 100000) return aviso("Ese monto es demasiado alto.", "error");
+    const nota = $("fvNota").value.trim().slice(0, 80);
+    const reg = { monto, ts: TS, por: usuario || "" }; if (nota) reg.nota = nota;
+    db.ref("pedidos/" + t + "/extras").push(reg).catch((e) => aviso("No se pudo guardar el mandado extra: " + e.message, "error"));   // se aplica al instante en el aparato y sincroniza al conectar
+    $("fvMonto").value = ""; $("fvNota").value = "";
+    navigator.vibrate && navigator.vibrate(80);
+    aviso("Mandado extra de " + money2(monto) + " agregado ✓ El cliente ya lo ve.", "ok");
+  }
+
+  $("btnFacturaVivo").onclick = () => abrir();
+  $("btnFvCerrar").onclick = cerrar;
+  $("btnFvAgregar").onclick = agregar;
+  $("fvSel").onchange = (e) => { tokenSel = e.target.value; aviso(""); escuchar(); };
+  $("fvRapidos").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) { $("fvMonto").value = b.dataset.m; $("fvMonto").focus(); } };
+  $("fvResumen").onclick = (e) => {
+    const b = e.target.closest("button[data-del]"); if (!b || !tokenSel) return;
+    if (!confirm("¿Quitar este mandado extra de la factura?")) return;
+    db.ref("pedidos/" + tokenSel + "/extras/" + b.dataset.del).remove().catch((err) => aviso("No se pudo quitar: " + err.message, "error"));
+  };
+  $("fvMonto").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); agregar(); } });
+  $("modalFacturaVivo").addEventListener("click", (e) => { if (e.target === $("modalFacturaVivo")) cerrar(); });
+  /* Si la ventana se cierra por otra vía (botón atrás), se dejan de escuchar los cambios */
+  new MutationObserver(() => { if ($("modalFacturaVivo").classList.contains("oculto")) soltar(); }).observe($("modalFacturaVivo"), { attributes: true, attributeFilter: ["class"] });
+  return { abrir, cerrar };
+})();
 
 /* Al abrir la app: recuperar los pedidos que seguían en ruta */
 function reanudarViajes() {
@@ -1182,6 +1444,7 @@ function renderListaBase() {
         <button class="oscuro" data-acc="entregado" type="button">✓ Entregado</button>
       </div>
       <div class="pc-mas">
+        <button class="mini pri" data-acc="factura" type="button">🧾 Factura</button>
         <button class="mini pri" data-acc="sub" type="button">➕ Productos <span id="subbd-${t}"></span></button>
         <button class="mini" data-acc="wa" type="button">Reenviar al negocio</button>
         <button class="mini oculto" data-acc="usarcli" id="usarcli-${t}" type="button">Usar ubic. del cliente</button>
@@ -1222,7 +1485,7 @@ function refrescarTextos() {
     if (ce) {
       const c = totalCobrar(v);
       if (c) {
-        ce.innerHTML = '<span class="pc-cobro-t">💵 Total a cobrar</span><b>' + money2(c.total) + "</b><small>Compras " + money2(c.compras) + " · Delivery " + money2(c.delivery) + (c.propina ? " · Propina " + money2(c.propina) : "") + "</small>";
+        ce.innerHTML = '<span class="pc-cobro-t">💵 Total a cobrar</span><b>' + money2(c.total) + "</b><small>Compras " + money2(c.compras) + " · Delivery " + money2(c.delivery) + (c.propina ? " · Propina " + money2(c.propina) : "") + (c.extras ? " · Extras " + money2(c.extras) : "") + "</small>";
         ce.classList.remove("oculto");
       } else { ce.classList.add("oculto"); ce.innerHTML = ""; }
     }
@@ -1244,6 +1507,7 @@ $("hojaPedidos").onclick = (e) => {
   else if (acc === "entregado") cerrarViaje(v.token, "entregado");
   else if (acc === "cancelar") cerrarViaje(v.token, "cancelado");
   else if (acc === "sub") SubFactura.abrir(v, ctxSub);
+  else if (acc === "factura") FacturaVivo.abrir(v.token);
   else if (acc === "wa") abrirWhatsApp(mensajeSeguimiento(v));
   else if (acc === "usarcli") usarUbicacionCliente(v);
 };
@@ -1477,7 +1741,7 @@ async function iniciarGPS() {
   } else {
     // Navegador: solo mientras la pantalla esté activa
     if (!("geolocation" in navigator)) return setEstado("Este dispositivo no tiene GPS.", "error");
-    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (_) {}
+    Pantalla.pedir();
     watchId = navigator.geolocation.watchPosition(
       (pos) => procesarPosicion(pos.coords),
       (err) => setEstado(err.code === 1 ? "Permiso de ubicación denegado. Actívalo en Ajustes." : "Error GPS: " + err.message, "error"),
@@ -1492,12 +1756,12 @@ function detenerGPS() {
   if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (bgId !== null && bgPlugin) { bgPlugin.removeWatcher({ id: bgId }); bgId = null; }
   clearInterval(latido); latido = null;
-  try { wakeLock && wakeLock.release(); } catch (_) {}
+  Pantalla.soltar();
 }
 document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState !== "visible") return;
   if (esperandoAjustes) { esperandoAjustes = false; iniciarNativo(true); }   // volvió de los ajustes de Android: se revisa de nuevo
-  if (watchId !== null) { try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (_) {} }
+  if (uidActual) Pantalla.pedir();   // volvió a la app: se reactiva el bloqueo de pantalla
   if (mapa) { mapa.invalidateSize(); pintarYo(); dibujarRuta(); }   // muestra el trayecto recorrido en segundo plano
 });
 
@@ -1511,10 +1775,10 @@ function procesarPosicion(c) {
     const ult = rastro[rastro.length - 1];
     if (!ult || distanciaM(ult[0], ult[1], lat, lng) > 4) { rastro.push([lat, lng]); if (rastro.length > 800) rastro.shift(); guardarRastro(); }
   }
+  Camara.registrar(lat, lng);   // rumbo con las dos últimas coordenadas
   pintarYo();
   if (mapa && vistaActual === "mapa") {
-    if (primera && !orden.length) mapa.setView([lat, lng], 16);
-    else if (seguirme && !mapa.getBounds().pad(-0.25).contains([lat, lng])) mapa.panTo([lat, lng]);
+    if (seguirme) Camara.actualizar(primera);   // zoom por proximidad + rotación + repartidor en el tercio inferior
     dibujarRuta(); dibujarRutaLugar(); actualizarBanner();
   }
 
@@ -1618,7 +1882,7 @@ $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); i
 /* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
 Atras.iniciar([
   () => Chat.cerrarCapa(),
-  () => { for (const id of ["modalNuevoPedido", "modalSub", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
+  () => { for (const id of ["modalNuevoPedido", "modalSub", "modalFacturaVivo", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
   () => {   // ventanas de la factura
     if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
     if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
@@ -1637,6 +1901,7 @@ Atras.iniciar([
 /* ---------- Pedido asignado por el administrador (ordenes-repartidor.js) ---------- */
 /* Pedido NUEVO asignado por el administrador: ventana con todos los detalles + voz + vibración + notificación */
 function nuevoPedidoAsignado(id, o) {
+  Pantalla.pedir();
   PedidoRep.seguir(id);   // desde ya se escucha el pedido: al aceptarlo aparece "Crear Factura" en el mapa
   const total = Ordenes.totalDelivery(o), sig = Ordenes.siguienteRetiro(o);
   $("nuevoPedidoCuerpo").innerHTML = OrdenAdminRep.detallesHtml(o);

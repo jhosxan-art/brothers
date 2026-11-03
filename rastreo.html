@@ -19,6 +19,9 @@
     <div><strong>Brother’s Deliverys</strong><small id="pedidoTxt">Seguimiento en vivo</small></div>
   </header>
 
+  <!-- Retomar la cámara de seguimiento (aparece si el cliente mueve el mapa o hace zoom) -->
+  <button id="btnSeguir" class="btn-seguir oculto" type="button" aria-label="Volver a seguir a mi repartidor">🎯 Seguir repartidor</button>
+
   <!-- Panel inferior: se puede minimizar para ver el mapa completo -->
   <section id="hoja" class="hoja">
     <button id="btnMinimizar" class="hoja-asa" type="button" aria-expanded="true" aria-controls="hojaCuerpo">
@@ -136,6 +139,8 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Rotación del mapa (cámara "hacia adelante"). Si no carga, el seguimiento funciona igual con el norte arriba. -->
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>

@@ -2,6 +2,8 @@
    ORDENES-ADMIN · Funciones 1 y 2 del panel de administración
    1) Toque en el mapa → modal para elegir repartidor activo y punto Retiro/Entrega
    2) Pestaña "Pedidos": formulario, asignación (registrado o enlace de invitado) y estado en vivo
+   3) Auditoría de facturas: al tocar el marcador de un repartidor en el mapa (o su tarjeta / el botón 🧾 Facturas) se abre la factura
+      exacta y en vivo que lleva (productos, delivery, prioridad, mandados extra y total), leída de pedidos/{token}.
    Se carga DESPUÉS de admin.js y usa sus globales (db, mapa, ubic, registrados, toast, modal…).
    ============================================================ */
 const PedidosAdmin = (() => {
@@ -446,7 +448,7 @@ const PedidosAdmin = (() => {
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
       <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
-        ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}
+        ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}${a.tipo && activa(o) ? btn("factura", "🧾 Factura", "pri") : ""}
         ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
       </div></div>`;
@@ -528,7 +530,8 @@ const PedidosAdmin = (() => {
       const [tx] = ETIQUETA[estadoDe(O.uidInvitado(t))], [et, ec] = O.ESTADOS[o.estado];
       return `<div class="tarjeta-rep"><div class="fila"><span class="avatar">${RIDER_SVG}</span>
         <div class="datos"><strong>${esc(o.asignacion.nombre)} <i class="pd-tag">Invitado</i></strong><small>Pedido ${esc(cod(o.codigo))} · ${esc(o.cliente)} · ${tx}</small></div>
-        <span class="chip ${ec}">${et}</span></div></div>`;
+        <span class="chip ${ec}">${et}</span></div>
+        <div class="acciones-fila"><button class="mini pri" data-fv-uid="${esc(O.uidInvitado(t))}" type="button">🧾 Ver factura</button></div></div>`;
     }).join("");
   }
   /* Nota corta para la ventanita del repartidor en el mapa */
@@ -574,6 +577,129 @@ const PedidosAdmin = (() => {
     db.ref().update({ [`ordenes/${token}/estado`]: "entregado", [`ordenes/${token}/actualizado`]: O.TS, ["ubicaciones/" + uid]: null }).catch(() => {});
   }
 
+  /* ============================================================
+     3) AUDITORÍA DE FACTURAS EN VIVO
+     Lee pedidos/{token} (factura, detalle, prioridad y extras) y se actualiza solo mientras la ventana está abierta.
+     ============================================================ */
+  let fvRefs = [], fvDatos = {}, fvToks = [];
+  const fvLst = (x) => (Array.isArray(x) ? x : x && typeof x === "object" ? Object.values(x) : []);
+  const fvR2 = (n) => Math.round(n * 100) / 100;
+  function fvSoltar() { fvRefs.forEach((r) => r.off()); fvRefs = []; fvDatos = {}; fvToks = []; }
+
+  /* Desglose exacto: misma regla que ve el repartidor y el cliente (base + prioridad + extras) */
+  function fvCalc(d) {
+    if (!d) return null;
+    const f = d.factura && typeof d.factura === "object" ? d.factura : null, det = d.detalle && typeof d.detalle === "object" ? d.detalle : null;
+    const fuente = det || f; if (!fuente) return null;
+    const productos = fvLst(fuente.productos).map((p) => ({ nombre: String((p && p.nombre) || "Producto"), precio: Number(p && p.precio) || 0 }));
+    const delivery = Number(fuente.delivery) || 0;
+    const subtotal = fuente.subtotal != null ? Number(fuente.subtotal) || 0 : productos.reduce((a, p) => a + p.precio, 0);
+    const base = det
+      ? (det.totalBase != null ? Number(det.totalBase) || 0 : Math.max(0, (Number(det.total) || 0) - (Number(det.prioridad) || 0)))
+      : (f.total != null ? Number(f.total) || 0 : subtotal + delivery);
+    const prio = d.prioridad === true || (det && Number(det.prioridad) > 0) ? (Number(d.prioridadMonto) || 10) : 0;
+    const extras = Object.entries(d.extras && typeof d.extras === "object" ? d.extras : {}).sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([k, e]) => ({ k, monto: Number(e && e.monto) || 0, nota: String((e && e.nota) || ""), por: String((e && e.por) || "") }));
+    const extrasTotal = extras.reduce((a, e) => a + e.monto, 0);
+    return { productos, subtotal, delivery, prio, extras, extrasTotal, total: fvR2(base + prio + extrasTotal) };
+  }
+
+  function fvBloque(t) {
+    const d = fvDatos[t], o = ordenes[t] || {};
+    if (d === undefined) return '<div class="fv-bloque"><p class="ayuda">Cargando factura…</p></div>';
+    if (d === null) return '<div class="fv-bloque"><p class="ayuda">Este pedido ya no está en curso.</p></div>';
+    const c = fvCalc(d), cliente = o.cliente || (d.factura && d.factura.cliente) || "", codigo = o.codigo ? cod(o.codigo) : (d.pedido || "");
+    const cerrado = d.estado && d.estado !== "en_ruta";
+    let h = `<div class="fv-bloque"><div class="fv-banner"><b>${esc(codigo)}${cliente ? " · " + esc(cliente) : ""}</b><small>🛵 ${esc(d.repartidorNombre || nombreOrden(o))} · ${cerrado ? "Pedido " + esc(d.estado) : "En ruta"}</small></div>`;
+    if (!c) return h + '<p class="ayuda">Todavía no hay factura para este pedido (el repartidor aún no la genera).</p></div>';
+    if (c.productos.length) h += '<div class="fv-sec">Productos</div>' + c.productos.map((p) => `<div class="fv-fila"><span>${esc(p.nombre)}</span><b>${O.money(p.precio)}</b></div>`).join("");
+    h += `<div class="fv-fila fv-sub"><span>Total compras</span><b>${O.money(c.subtotal)}</b></div>`;
+    h += `<div class="fv-fila"><span>🛵 Costo del delivery</span><b>${O.money(c.delivery)}</b></div>`;
+    if (c.prio) h += `<div class="fv-fila fv-pri"><span>⚡ Prioridad (propina)</span><b>${O.money(c.prio)}</b></div>`;
+    if (c.extras.length) {
+      h += `<div class="fv-sec">Mandados extra (${c.extras.length})</div>`;
+      h += c.extras.map((e) => `<div class="fv-fila fv-ex"><span>➕ ${esc(e.nota || "Mandado extra")}</span><b>${O.money(e.monto)}</b></div>`).join("");
+      h += `<div class="fv-fila fv-sub"><span>Total mandados extra</span><b>${O.money(c.extrasTotal)}</b></div>`;
+    }
+    h += `<div class="fv-total"><span>Total a cobrar</span><b>${O.money(c.total)}</b></div></div>`;
+    return h;
+  }
+  function fvPintar() {
+    const cont = el("fvAdmCuerpo"); if (!cont) return fvSoltar();   // la ventana cambió de contenido: se dejan de escuchar los pedidos
+    cont.innerHTML = fvToks.map(fvBloque).join("");
+  }
+  function mostrarFacturas(titulo, toks) {
+    fvSoltar(); fvToks = toks.slice();
+    modal(`<h2>🧾 Factura · ${esc(titulo)}</h2>
+      <span class="fv-vivo">En vivo · se actualiza sola</span>
+      <div id="fvAdmCuerpo" class="fv-lista-pedidos"></div>
+      <button id="fvAdmCerrar" class="oscuro" type="button">Cerrar</button>`);
+    el("fvAdmCerrar").onclick = cerrarModal;
+    fvToks.forEach((t) => { fvDatos[t] = undefined; });
+    fvPintar();
+    fvToks.forEach((t) => {
+      const r = db.ref("pedidos/" + t);
+      r.on("value", (s) => { fvDatos[t] = s.val(); fvPintar(); }, () => { fvDatos[t] = null; fvPintar(); });
+      fvRefs.push(r);
+    });
+  }
+
+  /* Pedidos activos de un motorizado: los que el administrador le asignó + los que el propio repartidor abrió con su factura */
+  async function fvTokensDe(uid) {
+    const set = new Set();
+    Object.entries(ordenes).forEach(([t, o]) => {
+      if (!activa(o)) return;
+      const a = o.asignacion || {};
+      if ((a.tipo === "registrado" && a.uid === uid) || (a.tipo === "invitado" && O.uidInvitado(t) === uid)) set.add(t);
+    });
+    try {
+      const s = await db.ref("pedidos").orderByChild("repartidorUid").equalTo(uid).limitToLast(20).once("value");
+      Object.entries(s.val() || {}).forEach(([t, p]) => { if (p && p.estado === "en_ruta") set.add(t); });
+    } catch (_) { /* sin permiso o sin conexión: se usan los pedidos conocidos */ }
+    return [...set];
+  }
+  async function abrirFacturaUid(uid, silencioso) {
+    const toks = await fvTokensDe(uid);
+    if (!toks.length) { if (!silencioso) toast(nombreUid(uid) + " no lleva ninguna factura en este momento."); return; }
+    try { mapa.closePopup(); } catch (_) {}
+    mostrarFacturas(nombreUid(uid), toks);
+  }
+
+  /* Botón 🧾 Facturas: todos los pedidos en ruta con su motorizado y total */
+  async function abrirListaFacturas() {
+    modal(`<h2>🧾 Facturas en curso</h2><p class="ayuda" id="fvListaMsg">Cargando pedidos en ruta…</p><div id="fvListaBox" class="fv-lista-pedidos"></div><button id="fvListaCerrar" class="oscuro" type="button">Cerrar</button>`);
+    el("fvListaCerrar").onclick = cerrarModal;
+    let lista = {};
+    try { lista = (await db.ref("pedidos").orderByChild("estado").equalTo("en_ruta").once("value")).val() || {}; }
+    catch (err) { const m = el("fvListaMsg"); if (m) m.textContent = "No se pudo leer: " + err.message; return; }
+    const box = el("fvListaBox"); if (!box) return;
+    const items = Object.entries(lista).filter(([, p]) => p && p.estado === "en_ruta").sort((a, b) => (b[1].inicio || 0) - (a[1].inicio || 0));
+    el("fvListaMsg").textContent = items.length ? "Toca un pedido para ver la factura exacta que lleva el motorizado." : "No hay pedidos en ruta ahora mismo.";
+    box.innerHTML = items.map(([t, p]) => {
+      const c = fvCalc(p), o = ordenes[t] || {}, cliente = o.cliente || (p.factura && p.factura.cliente) || (p.pedido ? "Pedido " + p.pedido : "Pedido");
+      return `<button type="button" class="pd-rep" data-ft="${esc(t)}" data-fn="${esc(p.repartidorNombre || "Repartidor")}"><span><strong>${esc(p.repartidorNombre || "Repartidor")}</strong><small>${esc(cliente)} · ${c ? O.money(c.total) : "sin factura aún"}</small></span></button>`;
+    }).join("");
+    box.onclick = (e) => { const b = e.target.closest("button[data-ft]"); if (b) mostrarFacturas(b.dataset.fn, [b.dataset.ft]); };
+  }
+
+  /* Tocar el marcador (burbuja) de un repartidor en el mapa → su factura. Se identifica por la ubicación más cercana al marcador tocado. */
+  function alTocarMarcador(e) {
+    const t = e.target; if (!t || !t.closest) return;
+    if (t.closest(".leaflet-popup, .leaflet-control, button")) return;
+    const caja = t.closest(".marca-rider-caja, .marca-rider"); if (!caja) return;
+    const icono = caja.closest(".leaflet-marker-icon"); if (!icono || !mapa) return;
+    if (!el("modalAdmin").classList.contains("oculto")) return;
+    const r = icono.getBoundingClientRect(), c = mapa.getContainer().getBoundingClientRect();
+    const px = r.left + r.width / 2 - c.left, py = r.top + r.height / 2 - c.top;
+    let mejor = null, dmin = 56;   // máximo ~56 px de distancia al centro del ícono
+    Object.keys(ubic || {}).forEach((uid) => {
+      const u = ubic[uid]; if (!u || typeof u.lat !== "number" || typeof u.lng !== "number") return;
+      const p = mapa.latLngToContainerPoint([u.lat, u.lng]), d = Math.hypot(p.x - px, p.y - py);
+      if (d < dmin) { dmin = d; mejor = uid; }
+    });
+    if (mejor) setTimeout(() => abrirFacturaUid(mejor, true), 150);   // silencioso: si no lleva factura, el toque sigue funcionando como siempre
+  }
+
   /* ---------- Arranque / parada ---------- */
   function iniciar() {
     detener(); primera = true;
@@ -583,6 +709,10 @@ const PedidosAdmin = (() => {
       mapa.on("popupclose", () => { popupCerrado = Date.now(); });
       mapa.on("dblclick zoomstart movestart", cancelarClick);
       new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) quitarTemp(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });
+      new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) fvSoltar(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });   // cerrar la ventana corta las escuchas de la factura
+      mapa.getContainer().addEventListener("click", alTocarMarcador, true);   // toque en la burbuja de un repartidor → su factura en vivo
+      document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button[data-fv-uid]"); if (b) abrirFacturaUid(b.dataset.fvUid); });   // botón de las tarjetas de invitados (Equipo)
+      const bf = el("btnFacturasVivo"); if (bf) bf.onclick = abrirListaFacturas;
       document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { cerrarMapaForm(); if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
       el("pdModo").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) modoAsignacion(b.dataset.m); };
       el("pdCrear").onclick = crearPedido;
@@ -608,6 +738,7 @@ const PedidosAdmin = (() => {
         if (a === "chatinv") abrirChatInv(t);
         else if (a === "linkinv") mostrarEnlaces(t, o);
         else if (a === "linkcli") copiar(O.urlCliente(t));
+        else if (a === "factura") mostrarFacturas(o.cliente || cod(o.codigo), [t]);
         else if (a === "asignar") asignarExistente(t);
         else if (a === "cancelar") cancelarOrden(t);
         else if (a === "borrar") { if (confirm("¿Eliminar este pedido del historial?")) db.ref("ordenes/" + t).remove().catch((err) => toast(err.message)); }
@@ -623,9 +754,9 @@ const PedidosAdmin = (() => {
       pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista();
     }, () => { el("listaPedidos").innerHTML = '<p class="ayuda">Sin permiso para leer “ordenes”. Revisa las reglas de Firebase (ver LEEME).</p>'; });
   }
-  function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } ordenes = {}; resInv = {}; sinLeerInv = {}; cerrarMapaForm(); quitarTemp(); cancelarClick(); }
+  function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } ordenes = {}; resInv = {}; sinLeerInv = {}; fvSoltar(); cerrarMapaForm(); quitarTemp(); cancelarClick(); }
 
-  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "" };
+  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "", abrirFacturaUid, abrirListaFacturas };
 })();
 
 

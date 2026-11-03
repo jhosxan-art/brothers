@@ -3,6 +3,8 @@
    - Al abrir el enlace se activa la ubicación del cliente y se comparte con el repartidor
    - "Cambiar mi ubicación": el cliente marca en el mapa dónde quiere recibir el pedido
    - Voz: "El repartidor está cerca" y "El repartidor te ha enviado un mensaje"
+   - Cámara de seguimiento (CamaraCliente): zoom por proximidad, rotación hacia adelante, repartidor en el tercio inferior
+   - Factura en vivo: los mandados extra (pedidos/{token}/extras) se desglosan y suman al total al instante
    ============================================================ */
 const db = firebase.database();
 const $ = (id) => document.getElementById(id);
@@ -15,7 +17,7 @@ const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
 const PRIORIDAD_MONTO = 10;                 // C$ que se suman al total al priorizar
 
 // Mapa (Leaflet + OpenStreetMap)
-const mapa = L.map("mapa", { ...GestosMapa.opciones, attributionControl: false }).setView([-12.0464, -77.0428], 14);
+const mapa = L.map("mapa", { ...GestosMapa.opciones, attributionControl: false, rotate: true, bearing: 0, touchRotate: false, rotateControl: false, zoomSnap: 0.25, zoomDelta: 1 }).setView([-12.0464, -77.0428], 14);
 GestosMapa.aplicar(mapa);   // un dedo solo desliza; el zoom es con botones, doble toque o pellizco
 L.control.zoom({ position: "bottomright" }).addTo(mapa);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
@@ -34,6 +36,75 @@ const distM = (a, b) => {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 };
+
+/* ============================================================
+   CÁMARA DE SEGUIMIENTO (cliente)
+   - Zoom dinámico: cuanto más cerca está el repartidor de ti, más se acerca la cámara (≈14.5 lejos → 19 muy cerca).
+   - Bearing: el mapa rota hacia donde avanza el repartidor (rumbo de sus dos últimas posiciones).
+   - Tercio inferior: el repartidor queda a 2/3 de la altura del mapa y se ve más camino por delante.
+   - Ícono proporcional: crece con el zoom (--escala-rep) para respetar el ancho de la calle.
+   Si mueves el mapa o haces zoom, la cámara se pausa y aparece «Seguir repartidor» para retomarla.
+   ============================================================ */
+const CamaraCliente = (() => {
+  const SIGNO_ROTACION = 1;   // si en tu equipo el mapa gira al revés, cambia a -1
+  const MIN_PASO_M = 4, MIN_MS = 900;
+  let prev = null, suave = 0, tiene = false, ult = 0, seguir = true, ultGesto = 0, pausaHasta = 0;
+  const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
+  const rotable = () => typeof mapa.setBearing === "function";
+  const boton = () => { const b = $("btnSeguir"); if (b) b.classList.toggle("oculto", seguir); };
+
+  function rumboEntre(a, b) {   // a, b = [lat, lng]
+    const dLng = rad(b[1] - a[1]);
+    const y = Math.sin(dLng) * Math.cos(rad(b[0]));
+    const x = Math.cos(rad(a[0])) * Math.sin(rad(b[0])) - Math.sin(rad(a[0])) * Math.cos(rad(b[0])) * Math.cos(dLng);
+    return (deg(Math.atan2(y, x)) + 360) % 360;
+  }
+  const giroSuave = (a, b) => { const d = ((b - a + 540) % 360) - 180; return (a + d * 0.5 + 360) % 360; };
+  function registrar(pos) {   // con cada posición nueva del repartidor
+    if (!prev) { prev = pos; return; }
+    if (distM(prev, pos) < MIN_PASO_M) return;
+    const r = rumboEntre(prev, pos);
+    prev = pos;
+    suave = tiene ? giroSuave(suave, r) : r;
+    tiene = true;
+  }
+  function zoomPara(dist) {
+    if (dist == null) return 17;
+    const z = 19 - Math.log2(Math.max(dist, 80) / 80) * 0.75;
+    return Math.round(Math.min(19, Math.max(14.5, z)) * 4) / 4;
+  }
+  const escalaPara = (z) => Math.round(Math.min(1.6, Math.max(0.7, 0.7 * Math.pow(2, (z - 15) * 0.3))) * 100) / 100;
+  function aplicarEscala() { try { mapa.getContainer().style.setProperty("--escala-rep", String(escalaPara(mapa.getZoom()))); } catch (_) {} }
+  function marcarIcono() { const e = marcador && marcador.getElement && marcador.getElement(); if (e) e.classList.add("rep-yo"); }
+
+  function actualizar(pos, dest, distancia, forzar) {
+    if (!seguir || eligiendo || (!forzar && Date.now() < pausaHasta)) return;
+    const ahora = Date.now();
+    if (!forzar && ahora - ult < MIN_MS) return;
+    ult = ahora;
+    const dist = distancia != null ? distancia : dest ? Math.round(distM(pos, dest)) : null;
+    const z = zoomPara(dist), ang = rotable() && tiene ? suave : 0;
+    const k = mapa.getSize().y / 6, t = rad(ang), pr = mapa.project(pos, z);
+    const centro = mapa.unproject(L.point(pr.x + Math.sin(t) * k, pr.y - Math.cos(t) * k), z);   // punto "por delante" del repartidor
+    if (rotable()) { try { mapa.setBearing((SIGNO_ROTACION * ang + 360) % 360); } catch (_) {} }
+    mapa.setView(centro, z, { animate: !forzar, duration: 0.8, easeLinearity: 0.5, noMoveStart: true });
+    aplicarEscala();
+  }
+  function retomar() {
+    seguir = true; pausaHasta = 0; boton();
+    if (posRep) actualizar(posRep, posCli ? [posCli.lat, posCli.lng] : destPedido, null, true);
+  }
+
+  /* Gestos del cliente: tocar el mapa pausa unos segundos; arrastrar o hacer zoom la desactiva hasta pulsar «Seguir» */
+  const marcarGesto = () => { ultGesto = Date.now(); pausaHasta = ultGesto + 8000; };
+  ["pointerdown", "touchstart", "wheel"].forEach((ev) => mapa.getContainer().addEventListener(ev, marcarGesto, { passive: true, capture: true }));
+  mapa.on("dragstart", () => { seguir = false; boton(); });
+  mapa.on("zoomstart", () => { if (Date.now() - ultGesto < 1500 && seguir) { seguir = false; boton(); } });
+  mapa.on("zoom zoomend", aplicarEscala);
+  $("btnSeguir").onclick = retomar;
+  aplicarEscala();
+  return { registrar, actualizar, marcarIcono, retomar };
+})();
 
 /* ---------- Alertas: voz + vibración ---------- */
 let vibInt = null, finAlarma = null, alarmaActiva = false, yaSono = false, wake = null;
@@ -251,6 +322,7 @@ const BrothersExtras = (() => {
   const lista = (v) => (Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : []);
 
   let ultimoEstado = null, hayPrioridad = false, descartado = false, enviandoPrioridad = false, ultimaFirma = "", detalleActual = null, abrioAvisado = false;
+  let extrasPrevios = null;   // cantidad / monto de extras de la lectura anterior (para avisar solo de los nuevos)
 
   /* ---------- Normaliza el desglose (pedidos/{token}/detalle, o la factura vieja si no hay detalle) ---------- */
   function normalizar(d) {
@@ -267,24 +339,36 @@ const BrothersExtras = (() => {
     let total = num(fuente.total != null ? fuente.total : fuente.grandTotal != null ? fuente.grandTotal : fuente.gran);
     if (total == null && (subtotal != null || delivery != null)) total = (subtotal || 0) + (delivery || 0);
     const monto = d.prioridad === true ? (num(d.prioridadMonto) || PRIORIDAD_MONTO) : 0;
-    // Con "detalle" el total guardado ya incluye la propina; con la factura vieja se suma aquí
-    const totalMostrado = total == null ? null : (x ? total : total + monto);
+    /* Mandados extra que agrega el repartidor: pedidos/{token}/extras/{id} = { monto, nota }. Se ordenan por su id (cronológico). */
+    const extras = (d.extras && typeof d.extras === "object" ? Object.entries(d.extras) : []).sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([k, e]) => ({ k, monto: num(e && e.monto) || 0, nota: String((e && e.nota) || "").slice(0, 80) })).filter((e) => e.monto > 0);
+    const extrasTotal = Math.round(extras.reduce((a, e) => a + e.monto, 0) * 100) / 100;
+    // Con "detalle" el total guardado ya incluye la propina; con la factura vieja se suma aquí. Los extras siempre se suman encima.
+    const totalSinExtras = total == null ? null : (x ? total : total + monto);
+    const totalMostrado = totalSinExtras == null ? (extrasTotal ? extrasTotal : null) : Math.round((totalSinExtras + extrasTotal) * 100) / 100;
     if (!productos.length && delivery == null && total == null) return null;
-    return { productos, subtotal, delivery, total: totalMostrado, totalBase: total == null ? null : (x ? (num(x.totalBase) != null ? num(x.totalBase) : total - monto) : total), monto, dePrioridad: !!x };
+    return { productos, subtotal, delivery, total: totalMostrado, totalBase: total == null ? null : (x ? (num(x.totalBase) != null ? num(x.totalBase) : total - monto) : total), monto, extras, extrasTotal, dePrioridad: !!x };
   }
 
   /* ---------- Tarjeta de factura ---------- */
   function pintarFactura(d) {
     const card = $("totalCaja"), det = normalizar(d);
     detalleActual = det;
-    if (!det) { card.classList.add("oculto"); cerrarFactura(); ultimaFirma = ""; pintarBarraMin(null); return; }
+    if (!det) { card.classList.add("oculto"); cerrarFactura(); ultimaFirma = ""; extrasPrevios = null; pintarBarraMin(null); return; }
     const firma = JSON.stringify(det) + "|" + (d.pedido || "");
     card.classList.remove("oculto");
     if (firma === ultimaFirma) return;
     ultimaFirma = firma;
+    // El repartidor agregó un mandado extra: se avisa y el total ya se actualizó (sin recargar la página)
+    if (extrasPrevios !== null && det.extras.length > extrasPrevios) {
+      const nuevo = det.extras[det.extras.length - 1];
+      toastPri("➕ Tu repartidor agregó un mandado extra: " + dinero(nuevo.monto) + ". Nuevo total: " + dinero(det.total));
+      navigator.vibrate && navigator.vibrate(150);
+    }
+    extrasPrevios = det.extras.length;
     $("mfPedido").textContent = d.pedido ? "· Pedido " + d.pedido : "";
     $("tcTotal").textContent = det.total != null ? dinero(det.total) : "—";   // total visible en el panel, sin abrir la factura
-    $("tcDet").textContent = [det.subtotal != null ? "Compras " + dinero(det.subtotal) : "", det.delivery != null ? "Delivery " + dinero(det.delivery) : "", det.monto ? "⚡ Propina " + dinero(det.monto) : ""].filter(Boolean).join(" · ");
+    $("tcDet").textContent = [det.subtotal != null ? "Compras " + dinero(det.subtotal) : "", det.delivery != null ? "Delivery " + dinero(det.delivery) : "", det.monto ? "⚡ Propina " + dinero(det.monto) : "", det.extrasTotal ? "➕ Extras " + dinero(det.extrasTotal) : ""].filter(Boolean).join(" · ");
     let lista = "";
     if (det.productos.length) {
       lista += '<div class="fac-sub">Productos</div>';
@@ -296,6 +380,10 @@ const BrothersExtras = (() => {
     if (det.subtotal != null) tot += `<div class="fac-fila"><span>Total compras</span><b>${dinero(det.subtotal)}</b></div>`;
     if (det.delivery != null) tot += `<div class="fac-fila"><span>Costo del delivery</span><b>${dinero(det.delivery)}</b></div>`;
     if (det.monto) tot += `<div class="fac-fila fac-pri"><span>⚡ Prioridad (propina)</span><b>${dinero(det.monto)}</b></div>`;
+    if (det.extras.length) {   // cada mandado extra aparece desglosado, con su detalle
+      tot += '<div class="fac-sub">Mandados extra</div>';
+      tot += det.extras.map((e) => `<div class="fac-fila fac-ext"><span>➕ ${esc(e.nota || "Mandado extra")}</span><b>${dinero(e.monto)}</b></div>`).join("");
+    }
     if (det.total != null) tot += `<div class="fac-total"><span>Total a pagar</span><b>${dinero(det.total)}</b></div>`;
     $("facTotales").innerHTML = tot;
     pintarBarraMin(det);
@@ -515,10 +603,12 @@ if (!token) {
     pintarDestino();
 
     const dest = posCli ? [posCli.lat, posCli.lng] : destPedido;
+    CamaraCliente.registrar(pos);   // rumbo con las dos últimas posiciones del repartidor
     if (primerPunto) {
       if (dest) mapa.fitBounds([pos, dest], { padding: [60, 60], maxZoom: 17 }); else mapa.setView(pos, 16);
       primerPunto = false;
-    } else if (!mapa.getBounds().contains(pos)) mapa.panTo(pos);   // respeta el zoom del cliente
+    } else CamaraCliente.actualizar(pos, dest, typeof d.distancia === "number" ? d.distancia : null);   // zoom por proximidad + rotación + tercio inferior
+    CamaraCliente.marcarIcono();
 
     // Textos de la hoja inferior: estado, distancia y barra de progreso
     const llegando = d.cerca === true || (typeof d.distancia === "number" && d.distancia <= 200);
