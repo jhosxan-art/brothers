@@ -54,6 +54,22 @@ const Ordenes = (() => {
     const b = r2(o && o.delivery), i = r2(o && o.iva); if (!b && !i) return "";
     return `<div class="pd-precio"><small>🛵 DELIVERY A COBRAR</small><b>${money(b + i)}</b>${i ? `<span>${money(b)} + ${money(i)} IVA</span>` : ""}</div>`;
   };
+  /* Lo que el repartidor pagó en cada restaurante (retiros[i].pagado) + delivery (+ prioridad y mandados extra de pedidos/{t}) = total a cobrar */
+  const hayPago = (o) => paradasPrev(o).some((p) => p.pagado != null);
+  const paradasPrev = (o) => (o && Array.isArray(o.retiros) && o.retiros.length ? o.retiros : o && o.retiro ? [o.retiro] : []);
+  function cobro(o, ped) {
+    const delivery = totalDelivery(o), pagado = r2(paradasPrev(o).reduce((a, p) => a + r2(p.pagado), 0));
+    const prio = ped && ped.prioridad === true ? (Number(ped.prioridadMonto) || 10) : 0;
+    const extras = r2(Object.values(ped && ped.extras && typeof ped.extras === "object" ? ped.extras : {}).reduce((a, e) => a + (Number(e && e.monto) || 0), 0));
+    return { delivery, pagado, prio, extras, total: r2(delivery + pagado + prio + extras), hayPago: hayPago(o) };
+  }
+  /* Tarjeta grande "TOTAL A COBRAR" (misma caja que el precio del delivery). Sin pagos declarados todavía muestra solo el delivery. */
+  const cobroHtml = (o, ped) => {
+    const k = cobro(o, ped); if (!k.hayPago) return precioHtml(o);
+    const partes = [`Delivery ${money(k.delivery)}`, `Restaurante ${money(k.pagado)}`];
+    if (k.prio) partes.push(`Prioridad ${money(k.prio)}`); if (k.extras) partes.push(`Extras ${money(k.extras)}`);
+    return `<div class="pd-precio"><small>💵 TOTAL A COBRAR</small><b>${money(k.total)}</b><span>${partes.join(" + ")}</span></div>`;
+  };
   /* Un pedido puede tener varios retiros (cada uno con su producto). Pedidos viejos traen solo "retiro". */
   const paradas = (o) => (o && Array.isArray(o.retiros) && o.retiros.length ? o.retiros : o && o.retiro ? [o.retiro] : []);
   const pendientes = (o) => paradas(o).map((p, i) => ({ i, p })).filter((x) => !x.p.retirado);
@@ -135,12 +151,23 @@ const Ordenes = (() => {
   }
 
   /* Un retiro (parada i) fue recogido. Cuando ya no quedan pendientes el pedido pasa a "retirado" y la ruta va a la entrega. */
-  async function marcarRetiro(db, t, orden, i) {
+  async function marcarRetiro(db, t, orden, i, monto) {   // monto = lo pagado en el restaurante (solo lo envía el invitado)
     const ps = paradas(orden), p = ps[i]; if (!p || p.retirado) return;
     const faltan = ps.filter((x, k) => !x.retirado && k !== i), hechos = ps.length - faltan.length;
     const upd = { [`ordenes/${t}/retiros/${i}/retirado`]: TS, [`ordenes/${t}/actualizado`]: TS };
-    const a = orden.asignacion || {};
-    if (!Array.isArray(orden.retiros)) upd[`ordenes/${t}/retiros`] = ps.map((x, k) => Object.assign({}, x, k === i ? { retirado: TS } : {}));   // pedido viejo: se convierte
+    const a = orden.asignacion || {}, conMonto = monto != null && Number.isFinite(+monto) && +monto >= 0;
+    if (conMonto) upd[`ordenes/${t}/retiros/${i}/pagado`] = r2(monto);
+    if (!Array.isArray(orden.retiros)) {   // pedido viejo: se convierte (sin rutas hijas que choquen con la del arreglo)
+      delete upd[`ordenes/${t}/retiros/${i}/retirado`]; delete upd[`ordenes/${t}/retiros/${i}/pagado`];
+      upd[`ordenes/${t}/retiros`] = ps.map((x, k) => Object.assign({}, x, k === i ? Object.assign({ retirado: TS }, conMonto ? { pagado: r2(monto) } : {}) : {}));
+    }
+    /* Factura del invitado (pedidos/{t}/factura): lo pagado en cada restaurante + delivery. La lee la auditoría del administrador. */
+    if (conMonto && a.tipo === "invitado") {
+      const prods = ps.map((x, k) => ({ x, v: k === i ? r2(monto) : (x.pagado != null ? r2(x.pagado) : null) })).filter((z) => z.v != null)
+        .map((z) => ({ nombre: (z.x.producto || "Compra") + (z.x.texto ? " · " + z.x.texto : ""), precio: z.v }));
+      const subtotal = r2(prods.reduce((s, p) => s + p.precio, 0)), delivery = totalDelivery(orden);
+      upd[`pedidos/${t}/factura`] = { cliente: orden.cliente || "", productos: prods, subtotal, delivery, total: r2(subtotal + delivery) };
+    }
     const prod = p.producto ? `“${p.producto}”` : "un producto";
     if (faltan.length) {
       const sig = ps.findIndex((x, k) => !x.retirado && k !== i);
@@ -242,5 +269,5 @@ const Ordenes = (() => {
     iconSize: [34, 34], iconAnchor: [17, 17]
   });
 
-  return { r2, totalDelivery, textoDelivery, precioHtml, pinEtiqueta, TS, ESTADOS, PUNTOS, esc, token, uidInvitado, esInvitadoUid, urlInvitado, urlCliente, valido, crear, asignar, marcar, marcarRetiro, avisoCliente, hablar, money, paradas, pendientes, siguienteRetiro, destinoDe, textoRetiro, puntoRapido, rutaOSRM, rutaCalles, textoPaso, callesDe, flechas, distM, pinIcono };
+  return { r2, totalDelivery, textoDelivery, precioHtml, cobro, cobroHtml, pinEtiqueta, TS, ESTADOS, PUNTOS, esc, token, uidInvitado, esInvitadoUid, urlInvitado, urlCliente, valido, crear, asignar, marcar, marcarRetiro, avisoCliente, hablar, money, paradas, pendientes, siguienteRetiro, destinoDe, textoRetiro, puntoRapido, rutaOSRM, rutaCalles, textoPaso, callesDe, flechas, distM, pinIcono };
 })();

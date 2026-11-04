@@ -615,7 +615,7 @@ const PedidosAdmin = (() => {
     h += fvPuntos(t);
     if (!c) return h + '<p class="ayuda">Todavía no hay factura para este pedido (el repartidor aún no la genera).</p></div>';
     if (c.productos.length) h += '<div class="fv-sec">Productos</div>' + c.productos.map((p) => `<div class="fv-fila"><span>${esc(p.nombre)}</span><b>${O.money(p.precio)}</b></div>`).join("");
-    h += `<div class="fv-fila fv-sub"><span>Total compras</span><b>${O.money(c.subtotal)}</b></div>`;
+    h += `<div class="fv-fila fv-sub"><span>💵 Pagado en restaurante / compras</span><b>${O.money(c.subtotal)}</b></div>`;
     h += `<div class="fv-fila"><span>🛵 Costo del delivery</span><b>${O.money(c.delivery)}</b></div>`;
     if (c.prio) h += `<div class="fv-fila fv-pri"><span>⚡ Prioridad (propina)</span><b>${O.money(c.prio)}</b></div>`;
     if (c.extras.length) {
@@ -805,7 +805,7 @@ const PedidosAdmin = (() => {
     const n = O.paradas(o).length, r = recInv[t];
     let h = '<div class="fv-sec">Recogida y entrega</div>' + pts.map((x) => {
       const ret = x.cual === "retiro", ic = x.hecho ? "✅" : ret ? "📦" : "🏠";
-      return `<div class="fv-fila"><span>${ic} <b>${ret ? "Recogida" + (n > 1 ? " " + (x.i + 1) + "/" + n : "") : "Entrega"}:</b> ${esc(x.p.texto || "—")}${ret && x.p.producto ? " — " + esc(x.p.producto) : ""}${O.valido(x.p) ? "" : " <small>(sin ubicación en el mapa)</small>"}</span><b>${x.hecho ? "Hecho" : "Pendiente"}</b></div>`;
+      return `<div class="fv-fila"><span>${ic} <b>${ret ? "Recogida" + (n > 1 ? " " + (x.i + 1) + "/" + n : "") : "Entrega"}:</b> ${esc(x.p.texto || "—")}${ret && x.p.producto ? " — " + esc(x.p.producto) : ""}${O.valido(x.p) ? "" : " <small>(sin ubicación en el mapa)</small>"}</span><b>${x.hecho ? (ret && x.p.pagado != null ? "Pagó " + O.money(x.p.pagado) : "Hecho") : "Pendiente"}</b></div>`;
     }).join("");
     if (r && r.resumen) h += `<div class="fv-fila fv-sub"><span>🛣 Recorrido pendiente</span><b>${fmtKmR(r.resumen.dist)} · ≈ ${Math.max(1, Math.round(r.resumen.dur / 60))} min</b></div>` + (r.resumen.calles ? `<p class="ayuda">Vía: ${esc(r.resumen.calles)}</p>` : "");
     else if (r) h += `<p class="ayuda">${(ubic[O.uidInvitado(t)] || {}).lat != null ? "Calculando el recorrido…" : "Esperando la ubicación del repartidor para trazar el recorrido…"}</p>`;
