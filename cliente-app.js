@@ -1,15 +1,5 @@
 /* ============================================================
    CLIENTE-APP · "Clon de WhatsApp" para clientes (FASE 1)
-   El cliente entra a cliente-app.html:
-   1) Si nunca pidió nada (o su chat anterior ya cerró) ve la pantalla de inicio con el
-      botón flotante "Nuevo Pedido". Al tocarlo se crea un nodo anónimo en
-      solicitudes_entrantes/{id} (el ID es anónimo y se recuerda en LocalStorage).
-   2) El chat es directo con el repartidor que atienda la solicitud. Si aún no hay
-      repartidor, los mensajes se encolan igualmente en chats/{id} y el repartidor los
-      ve al atender (jamás se pierden).
-   3) Las facturas llegan como TARJETAS dentro del chat (mensaje tipo:"factura").
-   Todo en tiempo real (Firebase Realtime Database, SDK compat v10.12.2 como el resto
-   de la app). Sesión: firebase.auth().signInAnonymously() + ID anónimo en LocalStorage.
    ============================================================ */
 (function () {
 "use strict";
@@ -22,7 +12,6 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const money = (n) => "C$ " + (Number(n) || 0).toFixed(2);
 const hora = (ts) => (ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "");
 
-/* ---------- Identidad del dispositivo ---------- */
 function nombreGuardado() {
   try { return localStorage.getItem("brothers_cliente_nombre") || ""; } catch (_) { return ""; }
 }
@@ -30,30 +19,37 @@ function guardarNombre(n) {
   try { localStorage.setItem("brothers_cliente_nombre", n); } catch (_) {}
 }
 
-/* ---------- Estado ---------- */
 let miId = null;
 let miNombre = nombreGuardado();
-let solicitud = null;          // la solicitud activa (en vivo): { id, estado, asignacion, factura… }
+let solicitud = null;
 let refSol = null, refChat = null, chatPrimero = false;
 
-/* ---------- Arranque ---------- */
-async function arrancar() {
-  try { 
-    const credencial = await APP.auth().signInAnonymously(); 
-    miId = credencial.user.uid;
-  }
-  catch (e) {
-    const off = e.code === "auth/operation-not-allowed" || e.code === "auth/admin-restricted-operation";
-    $("arranqueError").textContent = off
-      ? "El negocio aún no activó el acceso de clientes. Vuelve a intentarlo más tarde."
-      : "No se pudo abrir la app: " + (e.code || e.message);
-    $("arranqueError").classList.remove("oculto");
-    return;
-  }
-  escucharSolicitud();
+/* ---------- Arranque Bulletproof ---------- */
+// 1. Bloquear el botón desde el inicio para que no presionen antes de tiempo
+if($("btnNuevoPedido")) $("btnNuevoPedido").disabled = true;
+
+function arrancar() {
+  // 2. Usar onAuthStateChanged es más seguro para recuperar la sesión anónima
+  APP.auth().onAuthStateChanged((user) => {
+    if (user) {
+      miId = user.uid;
+      console.log("✅ Sesión Firebase lista. UID:", miId);
+      if($("btnNuevoPedido")) $("btnNuevoPedido").disabled = false; // Habilitar botón
+      escucharSolicitud();
+    } else {
+      console.log("⏳ Iniciando sesión anónima...");
+      APP.auth().signInAnonymously().catch((e) => {
+        console.error("❌ Error Auth:", e);
+        const off = e.code === "auth/operation-not-allowed" || e.code === "auth/admin-restricted-operation";
+        $("arranqueError").textContent = off
+          ? "El negocio aún no activó el acceso de clientes. Activa 'Anónimo' en Firebase."
+          : "Fallo de conexión o dominio no autorizado: " + e.message;
+        $("arranqueError").classList.remove("oculto");
+      });
+    }
+  });
 }
 
-/* La app recuerda la última solicitud del aparato y reabre su chat si sigue abierta */
 function escucharSolicitud() {
   const ultimo = localStorage.getItem("brothers_cliente_sol");
   if (ultimo) {
@@ -66,41 +62,53 @@ function escucharSolicitud() {
     }, () => { pintarInicio(); });
   } else pintarInicio();
 }
+
 function soltar() {
   solicitud = null;
   if (refSol) { refSol.off(); refSol = null; }
   soltarChat();
   $("chatView").classList.add("oculto");
 }
+
 function soltarChat() {
   if (refChat) { refChat.off(); refChat = null; }
   chatPrimero = false;
   $("msgs").innerHTML = "";
 }
 
-/* ---------- Pantalla de inicio + Nuevo Pedido ---------- */
 function pintarInicio() {
   $("homeView").classList.remove("oculto");
   $("chatView").classList.add("oculto");
 }
+
 function nuevoPedido() {
+  if (!miId) {
+    alert("⏳ Conectando con el servidor... Espera un segundo e intenta de nuevo.");
+    return;
+  }
+
   const nombre = ($("nombreNuevo").value || "").trim().replace(/\s+/g, " ").slice(0, 40);
   if (nombre.length < 2) { $("nombreNuevo").focus(); $("nombreNuevo").placeholder = "Escribe tu nombre (mínimo 2 letras)"; return; }
   miNombre = nombre; guardarNombre(nombre);
+  
   $("btnNuevoPedido").disabled = true;
+  $("btnNuevoPedido").textContent = "Creando...";
+  
   const reg = {
-    estado: "pendiente",                       // pendiente → atendida → cerrada
-    dispositivo: miId,                         // ID real vinculado a este aparato (Firebase UID)
+    estado: "pendiente",
+    dispositivo: miId, // ID real de Firebase
     creado: TS, actualizado: TS,
     cliente: { nombre, dispositivo: miId },
     ultimo: { texto: "👋 Hola, quiero hacer un pedido.", de: "cliente", ts: TS }
   };
+  
   db.ref(RUTA).push(reg).then((r) => {
     try { localStorage.setItem("brothers_cliente_sol", r.key); } catch (_) {}
     $("btnNuevoPedido").disabled = false;
+    $("btnNuevoPedido").textContent = "💬 Nuevo Pedido";
     $("nombreNuevo").value = "";
     solicitud = Object.assign({ id: r.key }, reg);
-    soltar();                                   // suelta el listener anterior (si lo había)
+    soltar();
     refSol = db.ref(RUTA + "/" + r.key);
     refSol.on("value", (s) => {
       const d = s.val();
@@ -111,9 +119,12 @@ function nuevoPedido() {
     pintarChat();
   }).catch((e) => {
     $("btnNuevoPedido").disabled = false;
+    $("btnNuevoPedido").textContent = "💬 Nuevo Pedido";
     alert("No se pudo crear el chat: " + e.message);
+    console.error("Error BD:", e);
   });
 }
+
 $("btnNuevoPedido").onclick = nuevoPedido;
 $("nombreNuevo").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nuevoPedido(); } });
 $("btnCancelarChat").onclick = () => {
@@ -124,7 +135,6 @@ $("btnCancelarChat").onclick = () => {
   soltar(); pintarInicio();
 };
 
-/* ---------- Chat ---------- */
 function estadoChip() {
   if (!solicitud) return "";
   if (solicitud.estado === "atendida" && solicitud.asignacion && solicitud.asignacion.nombre)
@@ -132,6 +142,7 @@ function estadoChip() {
   if (solicitud.factura) return "🧾 Factura lista · revisa la tarjeta en el chat";
   return "⏳ Buscando repartidor… tus mensajes quedan guardados y los verá quien te atienda";
 }
+
 function pintarChat() {
   $("homeView").classList.add("oculto");
   $("chatView").classList.remove("oculto");
@@ -143,12 +154,7 @@ function pintarChat() {
   }
   if (!$("chatNombre").textContent) $("chatNombre").textContent = solicitud.asignacion && solicitud.asignacion.nombre ? "Repartidor " + solicitud.asignacion.nombre : "Brother’s Deliverys";
 }
-function estadoTexto(s) {
-  if (!s) return "";
-  if (s.estado === "atendida") return s.asignacion && s.asignacion.nombre ? "Enviado · " + s.asignacion.nombre + " te lee" : "Enviado ✓";
-  if (s.estado === "cerrada") return "Chat cerrado";
-  return "Enviado · esperando repartidor…";
-}
+
 function burbuja(key, m) {
   if (!m || document.getElementById("m-" + key)) return;
   const d = document.createElement("div");
@@ -167,7 +173,7 @@ function burbuja(key, m) {
   $("msgs").appendChild(d);
   $("msgs").scrollTop = $("msgs").scrollHeight;
 }
-/* Tarjeta de factura dentro del chat (la manda el repartidor desde su app) */
+
 function tarjetaFactura(f) {
   if (!f) return "";
   const prods = (f.productos || []).map((p) => '<div class="fx-fila"><span>' + esc(p.nombre) + "</span><b>" + money(p.precio) + "</b></div>").join("");
@@ -183,7 +189,6 @@ function tarjetaFactura(f) {
     (f.link ? '<a class="fx-link" href="' + esc(f.link) + '" target="_blank" rel="noopener">📍 Seguir mi pedido en tiempo real</a>' : "");
 }
 
-/* ---------- Enviar mensaje (se encola aunque no haya repartidor aún) ---------- */
 $("formEnviar").onsubmit = async (e) => {
   e.preventDefault();
   const texto = $("inputMsg").value.trim().slice(0, 800);
@@ -198,10 +203,9 @@ $("formEnviar").onsubmit = async (e) => {
   catch (err) { alert("No se pudo enviar: " + err.message); $("inputMsg").value = texto; }
 };
 
-/* ---------- Botón atrás: cierra capas, no la app ---------- */
 window.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (!$("chatView").classList.contains("oculto")) return;   // el chat es la pantalla principal: no se cierra con Escape
+  if (!$("chatView").classList.contains("oculto")) return;
 });
 
 arrancar();
