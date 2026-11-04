@@ -11,6 +11,20 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="ordenes.css">
+  <style>
+    /* Botones de la cámara de navegación (🧭 seguir · ⛶ ver todo) */
+    .pd-inv-mapa { position: relative; }
+    .inv-herr { position: absolute; left: 10px; bottom: 14px; z-index: 1000; display: grid; gap: 8px; }
+    .inv-herr button { width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 14px; background: #fff; border: 2px solid var(--linea, #D6DDE3); color: var(--tinta, #0E141B); font-size: 20px; line-height: 1; box-shadow: 0 3px 10px rgba(0, 0, 0, .22); -webkit-tap-highlight-color: transparent; }
+    .inv-herr button.on { background: var(--celeste, #3DB8F5); border-color: var(--celeste-prof, #0A86C9); }
+    .inv-herr button:focus-visible { outline: 3px solid var(--celeste-prof, #0A86C9); outline-offset: 2px; }
+    /* Ventana "valor pagado al restaurante" */
+    .pago-det { font-weight: 700; color: var(--texto2, #4A5A6A); overflow-wrap: anywhere; }
+    .pago-campo { display: flex; align-items: center; gap: 10px; height: 68px; padding: 0 16px; border: 2px solid var(--celeste, #3DB8F5); border-radius: 16px; background: #fff; text-align: left; }
+    .pago-campo:focus-within { outline: 3px solid var(--celeste-prof, #0A86C9); outline-offset: 2px; }
+    .pago-campo i { font-style: normal; font-weight: 800; font-size: 22px; color: var(--tinta, #0E141B); }
+    .pago-campo input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; box-shadow: none; font: 800 32px/1 "Plus Jakarta Sans", system-ui, sans-serif; text-align: right; color: var(--tinta, #0E141B); }
+  </style>
 </head>
 <body class="pd-invitado">
   <header class="barra-marca">
@@ -36,6 +50,10 @@
       <div id="mapaInv"></div>
       <div class="estado chip-gps" id="estadoGps">Obteniendo ubicación…</div>
       <div id="bannerRuta" class="info-ruta oculto" style="bottom:auto;top:52px"></div>
+      <div class="inv-herr">
+        <button id="btnSeguir" class="on" type="button" aria-pressed="true" aria-label="Seguirme (cámara de navegación)">🧭</button>
+        <button id="btnVerTodo" type="button" aria-label="Ver todo el recorrido">⛶</button>
+      </div>
     </div>
     <div class="pd-inv-panel" id="panelInv">
       <button id="btnMinPanel" class="pd-min" type="button" aria-expanded="true" aria-controls="detallesPanel"><span class="pd-barra"></span><span id="txtMin">Ocultar detalles ▾</span></button>
@@ -70,6 +88,19 @@
     </div>
   </section>
 
+  <!-- Cobro al retirar: el invitado declara cuánto pagó en el restaurante antes de marcar "Retirado" -->
+  <div id="modalPago" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="pagoTitulo">
+    <div class="modal-rep-caja">
+      <div class="gran-check">💵</div>
+      <h2 id="pagoTitulo">Ingrese el valor pagado por el producto al restaurante</h2>
+      <p id="pagoDetalle" class="pago-det"></p>
+      <div class="pago-campo"><i>C$</i><input id="pagoMonto" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" autocomplete="off" aria-label="Valor pagado al restaurante en córdobas"></div>
+      <div id="pagoMsg" class="estado error oculto" role="alert"></div>
+      <button id="btnPagoOk" class="primario" type="button">✅ Confirmar retiro</button>
+      <button id="btnPagoCancelar" class="oscuro" type="button">Cancelar</button>
+    </div>
+  </div>
+
   <!-- Enlace ya tomado: único contenido visible -->
   <main id="vTomado" class="pd-inv-entrada oculto"><div class="tarjeta-rep pd-fin"><h2 id="txtTomado"></h2></div></main>
 
@@ -77,6 +108,8 @@
   <main id="vFin" class="pd-inv-entrada oculto"><div class="pd-fin"><div class="gran-check" style="font-size:64px">✓</div><h2 id="finTitulo"></h2><p id="finTxt" class="ayuda"></p></div></main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Rotación del mapa (modo "hacia adelante"). Si no carga, la cámara sigue funcionando sin rotar. -->
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>

@@ -5,6 +5,8 @@
    - Voz: "El repartidor está cerca" y "El repartidor te ha enviado un mensaje"
    - Cámara de seguimiento (CamaraCliente): zoom por proximidad, rotación hacia adelante, repartidor en el tercio inferior
    - Factura en vivo: los mandados extra (pedidos/{token}/extras) se desglosan y suman al total al instante
+   - Pedido de repartidor INVITADO (pedidos/{token}/invitado = true): factura simplificada, sin desglose de productos; solo un renglón
+     grande "Total a Pagar" = valor pagado al restaurante (pedidos/{token}/pagadoRestaurante) + precio del delivery (pedidos/{token}/delivery)
    ============================================================ */
 const db = firebase.database();
 const $ = (id) => document.getElementById(id);
@@ -325,7 +327,17 @@ const BrothersExtras = (() => {
   let extrasPrevios = null;   // cantidad / monto de extras de la lectura anterior (para avisar solo de los nuevos)
 
   /* ---------- Normaliza el desglose (pedidos/{token}/detalle, o la factura vieja si no hay detalle) ---------- */
+  /* Repartidor invitado: no hay productos ni desglose. Total = lo que pagó en el restaurante + el delivery (se suman aquí, sin mostrarlos por separado).
+     Mientras no haya retirado (no hay valor pagado) no hay nada que cobrar y la tarjeta de factura no aparece. */
+  function normalizarInvitado(d) {
+    const pagado = num(d.pagadoRestaurante);
+    if (pagado == null || pagado < 0) return null;
+    const delivery = num(d.delivery) || 0;
+    const total = Math.round((pagado + delivery) * 100) / 100;
+    return { simple: true, productos: [], subtotal: null, delivery: null, total, totalBase: total, monto: 0, extras: [], extrasTotal: 0, dePrioridad: false };
+  }
   function normalizar(d) {
+    if (d.invitado === true) return normalizarInvitado(d);
     const x = d.detalle && typeof d.detalle === "object" ? d.detalle : null;
     const f = !x && d.factura && typeof d.factura === "object" ? d.factura : null;
     const fuente = x || f; if (!fuente) return null;
@@ -367,6 +379,14 @@ const BrothersExtras = (() => {
     }
     extrasPrevios = det.extras.length;
     $("mfPedido").textContent = d.pedido ? "· Pedido " + d.pedido : "";
+    if (det.simple) {   // factura simplificada del invitado: un único renglón grande, sin productos ni desglose
+      $("tcTotal").textContent = dinero(det.total);
+      $("tcDet").textContent = "";
+      $("facLista").innerHTML = ""; $("facLista").classList.add("oculto");
+      $("facTotales").innerHTML = `<div class="fac-total" style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;font-size:26px;font-weight:800"><span>Total a Pagar:</span><b style="font-size:34px">${dinero(det.total)}</b></div>`;
+      pintarBarraMin(det);
+      return;
+    }
     $("tcTotal").textContent = det.total != null ? dinero(det.total) : "—";   // total visible en el panel, sin abrir la factura
     $("tcDet").textContent = [det.subtotal != null ? "Compras " + dinero(det.subtotal) : "", det.delivery != null ? "Delivery " + dinero(det.delivery) : "", det.monto ? "⚡ Propina " + dinero(det.monto) : "", det.extrasTotal ? "➕ Extras " + dinero(det.extrasTotal) : ""].filter(Boolean).join(" · ");
     let lista = "";
@@ -400,6 +420,7 @@ const BrothersExtras = (() => {
   /* ---------- Panel inferior minimizable ---------- */
   // Barra compacta: resumen de la factura (o el estado del viaje si aún no hay factura)
   function pintarBarraMin(det) {
+    ["bmCompras", "bmDelivery"].forEach((id) => { const p = $(id) && $(id).parentElement; if (p) p.classList.toggle("oculto", !!(det && det.simple)); });   // invitado: solo el total
     $("bmFactura").classList.toggle("oculto", !det);
     $("bmEstado").classList.toggle("oculto", !!det);
     if (!det) return;
