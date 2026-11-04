@@ -235,7 +235,7 @@ function iconoRepAdmin(nombre, est) {
 function pintarMarcador(uid) {
   const u = ubic[uid];
   if (!u || typeof u.lat !== "number") return;
-  if (typeof PedidosAdmin !== "undefined" && PedidosAdmin.invCerrado(uid)) { quitarMarcador(uid); pintarGuia(uid); return; }   // invitado con pedido entregado/cancelado: sale del mapa
+  if (typeof PedidosAdmin !== "undefined" && PedidosAdmin.invCerrado(uid)) { quitarMarcador(uid); pintarGuia(uid); PedidosAdmin.recorridoInv(uid); return; }   // invitado con pedido entregado/cancelado: sale del mapa
   if (ocultos.has(uid)) { quitarMarcador(uid); pintarGuia(uid); return; }   // desactivado en la lista: no aparece en el mapa
   const est = estadoDe(uid), nombre = nombreUid(uid);
   const clave = nombre + "|" + est, pos = [u.lat, u.lng];
@@ -251,6 +251,7 @@ function pintarMarcador(uid) {
   const el = marcadores[uid].getElement();
   if (el) el.classList.toggle("sel-rep", uid === selUid);
   pintarGuia(uid);   // la línea de su guía sigue al repartidor mientras se mueve
+  if (typeof PedidosAdmin !== "undefined") PedidosAdmin.recorridoInv(uid);   // invitado: su recorrido (recogida → entrega) también
   pintarBannerAdmin();
 }
 
@@ -277,6 +278,8 @@ function popupRep(uid) {
     <small>${esc(descripcion(uid, est))}${guias[uid] ? " · 📍 guía activa" : ""}${esc(PedidosAdmin.notaRep(uid))}</small>
     <div class="acciones-fila">
       <button class="mini pri" data-pa="invent" data-uid="${esc(uid)}" type="button">✅ Pedido entregado</button>
+      <button class="mini pri" data-pa="invfact" data-uid="${esc(uid)}" type="button">🧾 Ver factura</button>
+      <button class="mini" data-pa="invrec" data-uid="${esc(uid)}" type="button">🗺 Ver recorrido</button>
       <button class="mini" data-pa="guiar" data-uid="${esc(uid)}" type="button">📍 Guiar repartidor</button>
       <button class="mini" data-pa="chat" data-uid="${esc(uid)}" type="button">💬 Chat al repartidor</button>
       ${guias[uid] ? `<button class="mini peligro" data-pa="quitarguia" data-uid="${esc(uid)}" type="button">Quitar guía</button>` : ""}
@@ -315,6 +318,8 @@ function iniciarPopups() {
         mapa.closePopup();
         if (a === "guiar") { selUid = uid; pintarSeleccion(); }
         else if (a === "chat") { if (Ordenes.esInvitadoUid(uid) && typeof PedidosAdmin !== "undefined") PedidosAdmin.chatInvitado(uid); else abrirChatRep(uid); }
+        else if (a === "invfact") PedidosAdmin.abrirFacturaUid(uid);
+        else if (a === "invrec") PedidosAdmin.verRecorrido(uid);
         else if (a === "invent") PedidosAdmin.accionInvitado(uid, "entregado");
         else if (a === "invexp") PedidosAdmin.expulsarInvitado(uid);
         else if (a === "invcancel") PedidosAdmin.accionInvitado(uid, "cancelado");

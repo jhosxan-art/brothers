@@ -448,7 +448,7 @@ const PedidosAdmin = (() => {
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
       <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
-        ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}${a.tipo && activa(o) ? btn("factura", "🧾 Factura", "pri") : ""}
+        ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}${a.tipo && activa(o) ? btn("factura", "🧾 Factura", "pri") : ""}${inv && activa(o) ? btn("recorrido", "🗺 Recorrido") : ""}
         ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
       </div></div>`;
@@ -457,6 +457,7 @@ const PedidosAdmin = (() => {
     const ids = Object.keys(ordenes).sort((a, b) => (ordenes[b].creado || 0) - (ordenes[a].creado || 0));
     el("listaPedidos").innerHTML = ids.length ? ids.map(tarjeta).join("") : '<p class="ayuda">Aún no hay pedidos. Crea el primero arriba.</p>';
     const c = el("pdCuenta"); if (c) c.textContent = ids.length;
+    pintarTodosRecInv();   // pines de recogida/entrega y recorrido de los invitados en el mapa
   }
 
   /* ---------- Chat Admin ↔ repartidor invitado (nodo chatsInvitado/{token}) ---------- */
@@ -611,6 +612,7 @@ const PedidosAdmin = (() => {
     const c = fvCalc(d), cliente = o.cliente || (d.factura && d.factura.cliente) || "", codigo = o.codigo ? cod(o.codigo) : (d.pedido || "");
     const cerrado = d.estado && d.estado !== "en_ruta";
     let h = `<div class="fv-bloque"><div class="fv-banner"><b>${esc(codigo)}${cliente ? " · " + esc(cliente) : ""}</b><small>🛵 ${esc(d.repartidorNombre || nombreOrden(o))} · ${cerrado ? "Pedido " + esc(d.estado) : "En ruta"}</small></div>`;
+    h += fvPuntos(t);
     if (!c) return h + '<p class="ayuda">Todavía no hay factura para este pedido (el repartidor aún no la genera).</p></div>';
     if (c.productos.length) h += '<div class="fv-sec">Productos</div>' + c.productos.map((p) => `<div class="fv-fila"><span>${esc(p.nombre)}</span><b>${O.money(p.precio)}</b></div>`).join("");
     h += `<div class="fv-fila fv-sub"><span>Total compras</span><b>${O.money(c.subtotal)}</b></div>`;
@@ -700,6 +702,117 @@ const PedidosAdmin = (() => {
     if (mejor) setTimeout(() => abrirFacturaUid(mejor, true), 150);   // silencioso: si no lleva factura, el toque sigue funcionando como siempre
   }
 
+
+  /* ============================================================
+     4) RECOGIDA, ENTREGA Y RECORRIDO DEL REPARTIDOR INVITADO
+     Dibuja en el mapa del admin los pines de cada retiro y de la entrega del pedido del invitado, y el recorrido por calles:
+     ubicación actual del invitado → retiros pendientes → entrega. Se actualiza solo cuando el invitado se mueve o retira.
+     ============================================================ */
+  const recInv = {};   // token → { pins, linea, flechas, legs:{k:{pts,dist,dur,pasos}}, firma, pend, origen, rutaEn, ocupado, gen, resumen }
+  const fmtKmR = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m");
+  const esInvActivo = (o) => !!o && !!o.asignacion && o.asignacion.tipo === "invitado" && activa(o);
+
+  /* Todos los puntos del pedido en el orden en que se recorren: retiros y, al final, la entrega */
+  function puntosPedido(o) {
+    const v = [], retirado = o.estado === "retirado" || o.estado === "entregado";
+    O.paradas(o).forEach((p, i) => v.push({ cual: "retiro", i, p, hecho: !!p.retirado || retirado }));
+    if (o.entrega && (o.entrega.texto || O.valido(o.entrega))) v.push({ cual: "entrega", i: 0, p: o.entrega, hecho: o.estado === "entregado" });
+    return v;
+  }
+  function limpiarRec(t) {
+    const r = recInv[t]; if (!r) return;
+    clearTimeout(r.rt); r.pins.forEach((m) => mapa.removeLayer(m)); mapa.removeLayer(r.linea); mapa.removeLayer(r.flechas);
+    delete recInv[t];
+  }
+  function dibujarRec(t) {
+    const r = recInv[t]; if (!r) return;
+    const u = ubic[O.uidInvitado(t)], tiene = !!u && typeof u.lat === "number";
+    let pts = [], dist = 0, dur = 0, pasos = [];
+    r.pend.forEach((_, k) => { const l = r.legs[k]; if (!l) return; pts = pts.concat(l.pts); dist += l.dist; dur += l.dur; pasos = pasos.concat(l.pasos || []); });
+    if (tiene && r.legs[0] && pts.length) pts = [[u.lat, u.lng]].concat(pts);   // la línea arranca en el invitado y lo sigue mientras se mueve
+    r.linea.setLatLngs(pts);
+    r.resumen = pts.length ? { dist, dur, calles: O.callesDe(pasos) } : null;
+    if (r.resumen && r.resumen.calles) r.linea.bindTooltip("Vía: " + r.resumen.calles, { sticky: true });
+  }
+  function pintarRecInv(t) {
+    if (!mapa) return;
+    const o = ordenes[t], uid = O.uidInvitado(t);
+    if (!esInvActivo(o) || ocultos.has(uid)) return limpiarRec(t);
+    const col = colorUid(uid), nom = (o.asignacion && o.asignacion.nombre) || "Invitado";
+    const todos = puntosPedido(o).filter((x) => O.valido(x.p)), pend = todos.filter((x) => !x.hecho);
+    const firma = todos.map((x) => [x.cual, x.i, x.hecho ? 1 : 0, x.p.lat, x.p.lng, x.p.texto || "", x.p.producto || ""].join(",")).join("|");
+    let r = recInv[t];
+    if (!r) r = recInv[t] = { pins: [], linea: L.polyline([], { color: col, weight: 5, opacity: .85 }).addTo(mapa), flechas: L.layerGroup().addTo(mapa), firma: null, legs: {}, pend: [], origen: null, rutaEn: 0, ocupado: false, gen: 0, resumen: null };
+    if (r.firma !== firma) {   // cambió un punto o se retiró algo: pines nuevos y recorrido nuevo
+      r.firma = firma; r.legs = {}; r.origen = null; r.gen++; r.rutaEn = 0;
+      r.pins.forEach((m) => mapa.removeLayer(m));
+      const nRet = O.paradas(o).length;
+      r.pins = todos.map((x) => {
+        const ret = x.cual === "retiro";
+        const nombre = ret ? (nRet > 1 ? "Retiro " + (x.i + 1) + ": " : "") + (x.p.texto || "Retiro") : "Entrega · " + (o.cliente || "cliente");
+        const m = L.marker([x.p.lat, x.p.lng], { icon: O.pinEtiqueta(x.cual, x.hecho ? "✅" : ret ? "📦" : "🏠", nombre, ret ? x.p.producto : ""), opacity: x.hecho ? .55 : 1, zIndexOffset: 250 }).addTo(mapa);
+        m.bindPopup(`<div class="pop-rep"><strong>${ret ? "📦 Punto de recogida" : "🏠 Punto de entrega"}${x.hecho ? " · hecho" : ""}</strong>
+          <small>${esc(x.p.texto || "—")}${ret && x.p.producto ? " — " + esc(x.p.producto) : ""}</small>
+          <small>🛵 ${esc(nom)} · pedido ${esc(cod(o.codigo))}</small></div>`, { offset: [0, -20], minWidth: 200 });
+        return m;
+      });
+    }
+    r.pend = pend;
+    dibujarRec(t);
+    const u = ubic[uid], tiene = !!u && typeof u.lat === "number";
+    if (!pend.length || r.ocupado) return;
+    const par = (k) => (k === 0 ? (tiene ? { o: { lat: u.lat, lng: u.lng }, d: pend[0].p } : null) : { o: pend[k - 1].p, d: pend[k].p });
+    const movido = tiene && (!r.origen || O.distM(u, r.origen) > 80);
+    const faltan = pend.map((_, k) => k).filter((k) => (k === 0 ? tiene && (movido || !r.legs[0]) : !r.legs[k]));
+    if (!faltan.length) return;
+    if (faltan.length === 1 && faltan[0] === 0 && r.legs[0] && Date.now() - r.rutaEn < 20000) return;   // solo se movió el invitado: recalcula cada ~20 s
+    const gen = r.gen, o0 = tiene ? { lat: u.lat, lng: u.lng } : null;
+    r.ocupado = true; r.rutaEn = Date.now();
+    Promise.all(faltan.map((k) => { const p = par(k); return O.rutaCalles(p.o, p.d).then((res) => ({ k, res })); })).then((rs) => {
+      r.ocupado = false;
+      if (recInv[t] !== r) return;
+      if (r.gen !== gen) return pintarRecInv(t);   // los puntos cambiaron mientras se calculaba
+      let fallo = false;
+      rs.forEach(({ k, res }) => { if (res) { r.legs[k] = res; if (k === 0) r.origen = o0; } else fallo = true; });
+      dibujarRec(t);
+      O.flechas(r.linea.getLatLngs().map((p) => [p.lat, p.lng]), r.flechas, col);
+      if (fallo) { clearTimeout(r.rt); r.rt = setTimeout(() => pintarRecInv(t), 4000); }   // sin ruta: reintenta (nunca línea recta)
+      if (el("fvAdmCuerpo")) fvPintar();   // la factura abierta muestra el recorrido actualizado
+    });
+  }
+  function pintarTodosRecInv() {
+    if (!mapa) return;
+    Object.keys(ordenes).forEach(pintarRecInv);
+    Object.keys(recInv).forEach((t) => { if (!esInvActivo(ordenes[t])) limpiarRec(t); });
+  }
+  /* Encuadra en el mapa al invitado, sus puntos de recogida y la entrega */
+  function verRecorrido(t) {
+    t = String(t).replace(/^inv_/, "");
+    const r = recInv[t];
+    if (!r || !r.pins.length) return toast("Este pedido todavía no tiene puntos con ubicación en el mapa.");
+    irAPestana("panelMapa");
+    setTimeout(() => {
+      mapa.invalidateSize();
+      const ll = r.pins.map((m) => m.getLatLng()), u = ubic[O.uidInvitado(t)];
+      if (u && typeof u.lat === "number") ll.push(L.latLng(u.lat, u.lng));
+      mapa.fitBounds(L.latLngBounds(ll), { padding: [80, 60], maxZoom: 17 });
+    }, 120);
+  }
+  /* Bloque dentro de la ventana de factura: recogida, entrega y resumen del recorrido */
+  function fvPuntos(t) {
+    const o = ordenes[t]; if (!o) return "";
+    const pts = puntosPedido(o); if (!pts.length) return "";
+    const n = O.paradas(o).length, r = recInv[t];
+    let h = '<div class="fv-sec">Recogida y entrega</div>' + pts.map((x) => {
+      const ret = x.cual === "retiro", ic = x.hecho ? "✅" : ret ? "📦" : "🏠";
+      return `<div class="fv-fila"><span>${ic} <b>${ret ? "Recogida" + (n > 1 ? " " + (x.i + 1) + "/" + n : "") : "Entrega"}:</b> ${esc(x.p.texto || "—")}${ret && x.p.producto ? " — " + esc(x.p.producto) : ""}${O.valido(x.p) ? "" : " <small>(sin ubicación en el mapa)</small>"}</span><b>${x.hecho ? "Hecho" : "Pendiente"}</b></div>`;
+    }).join("");
+    if (r && r.resumen) h += `<div class="fv-fila fv-sub"><span>🛣 Recorrido pendiente</span><b>${fmtKmR(r.resumen.dist)} · ≈ ${Math.max(1, Math.round(r.resumen.dur / 60))} min</b></div>` + (r.resumen.calles ? `<p class="ayuda">Vía: ${esc(r.resumen.calles)}</p>` : "");
+    else if (r) h += `<p class="ayuda">${(ubic[O.uidInvitado(t)] || {}).lat != null ? "Calculando el recorrido…" : "Esperando la ubicación del repartidor para trazar el recorrido…"}</p>`;
+    if (r && r.pins.length) h += `<div class="acciones-fila"><button class="mini pri" data-fv-mapa="${esc(t)}" type="button">🗺 Ver recorrido en el mapa</button></div>`;
+    return h;
+  }
+
   /* ---------- Arranque / parada ---------- */
   function iniciar() {
     detener(); primera = true;
@@ -712,6 +825,7 @@ const PedidosAdmin = (() => {
       new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) fvSoltar(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });   // cerrar la ventana corta las escuchas de la factura
       mapa.getContainer().addEventListener("click", alTocarMarcador, true);   // toque en la burbuja de un repartidor → su factura en vivo
       document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button[data-fv-uid]"); if (b) abrirFacturaUid(b.dataset.fvUid); });   // botón de las tarjetas de invitados (Equipo)
+      document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button[data-fv-mapa]"); if (b) { const t = b.dataset.fvMapa; cerrarModal(); verRecorrido(t); } });   // "Ver recorrido en el mapa" de la factura
       const bf = el("btnFacturasVivo"); if (bf) bf.onclick = abrirListaFacturas;
       document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { cerrarMapaForm(); if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
       el("pdModo").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) modoAsignacion(b.dataset.m); };
@@ -739,6 +853,7 @@ const PedidosAdmin = (() => {
         else if (a === "linkinv") mostrarEnlaces(t, o);
         else if (a === "linkcli") copiar(O.urlCliente(t));
         else if (a === "factura") mostrarFacturas(o.cliente || cod(o.codigo), [t]);
+        else if (a === "recorrido") verRecorrido(t);
         else if (a === "asignar") asignarExistente(t);
         else if (a === "cancelar") cancelarOrden(t);
         else if (a === "borrar") { if (confirm("¿Eliminar este pedido del historial?")) db.ref("ordenes/" + t).remove().catch((err) => toast(err.message)); }
@@ -754,9 +869,9 @@ const PedidosAdmin = (() => {
       pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista();
     }, () => { el("listaPedidos").innerHTML = '<p class="ayuda">Sin permiso para leer “ordenes”. Revisa las reglas de Firebase (ver LEEME).</p>'; });
   }
-  function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } ordenes = {}; resInv = {}; sinLeerInv = {}; fvSoltar(); cerrarMapaForm(); quitarTemp(); cancelarClick(); }
+  function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } Object.keys(recInv).forEach(limpiarRec); ordenes = {}; resInv = {}; sinLeerInv = {}; fvSoltar(); cerrarMapaForm(); quitarTemp(); cancelarClick(); }
 
-  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "", abrirFacturaUid, abrirListaFacturas };
+  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "", abrirFacturaUid, abrirListaFacturas, recorridoInv: (uid) => { if (O.esInvitadoUid(uid)) pintarRecInv(tokenInv(uid)); }, verRecorrido };
 })();
 
 
