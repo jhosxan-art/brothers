@@ -22,19 +22,7 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const money = (n) => "C$ " + (Number(n) || 0).toFixed(2);
 const hora = (ts) => (ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "");
 
-/* ---------- Identidad anónima del dispositivo ---------- */
-const CLAVE = "brothers_cliente_id";
-function idAnonimo() {
-  let v = null;
-  try { v = localStorage.getItem(CLAVE); } catch (_) {}
-  if (!v || !/^[a-z0-9]{20,40}$/.test(v)) {
-    const abc = "abcdefghijkmnpqrstuvwxyz23456789";
-    const bytes = crypto.getRandomValues(new Uint8Array(24));
-    v = Array.from(bytes, (b) => abc[b % abc.length]).join("");
-    try { localStorage.setItem(CLAVE, v); } catch (_) {}
-  }
-  return v;
-}
+/* ---------- Identidad del dispositivo ---------- */
 function nombreGuardado() {
   try { return localStorage.getItem("brothers_cliente_nombre") || ""; } catch (_) { return ""; }
 }
@@ -43,14 +31,17 @@ function guardarNombre(n) {
 }
 
 /* ---------- Estado ---------- */
-let miId = idAnonimo();
+let miId = null;
 let miNombre = nombreGuardado();
 let solicitud = null;          // la solicitud activa (en vivo): { id, estado, asignacion, factura… }
 let refSol = null, refChat = null, chatPrimero = false;
 
 /* ---------- Arranque ---------- */
 async function arrancar() {
-  try { await APP.auth().signInAnonymously(); }
+  try { 
+    const credencial = await APP.auth().signInAnonymously(); 
+    miId = credencial.user.uid;
+  }
   catch (e) {
     const off = e.code === "auth/operation-not-allowed" || e.code === "auth/admin-restricted-operation";
     $("arranqueError").textContent = off
@@ -61,6 +52,7 @@ async function arrancar() {
   }
   escucharSolicitud();
 }
+
 /* La app recuerda la última solicitud del aparato y reabre su chat si sigue abierta */
 function escucharSolicitud() {
   const ultimo = localStorage.getItem("brothers_cliente_sol");
@@ -98,7 +90,7 @@ function nuevoPedido() {
   $("btnNuevoPedido").disabled = true;
   const reg = {
     estado: "pendiente",                       // pendiente → atendida → cerrada
-    dispositivo: miId,                         // ID anónimo vinculado a este aparato
+    dispositivo: miId,                         // ID real vinculado a este aparato (Firebase UID)
     creado: TS, actualizado: TS,
     cliente: { nombre, dispositivo: miId },
     ultimo: { texto: "👋 Hola, quiero hacer un pedido.", de: "cliente", ts: TS }
