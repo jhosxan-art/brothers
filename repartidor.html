@@ -45,6 +45,16 @@
     .fx .fx-envio-app b { font-size: 14px; font-weight: 800; color: #2C3E50; }
     .fx .fx-envio-app small { font-size: 12px; font-weight: 600; color: #4A5A6A; }
     .fx .fx-envio-app button { flex: none; padding: 8px 12px; border-radius: 10px; background: #2C3E50; color: #fff; font-size: 13px; font-weight: 800; }
+    /* ---- Pool de Nuevos Chats (solicitudes_entrantes) ---- */
+    .sol-h { font-size: 13px; font-weight: 800; color: #5B6672; text-transform: uppercase; letter-spacing: .4px; margin: 4px 0 8px; }
+    .sol-card { display: grid; gap: 6px; padding: 12px; border-radius: 14px; background: #fff; border: 2px solid var(--linea, #E1E6EB); box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+    .sol-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .sol-top small { color: #5B6672; font-size: 12px; flex: none; }
+    .sol-prev { font-size: 14px; color: #2C3E50; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sol-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .sol-btns .primario { flex: 1; }
+    #listaSolicitudes .pd-seg button { flex: 1; }
+    #listaSolicitudes .pd-seg button.on { background: var(--celeste, #3DB8F5); border-color: var(--celeste-prof, #0A86C9); color: #0E141B; font-weight: 800; }
   </style>
 </head>
 <body class="rep">
@@ -54,6 +64,7 @@
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span></small></div>
     <button id="btnFacturaVivo" class="salir chat-admin oculto" type="button" aria-label="Ver mi factura en vivo y agregar mandados extra">🧾</button>
     <button id="btnChatAdmin" class="salir chat-admin oculto" aria-label="Chat con Brothers (administración)">💬<span id="badgeAdmin" class="badge-nav rojo oculto">0</span></button>
+    <button id="btnSolicitudes" class="salir chat-admin oculto" type="button" aria-label="Nuevos chats de clientes (pool de solicitudes)">📥<span id="badgeSolicitudes" class="badge-nav rojo oculto">0</span></button>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
     </button>
@@ -298,6 +309,21 @@
     </div>
   </div>
 
+  <!-- Pool de Nuevos Chats (solicitudes_entrantes): pestañas + tarjetas de los clientes -->
+  <div id="modalSolicitudes" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="solTitulo">
+    <div class="modal-rep-caja" style="text-align:left;max-height:92vh;overflow-y:auto">
+      <h2 id="solTitulo">📥 Nuevos chats</h2>
+      <p class="ayuda">Los clientes escriben desde cliente-app.html. Toca “Atender” para quedarte con un chat: se bloquea para los demás repartidores y puedes mandarle su factura directo al chat.</p>
+      <div class="pd-seg sol-tabs">
+        <button type="button" data-f="pendientes" class="on">⏳ Pendientes</button>
+        <button type="button" data-f="mios">💬 Mis chats</button>
+        <button type="button" data-f="todos">Todos</button>
+      </div>
+      <div id="listaSolicitudes" style="display:grid;gap:10px;margin-top:10px"></div>
+      <button id="btnSolCerrar" class="oscuro" type="button" style="margin-top:12px">Cerrar</button>
+    </div>
+  </div>
+
   <!-- Elegir un pedido (chat desde la burbuja, ubicación recibida) -->
   <div id="modalElegir" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
@@ -441,5 +467,6 @@
   <script src="ordenes-repartidor.js"></script>
   <script src="factura.js"></script>
   <script src="repartidor.js"></script>
+  <script src="solicitudes-repartidor.js"></script>
 </body>
 </html>

@@ -1,0 +1,92 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "configuracion": {
+      ".read": "auth != null",
+      "actualizaciones": { ".read": true }
+    },
+
+    "repartidores": {
+      ".read": "auth != null",
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    "ubicaciones": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && (auth.uid === $uid || $uid.startsWith('inv_'))"
+      }
+    },
+
+    "pedidos": {
+      ".read": "auth != null",
+      "$token": {
+        ".write": "auth != null"
+      }
+    },
+
+    "ordenes": {
+      ".read": "auth != null",
+      "$id": {
+        ".write": "auth != null"
+      }
+    },
+
+    "guias": {
+      ".read": "auth != null",
+      "$uid": { ".write": "auth != null" }
+    },
+
+    "codigosRetiro": {
+      "contador": { ".write": "auth != null" }
+    },
+
+    "estadisticas": {
+      ".read": "auth != null",
+      "$dia": { "$uid": { ".write": "auth != null && auth.uid === $uid" } }
+    },
+
+    "chats": {
+      ".read": "auth != null",
+      "$id": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+
+    "chatsEquipo": {
+      ".read": "auth != null",
+      "$id": { ".write": "auth != null" }
+    },
+    "chatsEquipoResumen": {
+      ".read": "auth != null",
+      "$id": { ".write": "auth != null" }
+    },
+
+    "chatsInvitado": {
+      ".read": "auth != null",
+      "$id": { ".write": "auth != null" }
+    },
+    "chatsInvitadoResumen": {
+      ".read": "auth != null",
+      "$id": { ".write": "auth != null" }
+    },
+
+    "solicitudes_entrantes": {
+      ".read": "auth != null",
+      "$id": {
+        ".write": "auth != null && ((!data.exists() && newData.child('dispositivo').isString()) || newData.child('dispositivo').val() === auth.uid || root.child('solicitudes_entrantes/' + $id + '/dispositivo').val() === auth.uid)",
+        ".validate": "true"
+      }
+    },
+    "solicitudes_entrantes_publico": {
+      ".read": true,
+      ".write": false
+    }
+  }
+}

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <meta name="theme-color" content="#075E54">
+  <title>Brother’s Deliverys — Chatea y pide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Segoe+UI&display=swap">
+  <link rel="stylesheet" href="cliente-app.css">
+</head>
+<body class="cliente">
+
+  <!-- Pantalla de inicio: si no hay chat activo, aquí vive el botón "Nuevo Pedido" -->
+  <main id="homeView">
+    <div class="inicio-logo" aria-hidden="true">💬</div>
+    <h1>Brother’s Deliverys</h1>
+    <p class="sub">Chatea directo con tu repartidor, como WhatsApp. Escribe tu nombre y toca el botón para abrir tu chat de pedido.</p>
+    <div class="inicio-forma">
+      <label>Tu nombre
+        <input id="nombreNuevo" maxlength="40" autocomplete="given-name" placeholder="Ej. María" aria-label="Tu nombre">
+      </label>
+      <button id="btnNuevoPedido" type="button">💬 Nuevo Pedido</button>
+    </div>
+    <div id="arranqueError" class="estado error oculto"></div>
+    <p class="inicio-nota">Tus mensajes quedan guardados: aunque ningún repartidor te haya atendido todavía, los verá en cuanto tome tu chat.</p>
+  </main>
+
+  <!-- Vista de chat estilo WhatsApp -->
+  <section id="chatView" class="oculto">
+    <header class="wa-cab">
+      <span class="wa-avatar" aria-hidden="true">🛵</span>
+      <div class="wa-tit">
+        <b id="chatNombre">Brother’s Deliverys</b>
+        <small id="chatEstado">⏳ Buscando repartidor…</small>
+      </div>
+      <button id="btnCancelarChat" type="button" aria-label="Cancelar este chat">✕ Cancelar</button>
+    </header>
+
+    <div id="msgs" aria-live="polite" aria-label="Mensajes"></div>
+
+    <form id="formEnviar" class="wa-barra" autocomplete="off">
+      <input id="inputMsg" maxlength="800" placeholder="Escribe un mensaje…" enterkeyhint="send" aria-label="Mensaje">
+      <button id="btnEnviar" type="submit" aria-label="Enviar mensaje">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M1.101 21.757 23.8 12.028 1.101 2.3l.011 7.912 13.623 1.816-13.623 1.817-.011 7.912Z"/>
+        </svg>
+      </button>
+    </form>
+  </section>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script>window.NOMBRE_APP = "cliente";   // sesión propia, independiente del repartidor y del admin</script>
+  <script src="firebase-config.js"></script>
+  <script src="cliente-app.js"></script>
+</body>
+</html>

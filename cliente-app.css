@@ -1,0 +1,144 @@
+/* ============================================================
+   CLIENTE-APP · Estilo WhatsApp (clon móvil)
+   Cabecera verde oscuro · fondo claro con patrón · burbujas verdes/blancas ·
+   botón de enviar redondo · input inferior fijo.
+   ============================================================ */
+:root {
+  --wa-verde: #075E54;        /* cabecera */
+  --wa-verde-osc: #054D44;
+  --wa-fondo: #ECE5DD;        /* fondo del chat */
+  --wa-burbuja-yo: #DCF8C6;   /* burbuja del cliente */
+  --wa-burbuja-otro: #FFFFFF; /* burbuja del repartidor */
+  --wa-enviar: #128C7E;       /* botón redondo de enviar */
+  --wa-texto: #111B21;
+  --wa-sec: #667781;
+  --wa-linea: #D9DBDB;
+  color-scheme: light;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
+  font-size: 15px; line-height: 1.4; color: var(--wa-texto); background: var(--wa-fondo);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;   /* la app es una sola pantalla: el scroll es de la lista de mensajes */
+}
+button { font: inherit; cursor: pointer; border: 0; }
+.oculto { display: none !important; }
+
+/* ---------- Cabecera verde oscuro ---------- */
+.wa-cab {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  background: var(--wa-verde); color: #fff;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .25); z-index: 10;
+}
+.wa-avatar {
+  width: 42px; height: 42px; border-radius: 50%; flex: none;
+  background: #25D366; color: #054D44; font-size: 22px;
+  display: grid; place-items: center; overflow: hidden;
+}
+.wa-cab .wa-tit { flex: 1; min-width: 0; }
+.wa-cab .wa-tit b { display: block; font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wa-cab .wa-tit small { display: block; font-size: 12px; color: #C8E6E2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wa-cab .wa-tit small b { color: #fff; }
+
+/* ---------- Pantalla de inicio ---------- */
+#homeView {
+  height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center;
+  background: var(--wa-fondo);
+}
+.inicio-logo {
+  width: 92px; height: 92px; border-radius: 50%; background: #25D366; color: #054D44;
+  font-size: 46px; display: grid; place-items: center; box-shadow: 0 6px 18px rgba(37, 211, 102, .35);
+}
+#homeView h1 { font-size: 22px; font-weight: 800; }
+#homeView p.sub { color: var(--wa-sec); max-width: 420px; }
+.inicio-forma { display: grid; gap: 10px; width: 100%; max-width: 380px; margin-top: 8px; }
+.inicio-forma label { text-align: left; font-size: 13px; font-weight: 700; color: var(--wa-sec); display: grid; gap: 5px; }
+.inicio-forma input {
+  height: 50px; border-radius: 12px; border: 2px solid var(--wa-linea); background: #fff;
+  padding: 0 14px; font: inherit; font-weight: 600; outline: none;
+}
+.inicio-forma input:focus { border-color: var(--wa-enviar); }
+#btnNuevoPedido {
+  height: 52px; border-radius: 26px; background: #25D366; color: #054D44;
+  font-weight: 800; font-size: 16px; box-shadow: 0 4px 14px rgba(37, 211, 102, .4);
+}
+#btnNuevoPedido:active { transform: scale(.98); }
+#btnNuevoPedido:disabled { opacity: .6; }
+#arranqueError { color: #B3261E; font-weight: 700; }
+.inicio-nota { font-size: 12px; color: var(--wa-sec); max-width: 380px; }
+
+/* ---------- Vista de chat ---------- */
+#chatView { height: 100%; display: flex; flex-direction: column; }
+/* Fondo con patrón sutil (como el papel tapiz de WhatsApp) */
+#msgs {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 14px 12px 18px;
+  background-color: var(--wa-fondo);
+  background-image: radial-gradient(rgba(0, 0, 0, .045) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+}
+.fila { display: flex; margin: 4px 0; }
+.fila.yo { justify-content: flex-end; }
+.burbuja {
+  max-width: 82%; padding: 7px 10px 5px; border-radius: 12px; position: relative;
+  background: var(--wa-burbuja-otro); box-shadow: 0 1px 1px rgba(0, 0, 0, .12);
+  border-top-left-radius: 3px;
+}
+.burbuja.mia {
+  background: var(--wa-burbuja-yo); border-top-left-radius: 12px; border-top-right-radius: 3px;
+}
+.b-quien { display: block; font-size: 12.5px; font-weight: 800; color: #128C7E; margin-bottom: 2px; }
+.b-txt { display: block; white-space: pre-wrap; word-break: break-word; }
+.b-h { display: block; text-align: right; font-size: 10.5px; color: var(--wa-sec); margin-top: 2px; }
+.b-sistema {
+  align-self: center; margin: 8px auto; max-width: 86%;
+  background: #E2F0FB; color: #23527C; font-size: 12.5px; font-weight: 600;
+  text-align: center; padding: 6px 12px; border-radius: 10px;
+}
+.fila .b-sistema { margin: 8px auto; }
+
+/* ---------- Tarjeta de factura dentro del chat ---------- */
+.b-fx {
+  width: min(320px, 82vw); padding: 10px 12px; border-radius: 12px; border-top-left-radius: 3px;
+  background: #FFFBEA; border: 2px solid #F0C33C; box-shadow: 0 1px 1px rgba(0, 0, 0, .12);
+}
+.fx-cab { text-align: center; font-weight: 800; font-size: 14px; letter-spacing: .4px; }
+.fx-div { height: 2px; background: #F0C33C; opacity: .55; border-radius: 2px; margin: 6px 0; }
+.fx-fila { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; padding: 2px 0; }
+.fx-fila span { color: #5B6672; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-fila b { flex: none; }
+.fx-fila.fx-prio { color: #7C3A00; font-weight: 700; }
+.fx-fila.fx-total { border-top: 2px dashed #F0C33C; margin-top: 5px; padding-top: 6px; font-weight: 800; font-size: 15px; }
+.fx-cod { text-align: center; font-weight: 800; color: #B3261E; margin-top: 7px; font-size: 13.5px; }
+.fx-link {
+  display: block; text-align: center; margin-top: 7px; padding: 8px 10px; border-radius: 10px;
+  background: var(--wa-verde); color: #fff; font-weight: 800; font-size: 13.5px; text-decoration: none;
+}
+
+/* ---------- Input inferior + botón redondo ---------- */
+.wa-barra {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  background: #F0F0F0; border-top: 1px solid var(--wa-linea);
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+.wa-barra input {
+  flex: 1; min-width: 0; height: 46px; border-radius: 23px; border: 1px solid var(--wa-linea);
+  background: #fff; padding: 0 16px; font: inherit; outline: none;
+}
+.wa-barra input:focus { border-color: var(--wa-enviar); }
+#btnEnviar {
+  flex: none; width: 46px; height: 46px; border-radius: 50%; background: var(--wa-enviar); color: #fff;
+  display: grid; place-items: center; box-shadow: 0 2px 6px rgba(18, 140, 126, .4);
+}
+#btnEnviar:active { transform: scale(.94); }
+
+/* ---------- Botón de cancelar (pendiente) ---------- */
+#btnCancelarChat { background: transparent; color: #FFD7D2; font-size: 13px; font-weight: 700; padding: 6px 10px; }
+
+@media (min-width: 520px) {   /* escritorio: la app centrada como un teléfono */
+  body { background: #D2DBDC; }
+  #chatView, #homeView { max-width: 520px; margin: 0 auto; box-shadow: 0 0 24px rgba(0, 0, 0, .2); background: var(--wa-fondo); }
+}
