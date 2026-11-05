@@ -220,6 +220,7 @@ function mostrar(vista) {   // "login" | "usuario" | "app"
   $("vistaUsuario").classList.toggle("oculto", vista !== "usuario");
   $("btnSalir").classList.toggle("oculto", vista === "login");
   $("btnChatAdmin").classList.toggle("oculto", vista !== "app");
+  $("btnNuevosChats").classList.toggle("oculto", vista !== "app");
   $("btnFacturaVivo").classList.toggle("oculto", vista !== "app");
   if (vista !== "app") {
     ["vistaFactura", "vistaMapa", "navApp"].forEach((id) => $(id).classList.add("oculto"));
@@ -270,7 +271,7 @@ try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {} 
 setTimeout(() => $("splash").classList.add("oculto"), 8000);   // por si algo tarda: nunca se queda cargando
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); uidActual = null; usuario = null; $("clave").value = "";
+    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); Solicitudes.detener(); uidActual = null; usuario = null; $("clave").value = "";
     return mostrar("login");
   }
   uidActual = user.uid;
@@ -320,16 +321,40 @@ async function entrarTurno() {
   vistaActual = orden.length ? "mapa" : "factura";   // la factura es lo primero, salvo que ya lleve un pedido en camino
   mostrar("app");
   escucharAdmin();                  // chat con Brothers + guías del administrador
+  iniciarSolicitudes();             // pestaña "Nuevos Chats": solicitudes_entrantes en tiempo real
   await permisosInicio();           // APK: explica y pide permisos (notificaciones…)
   registrarPush();                  // avisos push con la app cerrada
   iniciarNativo();                  // burbuja flotante, batería y ubicaciones compartidas (solo APK)
   iniciarGPS();                     // y aquí Android pide la ubicación (“todo el tiempo”)
 }
 
+/* ---------- Nuevos Chats (solicitudes_entrantes) · módulo Solicitudes de factura.js ---------- */
+function iniciarSolicitudes() {
+  Solicitudes.init({
+    db, tipo: "registrado",
+    uid: () => uidActual, nombre: () => usuario || "Repartidor", repartidorUid: () => uidActual,
+    boton: "btnNuevosChats", badge: "badgeNuevosChats",
+    codigo: () => CodigosBD.siguiente(),
+    instantanea: (f) => SubFactura.instantanea(f),
+    alNueva: (id, s) => { Pantalla.pedir(); Voz.hablar("Nuevo chat de cliente", { forzar: true }); },
+    alFacturada: (f) => {   // la factura y pedidos/{token} ya se escribieron en el módulo; aquí solo se sigue el viaje
+      contarFactura(f);
+      if (orden.length === 0) rastro = [];
+      const v = viajes[f.token] || crearViaje({ token: f.token, tel: f.tel, pedido: f.pedido, cliente: f.cliente });
+      v.sinFactura = false; v.pedido = f.pedido; v.cliente = f.cliente || v.cliente;
+      guardarViajes(); sincronizarContactos();
+      seleccionado = v.token;
+      Solicitudes.cerrar();
+      irA("mapa"); renderLista(); seleccionar(v.token, false);
+      setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
+    }
+  });
+}
+
 $("btnSalir").onclick = async () => {
   if (orden.length) return alert("Primero entrega o cancela los pedidos en curso.");
   if (!confirm("¿Cerrar sesión? Dejarás de compartir tu ubicación.")) return;
-  detenerGPS(); apagarNativo();
+  detenerGPS(); apagarNativo(); Solicitudes.detener();
   try { await db.ref(`repartidores/${uidActual}/fcmToken`).remove(); } catch (_) {}   // este teléfono deja de recibir avisos
   try {
     await db.ref("ubicaciones/" + uidActual).update({ enLinea: false, enViaje: false, ts: TS });
@@ -1881,6 +1906,7 @@ $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); i
 
 /* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
 Atras.iniciar([
+  () => Solicitudes.cerrarCapa(),
   () => Chat.cerrarCapa(),
   () => { for (const id of ["modalNuevoPedido", "modalSub", "modalFacturaVivo", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
   () => {   // ventanas de la factura

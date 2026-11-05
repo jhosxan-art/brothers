@@ -966,3 +966,203 @@ const ActualizacionAdmin = (() => {
   if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) vigilar(); });
   return { vigilar, lanzar, evaluar };
 })();
+
+
+/* ============================================================
+   FASE 3 · AUDITORÍA DE SOLICITUDES ENTRANTES + MODO ESPECTADOR (solo lectura)
+   - Pestaña "Auditoría": lista en vivo de solicitudes_entrantes (pendientes / asignadas / pedidos en curso).
+   - Al tocar una: panel grande que lee chats/{id} en vivo (texto, tarjetas de factura y movimientos de estado).
+   - El administrador NUNCA escribe aquí: solo se usan .on('value') / .on('child_added'), no hay input ni set/update/push.
+   Usa los globales de admin.js (db).
+   ============================================================ */
+const AuditoriaAdmin = (() => {
+  const RUTA = "solicitudes_entrantes";
+  const g = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const money = (n) => "C$ " + (Number(n) || 0).toFixed(2);
+  const hora = (ts) => { const n = Number(ts) || 0; if (!n) return ""; const d = new Date(n); return d.toLocaleDateString("es-NI", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("es-NI", { hour: "2-digit", minute: "2-digit" }); };
+  function hace(ts) {
+    const n = Number(ts) || 0; if (!n) return "";
+    const m = Math.max(0, Math.round((Date.now() - n) / 60000));
+    if (m < 1) return "ahora"; if (m < 60) return "hace " + m + " min";
+    const h = Math.round(m / 60); return h < 24 ? "hace " + h + " h" : "hace " + Math.round(h / 24) + " d";
+  }
+
+  let datos = {}, ref = null, filtro = "todas", errLista = "";
+  let abiertoId = null, refChat = null, refSol = null, refPed = null;
+  let msgs = {}, solVivo = null, pedVivo = null, eventos = [], eventosVistos = new Set(), prevSol = null, prevPed = null, primeraChat = true;
+
+  const dueno = (s) => (s && s.atendidoPor && s.atendidoPor.uid ? s.atendidoPor : null);
+  const grupo = (s) => (s.estado === "pedido" ? "pedido" : dueno(s) ? "asignada" : "pendiente");   // pendiente | asignada | pedido
+  const ETQ = { pendiente: "⏳ Pendiente", asignada: "🧑‍🚀 Asignada", pedido: "📦 Pedido en curso" };
+  const nombreSol = (s) => String((s && (s.cliente || s.nombre || s.nombreCliente)) || "Cliente").slice(0, 60);
+  const textoSol = (s) => String((s && (s.texto || s.mensaje || s.ultimo)) || "").slice(0, 200);
+  const lista = () => Object.keys(datos).filter((k) => datos[k] && typeof datos[k] === "object")
+    .sort((a, b) => (Number(datos[b].ts) || 0) - (Number(datos[a].ts) || 0));
+
+  /* ---------- Lista en vivo ---------- */
+  function pintarLista() {
+    const cont = g("audLista"); if (!cont) return;
+    const ids = lista(), cuenta = { pendiente: 0, asignada: 0, pedido: 0 };
+    ids.forEach((k) => { cuenta[grupo(datos[k])]++; });
+    const bd = g("audBadge"); if (bd) { bd.textContent = cuenta.pendiente > 99 ? "99+" : String(cuenta.pendiente); bd.classList.toggle("oculto", !cuenta.pendiente); }
+    const rs = g("audResumen");
+    if (rs) rs.innerHTML = `<span class="p">⏳ ${cuenta.pendiente} pendientes</span><span class="a">🧑‍🚀 ${cuenta.asignada} asignadas</span><span class="f">📦 ${cuenta.pedido} pedidos</span><span>Total ${ids.length}</span>`;
+    const er = g("audError"); if (er) { er.textContent = errLista; er.classList.toggle("oculto", !errLista); }
+    document.querySelectorAll("#audFiltros button").forEach((b) => b.classList.toggle("on", b.dataset.f === filtro));
+    const vis = ids.filter((k) => filtro === "todas" || grupo(datos[k]) === filtro);
+    if (!vis.length) { cont.innerHTML = `<div class="aud-vacio">${errLista ? "" : ids.length ? "No hay solicitudes en este filtro." : "Aún no hay solicitudes entrantes."}</div>`; return; }
+    cont.innerHTML = vis.map((k) => {
+      const s = datos[k], gr = grupo(s), d = dueno(s);
+      const quien = d ? `Atiende: ${esc(d.nombre || "Repartidor")}${d.tipo === "invitado" ? " (invitado)" : ""}` : "Sin repartidor";
+      const extra = gr === "pedido" ? ` · ${esc(s.pedidoCodigo || "")} ${s.total != null ? money(s.total) : ""}` : "";
+      return `<button type="button" class="aud-item ${gr}" data-id="${esc(k)}" aria-label="Abrir chat de ${esc(nombreSol(s))}">
+        <span class="barra"></span>
+        <span class="cuerpo"><b>${esc(nombreSol(s))}</b><span>${esc(textoSol(s)) || "—"}</span><small>${quien}${extra}</small></span>
+        <span class="lado"><span class="aud-etq">${ETQ[gr]}</span><small>${esc(hace(s.ts))}</small></span>
+      </button>`;
+    }).join("");
+  }
+
+  /* ---------- Visor (Modo Espectador) ---------- */
+  function soltarChat() {
+    if (refChat) { refChat.off(); refChat = null; }
+    if (refSol) { refSol.off(); refSol = null; }
+    if (refPed) { refPed.off(); refPed = null; }
+    msgs = {}; solVivo = null; pedVivo = null; eventos = []; eventosVistos = new Set(); prevSol = null; prevPed = null; primeraChat = true;
+  }
+  function evento(clave, ts, texto) {
+    if (eventosVistos.has(clave)) return;
+    eventosVistos.add(clave); eventos.push({ ts: Number(ts) || Date.now(), texto });
+  }
+  /* Movimientos de estado: los que ya constan en la solicitud / pedido + los cambios que se observan en vivo */
+  function derivarEventos() {
+    const s = solVivo, p = pedVivo;
+    if (s) {
+      if (s.ts) evento("creada", s.ts, "💬 El cliente abrió el chat");
+      const d = dueno(s);
+      if (d) evento("atendida:" + d.uid + ":" + (d.ts || ""), d.ts, `🧑‍🚀 ${esc(d.nombre || "Repartidor")} tomó el chat${d.tipo === "invitado" ? " (invitado)" : ""}`);
+      if (s.facturaTs) evento("factura", s.facturaTs, `🧾 Factura ${esc(s.pedidoCodigo || "")} enviada: ya es un pedido en curso`);
+      if (prevSol) {
+        const dPrev = dueno(prevSol);
+        if (dPrev && !d) evento("liberada:" + Date.now(), Date.now(), `🔓 ${esc(dPrev.nombre || "El repartidor")} liberó el chat`);
+        if (prevSol.estado !== s.estado && s.estado) evento("estsol:" + s.estado + ":" + Date.now(), Date.now(), "🔄 Estado de la solicitud: " + esc(s.estado));
+      }
+    }
+    if (p) {
+      if (p.inicio) evento("inicio", p.inicio, "🛵 Pedido en ruta");
+      if (p.estado === "entregado") evento("estped:entregado", p.fin || p.entregadoTs || Date.now(), "✅ Pedido entregado");
+      else if (p.estado === "cancelado") evento("estped:cancelado", p.fin || Date.now(), "⛔ Pedido cancelado");
+      else if (prevPed && prevPed.estado !== p.estado && p.estado) evento("estped:" + p.estado + ":" + Date.now(), Date.now(), "🔄 Estado del pedido: " + esc(String(p.estado).replace(/_/g, " ")));
+    }
+    prevSol = s ? JSON.parse(JSON.stringify(s)) : null; prevPed = p ? JSON.parse(JSON.stringify(p)) : null;
+  }
+  function tarjetaFactura(m) {
+    const f = m.factura || {};
+    const prods = Array.isArray(f.productos) ? f.productos : f.productos && typeof f.productos === "object" ? Object.values(f.productos) : [];
+    const filas = prods.map((x) => `<div class="fila"><span>${esc(x.nombre || x.name || "Producto")}</span><span>${money(x.precio != null ? x.precio : x.price)}</span></div>`).join("");
+    const delTot = f.deliveryTotal != null ? f.deliveryTotal : f.delivery;
+    return `<div class="aud-fac" data-k="${esc(m._k)}">
+      <header><span>🧾 Factura ${esc(f.pedido || "")}</span><span>${esc(m.nombre || "Repartidor")}</span></header>
+      <div class="cu">
+        ${f.cliente ? `<div class="fila"><span>Cliente</span><span>${esc(f.cliente)}</span></div>` : ""}
+        ${filas || `<div class="fila"><span>${esc(m.texto || "Factura")}</span><span></span></div>`}
+        ${f.subtotal != null ? `<div class="fila"><span>Subtotal</span><span>${money(f.subtotal)}</span></div>` : ""}
+        ${delTot != null ? `<div class="fila"><span>Delivery</span><span>${money(delTot)}</span></div>` : ""}
+        ${Number(f.mandadoExtra) ? `<div class="fila"><span>Mandado extra (incluido)</span><span>${money(f.mandadoExtra)}</span></div>` : ""}
+        <div class="fila tot"><span>Total</span><span>${money(f.total)}</span></div>
+        ${f.deposito ? `<div class="nota">💵 Con depósito</div>` : ""}
+      </div>
+      <time>${esc(hora(m.ts))}</time>
+    </div>`;
+  }
+  function pintarMsgs() {
+    const box = g("audVMsgs"); if (!box) return;
+    const cerca = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    const items = Object.keys(msgs).map((k) => ({ t: Number(msgs[k].ts) || 0, tipo: "m", m: msgs[k] }))
+      .concat(eventos.map((e) => ({ t: e.ts, tipo: "e", e })))
+      .sort((a, b) => a.t - b.t);
+    if (!items.length) { box.innerHTML = `<div class="aud-vacio">Todavía no hay mensajes en esta conversación.</div>`; return; }
+    box.innerHTML = items.map((it) => {
+      if (it.tipo === "e") return `<div class="aud-ev">${it.e.texto}<time>${esc(hora(it.e.ts))}</time></div>`;
+      const m = it.m;
+      if (m.tipo === "factura" || (m.factura && typeof m.factura === "object")) return tarjetaFactura(m);
+      if (m.de === "sistema" || ["estado", "sistema", "evento"].includes(m.tipo)) return `<div class="aud-ev">${esc(m.texto || m.estado || "")}<time>${esc(hora(m.ts))}</time></div>`;
+      const rep = m.de === "repartidor" || m.de === "admin";
+      const quien = rep ? (m.nombre || (m.de === "admin" ? "Administrador" : "Repartidor")) : (m.nombre || nombreSol(solVivo));
+      const cuerpo = m.texto != null && String(m.texto) !== "" ? esc(m.texto) : "📎 Adjunto no mostrable";
+      return `<div class="aud-m ${rep ? "rep" : "cli"}"><span class="quien">${rep ? "🛵" : "👤"} ${esc(quien)}</span>${cuerpo}<time>${esc(hora(m.ts))}</time></div>`;
+    }).join("");
+    if (cerca || primeraChat) box.scrollTop = box.scrollHeight;
+    primeraChat = false;
+  }
+  function pintarCabecera() {
+    const s = solVivo || datos[abiertoId] || {}, gr = grupo(s), d = dueno(s);
+    g("audVTitulo").textContent = nombreSol(s);
+    g("audVSub").textContent = ETQ[gr] + (d ? " · " + (d.nombre || "Repartidor") : "") + " · #" + String(abiertoId).slice(-6);
+    const chips = [`<span>${ETQ[gr]}</span>`];
+    if (d) chips.push(`<span>🛵 ${esc(d.nombre || "Repartidor")}${d.tipo === "invitado" ? " · invitado" : " · registrado"}</span>`);
+    if (s.pedidoCodigo) chips.push(`<span>🧾 ${esc(s.pedidoCodigo)}</span>`);
+    if (s.total != null && gr === "pedido") chips.push(`<span>${money(s.total)}</span>`);
+    if (pedVivo && pedVivo.estado) chips.push(`<span>📍 ${esc(String(pedVivo.estado).replace(/_/g, " "))}</span>`);
+    g("audVInfo").innerHTML = chips.join("");
+  }
+  function abrir(id) {
+    if (!id || typeof db === "undefined") return;
+    soltarChat(); abiertoId = id;
+    g("audVMsgs").innerHTML = `<div class="aud-vacio">Cargando conversación…</div>`;
+    g("audVisor").classList.remove("oculto");
+    pintarCabecera();
+    refSol = db.ref(RUTA + "/" + id);
+    refSol.on("value", (sn) => { solVivo = sn.val(); derivarEventos(); pintarCabecera(); pintarMsgs(); }, () => {});
+    refPed = db.ref("pedidos/" + id);
+    refPed.on("value", (sn) => { pedVivo = sn.val(); derivarEventos(); pintarCabecera(); pintarMsgs(); }, () => {});
+    refChat = db.ref("chats/" + id).limitToLast(300);
+    refChat.on("value", (sn) => {
+      msgs = {};
+      sn.forEach((c) => { const v = c.val(); if (v && typeof v === "object") { v._k = c.key; msgs[c.key] = v; } });
+      pintarMsgs();
+    }, (err) => { g("audVMsgs").innerHTML = `<div class="aud-vacio">No se pudo leer el chat: ${esc((err && err.message) || "sin permiso")}</div>`; });
+  }
+  function cerrar() {
+    soltarChat(); abiertoId = null;
+    const v = g("audVisor"); if (v) v.classList.add("oculto");
+  }
+
+  /* ---------- Pestañas: el panel se muestra solo con su pestaña, sin depender de la lista interna de admin.js ---------- */
+  function alTab(b) {
+    const mio = b.dataset.tab === "panelAuditoria", p = g("panelAuditoria");
+    if (!p) return;
+    if (mio) {
+      ["panelMapa", "panelPedidos", "panelChats", "panelEquipo"].forEach((id) => { const x = g(id); if (x) x.classList.add("oculto"); });
+      p.classList.remove("oculto");
+      document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("activa", x === b));
+      pintarLista();
+    } else { p.classList.add("oculto"); }
+  }
+
+  function iniciar() {
+    if (typeof db === "undefined" || !g("audLista")) return;
+    g("audLista").addEventListener("click", (e) => { const b = e.target.closest("button[data-id]"); if (b) abrir(b.dataset.id); });
+    g("audFiltros").addEventListener("click", (e) => { const b = e.target.closest("button[data-f]"); if (b) { filtro = b.dataset.f; pintarLista(); } });
+    g("audVCerrar").onclick = cerrar;
+    g("audVisor").addEventListener("click", (e) => { if (e.target === g("audVisor")) cerrar(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && abiertoId) cerrar(); });
+    document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => alTab(b)));
+    ref = db.ref(RUTA).limitToLast(300);
+    ref.on("value", (sn) => { datos = sn.val() || {}; errLista = ""; pintarLista(); }, (err) => {
+      errLista = "No se pudieron leer las solicitudes: " + ((err && err.message) || "sin permiso") + (err && err.code === "PERMISSION_DENIED" ? " (revisa las reglas de Firebase)" : "");
+      pintarLista();
+    });
+    setInterval(() => { if (g("panelAuditoria") && !g("panelAuditoria").classList.contains("oculto")) pintarLista(); }, 60000);   // refresca "hace X min"
+  }
+
+  /* admin.js crea db al iniciar sesión del administrador; si aún no hay sesión, se espera a que la haya */
+  function arrancar() {
+    if (typeof auth !== "undefined" && auth.currentUser) return iniciar();
+    if (typeof auth !== "undefined") { const off = auth.onAuthStateChanged((u) => { if (u) { off(); iniciar(); } }); }
+    else iniciar();
+  }
+  arrancar();
+  return { abrir, cerrar };
+})();

@@ -151,12 +151,42 @@
       </details>
     </section>
 
+    <!-- Auditoría: todas las solicitudes_entrantes en tiempo real (pendientes vs. asignadas) -->
+    <section id="panelAuditoria" class="oculto">
+      <h2>Auditoría de chats</h2>
+      <p class="ayuda">Solicitudes entrantes en vivo. Toca una para leer la conversación entre el cliente y el repartidor (solo lectura).</p>
+      <div id="audResumen" class="aud-resumen" aria-live="polite"></div>
+      <div id="audFiltros" class="aud-filtros" role="tablist" aria-label="Filtrar solicitudes">
+        <button type="button" data-f="todas" class="on">Todas</button>
+        <button type="button" data-f="pendiente">Pendientes</button>
+        <button type="button" data-f="asignada">Asignadas</button>
+        <button type="button" data-f="pedido">Pedidos</button>
+      </div>
+      <div id="audError" class="estado error oculto" role="alert"></div>
+      <div id="audLista" class="aud-lista"></div>
+    </section>
+
+    <!-- Modo Espectador: panel grande de SOLO LECTURA (sin campo para escribir) -->
+    <div id="audVisor" class="aud-visor oculto" role="dialog" aria-modal="true" aria-labelledby="audVTitulo">
+      <div class="aud-caja">
+        <header class="aud-cab">
+          <div class="aud-cab-txt"><h2 id="audVTitulo">Conversación</h2><small id="audVSub"></small></div>
+          <span class="aud-solo">👁 Solo lectura</span>
+          <button id="audVCerrar" type="button" class="aud-x" aria-label="Cerrar">✕</button>
+        </header>
+        <div id="audVInfo" class="aud-info"></div>
+        <div id="audVMsgs" class="aud-msgs" role="log" aria-live="polite"></div>
+        <footer class="aud-pie"><span class="fv-vivo">En vivo</span> · El administrador solo observa: no puede escribir en este chat.</footer>
+      </div>
+    </div>
+
     <div id="modalAdmin" class="modal-rep oculto" role="dialog" aria-modal="true"><div class="modal-rep-caja" id="modalCaja" style="text-align:left"></div></div>
 
     <nav class="tabs">
       <button class="activa" data-tab="panelMapa">Mapa en vivo</button>
       <button data-tab="panelPedidos">Pedidos</button>
       <button data-tab="panelChats">Chats</button>
+      <button data-tab="panelAuditoria">Auditoría <span id="audBadge" class="badge-nav rojo oculto">0</span></button>
       <button data-tab="panelEquipo">Equipo</button>
     </nav>
   </div>

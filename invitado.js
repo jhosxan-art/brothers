@@ -26,6 +26,8 @@
   function tomado(nom) {
     terminado = true;
     [refVigia, refOrden, refChat, refChatAdm].forEach((r) => { if (r) r.off(); });
+    try { Solicitudes.detener(); } catch (_) {}
+    $("btnNuevosChats").classList.add("oculto");
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     $("txtTomado").textContent = `Este pedido ya fue tomado por ${nom}, muchas gracias.`;
     vista("vTomado");
@@ -105,6 +107,22 @@
     db.ref("ubicaciones/" + uid).onDisconnect().update({ enLinea: false, enViaje: false, ts: TS });
     $("subTitulo").textContent = "Invitado · " + n;
     vista("vApp"); iniciarMapa(); escucharOrden(); escucharChat(); escucharChatAdm(); iniciarGPS();
+    iniciarSolicitudes();
+  }
+
+  /* Nuevos Chats (solicitudes_entrantes): mismo módulo que el repartidor registrado (factura.js) */
+  function iniciarSolicitudes() {
+    if (typeof Solicitudes === "undefined") return;
+    $("btnNuevosChats").classList.remove("oculto");
+    Solicitudes.init({
+      db, tipo: "invitado",
+      uid: () => uid, nombre: () => nombre || "Invitado", repartidorUid: () => uid,
+      boton: "btnNuevosChats", badge: "badgeNuevosChats",
+      codigo: () => "",   // vacío → factura.js genera un código BD#### propio
+      instantanea: (f) => f,
+      alNueva: () => {},
+      alFacturada: () => {}
+    });
   }
 
   /* ---------- Pedido en vivo ---------- */
@@ -192,6 +210,7 @@
 
   function final(estado) {
     terminado = true;
+    try { Solicitudes.detener(); } catch (_) {}
     if (refOrden) refOrden.off(); if (refPedido) refPedido.off(); if (refChat) refChat.off(); if (refChatAdm) refChatAdm.off();
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     try { wakeLock && wakeLock.release(); } catch (_) {}
