@@ -4,6 +4,9 @@
    2) Pestaña "Pedidos": formulario, asignación (registrado o enlace de invitado) y estado en vivo
    3) Auditoría de facturas: al tocar el marcador de un repartidor en el mapa (o su tarjeta / el botón 🧾 Facturas) se abre la factura
       exacta y en vivo que lleva (productos, delivery, prioridad, mandados extra y total), leída de pedidos/{token}.
+   FASE 3 · Control manual: forzar estado a "entregado" / "cancelado" desde la lista y desde el Modo Espectador,
+      y asignación manual forzada (transacción sobre repartidorUid) cuando nadie toma una solicitud.
+      Notificación sonora + toast cuando llega una solicitud nueva (solo en el panel del admin).
    Se carga DESPUÉS de admin.js y usa sus globales (db, mapa, ubic, registrados, toast, modal…).
    ============================================================ */
 const PedidosAdmin = (() => {
@@ -182,7 +185,7 @@ const PedidosAdmin = (() => {
       </div>`;
     document.body.appendChild(div);
     const g = (id) => div.querySelector("#" + id);
-    const m = L.map(g("pdOvlMapa"), { zoomControl: false }).setView(mapa ? mapa.getCenter() : [-12.0464, -77.0428], mapa ? Math.max(mapa.getZoom(), 13) : 14);
+    const m = L.map(g("pdOvlMapa"), { zoomControl: false }).setView(mapa ? mapa.getCenter() : [12.5700, -87.1311], mapa ? Math.max(mapa.getZoom(), 13) : 14);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(m);
     const idx = Math.min(Math.max(+i || 0, 0), lista(cual).length - 1);
     ovl = { div, m, capa: L.layerGroup().addTo(m), rutaCapa: L.layerGroup().addTo(m), activo: { cual, i: idx }, ult: { retiro: 0, entrega: 0 }, seq: 0 };
@@ -440,16 +443,99 @@ const PedidosAdmin = (() => {
     try { await db.ref().update(upd); toast("Pedido cancelado."); } catch (err) { toast("No se pudo cancelar: " + err.message); }
   }
 
+  /* ============================================================
+     FASE 3 · CONTROL MANUAL (Tachar/Forzar)
+     ============================================================ */
+  /* Fuerza el estado de un pedido del administrador (ordenes/{token}) a "entregado" o "cancelado".
+     Se escribe en ordenes/{token} y en pedidos/{token} para que el cliente lo vea al instante.
+     También limpia la guía y la ubicación del invitado. */
+  async function forzarEstadoOrden(token, nuevoEstado) {
+    const o = ordenes[token];
+    if (!o) return toast("No encuentro ese pedido.");
+    if (!["entregado", "cancelado"].includes(nuevoEstado)) return toast("Estado no válido.");
+    if (o.estado === nuevoEstado) return toast("El pedido ya está en ese estado.");
+    const esEnt = nuevoEstado === "entregado";
+    if (!confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el pedido " + cod(o.codigo) + "?\n\nEsto sobrescribe el estado sin importar lo que diga el repartidor o el cliente.")) return;
+    const upd = {
+      [`ordenes/${token}/estado`]: nuevoEstado,
+      [`ordenes/${token}/actualizado`]: O.TS,
+      [`ordenes/${token}/forzadoPorAdmin`]: true,
+      [`ordenes/${token}/forzadoTs`]: O.TS
+    };
+    if (esEnt) upd[`ordenes/${token}/entregadoTs`] = O.TS;
+    // También actualiza el pedido del cliente (si existe) para que lo vea al instante
+    try {
+      const existe = (await db.ref("pedidos/" + token).once("value")).exists();
+      if (existe) {
+        upd[`pedidos/${token}/estado`] = nuevoEstado;
+        if (esEnt) upd[`pedidos/${token}/fin`] = O.TS;
+        upd[`pedidos/${token}/forzadoPorAdmin`] = true;
+      }
+    } catch (_) {}
+    // Limpia guía y ubicación del invitado (si aplica)
+    const a = o.asignacion || {};
+    if (a.tipo === "registrado" && a.uid && guias[a.uid] && guias[a.uid].ordenId === token) upd["guias/" + a.uid] = null;
+    if (a.tipo === "invitado") upd["ubicaciones/" + O.uidInvitado(token)] = null;
+    try {
+      await db.ref().update(upd);
+      toast(esEnt ? "✅ Pedido forzado a ENTREGADO" : "🚫 Pedido forzado a CANCELADO");
+    } catch (err) { toast("No se pudo forzar: " + err.message); }
+  }
+
+  /* Asignación manual forzada: transacción sobre repartidorUid para que dos administradores no asignen a la vez.
+     El repartidor debe aceptar de nuevo (estado_asignacion = "pendiente"). */
+  async function asignarManual(uid, token) {
+    const o = ordenes[token];
+    if (!o) return toast("No encuentro ese pedido.");
+    const nom = nombreUid(uid);
+    if (!confirm(`¿Asignar FORZOSAMENTE el pedido ${cod(o.codigo)} a ${nom}?\nEl repartidor recibirá un aviso y deberá aceptar de nuevo.`)) return;
+    try {
+      // Transacción: solo uno de los admins concurrentes gana el "pendiente"
+      const r = await db.ref("ordenes/" + token + "/estado_asignacion").transaction((cur) => {
+        if (cur === "pendiente") return;   // ya está pendiente: no se pisa
+        return "pendiente";
+      });
+      const upd = {
+        [`ordenes/${token}/asignacion`]: { tipo: "registrado", uid, nombre: nom },
+        [`ordenes/${token}/estado`]: "asignado",
+        [`ordenes/${token}/actualizado`]: O.TS,
+        [`ordenes/${token}/asignadoPorAdmin`]: true,
+        [`ordenes/${token}/asignadoTs`]: O.TS
+      };
+      // Pedido del cliente (si existe) para que vea a su repartidor
+      const nCli = (typeof O.nodoCliente === "function") ? O.nodoCliente(token, o, uid, nom)
+        : { estado: "en_ruta", pedido: o.codigo, inicio: O.TS, repartidorUid: uid, repartidorNombre: nom, clienteNombre: o.cliente, adminOrden: true, delivery: O.totalDelivery(o) };
+      upd["pedidos/" + token] = nCli;
+      // Guía al primer retiro pendiente (si tiene coordenadas)
+      const sig = O.siguienteRetiro(o);
+      if (sig && O.valido(sig.p)) upd["guias/" + uid] = O.datosGuia ? O.datosGuia("retiro", sig.p, { ordenId: token, nombre: O.textoRetiro(sig.p, O.paradas(o).length, sig.i), negocio: sig.p.texto || "Retiro", producto: sig.p.producto || "" }) : null;
+      await db.ref().update(upd);
+      toast(`Pedido asignado a ${nom} ✓`);
+      if (typeof PushAdmin !== "undefined") PushAdmin.pedidoAsignado(uid, Object.assign({ token }, o));
+    } catch (err) { toast("No se pudo asignar: " + err.message); }
+  }
+
+  /* Devuelve los pedidos activos (ordenes) de un repartidor registrado o invitado */
+  function ordenesDe(uid) {
+    return Object.entries(ordenes).filter(([t, o]) =>
+      activa(o) && o.asignacion && (
+        (o.asignacion.tipo === "registrado" && o.asignacion.uid === uid) ||
+        (o.asignacion.tipo === "invitado" && O.uidInvitado(t) === uid)
+      )
+    ).map(([token, orden]) => ({ token, orden }));
+  }
+
   function tarjeta(t) {
     const o = ordenes[t], [txt, cls] = O.ESTADOS[o.estado] || O.ESTADOS.pendiente, a = o.asignacion || {};
     const inv = a.tipo === "invitado", btn = (acc, label, extra) => `<button class="mini ${extra || ""}" data-pa="${acc}" data-t="${esc(t)}" type="button">${label}</button>`;
     return `<div class="tarjeta-rep pd-orden">
       <div class="fila"><div class="datos"><strong>${esc(cod(o.codigo))} · ${esc(o.cliente || "Sin nombre")}</strong>
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
-      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}</div>
+      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}${o.forzadoPorAdmin ? "<br>🛡️ <b>Forzado por el administrador</b>" : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
         ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}${a.tipo && activa(o) ? btn("factura", "🧾 Factura", "pri") : ""}${inv && activa(o) ? btn("recorrido", "🗺 Recorrido") : ""}
         ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
+        ${activa(o) ? btn("forzar-ent", "✅ Forzar entregado") : ""}${activa(o) ? btn("forzar-canc", "🚫 Forzar cancelado") : ""}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
       </div></div>`;
   }
@@ -529,10 +615,13 @@ const PedidosAdmin = (() => {
   function htmlInvitados() {
     return Object.entries(ordenes).filter(([, o]) => o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && ["asignado", "retirado"].includes(o.estado)).map(([t, o]) => {
       const [tx] = ETIQUETA[estadoDe(O.uidInvitado(t))], [et, ec] = O.ESTADOS[o.estado];
-      return `<div class="tarjeta-rep"><div class="fila"><span class="avatar">${RIDER_SVG}</span>
+      return `<div class="tarjeta-rep"><div class="fila"><span class="avatar" data-av="${esc(O.uidInvitado(t))}">${RIDER_SVG}</span>
         <div class="datos"><strong>${esc(o.asignacion.nombre)} <i class="pd-tag">Invitado</i></strong><small>Pedido ${esc(cod(o.codigo))} · ${esc(o.cliente)} · ${tx}</small></div>
         <span class="chip ${ec}">${et}</span></div>
-        <div class="acciones-fila"><button class="mini pri" data-fv-uid="${esc(O.uidInvitado(t))}" type="button">🧾 Ver factura</button></div></div>`;
+        <div class="acciones-fila">
+          <button class="mini pri" data-fv-uid="${esc(O.uidInvitado(t))}" type="button">🧾 Ver factura</button>
+          <button class="mini" data-foto-uid="${esc(O.uidInvitado(t))}" data-foto-nom="${esc(o.asignacion.nombre)}" type="button">📷 Foto</button>
+        </div></div>`;
     }).join("");
   }
   /* Nota corta para la ventanita del repartidor en el mapa */
@@ -580,14 +669,12 @@ const PedidosAdmin = (() => {
 
   /* ============================================================
      3) AUDITORÍA DE FACTURAS EN VIVO
-     Lee pedidos/{token} (factura, detalle, prioridad y extras) y se actualiza solo mientras la ventana está abierta.
      ============================================================ */
   let fvRefs = [], fvDatos = {}, fvToks = [];
   const fvLst = (x) => (Array.isArray(x) ? x : x && typeof x === "object" ? Object.values(x) : []);
   const fvR2 = (n) => Math.round(n * 100) / 100;
   function fvSoltar() { fvRefs.forEach((r) => r.off()); fvRefs = []; fvDatos = {}; fvToks = []; }
 
-  /* Desglose exacto: misma regla que ve el repartidor y el cliente (base + prioridad + extras) */
   function fvCalc(d) {
     if (!d) return null;
     const f = d.factura && typeof d.factura === "object" ? d.factura : null, det = d.detalle && typeof d.detalle === "object" ? d.detalle : null;
@@ -627,7 +714,7 @@ const PedidosAdmin = (() => {
     return h;
   }
   function fvPintar() {
-    const cont = el("fvAdmCuerpo"); if (!cont) return fvSoltar();   // la ventana cambió de contenido: se dejan de escuchar los pedidos
+    const cont = el("fvAdmCuerpo"); if (!cont) return fvSoltar();
     cont.innerHTML = fvToks.map(fvBloque).join("");
   }
   function mostrarFacturas(titulo, toks) {
@@ -646,7 +733,6 @@ const PedidosAdmin = (() => {
     });
   }
 
-  /* Pedidos activos de un motorizado: los que el administrador le asignó + los que el propio repartidor abrió con su factura */
   async function fvTokensDe(uid) {
     const set = new Set();
     Object.entries(ordenes).forEach(([t, o]) => {
@@ -657,7 +743,7 @@ const PedidosAdmin = (() => {
     try {
       const s = await db.ref("pedidos").orderByChild("repartidorUid").equalTo(uid).limitToLast(20).once("value");
       Object.entries(s.val() || {}).forEach(([t, p]) => { if (p && p.estado === "en_ruta") set.add(t); });
-    } catch (_) { /* sin permiso o sin conexión: se usan los pedidos conocidos */ }
+    } catch (_) {}
     return [...set];
   }
   async function abrirFacturaUid(uid, silencioso) {
@@ -667,7 +753,6 @@ const PedidosAdmin = (() => {
     mostrarFacturas(nombreUid(uid), toks);
   }
 
-  /* Botón 🧾 Facturas: todos los pedidos en ruta con su motorizado y total */
   async function abrirListaFacturas() {
     modal(`<h2>🧾 Facturas en curso</h2><p class="ayuda" id="fvListaMsg">Cargando pedidos en ruta…</p><div id="fvListaBox" class="fv-lista-pedidos"></div><button id="fvListaCerrar" class="oscuro" type="button">Cerrar</button>`);
     el("fvListaCerrar").onclick = cerrarModal;
@@ -684,7 +769,6 @@ const PedidosAdmin = (() => {
     box.onclick = (e) => { const b = e.target.closest("button[data-ft]"); if (b) mostrarFacturas(b.dataset.fn, [b.dataset.ft]); };
   }
 
-  /* Tocar el marcador (burbuja) de un repartidor en el mapa → su factura. Se identifica por la ubicación más cercana al marcador tocado. */
   function alTocarMarcador(e) {
     const t = e.target; if (!t || !t.closest) return;
     if (t.closest(".leaflet-popup, .leaflet-control, button")) return;
@@ -693,26 +777,22 @@ const PedidosAdmin = (() => {
     if (!el("modalAdmin").classList.contains("oculto")) return;
     const r = icono.getBoundingClientRect(), c = mapa.getContainer().getBoundingClientRect();
     const px = r.left + r.width / 2 - c.left, py = r.top + r.height / 2 - c.top;
-    let mejor = null, dmin = 56;   // máximo ~56 px de distancia al centro del ícono
+    let mejor = null, dmin = 56;
     Object.keys(ubic || {}).forEach((uid) => {
       const u = ubic[uid]; if (!u || typeof u.lat !== "number" || typeof u.lng !== "number") return;
       const p = mapa.latLngToContainerPoint([u.lat, u.lng]), d = Math.hypot(p.x - px, p.y - py);
       if (d < dmin) { dmin = d; mejor = uid; }
     });
-    if (mejor) setTimeout(() => abrirFacturaUid(mejor, true), 150);   // silencioso: si no lleva factura, el toque sigue funcionando como siempre
+    if (mejor) setTimeout(() => abrirFacturaUid(mejor, true), 150);
   }
-
 
   /* ============================================================
      4) RECOGIDA, ENTREGA Y RECORRIDO DEL REPARTIDOR INVITADO
-     Dibuja en el mapa del admin los pines de cada retiro y de la entrega del pedido del invitado, y el recorrido por calles:
-     ubicación actual del invitado → retiros pendientes → entrega. Se actualiza solo cuando el invitado se mueve o retira.
      ============================================================ */
-  const recInv = {};   // token → { pins, linea, flechas, legs:{k:{pts,dist,dur,pasos}}, firma, pend, origen, rutaEn, ocupado, gen, resumen }
+  const recInv = {};
   const fmtKmR = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m");
   const esInvActivo = (o) => !!o && !!o.asignacion && o.asignacion.tipo === "invitado" && activa(o);
 
-  /* Todos los puntos del pedido en el orden en que se recorren: retiros y, al final, la entrega */
   function puntosPedido(o) {
     const v = [], retirado = o.estado === "retirado" || o.estado === "entregado";
     O.paradas(o).forEach((p, i) => v.push({ cual: "retiro", i, p, hecho: !!p.retirado || retirado }));
@@ -729,7 +809,7 @@ const PedidosAdmin = (() => {
     const u = ubic[O.uidInvitado(t)], tiene = !!u && typeof u.lat === "number";
     let pts = [], dist = 0, dur = 0, pasos = [];
     r.pend.forEach((_, k) => { const l = r.legs[k]; if (!l) return; pts = pts.concat(l.pts); dist += l.dist; dur += l.dur; pasos = pasos.concat(l.pasos || []); });
-    if (tiene && r.legs[0] && pts.length) pts = [[u.lat, u.lng]].concat(pts);   // la línea arranca en el invitado y lo sigue mientras se mueve
+    if (tiene && r.legs[0] && pts.length) pts = [[u.lat, u.lng]].concat(pts);
     r.linea.setLatLngs(pts);
     r.resumen = pts.length ? { dist, dur, calles: O.callesDe(pasos) } : null;
     if (r.resumen && r.resumen.calles) r.linea.bindTooltip("Vía: " + r.resumen.calles, { sticky: true });
@@ -743,7 +823,7 @@ const PedidosAdmin = (() => {
     const firma = todos.map((x) => [x.cual, x.i, x.hecho ? 1 : 0, x.p.lat, x.p.lng, x.p.texto || "", x.p.producto || ""].join(",")).join("|");
     let r = recInv[t];
     if (!r) r = recInv[t] = { pins: [], linea: L.polyline([], { color: col, weight: 5, opacity: .85 }).addTo(mapa), flechas: L.layerGroup().addTo(mapa), firma: null, legs: {}, pend: [], origen: null, rutaEn: 0, ocupado: false, gen: 0, resumen: null };
-    if (r.firma !== firma) {   // cambió un punto o se retiró algo: pines nuevos y recorrido nuevo
+    if (r.firma !== firma) {
       r.firma = firma; r.legs = {}; r.origen = null; r.gen++; r.rutaEn = 0;
       r.pins.forEach((m) => mapa.removeLayer(m));
       const nRet = O.paradas(o).length;
@@ -765,19 +845,19 @@ const PedidosAdmin = (() => {
     const movido = tiene && (!r.origen || O.distM(u, r.origen) > 80);
     const faltan = pend.map((_, k) => k).filter((k) => (k === 0 ? tiene && (movido || !r.legs[0]) : !r.legs[k]));
     if (!faltan.length) return;
-    if (faltan.length === 1 && faltan[0] === 0 && r.legs[0] && Date.now() - r.rutaEn < 20000) return;   // solo se movió el invitado: recalcula cada ~20 s
+    if (faltan.length === 1 && faltan[0] === 0 && r.legs[0] && Date.now() - r.rutaEn < 20000) return;
     const gen = r.gen, o0 = tiene ? { lat: u.lat, lng: u.lng } : null;
     r.ocupado = true; r.rutaEn = Date.now();
     Promise.all(faltan.map((k) => { const p = par(k); return O.rutaCalles(p.o, p.d).then((res) => ({ k, res })); })).then((rs) => {
       r.ocupado = false;
       if (recInv[t] !== r) return;
-      if (r.gen !== gen) return pintarRecInv(t);   // los puntos cambiaron mientras se calculaba
+      if (r.gen !== gen) return pintarRecInv(t);
       let fallo = false;
       rs.forEach(({ k, res }) => { if (res) { r.legs[k] = res; if (k === 0) r.origen = o0; } else fallo = true; });
       dibujarRec(t);
       O.flechas(r.linea.getLatLngs().map((p) => [p.lat, p.lng]), r.flechas, col);
-      if (fallo) { clearTimeout(r.rt); r.rt = setTimeout(() => pintarRecInv(t), 4000); }   // sin ruta: reintenta (nunca línea recta)
-      if (el("fvAdmCuerpo")) fvPintar();   // la factura abierta muestra el recorrido actualizado
+      if (fallo) { clearTimeout(r.rt); r.rt = setTimeout(() => pintarRecInv(t), 4000); }
+      if (el("fvAdmCuerpo")) fvPintar();
     });
   }
   function pintarTodosRecInv() {
@@ -785,7 +865,6 @@ const PedidosAdmin = (() => {
     Object.keys(ordenes).forEach(pintarRecInv);
     Object.keys(recInv).forEach((t) => { if (!esInvActivo(ordenes[t])) limpiarRec(t); });
   }
-  /* Encuadra en el mapa al invitado, sus puntos de recogida y la entrega */
   function verRecorrido(t) {
     t = String(t).replace(/^inv_/, "");
     const r = recInv[t];
@@ -798,7 +877,6 @@ const PedidosAdmin = (() => {
       mapa.fitBounds(L.latLngBounds(ll), { padding: [80, 60], maxZoom: 17 });
     }, 120);
   }
-  /* Bloque dentro de la ventana de factura: recogida, entrega y resumen del recorrido */
   function fvPuntos(t) {
     const o = ordenes[t]; if (!o) return "";
     const pts = puntosPedido(o); if (!pts.length) return "";
@@ -822,17 +900,17 @@ const PedidosAdmin = (() => {
       mapa.on("popupclose", () => { popupCerrado = Date.now(); });
       mapa.on("dblclick zoomstart movestart", cancelarClick);
       new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) quitarTemp(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });
-      new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) fvSoltar(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });   // cerrar la ventana corta las escuchas de la factura
-      mapa.getContainer().addEventListener("click", alTocarMarcador, true);   // toque en la burbuja de un repartidor → su factura en vivo
-      document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button[data-fv-uid]"); if (b) abrirFacturaUid(b.dataset.fvUid); });   // botón de las tarjetas de invitados (Equipo)
-      document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button[data-fv-mapa]"); if (b) { const t = b.dataset.fvMapa; cerrarModal(); verRecorrido(t); } });   // "Ver recorrido en el mapa" de la factura
+      new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) fvSoltar(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });
+      mapa.getContainer().addEventListener("click", alTocarMarcador, true);
+      document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button[data-fv-uid]"); if (b) abrirFacturaUid(b.dataset.fvUid); });
+      document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("button[data-fv-mapa]"); if (b) { const t = b.dataset.fvMapa; cerrarModal(); verRecorrido(t); } });
       const bf = el("btnFacturasVivo"); if (bf) bf.onclick = abrirListaFacturas;
       document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { cerrarMapaForm(); if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
       el("pdModo").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) modoAsignacion(b.dataset.m); };
       el("pdCrear").onclick = crearPedido;
       el("pdRegSel").addEventListener("change", (e) => { regSel = e.target.value; });
       el("pdDelivery").addEventListener("input", alEscribirDelivery);
-      el("pdIvaBase").addEventListener("input", pintarTotalDelivery);    // ajuste manual del IVA base
+      el("pdIvaBase").addEventListener("input", pintarTotalDelivery);
       el("pdIvaExtra").addEventListener("input", pintarTotalDelivery);
       el("pdIvaExtra").addEventListener("change", () => { if (el("pdIvaExtra").value === "") el("pdIvaExtra").value = "0"; pintarTotalDelivery(); });
       pintarTotalDelivery();
@@ -840,10 +918,10 @@ const PedidosAdmin = (() => {
       el("pdAbrirMapa").onclick = () => abrirMapaForm("retiro", 0);
       el("pdAddRetiro").onclick = () => abrirMapaForm("retiro", añadir("retiro"));
       el("pdAddEntrega").onclick = () => abrirMapaForm("entrega", añadir("entrega"));
-      el("pdLista").addEventListener("input", (e) => {   // producto de cada retiro
+      el("pdLista").addEventListener("input", (e) => {
         const f = e.target.closest("[data-i]"); if (f && f.dataset.k === "retiro" && e.target.dataset.f === "producto") retirosForm[+f.dataset.i].producto = e.target.value;
       });
-      el("pdLista").addEventListener("click", (e) => {   // tocar un lugar = fijarlo en el mapa
+      el("pdLista").addEventListener("click", (e) => {
         const b = e.target.closest("button[data-a]"), f = e.target.closest("[data-i]"); if (b && f) abrirMapaForm(f.dataset.k, +f.dataset.i);
       });
       el("listaPedidos").onclick = (e) => {
@@ -856,6 +934,8 @@ const PedidosAdmin = (() => {
         else if (a === "recorrido") verRecorrido(t);
         else if (a === "asignar") asignarExistente(t);
         else if (a === "cancelar") cancelarOrden(t);
+        else if (a === "forzar-ent") forzarEstadoOrden(t, "entregado");
+        else if (a === "forzar-canc") forzarEstadoOrden(t, "cancelado");
         else if (a === "borrar") { if (confirm("¿Eliminar este pedido del historial?")) db.ref("ordenes/" + t).remove().catch((err) => toast(err.message)); }
       };
       modoAsignacion("registrado");
@@ -867,22 +947,30 @@ const PedidosAdmin = (() => {
       if (!primera) avisarCambios(nuevo);
       primera = false; ordenes = nuevo;
       pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista();
-    }, () => { el("listaPedidos").innerHTML = '<p class="ayuda">Sin permiso para leer “ordenes”. Revisa las reglas de Firebase (ver LEEME).</p>'; });
+    }, () => { el("listaPedidos").innerHTML = '<p class="ayuda">Sin permiso para leer "ordenes". Revisa las reglas de Firebase (ver LEEME).</p>'; });
   }
   function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } Object.keys(recInv).forEach(limpiarRec); ordenes = {}; resInv = {}; sinLeerInv = {}; fvSoltar(); cerrarMapaForm(); quitarTemp(); cancelarClick(); }
 
-  return { iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado, invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "", abrirFacturaUid, abrirListaFacturas, recorridoInv: (uid) => { if (O.esInvitadoUid(uid)) pintarRecInv(tokenInv(uid)); }, verRecorrido };
+  return {
+    iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado,
+    invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "",
+    abrirFacturaUid, abrirListaFacturas,
+    recorridoInv: (uid) => { if (O.esInvitadoUid(uid)) pintarRecInv(tokenInv(uid)); },
+    verRecorrido,
+    /* FASE 3 */
+    forzarEstadoOrden, asignarManual, ordenesDe
+  };
 })();
 
 
 /* ============================================================
-   SOLICITUDES ENTRANTES · panel del administrador (Fase 3)
-   - Lista en vivo de solicitudes_entrantes con su estado: Sin atender · Con pedido (WhatsApp) · Entregado · Cancelado.
-   - Visor de SOLO LECTURA de la conversación: mensajes, fotos, facturas con el desglose de mandados extra
-     y la valoración del cliente. No hay campo de escritura en las conversaciones.
-   - "Modo espectador": mapa con el GPS del cliente y el del repartidor a la vez, en vivo.
-   - Borrado de chats FINALIZADOS (entregados o cancelados): uno por uno, por fecha o por selección múltiple.
-     Es lo único que escribe este módulo: borra solicitudes_entrantes/{id} y solicitudes_fotos/{id}.
+   SOLICITUDES ENTRANTES · panel del administrador
+   - Lista en vivo de solicitudes_entrantes con su estado: Sin atender · Con pedido · Entregado · Cancelado.
+   - Visor de SOLO LECTURA: mensajes, fotos, facturas con el desglose de mandados extra y valoración del cliente.
+   - "Modo espectador": mapa con el GPS del cliente y del repartidor a la vez, en vivo.
+   - Borrado de chats FINALIZADOS: uno por uno, por fecha o por selección múltiple.
+   - FASE 3 · Notificación sonora + toast al recibir solicitudes nuevas (solo una vez, al pasar a "nuevo").
+   - FASE 3 · Control manual: forzar estado a entregado o cancelado desde el visor o la lista.
    Usa los globales de admin.js (auth, db). Cuenta propia de pestaña: funciona aunque admin.js no la conozca.
    ============================================================ */
 const SolicitudesAdmin = (() => {
@@ -892,6 +980,8 @@ const SolicitudesAdmin = (() => {
   let refUbic = null, ubic = {};
   let mapa = null, marcaCli = null, marcaRep = null, linea = null, encuadrado = false;
   const vistos = new Set(), sel = new Set();
+  let cargada = false;              // FASE 3: la primera lectura no notifica
+  const avisadas = new Set();       // FASE 3: ids de solicitudes "nuevo" ya anunciadas
 
   const fin = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
   const estadoDe = (d) => (fin(d) ? d.estado : d.repartidorUid ? "atendido" : "nuevo");
@@ -911,12 +1001,10 @@ const SolicitudesAdmin = (() => {
     if (texto !== undefined) e.textContent = texto;
     return e;
   }
-  /* Fecha local "YYYY-MM-DD" del pedido (para el filtro por día) */
   function diaDe(d) {
     const t = new Date(Number(d && (d.creado || d.ts)) || 0);
     return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
   }
-  /* Ícono de WhatsApp (burbuja con teléfono) para "con pedido" */
   function iconoWA() {
     const ns = "http://www.w3.org/2000/svg", s = document.createElementNS(ns, "svg"), p = document.createElementNS(ns, "path");
     s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("width", "14"); s.setAttribute("height", "14"); s.setAttribute("aria-hidden", "true");
@@ -929,8 +1017,8 @@ const SolicitudesAdmin = (() => {
     const est = estadoDe(d), nom = cortar(d.repartidorNombre || "un repartidor", 30);
     if (est === "nuevo") return el("span", "sa-estado", "Sin atender");
     if (est === "atendido") { const c = el("span", "sa-estado wa"); c.appendChild(iconoWA()); c.appendChild(document.createTextNode(" Con pedido · " + nom)); return c; }
-    if (est === "entregado") return el("span", "sa-estado entregado", "✅ Entregado" + (d.repartidorNombre ? " · " + nom : ""));
-    return el("span", "sa-estado cancelado", "🚫 Cancelado" + (d.motivoCancelacion === "cliente" ? " · lo decidió el cliente" : ""));
+    if (est === "entregado") return el("span", "sa-estado entregado", "✅ Entregado" + (d.repartidorNombre ? " · " + nom : "") + (d.forzadoPorAdmin ? " · forzado" : ""));
+    return el("span", "sa-estado cancelado", "🚫 Cancelado" + (d.motivoCancelacion === "cliente" ? " · lo decidió el cliente" : "") + (d.forzadoPorAdmin ? " · forzado" : ""));
   }
   const estrellas = (n) => "★".repeat(n) + "☆".repeat(5 - n);
   const valoracion = (d) => { const n = Number(d && d.valoracion && d.valoracion.estrellas); return n >= 1 && n <= 5 ? Math.round(n) : 0; };
@@ -941,13 +1029,40 @@ const SolicitudesAdmin = (() => {
     m.className = "sa-msg" + (error ? " error" : "") + (texto ? "" : " oculto");
   }
 
+  /* ---------- FASE 3 · Notificación sonora + toast al recibir una solicitud nueva ---------- */
+  function anunciarNuevas(ids) {
+    if (!ids.length) return;
+    try { if (typeof Voz !== "undefined" && Voz.solicitud) Voz.solicitud(); } catch (_) {}
+    if (typeof toast === "function") {
+      toast("📥 " + (ids.length === 1 ? "Nueva solicitud de cliente pendiente" : ids.length + " solicitudes nuevas pendientes"));
+    }
+  }
+
   /* ---------- Lista en vivo ---------- */
   function iniciar() {
     detener();
+    cargada = false; avisadas.clear();
     consulta = db.ref(RAIZ).limitToLast(100);
     consulta.on("value", (s) => {
+      const antes = lista;
       lista = s.val() || {};
-      [...sel].forEach((id) => { if (!lista[id] || !fin(lista[id])) sel.delete(id); });   // solo se pueden seleccionar finalizados que aún existen
+      // FASE 3: detectar nuevas solicitudes "nuevo" y anunciarlas (voz + toast) una sola vez
+      if (cargada) {
+        const nuevas = [];
+        Object.keys(lista).forEach((k) => {
+          const d = lista[k];
+          if (d && estadoDe(d) === "nuevo" && !avisadas.has(k) && (!antes[k] || estadoDe(antes[k]) !== "nuevo")) {
+            avisadas.add(k);
+            nuevas.push(k);
+          }
+        });
+        if (nuevas.length) anunciarNuevas(nuevas);
+      } else {
+        // primera carga: marcar todas como ya anunciadas (no sonar por lo que ya estaba)
+        Object.keys(lista).forEach((k) => { if (lista[k] && estadoDe(lista[k]) === "nuevo") avisadas.add(k); });
+      }
+      cargada = true;
+      [...sel].forEach((id) => { if (!lista[id] || !fin(lista[id])) sel.delete(id); });
       pintar();
       if (visorId) { cabeceraVisor(); actualizarMapa(false); }
     }, (e) => {
@@ -966,7 +1081,6 @@ const SolicitudesAdmin = (() => {
     pintar();
   }
 
-  /* Repartidores que ahora mismo llevan un pedido */
   function pintarServicio() {
     const c = g("saServicio");
     if (!c) return;
@@ -1031,6 +1145,17 @@ const SolicitudesAdmin = (() => {
       b.type = "button"; b.setAttribute("aria-label", "Leer el chat de " + nombre);
       b.addEventListener("click", () => abrirVisor(k));
       acc.appendChild(b);
+      // FASE 3: si la solicitud está activa (atendida), ofrecer forzar cancelado/entregado desde la lista
+      if (!fin(d) && d.repartidorUid) {
+        const fEnt = el("button", "primario", "✅");
+        fEnt.type = "button"; fEnt.title = "Forzar entregado"; fEnt.setAttribute("aria-label", "Forzar entregado");
+        fEnt.addEventListener("click", () => forzarEstadoSolicitud(k, "entregado"));
+        acc.appendChild(fEnt);
+        const fCanc = el("button", "peligro", "🚫");
+        fCanc.type = "button"; fCanc.title = "Forzar cancelado"; fCanc.setAttribute("aria-label", "Forzar cancelado");
+        fCanc.addEventListener("click", () => forzarEstadoSolicitud(k, "cancelado"));
+        acc.appendChild(fCanc);
+      }
       if (fin(d)) {
         const x = el("button", "peligro", "🗑");
         x.type = "button"; x.setAttribute("aria-label", "Eliminar el chat de " + nombre);
@@ -1042,7 +1167,6 @@ const SolicitudesAdmin = (() => {
     });
   }
 
-  /* Barra de borrado: selección múltiple y borrado por fecha */
   function pintarHerramientas(vis) {
     const finV = vis.filter((k) => fin(lista[k]));
     const selV = finV.filter((k) => sel.has(k));
@@ -1056,12 +1180,12 @@ const SolicitudesAdmin = (() => {
 
   /* ---------- Borrado (solo chats finalizados) ---------- */
   async function borrar(ids) {
-    ids = ids.filter((id) => lista[id] && fin(lista[id]));   // nunca se borra una solicitud en curso
+    ids = ids.filter((id) => lista[id] && fin(lista[id]));
     if (!ids.length) return msg("Solo se pueden eliminar chats entregados o cancelados.", true);
     if (!confirm("¿Eliminar " + (ids.length === 1 ? "este chat" : ids.length + " chats") + " para siempre? Se borran también sus mensajes, fotos y facturas. Esta acción no se puede deshacer.")) return;
     msg("Eliminando…");
     try {
-      for (let i = 0; i < ids.length; i += 40) {   // por lotes: cada actualización atómica lleva 40 chats como máximo
+      for (let i = 0; i < ids.length; i += 40) {
         const upd = {};
         ids.slice(i, i + 40).forEach((id) => { upd[RAIZ + "/" + id] = null; upd[RAIZ_FOTOS + "/" + id] = null; });
         await db.ref().update(upd);
@@ -1075,17 +1199,43 @@ const SolicitudesAdmin = (() => {
     setTimeout(() => msg(""), 4000);
   }
 
+  /* ---------- FASE 3 · Forzar estado (Control manual) ---------- */
+  async function forzarEstadoSolicitud(id, nuevoEstado) {
+    const d = lista[id];
+    if (!d) return msg("No encuentro esa solicitud.", true);
+    if (!["entregado", "cancelado"].includes(nuevoEstado)) return msg("Estado no válido.", true);
+    if (d.estado === nuevoEstado) return msg("La solicitud ya está en ese estado.", true);
+    const esEnt = nuevoEstado === "entregado";
+    if (!confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el chat de " + cortar(d.nombre || "Cliente", 30) + "?\n\nEsto sobrescribe el estado sin importar lo que diga el repartidor o el cliente.")) return;
+    const upd = {
+      [RAIZ + "/" + id + "/estado"]: nuevoEstado,
+      [RAIZ + "/" + id + "/forzadoPorAdmin"]: true,
+      [RAIZ + "/" + id + "/forzadoTs"]: firebase.database.ServerValue.TIMESTAMP
+    };
+    if (esEnt) upd[RAIZ + "/" + id + "/entregadoTs"] = firebase.database.ServerValue.TIMESTAMP;
+    else upd[RAIZ + "/" + id + "/canceladoTs"] = firebase.database.ServerValue.TIMESTAMP;
+    try {
+      await db.ref().update(upd);
+      msg(esEnt ? "✅ Chat forzado a ENTREGADO" : "🚫 Chat forzado a CANCELADO");
+      setTimeout(() => msg(""), 4000);
+    } catch (e) { msg("No se pudo forzar: " + (e.code || e.message), true); }
+  }
+
   /* ---------- Visor de solo lectura ---------- */
   function cabeceraVisor() {
     const d = lista[visorId];
-    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); return; }
+    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); g("saForzarEnt").classList.add("oculto"); g("saForzarCanc").classList.add("oculto"); return; }
     g("saTitulo").textContent = cortar(d.nombre || "Cliente", 40);
     const est = estadoDe(d), v = valoracion(d);
     g("saSub").textContent = est === "nuevo" ? "Sin atender todavía"
       : est === "atendido" ? "Con pedido · " + cortar(d.repartidorNombre || "un repartidor", 30)
-      : est === "entregado" ? "Entregado" + (d.repartidorNombre ? " por " + cortar(d.repartidorNombre, 30) : "") + (v ? " · " + estrellas(v) : " · sin valoración")
-      : "Cancelado" + (d.motivoCancelacion === "cliente" ? " · lo decidió el cliente" : "");
+      : est === "entregado" ? "Entregado" + (d.repartidorNombre ? " por " + cortar(d.repartidorNombre, 30) : "") + (v ? " · " + estrellas(v) : " · sin valoración") + (d.forzadoPorAdmin ? " · forzado" : "")
+      : "Cancelado" + (d.motivoCancelacion === "cliente" ? " · lo decidió el cliente" : "") + (d.forzadoPorAdmin ? " · forzado" : "");
     g("saBorrarUno").classList.toggle("oculto", !fin(d));
+    // FASE 3: forzar solo si la solicitud está activa (atendida)
+    const activa = !fin(d) && !!d.repartidorUid;
+    g("saForzarEnt").classList.toggle("oculto", !activa);
+    g("saForzarCanc").classList.toggle("oculto", !activa);
     const p = d.pedido;
     const r = g("saPedido");
     r.textContent = p && p.quiere ? "🛍️ " + cortar(p.quiere, 160) + " · de " + cortar(p.origen, 80) + " · " + (p.modo === "envia" ? "🎁 lo envía a otra persona" : "🙋 lo recibe él") + " · 📍 " + destinoTexto(p) : "";
@@ -1163,7 +1313,6 @@ const SolicitudesAdmin = (() => {
     return f;
   }
 
-  /* Factura con desglose: productos, mandados extra (los que empiezan con ➕), delivery y total */
   function tarjetaFactura(f) {
     const caja = document.createElement("div");
     const prods = (Array.isArray(f.productos) ? f.productos : []).filter((p) => p && typeof p === "object");
@@ -1223,7 +1372,7 @@ const SolicitudesAdmin = (() => {
     g("saMapaBtn").setAttribute("aria-expanded", String(abrir));
     if (!abrir) return;
     if (!mapa) {
-      mapa = L.map("saMapa", { zoomControl: false }).setView([-12.0464, -77.0428], 13);
+      mapa = L.map("saMapa", { zoomControl: false }).setView([12.5700, -87.1311], 13);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
     }
     setTimeout(() => { mapa.invalidateSize(); encuadrado = false; actualizarMapa(true); }, 80);
@@ -1260,7 +1409,7 @@ const SolicitudesAdmin = (() => {
     botones.forEach((b) => b.addEventListener("click", () => {
       const panel = g(PANEL);
       if (!panel) return;
-      if (b.dataset.tab === PANEL) {   // se muestra solo este panel, aunque admin.js no conozca la pestaña
+      if (b.dataset.tab === PANEL) {
         botones.forEach((x) => {
           x.classList.toggle("activa", x === b);
           const p = x === b ? null : g(x.dataset.tab);
@@ -1287,18 +1436,21 @@ const SolicitudesAdmin = (() => {
     g("saBorrarSel").addEventListener("click", () => borrar([...sel]));
     g("saBorrarFecha").addEventListener("click", () => { if (fecha) borrar(visibles().filter((k) => fin(lista[k]))); });
     g("saBorrarUno").addEventListener("click", () => { if (visorId) borrar([visorId]); });
+    g("saForzarEnt").addEventListener("click", () => { if (visorId) forzarEstadoSolicitud(visorId, "entregado"); });
+    g("saForzarCanc").addEventListener("click", () => { if (visorId) forzarEstadoSolicitud(visorId, "cancelado"); });
     g("saMapaBtn").addEventListener("click", alternarMapa);
     g("saCerrar").addEventListener("click", cerrarVisor);
     g("modalSolicitud").addEventListener("click", (e) => { if (e.target === g("modalSolicitud")) cerrarVisor(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && visorId) cerrarVisor(); });
-    setInterval(() => { if (visorId) actualizarMapa(false); }, 10000);   // refresca "hace X s" aunque no lleguen datos nuevos
+    setInterval(() => { if (visorId) actualizarMapa(false); }, 10000);
   }
 
   if (g(PANEL)) {
     enlazar();
+    if (typeof auth !== "undefined") auth.onAuthStateChange = auth.onAuthStateChange;   // (no-op)
     if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
   }
-  return { iniciar, detener };
+  return { iniciar, detener, forzarEstadoSolicitud };
 })();
 
 
@@ -1315,7 +1467,6 @@ const ActualizacionAdmin = (() => {
   const bd = () => (typeof db !== "undefined" ? db : null);
   const urlSegura = (u) => { try { const x = new URL(String(u || "").trim()); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch (_) { return ""; } };
 
-  /* ---------- Bloqueo ---------- */
   function mostrar(d) {
     const url = urlSegura(d.url), btn = g("btnActualizarApp");
     g("updNovedades").textContent = String(d.novedades || "").trim() || "Mejoras de rendimiento y correcciones.";
@@ -1338,10 +1489,8 @@ const ActualizacionAdmin = (() => {
   function vigilar() {
     const base = bd(); if (ref || !base) return;
     ref = base.ref(BASE + "admin");
-    ref.on("value", (s) => evaluar(s.val()), () => { ref = null; });   // sin permiso todavía (sin sesión): se reintenta al iniciar sesión
+    ref.on("value", (s) => evaluar(s.val()), () => { ref = null; });
   }
-
-  /* ---------- Lanzar actualización (modal del admin) ---------- */
   function lanzar() {
     const base = bd(); if (!base) return;
     modal(`<h2>🚀 Lanzar actualización</h2>
@@ -1385,8 +1534,6 @@ const ActualizacionAdmin = (() => {
       }
     };
   }
-
-  /* ---------- Arranque ---------- */
   const btnLanzar = g("btnLanzarUpd");
   if (btnLanzar) btnLanzar.onclick = lanzar;
   vigilar();
