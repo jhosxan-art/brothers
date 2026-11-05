@@ -27,6 +27,13 @@
         }
       }
     },
+    "fotosPerfil": {
+      "$uid": {
+        ".read": true,
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+        ".validate": "newData.isString() && newData.val().beginsWith('data:image/') && newData.val().length < 400000"
+      }
+    },
     "ubicaciones": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -335,6 +342,14 @@
         },
         "canceladoTs": {
           ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
+          ".validate": "newData.isNumber()"
+        },
+        "forzadoPorAdmin": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isBoolean()"
+        },
+        "forzadoTs": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
           ".validate": "newData.isNumber()"
         },
         "motivoCancelacion": {
