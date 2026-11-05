@@ -309,6 +309,22 @@
           ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid)",
           ".validate": "newData.isNumber()"
         },
+        "llegadaTs": {
+          ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
+          ".validate": "newData.isNumber() && newData.val() <= now"
+        },
+        "llegadaPor": {
+          ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
+          ".validate": "newData.val() === 'gps' || newData.val() === 'manual'"
+        },
+        "llegadaLat": {
+          ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
+          ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+        },
+        "llegadaLng": {
+          ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
+          ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+        },
         "reasignadoTs": {
           ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
           ".validate": "newData.isNumber()"
