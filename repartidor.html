@@ -104,8 +104,11 @@
     #vistaChats .cn-cab button.cn-ico { width: 40px; padding: 0; font-size: 18px; background: #E8F6FE; border-color: #E8F6FE; }
     #vistaChats .cn-resumen { flex: none; padding: 8px 12px; background: #FFF8DB; border-bottom: 1px solid #E8DFA8; font-size: 12.5px; font-weight: 600; color: #5A4A00; overflow-wrap: anywhere; }
     #vistaChats .cn-resumen:empty { display: none; }
-    #vistaChats .cn-acciones { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 10px; background: #fff; border-bottom: 1px solid #E1E6EB; }
-    #vistaChats .cn-acciones button { height: 42px; border-radius: 12px; font-size: 14px; }
+    /* FASE 2: tres botones en una fila (He llegado · Entregado · Cancelar) */
+    #vistaChats .cn-acciones { flex: none; display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; padding: 8px 10px; background: #fff; border-bottom: 1px solid #E1E6EB; }
+    #vistaChats .cn-acciones button { height: 42px; border-radius: 12px; font-size: 13px; padding: 0 10px; }
+    /* Estado "llegada marcada": verde, sin opacidad de botón deshabilitado */
+    #vistaChats .cn-acciones button.llegado { background: #E8F6EE; border-color: #1E9B5A; color: #0E141B; cursor: default; opacity: 1; }
     #vistaChats .cn-comp button.cn-foto { background: #E8F6FE; border-color: #E8F6FE; }
     #vistaChats .cn-sinleer { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; background: #E5322D; color: #fff; font-size: 11px; font-weight: 800; }
     #vistaChats .cn-item button.cn-ver { background: #E5322D; border-color: #E5322D; color: #fff; }
@@ -145,6 +148,9 @@
     #solToast div { min-width: 0; display: grid; gap: 1px; }
     #solToast b { font-size: 13px; color: #3DB8F5; }
     #solToast small { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* FASE 2 · fix del teclado táctil: el body sigue al visualViewport */
+    body.rep { height: var(--vvh, 100dvh); }
+    body.rep > #vistaChats { min-height: 0; }
   </style>
 </head>
 <body class="rep">
@@ -331,7 +337,9 @@
         <button id="cnFacturar" class="primario" type="button">🧾 Facturar</button>
       </div>
       <div id="cnResumen" class="cn-resumen"></div>
+      <!-- FASE 2 · He llegado · Entregado · Cancelar -->
       <div class="cn-acciones">
+        <button id="cnLlegado" class="oscuro" type="button">📍 He llegado</button>
         <button id="cnEntregado" class="primario" type="button">✅ Entregado</button>
         <button id="cnCancelar" class="peligro" type="button">✖ Cancelar</button>
       </div>
