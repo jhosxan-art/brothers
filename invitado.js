@@ -389,5 +389,27 @@
     } catch (err) { alert("No se pudo enviar: " + err.message); $("chatAdmTexto").value = texto; }
   };
 
+  /* ============================================================
+     FASE 2 · Fix del teclado táctil
+     El alto visible (--vvh) sigue a window.visualViewport. invitado.html
+     lo usa en body.pd-invitado para que los chats no queden debajo del teclado.
+     ============================================================ */
+  function ajustarViewportInv() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const r = document.documentElement.style;
+    r.setProperty("--vvh", Math.round(vv.height) + "px");
+    r.setProperty("--vvt", Math.round(vv.offsetTop) + "px");
+    const activo = document.activeElement;
+    if (activo && (activo.tagName === "INPUT" || activo.tagName === "TEXTAREA")) {
+      setTimeout(() => activo.scrollIntoView({ block: "nearest" }), 60);
+    }
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", ajustarViewportInv);
+    window.visualViewport.addEventListener("scroll", ajustarViewportInv);
+    ajustarViewportInv();
+  }
+
   arrancar();
 })();
