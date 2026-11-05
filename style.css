@@ -834,3 +834,36 @@ body.admin .tabs .badge-nav { margin-left: 3px; min-width: 18px; height: 18px; p
 .sa-mapa-info { padding: 7px 12px; background: #fff; font-size: 12.5px; font-weight: 700; color: #0E141B; text-align: left; }
 .sa-pin { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; background: #fff; border: 3px solid #3DB8F5; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .sa-pin.cli { border-color: #E5322D; }
+
+/* ============================================================
+   FASE 3 · Foto de perfil + botones de forzar en admin
+   ============================================================ */
+.modal-rep-caja.foto-modal { display: grid; gap: 10px; justify-items: stretch; max-width: 380px; }
+.foto-preview {
+  width: 160px; height: 160px; margin: 4px auto 6px; border-radius: 50%;
+  background: var(--celeste-suave, #E8F6FE); border: 3px solid var(--celeste, #3DB8F5);
+  background-size: cover; background-position: center;
+  display: grid; place-items: center; text-align: center; font-size: 12px; color: var(--texto2, #5B6672);
+  font-weight: 600; padding: 10px;
+}
+.foto-preview:empty { display: none; }
+.avatar.con-foto { background-color: transparent; }
+.avatar.con-foto svg { display: none; }
+
+/* Botones compactos de forzar dentro de las tarjetas del admin */
+#listaPedidos .mini[data-pa="forzar-ent"],
+#listaPedidos .mini[data-pa="forzar-canc"] { background: #FFF3D6; border-color: #F59E0B; color: #7A4B00; }
+#listaPedidos .mini[data-pa="forzar-ent"]:hover,
+#listaPedidos .mini[data-pa="forzar-canc"]:hover { background: #FFE7A8; }
+
+/* Botones compactos de forzar en la lista del Modo Espectador */
+#saLista .sa-acc { display: flex; gap: 4px; flex: none; }
+#saLista .sa-acc button { width: auto; height: 34px; padding: 0 10px; border-radius: 10px; font-size: 13px; min-width: 0; }
+#saLista .sa-acc button[title="Forzar entregado"] { background: #E8F6EE; border-color: #1E9B5A; color: #0E141B; }
+#saLista .sa-acc button[title="Forzar cancelado"] { background: #FDECEB; border-color: #E5322D; color: #8E1B17; }
+
+/* Botones del modal del visor (forzar) */
+.sa-cab #saForzarEnt,
+.sa-cab #saForzarCanc { width: auto; padding: 0 10px; font-size: 13px; }
+.sa-cab #saForzarEnt { background: #E8F6EE; border-color: #1E9B5A; color: #0E141B; }
+.sa-cab #saForzarCanc { background: #FDECEB; border-color: #E5322D; color: #8E1B17; }
