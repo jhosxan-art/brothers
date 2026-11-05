@@ -17,6 +17,9 @@
    PANTALLA ACTIVA (Pantalla): Screen Wake Lock con reconexión automática al volver a la app.
    FACTURA EN VIVO (FacturaVivo): ícono 🧾 en la cabecera → productos, delivery, prioridad, mandados extra (varios por pedido,
    guardados en pedidos/{token}/extras) y total. El cliente y el administrador lo ven al instante.
+   FASE 2 (Llegada + notificaciones): botón "📍 He llegado" en el chat del cliente + aviso automático por proximidad
+   (≤200 m) que escribe llegadaTs en solicitudes_entrantes/{id} → cliente-app.js dispara Voz.clienteRepartidorCerca.
+   Las notificaciones locales guardan su id por solicitud/token/equipo para poder cancelarlas con notification.close().
    ============================================================ */
 /* Si algo falla al cargar (p. ej. faltan archivos por subir), el motivo aparece escrito bajo el formulario */
 window.addEventListener("error", (e) => {
@@ -855,6 +858,7 @@ const PedidoRep = (() => {
   function abrirChatPedido() {
     if (!chatDisponible()) return;
     const mio = id;
+    cancelarNotif({ token: mio });   /* FASE 2: al abrir el chat del cliente, se limpia la notificación pendiente */
     Chat.iniciar({
       token: mio, yo: "repartidor", pedido: datos.codigo, nombreRepartidor: usuario, avisos: false,
       titulo: () => "Chat con " + ((datos && datos.cliente) || "el cliente"),
@@ -1193,6 +1197,7 @@ function escucharChat(v) {
   v.refChat.once("value", () => { v.chatListo = true; });
 }
 function abrirChat(v) {
+  cancelarNotif({ token: v.token });   /* FASE 2: limpiar la notificación pendiente de este pedido */
   Chat.iniciar({
     token: v.token, yo: "repartidor", pedido: v.pedido, nombreRepartidor: usuario, avisos: false,
     titulo: () => "Chat con " + (v.cliente || "el cliente"),
@@ -1209,6 +1214,7 @@ function pintarBadgeAdmin() {
   const b = $("badgeAdmin"); b.textContent = noLeidosAdmin; b.classList.toggle("oculto", !noLeidosAdmin);
 }
 function abrirChatAdmin() {
+  cancelarNotif({ equipo: "chat" });   /* FASE 2: limpiar la notificación pendiente del chat con Brothers */
   Chat.iniciar({
     token: uidActual, yo: "repartidor", ruta: RUTA_EQUIPO, pedido: "Equipo", nombreRepartidor: usuario, avisos: false,
     titulo: () => "Brothers (administración)", subtitulo: () => usuario || "",
@@ -1534,6 +1540,37 @@ function plug(nombre) {
 }
 let notifLista = false, esperandoPermisos = null;
 
+/* ============================================================
+   FASE 2 · IDs de notificaciones locales (para poder cancelarlas)
+   - Cada notificación se guarda bajo una clave: sol:{id} · tok:{id} · eq · guia
+   - cancelarNotif(extra) llama a LocalNotifications.cancel y removeDeliveredNotifications
+   - Se llama al tocar la notificación, al entrar al chat o al aceptar una solicitud.
+   ============================================================ */
+const CLAVE_NOTIF_IDS = "brothersNotifIds";
+let notifIds = {};
+try { notifIds = JSON.parse(localStorage.getItem(CLAVE_NOTIF_IDS) || "{}"); } catch (_) {}
+const guardarNotifIds = () => { try { localStorage.setItem(CLAVE_NOTIF_IDS, JSON.stringify(notifIds)); } catch (_) {} };
+function claveNotif(extra) {
+  if (!extra) return "";
+  if (extra.solicitud) return "sol:" + extra.solicitud;
+  if (extra.token) return "tok:" + extra.token;
+  if (extra.equipo === "guia") return "guia";
+  if (extra.equipo === "chat") return "eqchat";
+  if (extra.equipo) return "eq";
+  return "";
+}
+function cancelarNotif(extra) {
+  const clave = claveNotif(extra);
+  if (!clave) return;
+  const id = notifIds[clave];
+  if (id == null) return;
+  delete notifIds[clave]; guardarNotifIds();
+  const ln = plug("LocalNotifications");
+  if (!ln) return;
+  try { ln.cancel({ notifications: [{ id }] }).catch(() => {}); } catch (_) {}
+  try { ln.removeDeliveredNotifications && ln.removeDeliveredNotifications({ notifications: [{ id }] }).catch(() => {}); } catch (_) {}
+}
+
 /* Ventana inicial que explica los permisos (ubicación todo el tiempo, notificaciones) y luego los pide */
 function permisosInicio() {
   if (!esNativo()) return Promise.resolve();
@@ -1611,8 +1648,11 @@ function notificarTexto(titulo, cuerpo, resumen, extra) {
   const ln = plug("LocalNotifications");
   if (!ln || !document.hidden) return;   // con la app a la vista basta la voz y la burbuja
   if (pushActivo && extra && extra.equipo) return;   // los avisos de Brothers ya llegan por push: evita la notificación doble
+  const id = Math.floor(Math.random() * 2000000000);
+  const clave = claveNotif(extra);
+  if (clave) { notifIds[clave] = id; guardarNotifIds(); }
   ln.schedule({ notifications: [{
-    id: Math.floor(Math.random() * 2000000000), title: titulo, body: cuerpo, largeBody: cuerpo, summaryText: resumen,
+    id, title: titulo, body: cuerpo, largeBody: cuerpo, summaryText: resumen,
     channelId: "mensajes", actionTypeId: "MENSAJE", extra
   }] }).catch(() => {});
 }
@@ -1622,6 +1662,7 @@ function notificarMensaje(v, m) {
 }
 function alAccionNotificacion(ev) {
   const extra = (ev && ev.notification && ev.notification.extra) || {};
+  cancelarNotif(extra);   /* FASE 2: al tocar la notificación, la quitamos de la barra */
   const texto = ev.inputValue && ev.inputValue.trim();
   if (extra.solicitud) { irA(ChatsEntrantes.activos() ? "chats" : "mapa"); ChatsEntrantes.vistaPrevia(extra.solicitud); return; }   // solicitud o mensaje de un chat de cliente
   if (extra.equipo) {   // aviso de Brothers (mensaje o guía)
@@ -1921,9 +1962,15 @@ function nuevoPedidoAsignado(id, o) {
   hojaOculta = false; aplicarHoja();   // un pedido nuevo siempre se ve
   Voz.hablar("Tienes un nuevo pedido" + (total ? ". Delivery " + total + " córdobas" : ""), { forzar: true });
   navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]);
-  notificarTexto("🛵 Nuevo pedido " + etiquetaPedido(o.codigo, "app"), `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia" });
+  /* FASE 2: token: id permite cancelar esta notificación al abrir el chat con el cliente */
+  notificarTexto("🛵 Nuevo pedido " + etiquetaPedido(o.codigo, "app"), `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia", token: id });
 }
-$("btnNuevoVer").onclick = () => { $("modalNuevoPedido").classList.add("oculto"); irA("mapa"); };
+$("btnNuevoVer").onclick = () => {
+  $("modalNuevoPedido").classList.add("oculto");
+  irA("mapa");
+  /* FASE 2: si el usuario abrió el detalle, también limpiamos la notificación del pedido nuevo */
+  if (PedidoRep.id()) cancelarNotif({ token: PedidoRep.id() });
+};
 $("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
 $("btnNuevoAceptar").onclick = async () => { if (await OrdenAdminRep.responder("aceptado")) { $("modalNuevoPedido").classList.add("oculto"); irA("mapa"); } };
 $("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado")) $("modalNuevoPedido").classList.add("oculto"); };
@@ -1944,13 +1991,16 @@ OrdenAdminRep.init({
      lo consigue y los demás dejan de verlo. Pasa a "con pedido", transmite su GPS en vivo al cliente
      (solicitudes_entrantes/{id}/repartidorGps), puede enviar fotos y ve al cliente en el mapa.
    - Conversación con el cliente + Facturar (factura.js) + Extras (subfactura.js: mandados extra al total).
+   - FASE 2 · "📍 He llegado" (manual) y llegada automática por proximidad (≤200 m): ambos escriben
+     llegadaTs, llegadaPor, llegadaLat, llegadaLng → cliente-app.js dispara Voz.clienteRepartidorCerca.
    - "Entregado": el chat desaparece de esta pantalla y queda el registro de la factura (local, por fecha y
      orden de entrega) con botón para eliminarla.
    - "Cancelar": pide el motivo. "Cliente lo decidió" cierra el pedido; "Pasar a otro repartidor" lo devuelve al
      grupo (estado "nuevo", sin repartidor) CONSERVANDO el historial del chat.
    Esquema: solicitudes_entrantes/{id} { clienteId, nombre, estado: nuevo|atendido|entregado|cancelado,
               pedido{quiere,origen,modo,destino}, clienteGps, repartidorUid, repartidorNombre, repartidorGps,
-              omitidoPor{uid:true}, facturaFinal, subfactura, motivoCancelacion, entregadoTs, ultimoMensaje, ts }
+              omitidoPor{uid:true}, facturaFinal, subfactura, motivoCancelacion, entregadoTs, ultimoMensaje, ts,
+              llegadaTs, llegadaPor: "gps"|"manual", llegadaLat, llegadaLng }
             solicitudes_entrantes/{id}/mensajes/{pushId} { de, tipo: "texto"|"factura"|"foto", texto | factura, ts }
             solicitudes_fotos/{id}/{pushId} = data URL JPEG en Base64 (la foto va aparte para no cargar la lista)
    ============================================================ */
@@ -1958,6 +2008,7 @@ const ChatsEntrantes = (() => {
   const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos";
   const MAX_FOTO = 300000;            // caracteres del data URL (las reglas aceptan < 400 000)
   const CLAVE_REG = "brothersFacturasEntregadas", CLAVE_FAC = "brothersFacChat_";
+  const RADIO_LLEGADA_M = 200;        /* FASE 2: misma distancia que RADIO_AVISO_M del cliente-app.js */
   let consulta = null, lista = {}, abiertoId = null, consultaMsgs = null, previoId = null;
   const vistos = new Set();
   let ultDia = null;
@@ -2141,11 +2192,25 @@ const ChatsEntrantes = (() => {
     }
   }
 
-  /* Lo llama procesarPosicion (máx. 1 vez cada 4 s) y "Atender" (posición inmediata) */
+  /* Lo llama procesarPosicion (máx. 1 vez cada 4 s) y "Atender" (posición inmediata).
+     FASE 2: además, si aún no se marcó llegada y estamos a ≤200 m del cliente, escribe llegadaTs (una sola vez). */
   function publicarGps(p) {
     if (!p || !okLL(p.lat, p.lng) || !uidActual) return;
     Object.keys(lista).forEach((id) => {
-      if (mio(lista[id])) db.ref(RAIZ + "/" + id + "/repartidorGps").set({ lat: p.lat, lng: p.lng, ts: TS }).catch(() => {});
+      if (!mio(lista[id])) return;
+      const d = lista[id];
+      const cambios = { repartidorGps: { lat: p.lat, lng: p.lng, ts: TS } };
+      /* FASE 2 · llegada automática por proximidad (una sola vez por pedido) */
+      if (!d.llegadaTs) {
+        const punto = puntoDe(d);
+        if (punto && distanciaM(p.lat, p.lng, punto.lat, punto.lng) <= RADIO_LLEGADA_M) {
+          cambios.llegadaTs = TS;
+          cambios.llegadaPor = "gps";
+          cambios.llegadaLat = p.lat;
+          cambios.llegadaLng = p.lng;
+        }
+      }
+      db.ref(RAIZ + "/" + id).update(cambios).catch(() => {});
     });
   }
 
@@ -2222,6 +2287,7 @@ const ChatsEntrantes = (() => {
   async function atender(id, btn) {
     if (!uidActual || !usuario) return;
     btn.disabled = true;
+    cancelarNotif({ solicitud: id });   /* FASE 2: al atender, limpiamos la notificación pendiente */
     try {
       const r = await db.ref(RAIZ + "/" + id + "/repartidorUid").transaction((cur) => (cur === null ? uidActual : undefined));
       if (!r.committed || r.snapshot.val() !== uidActual) {
@@ -2247,11 +2313,18 @@ const ChatsEntrantes = (() => {
   function abrir(id) {
     const d = lista[id];
     if (!mio(d)) return;
+    cancelarNotif({ solicitud: id });   /* FASE 2: al entrar al chat, se limpia la notificación pendiente */
     cerrarConversacion();
     abiertoId = id;
     sinLeer[id] = 0;
     actualizarNav();
     aviso("");
+    /* FASE 2 · estado del botón "He llegado" */
+    const btnLleg = $("cnLlegado");
+    if (btnLleg) {
+      if (d.llegadaTs) { btnLleg.textContent = "📍 Llegada marcada"; btnLleg.classList.add("llegado"); btnLleg.disabled = true; }
+      else { btnLleg.textContent = "📍 He llegado"; btnLleg.classList.remove("llegado"); btnLleg.disabled = false; }
+    }
     const p = d.pedido || {};
     $("cnNombre").textContent = String(d.nombre || "Cliente").slice(0, 40);
     $("cnResumen").textContent = p.quiere ? "🛍️ " + cortar(p.quiere, 120) + " · de " + cortar(p.origen, 80) + " · 📍 " + textoDestino(d) : "";
@@ -2578,6 +2651,27 @@ const ChatsEntrantes = (() => {
     return t;
   }
 
+  /* ---------- FASE 2 · Botón "📍 He llegado" (marca llegadaTs manual) ---------- */
+  $("cnLlegado").addEventListener("click", async () => {
+    const id = abiertoId, d = id && lista[id];
+    if (!mio(d)) return;
+    if (d.llegadaTs) return;   // ya marcado
+    const btn = $("cnLlegado");
+    btn.disabled = true;
+    try {
+      const cambios = { llegadaTs: TS, llegadaPor: "manual" };
+      if (ultimaPos) { cambios.llegadaLat = ultimaPos.lat; cambios.llegadaLng = ultimaPos.lng; }
+      await db.ref(RAIZ + "/" + id).update(cambios);
+      btn.textContent = "📍 Llegada marcada";
+      btn.classList.add("llegado");
+      aviso("Llegada marcada ✓ El cliente ya recibió el aviso de cercanía.");
+      setTimeout(() => aviso(""), 4000);
+    } catch (e) {
+      btn.disabled = false;
+      aviso("No se pudo marcar la llegada: " + (e.code || e.message));
+    }
+  });
+
   /* ---------- Entregado ---------- */
   $("cnEntregado").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
@@ -2637,3 +2731,26 @@ const ChatsEntrantes = (() => {
 
   return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia };
 })();
+/* ============================================================
+   FASE 2 · Fix del teclado táctil
+   El alto visible (--vvh) sigue a window.visualViewport. El CSS (body.rep)
+   lo usa para que el compositor del chat y los campos de dirección no queden
+   debajo del teclado virtual.
+   ============================================================ */
+function ajustarViewportRep() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const r = document.documentElement.style;
+  r.setProperty("--vvh", Math.round(vv.height) + "px");
+  r.setProperty("--vvt", Math.round(vv.offsetTop) + "px");
+  const activo = document.activeElement;
+  if (activo && (activo.tagName === "INPUT" || activo.tagName === "TEXTAREA")) {
+    setTimeout(() => activo.scrollIntoView({ block: "nearest" }), 60);
+  }
+  window.scrollTo(0, 0);
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", ajustarViewportRep);
+  window.visualViewport.addEventListener("scroll", ajustarViewportRep);
+  ajustarViewportRep();
+}
