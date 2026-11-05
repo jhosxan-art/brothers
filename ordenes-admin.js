@@ -876,21 +876,29 @@ const PedidosAdmin = (() => {
 
 
 /* ============================================================
-   SOLICITUDES ENTRANTES · auditoría (Fase 3)
-   - Lista en vivo de solicitudes_entrantes (clientes que piden desde cliente-app.html).
-   - Visor SOLO LECTURA: lee la conversación cliente ↔ repartidor y las facturas (tarjetas) en tiempo real.
-     No hay campo de escritura ni ninguna escritura hacia Firebase desde este módulo.
+   SOLICITUDES ENTRANTES · panel del administrador (Fase 3)
+   - Lista en vivo de solicitudes_entrantes con su estado: Sin atender · Con pedido (WhatsApp) · Entregado · Cancelado.
+   - Visor de SOLO LECTURA de la conversación: mensajes, fotos, facturas con el desglose de mandados extra
+     y la valoración del cliente. No hay campo de escritura en las conversaciones.
+   - "Modo espectador": mapa con el GPS del cliente y el del repartidor a la vez, en vivo.
+   - Borrado de chats FINALIZADOS (entregados o cancelados): uno por uno, por fecha o por selección múltiple.
+     Es lo único que escribe este módulo: borra solicitudes_entrantes/{id} y solicitudes_fotos/{id}.
    Usa los globales de admin.js (auth, db). Cuenta propia de pestaña: funciona aunque admin.js no la conozca.
    ============================================================ */
 const SolicitudesAdmin = (() => {
-  const RAIZ = "solicitudes_entrantes", PANEL = "panelSolicitudes";
+  const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos", PANEL = "panelSolicitudes";
   const g = (id) => document.getElementById(id);
-  let consulta = null, lista = {}, filtro = "todos", visorId = null, consultaMsgs = null, ultDia = null;
-  const vistos = new Set();
+  let consulta = null, lista = {}, filtro = "todos", fecha = "", visorId = null, consultaMsgs = null, ultDia = null;
+  let refUbic = null, ubic = {};
+  let mapa = null, marcaCli = null, marcaRep = null, linea = null, encuadrado = false;
+  const vistos = new Set(), sel = new Set();
 
-  const libre = (d) => !d.repartidorUid;
+  const fin = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
+  const estadoDe = (d) => (fin(d) ? d.estado : d.repartidorUid ? "atendido" : "nuevo");
   const dinero = (n) => "C$ " + (Number(n) || 0).toFixed(2);
   const horaDe = (ts) => new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+  const cortar = (s, n) => String(s == null ? "" : s).slice(0, n);
+  const okLL = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180;
   function etiquetaDia(ts) {
     const d = new Date(ts), hoy = new Date();
     const ini = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
@@ -903,6 +911,35 @@ const SolicitudesAdmin = (() => {
     if (texto !== undefined) e.textContent = texto;
     return e;
   }
+  /* Fecha local "YYYY-MM-DD" del pedido (para el filtro por día) */
+  function diaDe(d) {
+    const t = new Date(Number(d && (d.creado || d.ts)) || 0);
+    return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  }
+  /* Ícono de WhatsApp (burbuja con teléfono) para "con pedido" */
+  function iconoWA() {
+    const ns = "http://www.w3.org/2000/svg", s = document.createElementNS(ns, "svg"), p = document.createElementNS(ns, "path");
+    s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("width", "14"); s.setAttribute("height", "14"); s.setAttribute("aria-hidden", "true");
+    p.setAttribute("fill", "currentColor");
+    p.setAttribute("d", "M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.2 14.2c-.2.6-1.2 1.2-1.7 1.2-.4.1-1 .1-1.6-.1-.4-.1-.9-.3-1.5-.6-2.6-1.1-4.3-3.8-4.4-4-.1-.2-1-1.3-1-2.5s.6-1.8.9-2c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.3.4-.4.5c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.1 1 2.1 1.3 2.4 1.5.3.1.5.1.6-.1l.8-1c.2-.2.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.8-.1 1.4z");
+    s.appendChild(p);
+    return s;
+  }
+  function chipEstado(d) {
+    const est = estadoDe(d), nom = cortar(d.repartidorNombre || "un repartidor", 30);
+    if (est === "nuevo") return el("span", "sa-estado", "Sin atender");
+    if (est === "atendido") { const c = el("span", "sa-estado wa"); c.appendChild(iconoWA()); c.appendChild(document.createTextNode(" Con pedido · " + nom)); return c; }
+    if (est === "entregado") return el("span", "sa-estado entregado", "✅ Entregado" + (d.repartidorNombre ? " · " + nom : ""));
+    return el("span", "sa-estado cancelado", "🚫 Cancelado" + (d.motivoCancelacion === "cliente" ? " · lo decidió el cliente" : ""));
+  }
+  const estrellas = (n) => "★".repeat(n) + "☆".repeat(5 - n);
+  const valoracion = (d) => { const n = Number(d && d.valoracion && d.valoracion.estrellas); return n >= 1 && n <= 5 ? Math.round(n) : 0; };
+  function msg(texto, error) {
+    const m = g("saMsg");
+    if (!m) return;
+    m.textContent = texto || "";
+    m.className = "sa-msg" + (error ? " error" : "") + (texto ? "" : " oculto");
+  }
 
   /* ---------- Lista en vivo ---------- */
   function iniciar() {
@@ -910,69 +947,162 @@ const SolicitudesAdmin = (() => {
     consulta = db.ref(RAIZ).limitToLast(100);
     consulta.on("value", (s) => {
       lista = s.val() || {};
+      [...sel].forEach((id) => { if (!lista[id] || !fin(lista[id])) sel.delete(id); });   // solo se pueden seleccionar finalizados que aún existen
       pintar();
-      if (visorId) cabeceraVisor();
+      if (visorId) { cabeceraVisor(); actualizarMapa(false); }
     }, (e) => {
       lista = {};
       pintar(e && e.code === "PERMISSION_DENIED" ? "Sin permiso para leer “solicitudes_entrantes”. Revisa las reglas de Firebase." : "No se pudieron cargar las solicitudes.");
     });
+    refUbic = db.ref("ubicaciones");
+    refUbic.on("value", (s) => { ubic = s.val() || {}; pintarServicio(); }, () => { ubic = {}; pintarServicio(); });
   }
 
   function detener() {
     if (consulta) { consulta.off(); consulta = null; }
+    if (refUbic) { refUbic.off(); refUbic = null; }
     cerrarVisor();
-    lista = {};
+    lista = {}; ubic = {}; sel.clear();
     pintar();
+  }
+
+  /* Repartidores que ahora mismo llevan un pedido */
+  function pintarServicio() {
+    const c = g("saServicio");
+    if (!c) return;
+    c.textContent = "";
+    const ids = Object.keys(ubic).filter((u) => ubic[u] && ubic[u].conPedido === true && ubic[u].enLinea !== false);
+    ids.forEach((u) => { const x = el("span", "sa-estado wa"); x.appendChild(iconoWA()); x.appendChild(document.createTextNode(" " + cortar(ubic[u].usuario || "Repartidor", 24) + " · con pedido")); c.appendChild(x); });
+    c.classList.toggle("oculto", !ids.length);
+  }
+
+  function visibles() {
+    return Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object")
+      .filter((k) => {
+        const e = estadoDe(lista[k]);
+        if (filtro === "nuevo" && e !== "nuevo") return false;
+        if (filtro === "atendido" && e !== "atendido") return false;
+        if (filtro === "finalizado" && !fin(lista[k])) return false;
+        return !fecha || diaDe(lista[k]) === fecha;
+      })
+      .sort((a, b) => (Number(lista[b].ts) || 0) - (Number(lista[a].ts) || 0));
   }
 
   function pintar(error) {
     const caja = g("saLista");
     if (!caja) return;
     caja.textContent = "";
-    const ids = Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object")
-      .sort((a, b) => (Number(lista[b].ts) || 0) - (Number(lista[a].ts) || 0));
-    const sinAtender = ids.filter((k) => libre(lista[k])).length;
+    const todas = Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object");
+    const sinAtender = todas.filter((k) => estadoDe(lista[k]) === "nuevo").length;
     const badge = g("saBadge");
     if (badge) { badge.textContent = String(sinAtender); badge.classList.toggle("oculto", !sinAtender); }
-    if (error) { caja.appendChild(el("div", "sa-vacio", error)); return; }
+    const vals = todas.map((k) => valoracion(lista[k])).filter(Boolean);
+    g("saResumen").textContent = vals.length ? "⭐ " + (vals.reduce((t, n) => t + n, 0) / vals.length).toFixed(1) + " de promedio · " + vals.length + " valoración" + (vals.length > 1 ? "es" : "") : "";
+    if (error) { caja.appendChild(el("div", "sa-vacio", error)); pintarHerramientas([]); return; }
 
-    const vis = ids.filter((k) => filtro === "todos" || (filtro === "nuevo" ? libre(lista[k]) : !libre(lista[k])));
+    const vis = visibles();
+    pintarHerramientas(vis);
     if (!vis.length) {
-      caja.appendChild(el("div", "sa-vacio", filtro === "todos" ? "Todavía no hay solicitudes. Aparecerán aquí en cuanto un cliente abra su chat." : "No hay solicitudes en este filtro."));
+      caja.appendChild(el("div", "sa-vacio", !todas.length ? "Todavía no hay solicitudes. Aparecerán aquí en cuanto un cliente haga un pedido." : "No hay solicitudes con este filtro."));
       return;
     }
     vis.forEach((k) => {
-      const d = lista[k], sin = libre(d);
-      const f = el("div", "sa-item" + (sin ? " nuevo" : ""));
-      const nombre = String(d.nombre || "Cliente").slice(0, 40);
+      const d = lista[k], est = estadoDe(d), p = d.pedido || {};
+      const f = el("div", "sa-item" + (est === "nuevo" ? " nuevo" : est === "atendido" ? " activo" : ""));
+      if (fin(d)) {
+        const c = el("input", "sa-chk");
+        c.type = "checkbox"; c.checked = sel.has(k);
+        c.setAttribute("aria-label", "Seleccionar el chat de " + cortar(d.nombre || "Cliente", 30));
+        c.addEventListener("change", () => { if (c.checked) sel.add(k); else sel.delete(k); pintarHerramientas(visibles()); });
+        f.appendChild(c);
+      }
+      const nombre = cortar(d.nombre || "Cliente", 40);
       f.appendChild(el("span", "sa-av", nombre.charAt(0).toUpperCase()));
       const dat = el("div", "sa-dat");
       dat.appendChild(el("strong", "", nombre));
-      dat.appendChild(el("span", "sa-estado" + (sin ? "" : " atendido"), sin ? "Sin atender" : "Atendido por " + String(d.repartidorNombre || "un repartidor").slice(0, 30)));
+      dat.appendChild(chipEstado(d));
+      if (p.quiere) dat.appendChild(el("small", "", "🛍️ " + cortar(p.quiere, 70) + (p.origen ? " · de " + cortar(p.origen, 40) : "")));
       const ult = d.ultimoMensaje ? (d.ultimoDe === "cliente" ? "Cliente: " : d.ultimoDe === "repartidor" ? "Repartidor: " : "") + String(d.ultimoMensaje) : "Sin mensajes todavía";
       dat.appendChild(el("small", "", ult + (d.ts ? " · " + horaDe(d.ts) : "")));
+      if (valoracion(d)) dat.appendChild(el("small", "sa-estrellas", estrellas(valoracion(d))));
       f.appendChild(dat);
+      const acc = el("div", "sa-acc");
       const b = el("button", "oscuro", "👁 Ver");
-      b.type = "button";
-      b.setAttribute("aria-label", "Leer el chat de " + nombre);
+      b.type = "button"; b.setAttribute("aria-label", "Leer el chat de " + nombre);
       b.addEventListener("click", () => abrirVisor(k));
-      f.appendChild(b);
+      acc.appendChild(b);
+      if (fin(d)) {
+        const x = el("button", "peligro", "🗑");
+        x.type = "button"; x.setAttribute("aria-label", "Eliminar el chat de " + nombre);
+        x.addEventListener("click", () => borrar([k]));
+        acc.appendChild(x);
+      }
+      f.appendChild(acc);
       caja.appendChild(f);
     });
+  }
+
+  /* Barra de borrado: selección múltiple y borrado por fecha */
+  function pintarHerramientas(vis) {
+    const finV = vis.filter((k) => fin(lista[k]));
+    const selV = finV.filter((k) => sel.has(k));
+    g("saSelTodas").checked = !!finV.length && selV.length === finV.length;
+    g("saSelTodas").disabled = !finV.length;
+    g("saBorrarSel").disabled = !sel.size;
+    g("saBorrarSel").textContent = "🗑 Eliminar seleccionadas (" + sel.size + ")";
+    g("saBorrarFecha").disabled = !fecha || !finV.length;
+    g("saBorrarFecha").textContent = fecha ? "🗑 Eliminar finalizadas del " + fecha.split("-").reverse().join("/") + " (" + finV.length + ")" : "🗑 Elige una fecha para borrar por día";
+  }
+
+  /* ---------- Borrado (solo chats finalizados) ---------- */
+  async function borrar(ids) {
+    ids = ids.filter((id) => lista[id] && fin(lista[id]));   // nunca se borra una solicitud en curso
+    if (!ids.length) return msg("Solo se pueden eliminar chats entregados o cancelados.", true);
+    if (!confirm("¿Eliminar " + (ids.length === 1 ? "este chat" : ids.length + " chats") + " para siempre? Se borran también sus mensajes, fotos y facturas. Esta acción no se puede deshacer.")) return;
+    msg("Eliminando…");
+    try {
+      for (let i = 0; i < ids.length; i += 40) {   // por lotes: cada actualización atómica lleva 40 chats como máximo
+        const upd = {};
+        ids.slice(i, i + 40).forEach((id) => { upd[RAIZ + "/" + id] = null; upd[RAIZ_FOTOS + "/" + id] = null; });
+        await db.ref().update(upd);
+      }
+    } catch (e) {
+      return msg("No se pudo eliminar: " + (e.code || e.message) + (e.code === "PERMISSION_DENIED" ? " (revisa las reglas de Firebase)" : ""), true);
+    }
+    ids.forEach((id) => { sel.delete(id); delete lista[id]; if (id === visorId) cerrarVisor(); });
+    msg(ids.length === 1 ? "Chat eliminado." : ids.length + " chats eliminados.");
+    pintar();
+    setTimeout(() => msg(""), 4000);
   }
 
   /* ---------- Visor de solo lectura ---------- */
   function cabeceraVisor() {
     const d = lista[visorId];
-    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; return; }
-    g("saTitulo").textContent = String(d.nombre || "Cliente").slice(0, 40);
-    g("saSub").textContent = libre(d) ? "Sin atender todavía" : "Atendido por " + String(d.repartidorNombre || "un repartidor").slice(0, 30);
+    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); return; }
+    g("saTitulo").textContent = cortar(d.nombre || "Cliente", 40);
+    const est = estadoDe(d), v = valoracion(d);
+    g("saSub").textContent = est === "nuevo" ? "Sin atender todavía"
+      : est === "atendido" ? "Con pedido · " + cortar(d.repartidorNombre || "un repartidor", 30)
+      : est === "entregado" ? "Entregado" + (d.repartidorNombre ? " por " + cortar(d.repartidorNombre, 30) : "") + (v ? " · " + estrellas(v) : " · sin valoración")
+      : "Cancelado" + (d.motivoCancelacion === "cliente" ? " · lo decidió el cliente" : "");
+    g("saBorrarUno").classList.toggle("oculto", !fin(d));
+    const p = d.pedido;
+    const r = g("saPedido");
+    r.textContent = p && p.quiere ? "🛍️ " + cortar(p.quiere, 160) + " · de " + cortar(p.origen, 80) + " · " + (p.modo === "envia" ? "🎁 lo envía a otra persona" : "🙋 lo recibe él") + " · 📍 " + destinoTexto(p) : "";
+    r.classList.toggle("oculto", !r.textContent);
+  }
+  function destinoTexto(p) {
+    const x = p && p.destino;
+    if (!x) return "sin dato";
+    return x.tipo === "gps" ? "GPS en vivo" : x.tipo === "pin" ? "pin en el mapa" : cortar(x.texto || "dirección", 120);
   }
 
   function abrirVisor(id) {
     cerrarVisor();
     visorId = id; ultDia = null; vistos.clear();
     g("saMsgs").textContent = "";
+    g("saMapaCaja").classList.add("oculto");
+    g("saMapaBtn").setAttribute("aria-expanded", "false");
     cabeceraVisor();
     g("modalSolicitud").classList.remove("oculto");
     consultaMsgs = db.ref(RAIZ + "/" + id + "/mensajes").limitToLast(300);
@@ -980,28 +1110,44 @@ const SolicitudesAdmin = (() => {
       if (vistos.has(s.key)) return;
       vistos.add(s.key);
       const m = s.val();
-      if (m && typeof m === "object") pintarMensaje(m);
+      if (m && typeof m === "object") pintarMensaje(m, s.key);
     }, (e) => { g("saSub").textContent = "No se pudieron leer los mensajes: " + (e.code || e.message); });
   }
 
   function cerrarVisor() {
     if (consultaMsgs) { consultaMsgs.off(); consultaMsgs = null; }
     visorId = null;
+    quitarMarcas();
     const m = g("modalSolicitud");
     if (m) m.classList.add("oculto");
   }
 
-  function pintarMensaje(m) {
+  function cargarFoto(id, clave, img, listo) {
+    db.ref(RAIZ_FOTOS + "/" + id + "/" + clave).once("value").then((s) => {
+      const v = s.val();
+      if (typeof v === "string" && v.indexOf("data:image/") === 0) { img.addEventListener("load", listo, { once: true }); img.src = v; }
+      else img.alt = "Foto no disponible";
+    }).catch(() => { img.alt = "No se pudo cargar la foto"; });
+  }
+
+  function pintarMensaje(m, clave) {
     const c = g("saMsgs"), ts = Number(m.ts) || Date.now(), rep = m.de === "repartidor";
     const pegado = c.scrollHeight - c.scrollTop - c.clientHeight < 80;
     const dia = new Date(ts).toDateString();
     if (dia !== ultDia) { ultDia = dia; c.appendChild(el("div", "sa-dia", etiquetaDia(ts))); }
     const d = lista[visorId] || {};
     const b = el("div", "sa-b" + (rep ? " rep" : ""));
-    b.appendChild(el("div", "sa-quien", rep ? String(d.repartidorNombre || "Repartidor") : String(d.nombre || "Cliente")));
+    b.appendChild(el("div", "sa-quien", rep ? cortar(d.repartidorNombre || "Repartidor", 40) : cortar(d.nombre || "Cliente", 40)));
     if (m.tipo === "factura" && m.factura && typeof m.factura === "object") {
       b.classList.add("fac");
       b.appendChild(tarjetaFactura(m.factura));
+    } else if (m.tipo === "foto") {
+      b.classList.add("foto");
+      const img = document.createElement("img");
+      img.alt = "Cargando foto…";
+      b.appendChild(img);
+      const id = visorId;
+      cargarFoto(id, clave, img, () => { if (pegado) c.scrollTop = c.scrollHeight; });
     } else {
       b.appendChild(el("p", "", String(m.texto || "")));
     }
@@ -1017,23 +1163,31 @@ const SolicitudesAdmin = (() => {
     return f;
   }
 
+  /* Factura con desglose: productos, mandados extra (los que empiezan con ➕), delivery y total */
   function tarjetaFactura(f) {
     const caja = document.createElement("div");
+    const prods = (Array.isArray(f.productos) ? f.productos : []).filter((p) => p && typeof p === "object");
+    const extras = prods.filter((p) => String(p.nombre || "").indexOf("➕") === 0), normales = prods.filter((p) => extras.indexOf(p) < 0);
     const cab = el("div", "sa-fcab");
     cab.appendChild(el("strong", "", "🏍️ Brother’s Delivery"));
-    cab.appendChild(el("span", "", "Factura"));
+    cab.appendChild(el("span", "", extras.length ? "Factura actualizada" : "Factura"));
     caja.appendChild(cab);
     const cue = el("div", "sa-fcue");
     if (f.cliente) cue.appendChild(el("div", "sa-fmeta", "Cliente: " + String(f.cliente)));
     if (f.deposito) cue.appendChild(el("div", "sa-fmeta", "Depósito: sí"));
     const lis = el("div", "sa-flis");
-    (Array.isArray(f.productos) ? f.productos : []).forEach((p) => {
-      if (p && typeof p === "object") lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio)));
-    });
+    normales.forEach((p) => lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio))));
     cue.appendChild(lis);
+    if (extras.length) {
+      const ex = el("div", "sa-extras");
+      ex.appendChild(el("div", "sa-extras-tit", "➕ Mandados extra"));
+      extras.forEach((p) => ex.appendChild(filaF(String(p.nombre).replace(/^➕\s*/, "") || "Extra", dinero(p.precio))));
+      ex.appendChild(filaF("Suma de extras", dinero(extras.reduce((t, p) => t + (Number(p.precio) || 0), 0)), "sub"));
+      cue.appendChild(ex);
+    }
     const tot = el("div", "sa-ftot");
     tot.appendChild(filaF("Subtotal", dinero(f.subtotal)));
-    tot.appendChild(filaF(Number(f.mandadoExtra) > 0 ? "Delivery (con mandado extra)" : "Delivery", dinero(f.delivery)));
+    tot.appendChild(filaF(Number(f.mandadoExtra) > 0 ? "Delivery (incluye mandado extra " + dinero(f.mandadoExtra) + ")" : "Delivery", dinero(f.delivery)));
     if (Number(f.prioridad) > 0) tot.appendChild(filaF("⚡ Prioridad", dinero(f.prioridad)));
     tot.appendChild(filaF("Total", dinero(f.totalFinal != null ? f.totalFinal : f.total), "total"));
     cue.appendChild(tot);
@@ -1045,6 +1199,59 @@ const SolicitudesAdmin = (() => {
     }
     caja.appendChild(cue);
     return caja;
+  }
+
+  /* ---------- Modo espectador: GPS del cliente y del repartidor a la vez ---------- */
+  const iconoPin = (clase, emoji) => L.divIcon({ className: "", html: '<div class="sa-pin ' + clase + '">' + emoji + "</div>", iconSize: [36, 36], iconAnchor: [18, 18] });
+  function distanciaM(a, b) {
+    const R = 6371000, rad = Math.PI / 180, dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  function hace(ts) {
+    const s = Math.max(0, Math.round((Date.now() - Number(ts)) / 1000));
+    return s < 60 ? "hace " + s + " s" : s < 3600 ? "hace " + Math.round(s / 60) + " min" : "hace " + Math.round(s / 3600) + " h";
+  }
+  function quitarMarcas() {
+    if (mapa) { [marcaCli, marcaRep, linea].forEach((x) => { if (x) mapa.removeLayer(x); }); }
+    marcaCli = marcaRep = linea = null; encuadrado = false;
+  }
+  function alternarMapa() {
+    if (typeof L === "undefined") return msg("No se pudo cargar el mapa (Leaflet).", true);
+    const caja = g("saMapaCaja"), abrir = caja.classList.contains("oculto");
+    caja.classList.toggle("oculto", !abrir);
+    g("saMapaBtn").setAttribute("aria-expanded", String(abrir));
+    if (!abrir) return;
+    if (!mapa) {
+      mapa = L.map("saMapa", { zoomControl: false }).setView([-12.0464, -77.0428], 13);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
+    }
+    setTimeout(() => { mapa.invalidateSize(); encuadrado = false; actualizarMapa(true); }, 80);
+  }
+  function actualizarMapa(forzar) {
+    if (!mapa || !visorId || g("saMapaCaja").classList.contains("oculto")) return;
+    const d = lista[visorId] || {}, cg = d.clienteGps, rg = d.repartidorGps, dest = d.pedido && d.pedido.destino;
+    let cli = null, vivoCli = false;
+    if (cg && okLL(cg.lat, cg.lng)) { cli = { lat: cg.lat, lng: cg.lng }; vivoCli = true; }
+    else if (dest && okLL(dest.lat, dest.lng)) cli = { lat: dest.lat, lng: dest.lng };
+    const rep = rg && okLL(rg.lat, rg.lng) ? { lat: rg.lat, lng: rg.lng } : null;
+    const poner = (marca, p, icono) => { if (!p) { if (marca) mapa.removeLayer(marca); return null; } if (!marca) return L.marker([p.lat, p.lng], { icon: icono, interactive: false }).addTo(mapa); marca.setLatLng([p.lat, p.lng]); return marca; };
+    marcaCli = poner(marcaCli, cli, iconoPin("cli", d.pedido && d.pedido.modo === "envia" ? "🏠" : "👤"));
+    marcaRep = poner(marcaRep, rep, iconoPin("rep", "🛵"));
+    if (cli && rep) {
+      if (!linea) linea = L.polyline([[cli.lat, cli.lng], [rep.lat, rep.lng]], { color: "#0A86C9", weight: 3, dashArray: "6 8" }).addTo(mapa);
+      else linea.setLatLngs([[cli.lat, cli.lng], [rep.lat, rep.lng]]);
+    } else if (linea) { mapa.removeLayer(linea); linea = null; }
+    const partes = [];
+    partes.push(cli ? "👤 Cliente " + (vivoCli ? "en vivo (" + hace(cg.ts) + ")" : "· punto del pedido") : "👤 Cliente sin ubicación");
+    partes.push(rep ? "🛵 Repartidor (" + hace(rg.ts) + ")" : "🛵 Repartidor sin señal");
+    if (cli && rep) { const m = distanciaM(cli, rep); partes.push("📏 " + (m < 1000 ? Math.round(m) + " m" : (m / 1000).toFixed(1) + " km")); }
+    g("saMapaInfo").textContent = partes.join(" · ");
+    if (forzar || !encuadrado) {
+      const pts = [cli, rep].filter(Boolean).map((p) => [p.lat, p.lng]);
+      if (pts.length === 2) { mapa.fitBounds(pts, { padding: [40, 40], maxZoom: 17 }); encuadrado = true; }
+      else if (pts.length === 1) mapa.setView(pts[0], 16);
+    }
   }
 
   /* ---------- Pestaña, filtros y cierre del visor ---------- */
@@ -1070,9 +1277,21 @@ const SolicitudesAdmin = (() => {
       g("saFiltros").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
       pintar();
     });
+    g("saFecha").addEventListener("change", () => { fecha = g("saFecha").value || ""; pintar(); });
+    g("saFechaLimpiar").addEventListener("click", () => { fecha = ""; g("saFecha").value = ""; pintar(); });
+    g("saSelTodas").addEventListener("change", () => {
+      const finV = visibles().filter((k) => fin(lista[k]));
+      finV.forEach((k) => { if (g("saSelTodas").checked) sel.add(k); else sel.delete(k); });
+      pintar();
+    });
+    g("saBorrarSel").addEventListener("click", () => borrar([...sel]));
+    g("saBorrarFecha").addEventListener("click", () => { if (fecha) borrar(visibles().filter((k) => fin(lista[k]))); });
+    g("saBorrarUno").addEventListener("click", () => { if (visorId) borrar([visorId]); });
+    g("saMapaBtn").addEventListener("click", alternarMapa);
     g("saCerrar").addEventListener("click", cerrarVisor);
     g("modalSolicitud").addEventListener("click", (e) => { if (e.target === g("modalSolicitud")) cerrarVisor(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && visorId) cerrarVisor(); });
+    setInterval(() => { if (visorId) actualizarMapa(false); }, 10000);   // refresca "hace X s" aunque no lleguen datos nuevos
   }
 
   if (g(PANEL)) {

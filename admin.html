@@ -205,12 +205,26 @@
 
     <section id="panelSolicitudes" class="oculto">
       <h2>Solicitudes entrantes</h2>
-      <p class="ayuda">Chats de clientes que piden por la app. Aquí solo puedes mirar: lee la conversación con el repartidor y las facturas en tiempo real.</p>
+      <p class="ayuda">Chats de clientes que piden por la app. Las conversaciones son de solo lectura: ves mensajes, fotos, facturas con sus mandados extra, valoraciones y el GPS de cliente y repartidor. Solo puedes eliminar los chats ya finalizados.</p>
+      <div id="saResumen" class="sa-resumen"></div>
+      <div id="saServicio" class="sa-servicio oculto" aria-label="Repartidores con pedido"></div>
       <div class="sa-filtros" id="saFiltros">
         <button class="on" type="button" data-f="todos">Todos</button>
         <button type="button" data-f="nuevo">Sin atender</button>
-        <button type="button" data-f="atendido">Atendidos</button>
+        <button type="button" data-f="atendido">Con pedido</button>
+        <button type="button" data-f="finalizado">Finalizados</button>
       </div>
+      <div class="sa-herr">
+        <div class="sa-fecha-fila">
+          <label class="sa-fecha" for="saFecha">📅 Fecha del pedido</label>
+          <input id="saFecha" type="date" aria-label="Filtrar por fecha">
+          <button id="saFechaLimpiar" type="button">Quitar</button>
+        </div>
+        <label class="sa-selall" for="saSelTodas"><input id="saSelTodas" type="checkbox" disabled> Seleccionar los finalizados que se ven</label>
+        <button id="saBorrarSel" class="peligro" type="button" disabled>🗑 Eliminar seleccionadas (0)</button>
+        <button id="saBorrarFecha" class="peligro" type="button" disabled>🗑 Elige una fecha para borrar por día</button>
+      </div>
+      <div id="saMsg" class="sa-msg oculto" role="status"></div>
       <div id="saLista" class="acciones"></div>
     </section>
 
@@ -218,7 +232,14 @@
       <div class="modal-rep-caja sa-caja">
         <div class="sa-cab">
           <div><strong id="saTitulo">Cliente</strong><small id="saSub"></small></div>
+          <button id="saMapaBtn" class="primario" type="button" aria-expanded="false" aria-controls="saMapaCaja">🗺️ Espectador</button>
+          <button id="saBorrarUno" class="peligro oculto" type="button">🗑</button>
           <button id="saCerrar" class="oscuro" type="button">Cerrar</button>
+        </div>
+        <div id="saPedido" class="sa-pedido oculto"></div>
+        <div id="saMapaCaja" class="sa-mapa-caja oculto">
+          <div id="saMapa" aria-label="Mapa en modo espectador: cliente y repartidor"></div>
+          <div id="saMapaInfo" class="sa-mapa-info" role="status"></div>
         </div>
         <div id="saMsgs" class="sa-msgs" role="log" aria-live="polite"></div>
         <div class="sa-pie">👁 Modo lectura: no puedes escribir en esta conversación</div>

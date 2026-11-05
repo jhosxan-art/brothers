@@ -16,7 +16,9 @@ const Voz = (() => {
     cerca: "El repartidor está cerca",
     // Prioridad: el cliente pagó 10 C$ extra para que su pedido salga primero
     prioridadCliente: (id) => "El cliente de la factura " + String(id == null || id === "" ? "sin número" : id).split("").join(" ") + " quiere priorizar su pedido",
-    prueba: "Alertas de voz activadas"
+    prueba: "Alertas de voz activadas",
+    // Llega una solicitud nueva desde cliente-app.html (o una que otro repartidor pasó al grupo)
+    solicitudPedido: "Hay una solicitud de pedido"
   };
   const soporta = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
   let desbloqueada = false, audio = null, vozEs = null, gen = 0, pendiente = null;   // gen: cancela repeticiones pendientes
@@ -118,5 +120,11 @@ const Voz = (() => {
   /* Alerta de prioridad (se repite 2 veces para que se oiga aunque el repartidor esté manejando) */
   const prioridad = (id) => hablar(FRASES.prioridadCliente(id), { forzar: true, repetir: 2, pausaMs: 2000 });
 
-  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad };
+  /* Solicitud de pedido: vibra y lo dice 2 veces para que se oiga aunque el repartidor esté manejando */
+  const solicitud = () => {
+    try { if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]); } catch (_) {}
+    hablar(FRASES.solicitudPedido, { forzar: true, repetir: 2, pausaMs: 2000 });
+  };
+
+  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad, solicitud };
 })();

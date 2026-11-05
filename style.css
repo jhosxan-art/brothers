@@ -778,3 +778,59 @@ body.admin .tabs .badge-nav { margin-left: 3px; min-width: 18px; height: 18px; p
 .aud-fac time { display: block; text-align: right; padding: 0 12px 8px; font-size: 10.5px; font-weight: 700; color: var(--texto2); }
 .aud-pie { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--linea); font-size: 12px; font-weight: 600; color: var(--texto2); text-align: center; }
 @media (min-width: 900px) { .aud-visor { background: rgba(14,20,27,.35); } }
+
+
+/* ---------- Administrador · Solicitudes entrantes (Fase 3): estados, borrado, modo espectador ---------- */
+/* Ventana del visor en columna flexible: lo que está oculto no deja huecos y nada se solapa */
+#modalSolicitud .modal-rep-caja.sa-caja { display: flex; flex-direction: column; }
+#modalSolicitud .sa-caja .sa-cab, #modalSolicitud .sa-caja .sa-pedido, #modalSolicitud .sa-caja .sa-mapa-caja, #modalSolicitud .sa-caja .sa-pie { flex: none; }
+#modalSolicitud .sa-caja .sa-msgs { flex: 1; min-height: 0; }
+/* BUGFIX: sin esto la factura (overflow:hidden) se encogía y el mensaje siguiente quedaba encima */
+.sa-msgs > * { flex-shrink: 0; }
+.sa-b.fac { margin: 4px 0; }
+.sa-b.foto { padding: 4px 4px 5px; }
+.sa-b.foto img { display: block; width: 220px; max-width: 100%; min-height: 80px; height: auto; border-radius: 10px; background: var(--gris); }
+.sa-b.foto .sa-quien, .sa-b.foto .sa-h { padding: 0 6px; }
+.sa-cab button.primario, .sa-cab button.peligro { width: auto; height: 38px; padding: 0 12px; border-radius: 12px; font-size: 13px; flex: none; }
+.sa-cab button.oculto { display: none !important; }
+.sa-pedido { padding: 8px 12px; background: #FFF8DB; border-bottom: 1px solid #E8DFA8; font-size: 12.5px; font-weight: 600; color: #5A4A00; overflow-wrap: anywhere; text-align: left; }
+.sa-pedido.oculto, .sa-mapa-caja.oculto { display: none !important; }
+
+/* Estados y valoración */
+.sa-resumen { font-size: 14px; font-weight: 800; color: #8A5A00; }
+.sa-resumen:empty { display: none; }
+.sa-servicio { display: flex; flex-wrap: wrap; gap: 6px; }
+.sa-servicio.oculto { display: none !important; }
+.sa-estado { display: inline-flex; align-items: center; gap: 4px; }
+.sa-estado.wa { background: #25D366; color: #0E141B; }
+.sa-estado.entregado { background: #E8F6EE; color: #17794A; }
+.sa-estado.cancelado { background: #FDECEB; color: #8E1B17; }
+.sa-item.activo { border-color: #25D366; box-shadow: inset 4px 0 0 #25D366; }
+.sa-estrellas { color: #E0A100 !important; font-size: 14px !important; letter-spacing: 2px; }
+.sa-acc { display: flex; gap: 6px; flex: none; }
+.sa-acc button { width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 13px; }
+
+/* Borrado: selección múltiple y por fecha */
+.sa-herr { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
+.sa-fecha-fila { display: flex; align-items: center; gap: 8px; }
+.sa-fecha { display: block; flex: none; font-size: 13px; font-weight: 800; }
+.sa-fecha-fila input[type="date"] { flex: 1; min-width: 0; height: 40px; border-radius: 12px; }
+.sa-fecha-fila button { flex: none; width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 13px; }
+.sa-selall { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
+.sa-selall input[type="checkbox"], .sa-item .sa-chk { flex: none; width: 24px; height: 24px; padding: 0; border-radius: 6px; accent-color: #E5322D; }
+.sa-herr button { height: 42px; border-radius: 12px; font-size: 13.5px; }
+.sa-msg { padding: 10px 12px; border-radius: 12px; background: #E8F6FE; font-size: 13px; font-weight: 700; }
+.sa-msg.error { background: #FDECEB; color: #8E1B17; }
+.sa-msg.oculto { display: none !important; }
+
+/* Desglose de mandados extra dentro de la factura */
+.sa-extras { display: grid; gap: 4px; padding: 8px 10px; border-radius: 10px; background: #FFF4E5; border: 1px solid #F5C77A; }
+.sa-extras-tit { font-size: 12px; font-weight: 800; color: #7C3A00; }
+.sa-ffil.sub { font-weight: 800; padding-top: 4px; border-top: 1px dashed #F5C77A; }
+
+/* Modo espectador: mapa con cliente y repartidor */
+.sa-mapa-caja { position: relative; border-bottom: 1px solid #E1E6EB; background: #E8F6FE; }
+#saMapa { height: 220px; isolation: isolate; }
+.sa-mapa-info { padding: 7px 12px; background: #fff; font-size: 12.5px; font-weight: 700; color: #0E141B; text-align: left; }
+.sa-pin { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; background: #fff; border: 3px solid #3DB8F5; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.sa-pin.cli { border-color: #E5322D; }

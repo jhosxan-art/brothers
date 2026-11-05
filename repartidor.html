@@ -94,13 +94,64 @@
     #vistaChats .cn-comp { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #fff; border-top: 1px solid #E1E6EB; }
     #vistaChats .cn-comp input { flex: 1; min-width: 0; height: 44px; border-radius: 22px; padding: 0 16px; }
     #vistaChats .cn-comp button { width: 44px; height: 44px; padding: 0; border-radius: 50%; flex: none; font-size: 18px; }
+    /* ---- FASE 2 · flujo de solicitudes: alerta, mapa, vista previa, entrega y cancelación ---- */
+    /* BUGFIX: sin esto la factura (overflow:hidden) se encogía dentro del flex y el mensaje siguiente quedaba encima */
+    #vistaChats .cn-msgs > * { flex-shrink: 0; }
+    #vistaChats .cn-b.fac { margin: 4px 0; }
+    #vistaChats .cn-b.foto { padding: 4px 4px 5px; }
+    #vistaChats .cn-b.foto img { display: block; width: 240px; max-width: 100%; min-height: 80px; height: auto; border-radius: 10px; background: #F2F4F6; }
+    #vistaChats .cn-b.foto .cn-h { padding: 0 6px; }
+    #vistaChats .cn-cab button.cn-ico { width: 40px; padding: 0; font-size: 18px; background: #E8F6FE; border-color: #E8F6FE; }
+    #vistaChats .cn-resumen { flex: none; padding: 8px 12px; background: #FFF8DB; border-bottom: 1px solid #E8DFA8; font-size: 12.5px; font-weight: 600; color: #5A4A00; overflow-wrap: anywhere; }
+    #vistaChats .cn-resumen:empty { display: none; }
+    #vistaChats .cn-acciones { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px 10px; background: #fff; border-bottom: 1px solid #E1E6EB; }
+    #vistaChats .cn-acciones button { height: 42px; border-radius: 12px; font-size: 14px; }
+    #vistaChats .cn-comp button.cn-foto { background: #E8F6FE; border-color: #E8F6FE; }
+    #vistaChats .cn-sinleer { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; background: #E5322D; color: #fff; font-size: 11px; font-weight: 800; }
+    #vistaChats .cn-item button.cn-ver { background: #E5322D; border-color: #E5322D; color: #fff; }
+    /* Registro local de facturas entregadas (por fecha y orden de entrega) */
+    #vistaChats .cn-dia-reg { margin: 10px 2px 0; font-size: 13px; font-weight: 800; color: #5B6672; }
+    #vistaChats .cn-reg { display: grid; gap: 6px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
+    #vistaChats .cn-reg-cab { display: flex; align-items: center; gap: 10px; }
+    #vistaChats .cn-reg-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
+    #vistaChats .cn-reg-cab strong { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #vistaChats .cn-reg-cab small { font-size: 12px; font-weight: 600; color: #5B6672; }
+    #vistaChats .cn-reg-num { width: 34px; height: 34px; border-radius: 50%; background: #0E141B; color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 800; flex: none; }
+    #vistaChats .cn-reg-total { font-size: 16px; font-weight: 800; white-space: nowrap; }
+    #vistaChats .cn-reg details summary { font-size: 13px; font-weight: 700; color: #0A86C9; cursor: pointer; }
+    #vistaChats .cn-reg .cn-ffil { font-size: 13px; }
+    #vistaChats .cn-reg button.cn-borrar { width: auto; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; justify-self: end; }
+    /* Aviso "con pedido" en la barra superior */
+    .chip-con-pedido { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: #25D366; color: #0E141B; font-size: 11px; font-weight: 800; vertical-align: middle; }
+    .chip-con-pedido.oculto { display: none !important; }
+    /* Iconos del mapa */
+    .sol-pin { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px 0 8px; border-radius: 22px; background: #E5322D; color: #fff; border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,.45); font: 800 13px/1 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; cursor: pointer; animation: solPulso 1.2s ease-in-out infinite; }
+    .sol-pin span { font-size: 20px; line-height: 1; }
+    .sol-cli { display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px 0 8px; border-radius: 16px; background: #0E141B; color: #fff; border: 2px solid #3DB8F5; box-shadow: 0 3px 10px rgba(0,0,0,.4); font: 800 12px/1 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; }
+    @keyframes solPulso { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+    @media (prefers-reduced-motion: reduce) { .sol-pin { animation: none; } }
+    /* Vista previa de la solicitud */
+    .sp-cuerpo { display: grid; gap: 8px; }
+    .sp-fila { display: grid; gap: 1px; padding: 10px 12px; border-radius: 12px; background: #F2F4F6; }
+    .sp-fila small { font-size: 11.5px; font-weight: 700; color: #5B6672; text-transform: uppercase; letter-spacing: .03em; }
+    .sp-fila b { font-size: 15px; font-weight: 800; overflow-wrap: anywhere; }
+    .sp-chat { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; background: #EAF2F6; font-size: 13px; }
+    .sp-chat small { font-weight: 800; color: #5B6672; }
+    .sp-chat p { margin: 0; overflow-wrap: anywhere; }
+    /* Aviso breve (mensaje del cliente mientras estás en otra pantalla, solicitudes nuevas…) */
+    #solToast { position: fixed; z-index: 5000; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); width: calc(100% - 24px); max-width: 440px; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; background: #0E141B; color: #fff; box-shadow: 0 8px 26px rgba(0,0,0,.4); cursor: pointer; text-align: left; font-weight: 700; font-size: 14px; }
+    #solToast.oculto { display: none !important; }
+    #solToast span { font-size: 22px; line-height: 1; flex: none; }
+    #solToast div { min-width: 0; display: grid; gap: 1px; }
+    #solToast b { font-size: 13px; color: #3DB8F5; }
+    #solToast small { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body class="rep">
   <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
   <header class="barra-marca">
     <span class="insignia" data-rider></span>
-    <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span></small></div>
+    <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span><span id="chipConPedido" class="chip-con-pedido oculto" role="status">💬 con pedido</span></small></div>
     <button id="btnFacturaVivo" class="salir chat-admin oculto" type="button" aria-label="Ver mi factura en vivo y agregar mandados extra">🧾</button>
     <button id="btnChatAdmin" class="salir chat-admin oculto" aria-label="Chat con Brothers (administración)">💬<span id="badgeAdmin" class="badge-nav rojo oculto">0</span></button>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
@@ -268,16 +319,27 @@
       <div id="cnNuevos"></div>
       <h2 class="cn-tit">Mis chats</h2>
       <div id="cnMios"></div>
+      <h2 class="cn-tit">🧾 Facturas entregadas</h2>
+      <div id="cnRegistro"></div>
     </div>
     <div id="cnConv" class="cn-conv oculto">
       <div class="cn-cab">
         <button id="cnVolver" type="button" aria-label="Volver a la lista de chats">←</button>
         <div><strong id="cnNombre">Cliente</strong><small>Cliente</small></div>
+        <button id="cnUbicacion" class="cn-ico" type="button" aria-label="Ver al cliente en el mapa">📍</button>
+        <button id="cnExtras" class="cn-ico" type="button" aria-label="Agregar mandados extra al total">➕</button>
         <button id="cnFacturar" class="primario" type="button">🧾 Facturar</button>
+      </div>
+      <div id="cnResumen" class="cn-resumen"></div>
+      <div class="cn-acciones">
+        <button id="cnEntregado" class="primario" type="button">✅ Entregado</button>
+        <button id="cnCancelar" class="peligro" type="button">✖ Cancelar</button>
       </div>
       <div id="cnMsgs" class="cn-msgs" role="log" aria-live="polite"></div>
       <div id="cnErr" class="cn-err oculto" role="alert"></div>
       <form id="cnForm" class="cn-comp" autocomplete="off">
+        <button id="cnFoto" class="cn-foto" type="button" aria-label="Tomar o enviar una foto">📷</button>
+        <input id="cnInFoto" class="oculto" type="file" accept="image/*" tabindex="-1" aria-hidden="true">
         <input id="cnInput" maxlength="600" placeholder="Escribe un mensaje" aria-label="Escribe un mensaje al cliente">
         <button class="primario" type="submit" aria-label="Enviar mensaje">➤</button>
       </form>
@@ -290,6 +352,33 @@
     <button id="navMapa" data-vista="mapa" type="button">🗺️ Mapa y entregas <span id="badgeNav" class="badge-nav oculto">0</span></button>
     <button id="navChats" data-vista="chats" type="button">💬 Nuevos Chats <span id="badgeChats" class="badge-nav rojo oculto">0</span></button>
   </nav>
+
+  <!-- Solicitud de pedido: vista previa ANTES de atender -->
+  <div id="modalSolicitud" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="spTitulo">
+    <div class="modal-rep-caja" style="text-align:left;max-height:90vh;overflow-y:auto">
+      <div class="gran-check" style="text-align:center">📥</div>
+      <h2 id="spTitulo" style="text-align:center">Solicitud de pedido</h2>
+      <div id="spCuerpo" class="sp-cuerpo"></div>
+      <div id="spChat" class="sp-chat oculto"></div>
+      <div id="spAviso" class="estado error oculto" role="alert"></div>
+      <button id="spAtender" class="primario" type="button">✅ Atender</button>
+      <button id="spCerrar" class="oscuro" type="button">Cerrar</button>
+    </div>
+  </div>
+
+  <!-- Cancelar un pedido atendido: se pide el motivo -->
+  <div id="modalCancelar" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="cancTitulo">
+    <div class="modal-rep-caja">
+      <h2 id="cancTitulo">¿Por qué cancelas?</h2>
+      <p id="cancTxt">Elige el motivo.</p>
+      <button id="cancCliente" class="peligro" type="button">🙅 Cliente lo decidió</button>
+      <button id="cancPasar" class="oscuro" type="button">🔁 Pasar a otro repartidor</button>
+      <button id="cancVolver" type="button">Volver</button>
+    </div>
+  </div>
+
+  <!-- Aviso breve: cliente que escribe, solicitud nueva… (toca para abrir) -->
+  <button id="solToast" class="oculto" type="button" role="status"><span id="solToastIco" aria-hidden="true">💬</span><div><b id="solToastTit"></b><small id="solToastTxt"></small></div></button>
 
   <!-- Ventana tras confirmar una entrega -->
   <div id="modalEntregado" class="modal-rep oculto" role="dialog" aria-modal="true">

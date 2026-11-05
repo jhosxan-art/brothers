@@ -24,7 +24,11 @@ window.Factura = {
     alTerminarChat: null,           // (factura) → se llama al cerrar la ventana de una factura ya enviada al chat
     prepararChat: (info) => prepararChat(info),
     salirModoChat: (forzar) => salirModoChat(forzar),
-    enModoChat: () => !!chatDestino
+    enModoChat: () => !!chatDestino,
+    chatActual: () => (chatDestino ? chatDestino.solicitudId : ''),
+    descartarChat: (id) => descartarChat(id),      // el chat terminó (entregado/cancelado/pasado): se borra su borrador
+    diaNegocio: () => getBusinessDayString(),       // mismo "día de trabajo" de las estadísticas (cambia a las 8:00)
+    nuevoCodigoChat: () => getUniqueCode()
   };
 
   let products = [];
@@ -124,11 +128,39 @@ window.Factura = {
   const CLAVE_BORRADOR = 'brothersDeliveryBorrador';
   function guardarBorrador() {
       try {
+          if (chatDestino) return guardarBorradorChat();   // cada chat conserva SU factura en curso
           if (pedidoSistema) return;   // la factura de un pedido asignado depende de ese pedido
           const d = { products, extraErrand, cliente: document.getElementById('customerName').value, delivery: document.getElementById('deliveryPrice').value, ts: Date.now() };
           if (!products.length && !d.cliente.trim() && !String(d.delivery).trim()) localStorage.removeItem(CLAVE_BORRADOR);
           else localStorage.setItem(CLAVE_BORRADOR, JSON.stringify(d));
       } catch (_) {}
+  }
+  /* Borradores por chat: si el repartidor cambia de pantalla, de chat o la app se reinicia, la factura de cada chat sigue ahí */
+  const CLAVE_BORRADORES_CHAT = 'brothersDeliveryBorradoresChat';
+  const VIDA_BORRADOR_MS = 12 * 3600 * 1000;
+  function leerBorradoresChat() {
+      try { const o = JSON.parse(localStorage.getItem(CLAVE_BORRADORES_CHAT) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; }
+  }
+  function escribirBorradoresChat(o) {
+      try { localStorage.setItem(CLAVE_BORRADORES_CHAT, JSON.stringify(o)); } catch (_) {}
+  }
+  function guardarBorradorChat() {
+      if (!chatDestino) return;
+      const o = leerBorradoresChat(), id = chatDestino.solicitudId, ahora = Date.now();
+      const d = { products, extraErrand, cliente: document.getElementById('customerName').value, delivery: document.getElementById('deliveryPrice').value, deposito: depositPaid, ts: ahora };
+      if (!products.length && !String(d.delivery).trim() && !extraErrand) delete o[id]; else o[id] = d;
+      Object.keys(o).forEach((k) => { if (ahora - (Number(o[k] && o[k].ts) || 0) > VIDA_BORRADOR_MS) delete o[k]; });
+      escribirBorradoresChat(o);
+  }
+  function descartarBorradorChat(id) {
+      const o = leerBorradoresChat();
+      if (o[id]) { delete o[id]; escribirBorradoresChat(o); }
+  }
+  function descartarChat(id) {
+      id = String(id || '');
+      if (!id) return;
+      descartarBorradorChat(id);
+      if (chatDestino && chatDestino.solicitudId === id) salirModoChat(true);
   }
   function restaurarBorrador() {
       try {
@@ -639,8 +671,12 @@ window.Factura = {
   function prepararChat(info) {
       if (!info || !info.solicitudId) return;
       const mismo = !!chatDestino && chatDestino.solicitudId === String(info.solicitudId);
+      if (chatDestino && !mismo) guardarBorradorChat();   // se deja guardada la factura del chat anterior antes de cambiar
       pedidoSistema = null;
-      chatDestino = { solicitudId: String(info.solicitudId), cliente: String(info.cliente || '') };
+      const id = String(info.solicitudId);
+      let previo = leerBorradoresChat()[id];              // se lee ANTES de limpiar: el reinicio de abajo lo borraría
+      if (previo && Date.now() - (Number(previo.ts) || 0) > VIDA_BORRADOR_MS) previo = null;
+      chatDestino = { solicitudId: id, cliente: String(info.cliente || '') };
       if (!mismo) {   // si el repartidor vuelve al mismo chat, conserva lo que ya había armado
           products = []; editingIndex = -1; extraErrand = 0; depositPaid = false; facturaActual = null;
           document.getElementById('currentProductName').value = '';
@@ -648,8 +684,15 @@ window.Factura = {
           document.getElementById('deliveryPrice').value = '';
           document.getElementById('customerName').value = chatDestino.cliente;
           document.querySelector('.add-product-btn').textContent = '+';
+          if (previo) {   // este chat ya tenía una factura a medias: vuelve tal cual estaba
+              products = (Array.isArray(previo.products) ? previo.products : []).filter((p) => p && typeof p.name === 'string' && typeof p.price === 'number' && p.price >= 0)
+                  .map((p) => ({ name: p.name, price: p.price }));
+              depositPaid = !!previo.deposito;
+              document.getElementById('deliveryPrice').value = String(previo.delivery || '');
+              if (previo.cliente) document.getElementById('customerName').value = String(previo.cliente);
+          }
           renderProductList();
-          toggleExtraErrand(0);
+          toggleExtraErrand(previo && (previo.extraErrand === 10 || previo.extraErrand === 20) ? previo.extraErrand : 0);
       }
       hideStats();
       pintarModoPedido();
@@ -658,6 +701,7 @@ window.Factura = {
   function salirModoChat(forzar) {
       if (!chatDestino) return;
       if (!forzar && products.length && !confirm('¿Salir de la factura de este chat? Se descartan los productos agregados.')) return;
+      if (!forzar) descartarBorradorChat(chatDestino.solicitudId);   // salida voluntaria: se borra; en un cierre de sesión se conserva
       chatDestino = null; facturaActual = null; enviandoPedido = false;
       document.getElementById('invoicePopup').classList.remove('show');
       resetForm();
@@ -718,6 +762,7 @@ window.Factura = {
       document.getElementById('invoicePopup').classList.remove('show');
       if (f && f.deChat) {
           if (!f.enviada) return;   // no llegó al chat: se conserva el formulario para reintentar
+          descartarBorradorChat(f.chatId);   // ya está en la conversación del cliente
           facturaActual = null;
           chatDestino = null;
           resetForm();

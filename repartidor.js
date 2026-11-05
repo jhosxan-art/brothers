@@ -235,6 +235,7 @@ function irA(vista) {
   if (vista === "mapa") {
     renderLista();
     initMapa();
+    try { ChatsEntrantes.pintarMapa(); } catch (_) {}   // íconos de solicitud y clientes de los chats
     setTimeout(() => { mapa.invalidateSize(); if (seguirme && ultimaPos) Camara.actualizar(true); else encuadrar(); }, 60);
   }
 }
@@ -319,7 +320,7 @@ $("btnGuardarUsuario").onclick = async () => {
 
 async function entrarTurno() {
   // Si se corta la conexión, el administrador lo verá como "desconectado"
-  db.ref("ubicaciones/" + uidActual).onDisconnect().update({ enLinea: false, enViaje: false, ts: TS });
+  db.ref("ubicaciones/" + uidActual).onDisconnect().update({ enLinea: false, enViaje: false, conPedido: false, ts: TS });
   Factura.nombreRepartidor = usuario;
   Factura.codigoCompartido = () => CodigosBD.siguiente();
   CodigosBD.reponer();
@@ -336,7 +337,7 @@ async function entrarTurno() {
 }
 
 $("btnSalir").onclick = async () => {
-  if (orden.length) return alert("Primero entrega o cancela los pedidos en curso.");
+  if (orden.length || ChatsEntrantes.activos()) return alert("Primero entrega o cancela los pedidos en curso.");
   if (!confirm("¿Cerrar sesión? Dejarás de compartir tu ubicación.")) return;
   detenerGPS(); apagarNativo();
   try { await db.ref(`repartidores/${uidActual}/fcmToken`).remove(); } catch (_) {}   // este teléfono deja de recibir avisos
@@ -1622,6 +1623,7 @@ function notificarMensaje(v, m) {
 function alAccionNotificacion(ev) {
   const extra = (ev && ev.notification && ev.notification.extra) || {};
   const texto = ev.inputValue && ev.inputValue.trim();
+  if (extra.solicitud) { irA(ChatsEntrantes.activos() ? "chats" : "mapa"); ChatsEntrantes.vistaPrevia(extra.solicitud); return; }   // solicitud o mensaje de un chat de cliente
   if (extra.equipo) {   // aviso de Brothers (mensaje o guía)
     if (ev.actionId === "responder" && texto) {
       Chat.enviarA(uidActual, "repartidor", { pedido: "Equipo", nombreRepartidor: usuario }, texto.slice(0, 600), null, RUTA_EQUIPO).catch(() => {});
@@ -1798,8 +1800,9 @@ function procesarPosicion(c) {
   // 1) Ubicación permanente → mapa del administrador (aunque no haya pedidos)
   db.ref("ubicaciones/" + uidActual).set({
     lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed),
-    ts: TS, enLinea: true, enViaje: orden.length > 0, usuario
+    ts: TS, enLinea: true, enViaje: orden.length > 0, conPedido: (() => { try { return ChatsEntrantes.activos() > 0; } catch (_) { return false; } })(), usuario
   }).catch(() => {});
+  try { ChatsEntrantes.publicarGps({ lat, lng }); } catch (_) {}   // los clientes con chat atendido ven al repartidor en vivo
 
   // 2) Cada pedido en ruta → su cliente (posición, distancia, aviso de cercanía)
   const base = { lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed), ts: TS };
@@ -1934,22 +1937,44 @@ OrdenAdminRep.init({
 /* ============================================================
    NUEVOS CHATS (clientes de cliente-app.html)
    - Escucha solicitudes_entrantes en tiempo real.
+   - Solicitud nueva (o devuelta al grupo): suena "Hay una solicitud de pedido" (voz.js), aparece un
+     ícono "Solicitud de pedido" en el mapa y, al tocarlo, se abre una VISTA PREVIA (qué desea y de dónde)
+     antes de pulsar "Atender".
    - "Atender": el repartidor se asigna el chat con una TRANSACCIÓN sobre repartidorUid; solo el primero
-     lo consigue y los demás repartidores dejan de verlo.
-   - Conversación con el cliente + botón Facturar: factura.js arma la cuenta (Factura.prepararChat) y la
-     envía como tarjeta a la conversación (Factura.alEnviarChat).
-   Esquema: solicitudes_entrantes/{id} { clienteId, nombre, estado, repartidorUid, repartidorNombre, ultimoMensaje, ts }
-            solicitudes_entrantes/{id}/mensajes/{pushId} { de, tipo: "texto"|"factura", texto | factura, ts }
+     lo consigue y los demás dejan de verlo. Pasa a "con pedido", transmite su GPS en vivo al cliente
+     (solicitudes_entrantes/{id}/repartidorGps), puede enviar fotos y ve al cliente en el mapa.
+   - Conversación con el cliente + Facturar (factura.js) + Extras (subfactura.js: mandados extra al total).
+   - "Entregado": el chat desaparece de esta pantalla y queda el registro de la factura (local, por fecha y
+     orden de entrega) con botón para eliminarla.
+   - "Cancelar": pide el motivo. "Cliente lo decidió" cierra el pedido; "Pasar a otro repartidor" lo devuelve al
+     grupo (estado "nuevo", sin repartidor) CONSERVANDO el historial del chat.
+   Esquema: solicitudes_entrantes/{id} { clienteId, nombre, estado: nuevo|atendido|entregado|cancelado,
+              pedido{quiere,origen,modo,destino}, clienteGps, repartidorUid, repartidorNombre, repartidorGps,
+              omitidoPor{uid:true}, facturaFinal, subfactura, motivoCancelacion, entregadoTs, ultimoMensaje, ts }
+            solicitudes_entrantes/{id}/mensajes/{pushId} { de, tipo: "texto"|"factura"|"foto", texto | factura, ts }
+            solicitudes_fotos/{id}/{pushId} = data URL JPEG en Base64 (la foto va aparte para no cargar la lista)
    ============================================================ */
 const ChatsEntrantes = (() => {
-  const RAIZ = "solicitudes_entrantes";
-  let consulta = null, lista = {}, abiertoId = null, consultaMsgs = null;
+  const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos";
+  const MAX_FOTO = 300000;            // caracteres del data URL (las reglas aceptan < 400 000)
+  const CLAVE_REG = "brothersFacturasEntregadas", CLAVE_FAC = "brothersFacChat_";
+  let consulta = null, lista = {}, abiertoId = null, consultaMsgs = null, previoId = null;
   const vistos = new Set();
   let ultDia = null;
+  let cargada = false;                // la primera lectura no avisa de lo que ya estaba
+  let ultimoConPedido = null;
+  const avisadas = new Set();         // solicitudes libres ya anunciadas (si vuelven al grupo, suenan otra vez)
+  const tsPrevio = {};                // id → último ts visto (detecta mensajes nuevos del cliente)
+  const sinLeer = {};                 // id → mensajes del cliente sin leer
+  const marcasSol = {}, marcasCli = {};   // id → marcador en el mapa
 
-  const libre = (d) => !!d && typeof d === "object" && !d.repartidorUid;
-  const mio = (d) => !!d && typeof d === "object" && !!uidActual && d.repartidorUid === uidActual;
-  const pendientes = () => Object.keys(lista).filter((k) => libre(lista[k])).length;
+  const termino = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
+  const omitida = (d) => !!(d && d.omitidoPor && uidActual && d.omitidoPor[uidActual]);   // yo la pasé: no me vuelve a sonar
+  const libre = (d) => !!d && typeof d === "object" && !d.repartidorUid && !termino(d) && !omitida(d);
+  const mio = (d) => !!d && typeof d === "object" && !!uidActual && d.repartidorUid === uidActual && !termino(d);
+  const sinLeerTotal = () => Object.keys(sinLeer).reduce((t, k) => t + (mio(lista[k]) ? sinLeer[k] : 0), 0);
+  const pendientes = () => Object.keys(lista).filter((k) => libre(lista[k])).length + sinLeerTotal();   // insignia de la pestaña
+  const activos = () => Object.keys(lista).filter((k) => mio(lista[k])).length;
 
   function el(tag, clase, texto) {
     const e = document.createElement(tag);
@@ -1958,6 +1983,9 @@ const ChatsEntrantes = (() => {
     return e;
   }
   const dinero = (n) => "C$ " + (Number(n) || 0).toFixed(2);
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const cortar = (s, n) => String(s == null ? "" : s).slice(0, n);
+  const okLL = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180;
   const horaDe = (ts) => new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
   function etiquetaDia(ts) {
     const d = new Date(ts), hoy = new Date();
@@ -1971,14 +1999,51 @@ const ChatsEntrantes = (() => {
     e.classList.toggle("oculto", !msg);
   }
 
+  /* Punto del cliente en el mapa: su GPS en vivo o, si no, el pin/GPS con el que hizo el pedido */
+  function puntoDe(d) {
+    const g = d && d.clienteGps;
+    if (g && okLL(g.lat, g.lng)) return { lat: g.lat, lng: g.lng };
+    const x = d && d.pedido && d.pedido.destino;
+    return x && okLL(x.lat, x.lng) ? { lat: x.lat, lng: x.lng } : null;
+  }
+  function textoDestino(d) {
+    const x = d && d.pedido && d.pedido.destino;
+    if (!x) return "Sin datos de ubicación";
+    if (x.tipo === "gps") return "Ubicación en vivo del cliente (GPS)";
+    if (x.tipo === "pin") return "Pin marcado en el mapa";
+    return x.texto ? cortar(x.texto, 200) : "Dirección sin texto";
+  }
+
+  /* ---------- Aviso breve (toca para abrir) ---------- */
+  let toastTimer = null, toastAccion = null;
+  function toast(ico, titulo, texto, accion, ms) {
+    $("solToastIco").textContent = ico;
+    $("solToastTit").textContent = titulo;
+    $("solToastTxt").textContent = texto;
+    toastAccion = accion || null;
+    $("solToast").classList.remove("oculto");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $("solToast").classList.add("oculto"), ms || 6000);
+  }
+  $("solToast").addEventListener("click", () => {
+    $("solToast").classList.add("oculto");
+    const a = toastAccion; toastAccion = null;
+    if (a) a();
+  });
+
   /* ---------- Lista en tiempo real ---------- */
   function iniciar() {
-    detener();
+    detener(true);          // no se toca la factura en curso: solo se reinicia la escucha
+    cargada = false;
     consulta = db.ref(RAIZ).limitToLast(60);
     consulta.on("value", (s) => {
       lista = s.val() || {};
-      if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();   // el chat ya no es mío o fue eliminado
+      revisarCambios();
+      if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();   // el chat ya no es mío (entregado, cancelado, pasado o eliminado)
+      if (previoId) refrescarPrevia();
       pintarLista();
+      pintarMapa();
+      marcarConPedido();
       actualizarNav();
     }, (e) => {
       lista = {};
@@ -1986,25 +2051,68 @@ const ChatsEntrantes = (() => {
     });
   }
 
-  function detener() {
+  function detener(conservarFactura) {
     if (consulta) { consulta.off(); consulta = null; }
     cerrarConversacion();
+    cerrarPrevia();
     lista = {};
-    try { Factura.salirModoChat(true); } catch (_) {}
+    avisadas.clear();
+    [marcasSol, marcasCli].forEach((c) => Object.keys(c).forEach((id) => { try { mapa.removeLayer(c[id]); } catch (_) {} delete c[id]; }));
+    ultimoConPedido = null;
+    $("chipConPedido").classList.add("oculto");
+    if (!conservarFactura) { try { Factura.salirModoChat(true); } catch (_) {} }
+  }
+
+  /* Qué cambió desde la última lectura: solicitudes nuevas y mensajes del cliente */
+  function revisarCambios() {
+    Object.keys(lista).forEach((id) => {
+      if (libre(lista[id])) {
+        if (!avisadas.has(id)) { avisadas.add(id); if (cargada) anunciarSolicitud(id, lista[id]); }
+      } else avisadas.delete(id);
+    });
+    avisadas.forEach((id) => { if (!lista[id]) avisadas.delete(id); });
+    Object.keys(lista).forEach((id) => {
+      const d = lista[id], ts = Number(d && d.ts) || 0, antes = tsPrevio[id];
+      tsPrevio[id] = ts;
+      if (!mio(d) || antes === undefined || ts <= antes || d.ultimoDe !== "cliente") return;
+      mensajeDelCliente(id, d);
+    });
+    cargada = true;
+  }
+
+  function anunciarSolicitud(id, d) {
+    const p = d.pedido || {};
+    try { Voz.solicitud(); } catch (_) {}   // "Hay una solicitud de pedido" (+ vibración)
+    toast("📥", "Solicitud de pedido", cortar(p.quiere || d.nombre || "Un cliente quiere hacer un pedido", 80), () => { irA("mapa"); vistaPrevia(id); }, 9000);
+    notificarTexto("📥 Solicitud de pedido", cortar(p.quiere || "Un cliente quiere hacer un pedido", 120), "Nueva solicitud", { solicitud: id });
+  }
+
+  function mensajeDelCliente(id, d) {
+    const visible = abiertoId === id && vistaActual === "chats" && !document.hidden;
+    if (visible) return;
+    sinLeer[id] = (sinLeer[id] || 0) + 1;
+    const nombre = cortar(d.nombre || "Cliente", 30);
+    try { Voz.hablar(d.nombre ? "El cliente " + nombre + " te ha escrito" : Voz.FRASES.mensajeCliente); } catch (_) {}
+    toast("💬", nombre, cortar(d.ultimoMensaje || "Te escribió", 90), () => { irA("chats"); abrir(id); }, 7000);
+    notificarTexto("Cliente · " + nombre, cortar(d.ultimoMensaje || "Te escribió", 120), "Nuevos chats", { solicitud: id });
   }
 
   function filaChat(id, d, esMio) {
     const f = el("div", "cn-item" + (esMio ? "" : " nuevo"));
-    const nombre = String(d.nombre || "Cliente").slice(0, 40);
+    const nombre = String(d.nombre || "Cliente").slice(0, 40), p = d.pedido || {};
     f.appendChild(el("span", "cn-av", nombre.charAt(0).toUpperCase()));
     const dat = el("div", "cn-dat");
-    dat.appendChild(el("strong", "", nombre));
-    const ult = d.ultimoMensaje ? String(d.ultimoMensaje) : (esMio ? "Sin mensajes todavía" : "Quiere hacer un pedido");
+    const tit = el("strong", "", nombre);
+    if (esMio && sinLeer[id]) tit.appendChild(el("span", "cn-sinleer", String(sinLeer[id])));
+    dat.appendChild(tit);
+    const ult = d.ultimoMensaje ? String(d.ultimoMensaje)
+      : esMio ? "Sin mensajes todavía"
+      : p.quiere ? cortar(p.quiere, 60) + (p.origen ? " · de " + cortar(p.origen, 40) : "") : "Quiere hacer un pedido";
     dat.appendChild(el("small", "", ult + (d.ts ? " · " + horaDe(d.ts) : "")));
     f.appendChild(dat);
-    const b = el("button", esMio ? "oscuro" : "primario", esMio ? "Abrir" : "Atender");
+    const b = el("button", esMio ? "oscuro" : "cn-ver", esMio ? "Abrir" : "Ver");
     b.type = "button";
-    b.addEventListener("click", () => (esMio ? abrir(id) : atender(id, b)));
+    b.addEventListener("click", () => (esMio ? abrir(id) : vistaPrevia(id)));   // una solicitud siempre se ve antes de atenderla
     f.appendChild(b);
     return f;
   }
@@ -2016,11 +2124,99 @@ const ChatsEntrantes = (() => {
     const ids = Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object")
       .sort((a, b) => (Number(lista[b].ts) || 0) - (Number(lista[a].ts) || 0));
     const libres = ids.filter((k) => libre(lista[k])), mios_ = ids.filter((k) => mio(lista[k]));
-    if (!libres.length) nuevos.appendChild(el("div", "cn-vacio", "No hay chats nuevos. Cuando un cliente escriba, aparecerá aquí al instante."));
+    if (!libres.length) nuevos.appendChild(el("div", "cn-vacio", "No hay chats nuevos. Cuando un cliente haga una solicitud, sonará y aparecerá aquí al instante."));
     libres.forEach((k) => nuevos.appendChild(filaChat(k, lista[k], false)));
     if (!mios_.length) mios.appendChild(el("div", "cn-vacio", "Aún no atiendes ningún chat."));
     mios_.forEach((k) => mios.appendChild(filaChat(k, lista[k], true)));
+    pintarRegistro();
   }
+
+  /* ---------- Con pedido + GPS en vivo hacia el cliente ---------- */
+  function marcarConPedido() {
+    const on = activos() > 0;
+    $("chipConPedido").classList.toggle("oculto", !on);
+    if (uidActual && on !== ultimoConPedido) {
+      ultimoConPedido = on;
+      db.ref("ubicaciones/" + uidActual).update({ conPedido: on }).catch(() => {});
+    }
+  }
+
+  /* Lo llama procesarPosicion (máx. 1 vez cada 4 s) y "Atender" (posición inmediata) */
+  function publicarGps(p) {
+    if (!p || !okLL(p.lat, p.lng) || !uidActual) return;
+    Object.keys(lista).forEach((id) => {
+      if (mio(lista[id])) db.ref(RAIZ + "/" + id + "/repartidorGps").set({ lat: p.lat, lng: p.lng, ts: TS }).catch(() => {});
+    });
+  }
+
+  /* ---------- Mapa: ícono de solicitud y ubicación del cliente ---------- */
+  function marca(coleccion, id, p, html, tam, alTocar) {
+    if (!p) { if (coleccion[id]) { mapa.removeLayer(coleccion[id]); delete coleccion[id]; } return; }
+    const ll = [p.lat, p.lng];
+    if (!coleccion[id]) {
+      coleccion[id] = L.marker(ll, { icon: L.divIcon({ className: "", html, iconSize: tam, iconAnchor: [tam[0] / 2, tam[1] / 2] }), zIndexOffset: 900 }).addTo(mapa);
+      if (alTocar) coleccion[id].on("click", alTocar);
+    } else coleccion[id].setLatLng(ll);
+  }
+
+  function pintarMapa() {
+    if (typeof mapa === "undefined" || !mapa) return;   // el mapa se crea al abrir esa pestaña: irA("mapa") vuelve a llamar aquí
+    Object.keys(lista).forEach((id) => {
+      const d = lista[id];
+      marca(marcasSol, id, libre(d) ? puntoDe(d) : null, '<div class="sol-pin"><span>📥</span>Solicitud de pedido</div>', [190, 44], () => vistaPrevia(id));
+      marca(marcasCli, id, mio(d) ? puntoDe(d) : null, '<div class="sol-cli">📍 ' + escHtml(cortar(d && d.nombre || "Cliente", 20)) + "</div>", [150, 32]);
+    });
+    [marcasSol, marcasCli].forEach((c) => Object.keys(c).forEach((id) => { if (!lista[id]) { mapa.removeLayer(c[id]); delete c[id]; } }));
+  }
+
+  /* ---------- Vista previa de la solicitud (antes de atender) ---------- */
+  function vistaPrevia(id) {
+    const d = lista[id];
+    if (mio(d)) { irA("chats"); return abrir(id); }
+    if (!libre(d)) return toast("ℹ️", "Solicitud", "Esa solicitud ya no está disponible.", null, 4000);
+    previoId = id;
+    pintarPrevia(d);
+    $("spAviso").classList.add("oculto");
+    $("spAtender").disabled = false;
+    $("modalSolicitud").classList.remove("oculto");
+  }
+
+  function pintarPrevia(d) {
+    const p = d.pedido || {}, c = $("spCuerpo");
+    c.textContent = "";
+    const fila = (t, v) => { const f = el("div", "sp-fila"); f.appendChild(el("small", "", t)); f.appendChild(el("b", "", v)); c.appendChild(f); };
+    fila("Cliente", cortar(d.nombre || "Cliente", 40));
+    fila("🛍️ Qué desea", p.quiere ? cortar(p.quiere, 200) : "No lo indicó (chat anterior)");
+    fila("📍 De dónde lo desea", p.origen ? cortar(p.origen, 120) : "No lo indicó");
+    fila(p.modo === "envia" ? "🎁 Lo envía a otra persona · entrega en" : "🙋 Lo recibe el cliente · ubicación", textoDestino(d));
+    // Si otro repartidor lo devolvió al grupo, el historial sigue ahí: se muestran los últimos mensajes
+    const h = $("spChat"), ms = d.mensajes && typeof d.mensajes === "object" ? Object.keys(d.mensajes).sort().slice(-4).map((k) => d.mensajes[k]) : [];
+    h.textContent = "";
+    ms.forEach((m) => {
+      if (!m || typeof m !== "object") return;
+      const t = m.tipo === "foto" ? "📷 Foto" : m.tipo === "factura" ? "🧾 Factura" : cortar(m.texto, 120);
+      h.appendChild(el("p", "", (m.de === "cliente" ? "Cliente: " : "Repartidor: ") + t));
+    });
+    if (ms.length) h.insertBefore(el("small", "", "Historial del chat"), h.firstChild);
+    h.classList.toggle("oculto", !ms.length);
+  }
+
+  function refrescarPrevia() {
+    const d = lista[previoId];
+    if (mio(d)) return cerrarPrevia();
+    if (!libre(d)) {
+      $("spAviso").textContent = "Otro repartidor ya tomó esta solicitud.";
+      $("spAviso").classList.remove("oculto");
+      $("spAtender").disabled = true;
+    } else pintarPrevia(d);
+  }
+
+  function cerrarPrevia() {
+    previoId = null;
+    $("modalSolicitud").classList.add("oculto");
+  }
+  $("spCerrar").addEventListener("click", cerrarPrevia);
+  $("spAtender").addEventListener("click", () => { if (previoId) atender(previoId, $("spAtender")); });
 
   /* ---------- Atender: reclamar el chat (solo el primero lo logra) ---------- */
   async function atender(id, btn) {
@@ -2029,15 +2225,22 @@ const ChatsEntrantes = (() => {
     try {
       const r = await db.ref(RAIZ + "/" + id + "/repartidorUid").transaction((cur) => (cur === null ? uidActual : undefined));
       if (!r.committed || r.snapshot.val() !== uidActual) {
-        btn.disabled = false;
-        return alert("Otro repartidor ya tomó este chat.");
+        $("spAviso").textContent = "Otro repartidor ya tomó esta solicitud.";
+        $("spAviso").classList.remove("oculto");
+        return;
       }
       await db.ref(RAIZ + "/" + id).update({ estado: "atendido", repartidorNombre: usuario, atendidoTs: TS });
+      if (!mio(lista[id])) lista[id] = Object.assign({}, lista[id], { repartidorUid: uidActual, estado: "atendido", repartidorNombre: usuario });
+      cerrarPrevia();
+      marcarConPedido();      // pasa a "con pedido"
+      publicarGps(ultimaPos); // el cliente ya ve dónde estás
+      pintarMapa();
+      irA("chats");
       abrir(id);
     } catch (e) {
-      btn.disabled = false;
-      alert("No se pudo atender el chat: " + (e.code || e.message));
-    }
+      $("spAviso").textContent = "No se pudo atender el chat: " + (e.code || e.message);
+      $("spAviso").classList.remove("oculto");
+    } finally { btn.disabled = false; }
   }
 
   /* ---------- Conversación ---------- */
@@ -2046,8 +2249,12 @@ const ChatsEntrantes = (() => {
     if (!mio(d)) return;
     cerrarConversacion();
     abiertoId = id;
+    sinLeer[id] = 0;
+    actualizarNav();
     aviso("");
+    const p = d.pedido || {};
     $("cnNombre").textContent = String(d.nombre || "Cliente").slice(0, 40);
+    $("cnResumen").textContent = p.quiere ? "🛍️ " + cortar(p.quiere, 120) + " · de " + cortar(p.origen, 80) + " · 📍 " + textoDestino(d) : "";
     $("cnLista").classList.add("oculto");
     $("cnConv").classList.remove("oculto");
     $("cnMsgs").textContent = "";
@@ -2060,7 +2267,7 @@ const ChatsEntrantes = (() => {
       if (vistos.has(s.key)) return;
       vistos.add(s.key);
       const m = s.val();
-      if (m && typeof m === "object") pintarMensaje(m);
+      if (m && typeof m === "object") pintarMensaje(m, s.key);
     }, (e) => aviso("No se pudieron leer los mensajes: " + (e.code || e.message)));
   }
 
@@ -2073,7 +2280,15 @@ const ChatsEntrantes = (() => {
 
   const alFinal = () => { const c = $("cnMsgs"); c.scrollTop = c.scrollHeight; };
 
-  function pintarMensaje(m) {
+  function cargarFoto(id, clave, img, listo) {
+    db.ref(RAIZ_FOTOS + "/" + id + "/" + clave).once("value").then((s) => {
+      const v = s.val();
+      if (typeof v === "string" && v.indexOf("data:image/") === 0) { img.addEventListener("load", listo, { once: true }); img.src = v; }
+      else img.alt = "Foto no disponible";
+    }).catch(() => { img.alt = "No se pudo cargar la foto"; });
+  }
+
+  function pintarMensaje(m, clave) {
     const c = $("cnMsgs"), ts = Number(m.ts) || Date.now(), yo = m.de === "repartidor";
     const pegado = c.scrollHeight - c.scrollTop - c.clientHeight < 80 || yo;
     const dia = new Date(ts).toDateString();
@@ -2082,6 +2297,12 @@ const ChatsEntrantes = (() => {
     if (m.tipo === "factura" && m.factura && typeof m.factura === "object") {
       b.classList.add("fac");
       b.appendChild(tarjetaFactura(m.factura));
+    } else if (m.tipo === "foto") {
+      b.classList.add("foto");
+      const img = document.createElement("img");
+      img.alt = "Cargando foto…";
+      b.appendChild(img);
+      cargarFoto(abiertoId, clave, img, () => { if (pegado) alFinal(); });
     } else {
       b.appendChild(el("p", "", String(m.texto || "")));
     }
@@ -2145,6 +2366,72 @@ const ChatsEntrantes = (() => {
 
   $("cnVolver").addEventListener("click", cerrarConversacion);
 
+  /* ---------- Fotos (cámara o galería) → JPEG comprimido en Base64 ---------- */
+  function comprimirImagen(archivo) {
+    return new Promise((ok, fallo) => {
+      if (!archivo || !/^image\//.test(archivo.type)) return fallo(new Error("tipo"));
+      const url = URL.createObjectURL(archivo), img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let lado = 960;
+        for (let i = 0; i < 5; i++) {
+          const k = Math.min(1, lado / Math.max(img.width, img.height)), cv = document.createElement("canvas");
+          cv.width = Math.max(1, Math.round(img.width * k));
+          cv.height = Math.max(1, Math.round(img.height * k));
+          cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+          const salida = cv.toDataURL("image/jpeg", 0.7);
+          if (salida.length <= MAX_FOTO) return ok(salida);
+          lado = Math.round(lado * 0.75);
+        }
+        fallo(new Error("grande"));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); fallo(new Error("lectura")); };
+      img.src = url;
+    });
+  }
+
+  $("cnFoto").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("cnInFoto").click(); });
+  $("cnInFoto").addEventListener("change", async () => {
+    const archivo = $("cnInFoto").files && $("cnInFoto").files[0], id = abiertoId;
+    $("cnInFoto").value = "";
+    if (!archivo || !id || !mio(lista[id])) return;
+    aviso("");
+    let foto;
+    try { foto = await comprimirImagen(archivo); }
+    catch (_) { return aviso("No se pudo preparar la foto. Prueba con otra."); }
+    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
+    cambios[RAIZ_FOTOS + "/" + id + "/" + clave] = foto;
+    cambios[RAIZ + "/" + id + "/mensajes/" + clave] = { de: "repartidor", tipo: "foto", ts: TS };
+    cambios[RAIZ + "/" + id + "/ultimoMensaje"] = "📷 Foto";
+    cambios[RAIZ + "/" + id + "/ultimoDe"] = "repartidor";
+    cambios[RAIZ + "/" + id + "/ts"] = TS;
+    try { await db.ref().update(cambios); }
+    catch (e) { aviso("No se pudo enviar la foto: " + (e.code || e.message)); }
+  });
+
+  /* ---------- Ubicación del cliente ---------- */
+  $("cnUbicacion").addEventListener("click", () => {
+    const d = abiertoId && lista[abiertoId];
+    if (!mio(d)) return;
+    const p = puntoDe(d);
+    if (!p) return aviso("El cliente no marcó un punto en el mapa. Dirección: " + textoDestino(d));
+    irA("mapa");
+    setTimeout(() => { try { mapa.setView([p.lat, p.lng], 17); } catch (_) {} }, 250);
+  });
+
+  /* ---------- Factura que se guardó para este chat (base + total acumulado con extras) ---------- */
+  function leerFacLocal(id) {
+    try { const o = JSON.parse(localStorage.getItem(CLAVE_FAC + id) || "null"); return o && o.actual ? o : null; } catch (_) { return null; }
+  }
+  function guardarFacLocal(id, base, actual) {
+    try { localStorage.setItem(CLAVE_FAC + id, JSON.stringify({ base, actual, ts: Date.now() })); } catch (_) {}
+  }
+  function limpiarLocal(id) {
+    try { localStorage.removeItem(CLAVE_FAC + id); } catch (_) {}
+    try { Factura.descartarChat(id); } catch (_) {}
+    delete sinLeer[id];
+  }
+
   /* ---------- Facturar desde el chat ---------- */
   $("cnFacturar").addEventListener("click", () => {
     const d = abiertoId && lista[abiertoId];
@@ -2169,7 +2456,175 @@ const ChatsEntrantes = (() => {
     cambios["ultimoMensaje"] = "🧾 Factura · " + dinero(f.totalFinal);
     cambios["ultimoDe"] = "repartidor";
     cambios["ts"] = TS;
+    cambios["facturaFinal"] = fac;     // lo que ve el administrador (se actualiza si luego se agregan extras)
+    cambios["subfactura"] = null;      // una factura nueva reinicia los mandados extra anteriores
     await db.ref(RAIZ + "/" + id).update(cambios);
+    guardarFacLocal(id, fac, fac);
+  }
+
+  /* ---------- Mandados extra: sub-factura que se suma al total ---------- */
+  $("cnExtras").addEventListener("click", () => {
+    const id = abiertoId, d = id && lista[id];
+    if (!mio(d)) return;
+    const reg = leerFacLocal(id), base = reg && reg.base;
+    SubFactura.abrir(
+      { token: id, pedido: base ? base.pedido : "—", cliente: d.nombre || "", factura: base ? { subtotal: base.subtotal, delivery: base.delivery, total: base.total } : null, sub: d.subfactura || null },
+      { db, usuario: () => usuario, rutaSub: RAIZ + "/" + id + "/subfactura", alCambiar: () => {}, enviarChat: (c, sub) => enviarExtras(id, d, base, c, sub) }
+    );
+  });
+
+  /* Manda al cliente la factura ACTUALIZADA (original + adiciones + envíos) como tarjeta nueva en el chat */
+  async function enviarExtras(id, d, base, c, sub) {
+    if (!mio(lista[id])) throw new Error("Este chat ya no está asignado a ti.");
+    const b = base || { productos: [], subtotal: 0, delivery: 0, mandadoExtra: 0, prioridad: 0, deposito: false, total: 0, totalFinal: 0, cliente: d.nombre || "",
+      pedido: (typeof Factura.nuevoCodigoChat === "function" ? Factura.nuevoCodigoChat() : "") };
+    const items = (sub.items || []).map((i) => ({ nombre: "➕ " + cortar(i.nombre, 60), precio: Number(i.precio) || 0 }));
+    const cumul = JSON.parse(JSON.stringify({
+      productos: (b.productos || []).concat(items),
+      subtotal: r2((Number(b.subtotal) || 0) + c.totalSub),
+      delivery: r2((Number(b.delivery) || 0) + c.envioExtra),
+      mandadoExtra: r2((Number(b.mandadoExtra) || 0) + c.envioExtra),
+      prioridad: 0, deposito: !!b.deposito, total: c.gran, totalFinal: c.gran, pedido: b.pedido,
+      cliente: cortar((b.cliente || d.nombre || "") + " · con mandados extra", 60)
+    }));
+    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
+    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "factura", factura: cumul, ts: TS };
+    cambios["ultimoMensaje"] = "🧾 Factura actualizada · " + dinero(c.gran);
+    cambios["ultimoDe"] = "repartidor";
+    cambios["ts"] = TS;
+    cambios["facturaFinal"] = cumul;
+    await db.ref(RAIZ + "/" + id).update(cambios);
+    guardarFacLocal(id, b, cumul);
+  }
+
+  /* ---------- Registro local de facturas entregadas (por fecha y orden de entrega) ---------- */
+  function leerRegistro() {
+    try { const a = JSON.parse(localStorage.getItem(CLAVE_REG) || "[]"); return Array.isArray(a) ? a.filter((x) => x && typeof x === "object") : []; } catch (_) { return []; }
+  }
+  function escribirRegistro(a) {
+    try { localStorage.setItem(CLAVE_REG, JSON.stringify(a.slice(-300))); } catch (_) {}
+  }
+
+  function registrarEntrega(id, d, reg) {
+    const a = leerRegistro();
+    if (a.some((x) => x.id === id)) return;
+    const ahora = Date.now(), dia = (typeof Factura !== "undefined" && Factura.diaNegocio) ? Factura.diaNegocio() : new Date(ahora).toDateString();
+    const orden = a.filter((x) => x.dia === dia).reduce((m, x) => Math.max(m, Number(x.orden) || 0), 0) + 1;
+    const act = reg && reg.actual, base = reg && reg.base;
+    a.push({
+      id, ts: ahora, dia, orden, cliente: cortar(d.nombre || "Cliente", 40), sinFactura: !act,
+      pedido: act ? String(act.pedido || "") : "", productos: act && Array.isArray(act.productos) ? act.productos : [],
+      subtotal: act ? Number(act.subtotal) || 0 : 0, delivery: act ? Number(act.delivery) || 0 : 0,
+      extras: act && base ? r2((Number(act.totalFinal) || 0) - (Number(base.totalFinal) || 0)) : 0,
+      totalFinal: act ? Number(act.totalFinal) || 0 : 0
+    });
+    escribirRegistro(a);
+    // Historial en la nube, por fecha: sobrevive aunque el administrador borre el chat (facturas_historial/{YYYY-MM-DD}/{id})
+    const r = a[a.length - 1], t = new Date(ahora);
+    if (t.getHours() < 8) t.setDate(t.getDate() - 1);   // el día de trabajo cambia a las 8:00, igual que las estadísticas
+    const iso = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+    db.ref("facturas_historial/" + iso + "/" + id).set(JSON.parse(JSON.stringify({
+      repartidorUid: uidActual, repartidorNombre: cortar(usuario, 60), cliente: r.cliente, pedido: cortar(r.pedido, 30),
+      productos: r.productos.map((p) => ({ nombre: cortar(p.nombre, 80), precio: Number(p.precio) || 0 })),
+      subtotal: r.subtotal, delivery: r.delivery, extras: r.extras, totalFinal: r.totalFinal, orden: r.orden, sinFactura: r.sinFactura, ts: TS
+    }))).catch(() => { /* sin conexión o sin permiso: queda el registro local */ });
+  }
+
+  function pintarRegistro() {
+    const caja = $("cnRegistro");
+    caja.textContent = "";
+    const a = leerRegistro();
+    if (!a.length) { caja.appendChild(el("div", "cn-vacio", "Cuando entregues un pedido, su factura se guarda aquí.")); return; }
+    const dias = {};
+    a.forEach((x) => { (dias[x.dia] = dias[x.dia] || []).push(x); });
+    Object.keys(dias).sort((p, q) => Math.max(...dias[q].map((x) => x.ts)) - Math.max(...dias[p].map((x) => x.ts))).forEach((dia) => {
+      const grupo = dias[dia].sort((p, q) => (p.orden || 0) - (q.orden || 0));
+      caja.appendChild(el("div", "cn-dia-reg", etiquetaDia(grupo[0].ts) + " · " + grupo.length + " entrega" + (grupo.length > 1 ? "s" : "")));
+      grupo.forEach((x) => caja.appendChild(tarjetaRegistro(x)));
+    });
+  }
+
+  function tarjetaRegistro(x) {
+    const t = el("div", "cn-reg"), cab = el("div", "cn-reg-cab");
+    cab.appendChild(el("span", "cn-reg-num", "#" + (x.orden || "?")));
+    const dat = el("div", "");
+    dat.appendChild(el("strong", "", x.cliente || "Cliente"));
+    dat.appendChild(el("small", "", (x.pedido ? x.pedido + " · " : "") + horaDe(x.ts) + (x.sinFactura ? " · sin factura" : "")));
+    cab.appendChild(dat);
+    cab.appendChild(el("span", "cn-reg-total", dinero(x.totalFinal)));
+    t.appendChild(cab);
+    if (!x.sinFactura) {
+      const det = document.createElement("details");
+      det.appendChild(el("summary", "", "Ver detalle"));
+      const lis = el("div", "cn-flis");
+      (x.productos || []).forEach((p) => { if (p && typeof p === "object") lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio))); });
+      det.appendChild(lis);
+      const tot = el("div", "cn-ftot");
+      tot.appendChild(filaF("Subtotal", dinero(x.subtotal)));
+      tot.appendChild(filaF("Delivery", dinero(x.delivery)));
+      if (Number(x.extras) > 0) tot.appendChild(filaF("Incluye mandados extra", dinero(x.extras)));
+      tot.appendChild(filaF("Total", dinero(x.totalFinal), "total"));
+      det.appendChild(tot);
+      t.appendChild(det);
+    }
+    const bt = el("button", "peligro cn-borrar", "🗑️ Eliminar factura");
+    bt.type = "button";
+    bt.addEventListener("click", () => {
+      if (!confirm("¿Eliminar esta factura de tu registro? Solo se borra de este teléfono.")) return;
+      escribirRegistro(leerRegistro().filter((y) => !(y.id === x.id && y.ts === x.ts)));
+      pintarRegistro();
+    });
+    t.appendChild(bt);
+    return t;
+  }
+
+  /* ---------- Entregado ---------- */
+  $("cnEntregado").addEventListener("click", async () => {
+    const id = abiertoId, d = id && lista[id];
+    if (!mio(d)) return;
+    const reg = leerFacLocal(id), nombre = cortar(d.nombre || "el cliente", 40);
+    if (!confirm(reg ? "¿Confirmas que entregaste el pedido de " + nombre + "? El chat se cerrará y quedará solo su factura." : "No enviaste factura a " + nombre + ". ¿Marcar como entregado de todos modos?")) return;
+    const btn = $("cnEntregado");
+    btn.disabled = true;
+    try {
+      await db.ref(RAIZ + "/" + id).update({ estado: "entregado", entregadoTs: TS, repartidorGps: null });
+    } catch (e) {
+      btn.disabled = false;
+      return aviso("No se pudo confirmar la entrega: " + (e.code || e.message));
+    }
+    btn.disabled = false;
+    registrarEntrega(id, d, reg);
+    limpiarLocal(id);
+    cerrarConversacion();
+    delete lista[id].repartidorUid;   // (el listener lo confirma enseguida; así la pantalla cambia al instante)
+    lista[id].estado = "entregado";
+    marcarConPedido(); pintarLista(); pintarMapa(); actualizarNav();
+    toast("✅", "Entrega registrada", "La factura de " + nombre + " quedó guardada.", null, 4500);
+  });
+
+  /* ---------- Cancelar: se pide el motivo ---------- */
+  $("cnCancelar").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("modalCancelar").classList.remove("oculto"); });
+  $("cancVolver").addEventListener("click", () => $("modalCancelar").classList.add("oculto"));
+  $("cancCliente").addEventListener("click", () => resolverCancelacion("cliente"));
+  $("cancPasar").addEventListener("click", () => resolverCancelacion("pasar"));
+
+  async function resolverCancelacion(tipo) {
+    const id = abiertoId, d = id && lista[id];
+    $("modalCancelar").classList.add("oculto");
+    if (!mio(d)) return;
+    const cambios = tipo === "pasar"
+      // Vuelve al grupo: sin repartidor y en "nuevo". El historial de mensajes NO se toca.
+      ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, reasignadoTs: TS, ts: TS }
+      : { estado: "cancelado", motivoCancelacion: "cliente", canceladoTs: TS, repartidorGps: null };
+    if (tipo === "pasar") cambios["omitidoPor/" + uidActual] = true;   // a mí no me vuelve a sonar
+    try {
+      await db.ref(RAIZ + "/" + id).update(cambios);
+    } catch (e) {
+      return aviso("No se pudo " + (tipo === "pasar" ? "pasar el pedido" : "cancelar") + ": " + (e.code || e.message));
+    }
+    limpiarLocal(id);
+    cerrarConversacion();
+    toast(tipo === "pasar" ? "🔁" : "🚫", tipo === "pasar" ? "Pedido devuelto al grupo" : "Pedido cancelado", tipo === "pasar" ? "Otro repartidor lo recibirá." : "El cliente fue avisado.", null, 4500);
   }
 
   function alMostrar() {
@@ -2180,5 +2635,5 @@ const ChatsEntrantes = (() => {
   Factura.alEnviarChat = (f) => enviarFactura(f);
   Factura.alTerminarChat = () => irA("chats");   // factura enviada: de vuelta a la conversación
 
-  return { iniciar, detener, pendientes, alMostrar };
+  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia };
 })();

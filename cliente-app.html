@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="cliente-app.css">
 </head>
@@ -33,7 +34,69 @@
     </div>
   </main>
 
-  <!-- 2) Chat -->
+  <!-- 2) Modal inicial: qué desea, de dónde, quién recibe y dónde -->
+  <div id="vPedido" class="wa-modal oculto" role="dialog" aria-modal="true" aria-label="Tu pedido">
+    <div class="wa-hoja">
+      <div class="wa-pasos" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+      <form id="formPedido" class="wa-form-pedido" autocomplete="off" novalidate>
+
+        <section class="wa-paso" data-paso="1">
+          <label class="wa-pregunta" for="inQuiere">¿Qué deseas?</label>
+          <input id="inQuiere" maxlength="200" placeholder="Ej. 2 hamburguesas y una Coca-Cola">
+          <label class="wa-pregunta" for="inOrigen">¿De dónde lo deseas?</label>
+          <input id="inOrigen" maxlength="120" placeholder="Ej. Burger House, Av. Central">
+        </section>
+
+        <section class="wa-paso oculto" data-paso="2">
+          <h2 class="wa-pregunta">¿Recibes tú o envías a alguien más?</h2>
+          <button type="button" class="wa-opcion" data-modo="recibe">
+            <b>🙋 Lo recibo yo</b>
+            <small>Compartes tu ubicación en vivo con el repartidor.</small>
+          </button>
+          <button type="button" class="wa-opcion" data-modo="envia">
+            <b>🎁 Lo envío a alguien más</b>
+            <small>Marcas el punto de entrega en el mapa o escribes la dirección.</small>
+          </button>
+        </section>
+
+        <section class="wa-paso oculto" data-paso="3r">
+          <h2 class="wa-pregunta">Tu ubicación en vivo</h2>
+          <p class="wa-ayuda">El repartidor verá dónde estás mientras tu pedido está en curso.</p>
+          <button id="btnGps" type="button" class="oscuro">📍 Compartir mi ubicación</button>
+          <div id="estadoGps" class="wa-estado oculto" role="status"></div>
+          <div id="boxDirGps" class="wa-campo oculto">
+            <label for="inDirGps">Tu dirección exacta</label>
+            <input id="inDirGps" maxlength="200" placeholder="Calle, número, referencia">
+          </div>
+        </section>
+
+        <section class="wa-paso oculto" data-paso="3e">
+          <h2 class="wa-pregunta">¿Dónde se entrega?</h2>
+          <div class="wa-seg" role="group" aria-label="Forma de indicar el lugar">
+            <button type="button" class="activa" data-tipo="pin">📍 Pin en el mapa</button>
+            <button type="button" data-tipo="direccion">🏠 Dirección exacta</button>
+          </div>
+          <div id="boxPin" class="wa-campo">
+            <div id="mapaPin" class="wa-pin-mapa" aria-label="Mapa para colocar el pin"></div>
+            <small id="ayudaPin" class="wa-ayuda">Toca el mapa para colocar el pin. Puedes arrastrarlo.</small>
+          </div>
+          <div id="boxDir" class="wa-campo oculto">
+            <label for="inDir">Dirección exacta</label>
+            <input id="inDir" maxlength="200" placeholder="Calle, número, referencia">
+          </div>
+        </section>
+
+        <div id="msgPedido" class="wa-estado error oculto" role="alert"></div>
+
+        <div class="wa-acciones">
+          <button id="btnAtras" type="button" class="oculto">Atrás</button>
+          <button id="btnSiguiente" type="submit" class="primario">Siguiente</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 3) Chat -->
   <section id="vChat" class="wa-chat oculto" aria-label="Conversación con tu repartidor">
     <header class="wa-barra">
       <span class="wa-avatar" id="avatarRep" aria-hidden="true">B</span>
@@ -41,11 +104,20 @@
         <strong id="tituloChat">Brother’s Deliverys</strong>
         <small id="subChat">Buscando repartidor…</small>
       </div>
+      <button id="btnMapa" class="wa-btn-barra oculto" type="button" aria-label="Ver mapa" aria-expanded="false">🗺️</button>
     </header>
 
-    <div id="avisoEspera" class="wa-aviso">
+    <div id="avisoEspera" class="wa-aviso" role="status">
       <span class="wa-puntos" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span>Estamos buscando un repartidor para ti. Cuando alguien tome tu chat podrás escribirle aquí.</span>
+      <div>
+        <strong>Estamos buscando un repartidor para que lleve tu orden</strong>
+        <small id="resumenPedido" class="oculto"></small>
+      </div>
+    </div>
+
+    <div id="panelMapa" class="wa-panel-mapa oculto">
+      <div id="mapaSeguir" aria-label="Mapa con la ubicación de tu repartidor"></div>
+      <div id="estadoMapa" class="wa-estado-mapa">Esperando la ubicación de tu repartidor…</div>
     </div>
 
     <div id="mensajes" class="wa-mensajes" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -53,6 +125,10 @@
     <div id="msgError" class="wa-estado error oculto" role="alert"></div>
 
     <form id="formMensaje" class="wa-compositor" autocomplete="off">
+      <button id="btnFoto" class="wa-foto" type="button" aria-label="Tomar o enviar una foto" disabled>
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 14.5A4.5 4.5 0 1 1 12 8.5a4.5 4.5 0 0 1 0 9zm0-2a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>
+      </button>
+      <input id="inFoto" class="oculto" type="file" accept="image/*" tabindex="-1" aria-hidden="true">
       <input id="inMensaje" name="mensaje" maxlength="600" placeholder="Esperando repartidor…" aria-label="Escribe un mensaje" disabled>
       <button id="btnEnviar" class="wa-enviar" type="submit" aria-label="Enviar mensaje" disabled>
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6l-.01 6.53L15 12 3.39 13.87z"/></svg>
@@ -60,6 +136,25 @@
     </form>
   </section>
 
+  <!-- Cierre del ciclo: pedido entregado (o cancelado) -->
+  <div id="vCierre" class="wa-modal centro oculto" role="dialog" aria-modal="true" aria-labelledby="cierreTitulo">
+    <div class="wa-cierre">
+      <div class="wa-gran-icono" id="cierreIcono" aria-hidden="true">✅</div>
+      <h2 id="cierreTitulo">¡Pedido entregado!</h2>
+      <p id="cierreSub" class="wa-ayuda">¿Cómo estuvo tu repartidor?</p>
+      <div id="boxEstrellas" class="wa-estrellas" role="radiogroup" aria-label="Valoración de 1 a 5 estrellas">
+        <button type="button" class="wa-estrella" data-n="1" role="radio" aria-checked="false" aria-label="1 estrella">★</button>
+        <button type="button" class="wa-estrella" data-n="2" role="radio" aria-checked="false" aria-label="2 estrellas">★</button>
+        <button type="button" class="wa-estrella" data-n="3" role="radio" aria-checked="false" aria-label="3 estrellas">★</button>
+        <button type="button" class="wa-estrella" data-n="4" role="radio" aria-checked="false" aria-label="4 estrellas">★</button>
+        <button type="button" class="wa-estrella" data-n="5" role="radio" aria-checked="false" aria-label="5 estrellas">★</button>
+      </div>
+      <div id="msgValoracion" class="wa-estado oculto" role="status"></div>
+      <button id="btnNuevo" type="button" class="primario wa-btn-grande">PEDIR NUEVAMENTE</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>

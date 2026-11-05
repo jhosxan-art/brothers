@@ -52,7 +52,7 @@ const SubFactura = (() => {
   /* ---------- Ventana ---------- */
   function abrir(v, ctx) {
     let draft = { items: ((v.sub && v.sub.items) || []).map((i) => ({ nombre: i.nombre, precio: n(i.precio) })), envioExtra: n(v.sub && v.sub.envioExtra) };
-    const refSub = ctx.db.ref(`pedidos/${v.token}/subfactura`);
+    const refSub = ctx.db.ref(ctx.rutaSub || `pedidos/${v.token}/subfactura`);   // ctx.rutaSub: chats de clientes (solicitudes_entrantes/{id}/subfactura)
     const guardar = () => {
       const subtotal = r2(draft.items.reduce((t, i) => t + i.precio, 0));
       const obj = { etiqueta: ETIQUETA, items: draft.items, subtotal, envioExtra: r2(draft.envioExtra), ts: firebase.database.ServerValue.TIMESTAMP };
@@ -88,7 +88,17 @@ const SubFactura = (() => {
     };
     $("subEnvio").oninput = () => { draft.envioExtra = Math.max(0, n($("subEnvio").value)); pintar(); };   // el desglose se recalcula mientras escribes
     $("subEnvio").onchange = guardar;
-    $("btnSubWa").onclick = () => { const sub = { items: draft.items, envioExtra: draft.envioExtra }; ctx.wa(mensaje(v, ctx, calcular(v.factura, sub), sub)); };
+    const btnEnviar = $("btnSubWa");
+    if (btnEnviar.dataset.txt === undefined) btnEnviar.dataset.txt = btnEnviar.textContent;
+    btnEnviar.textContent = ctx.enviarChat ? "💬 Enviar al chat del cliente" : btnEnviar.dataset.txt;
+    btnEnviar.onclick = async () => {
+      const sub = { items: draft.items, envioExtra: draft.envioExtra }, c = calcular(v.factura, sub);
+      if (!ctx.enviarChat) return ctx.wa(mensaje(v, ctx, c, sub));
+      btnEnviar.disabled = true;     // en un chat el total actualizado llega como una tarjeta nueva en la conversación
+      try { await ctx.enviarChat(c, sub); $("modalSub").classList.add("oculto"); }
+      catch (e) { alert("No se pudo enviar al chat: " + (e.message || e)); }
+      btnEnviar.disabled = !draft.items.length;
+    };
     $("btnSubCerrar").onclick = () => { if (draft.envioExtra !== n(v.sub && v.sub.envioExtra)) guardar(); $("modalSub").classList.add("oculto"); };
     pintar();
     $("modalSub").classList.remove("oculto");
