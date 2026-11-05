@@ -24,6 +24,8 @@
     .pago-campo:focus-within { outline: 3px solid var(--celeste-prof, #0A86C9); outline-offset: 2px; }
     .pago-campo i { font-style: normal; font-weight: 800; font-size: 22px; color: var(--tinta, #0E141B); }
     .pago-campo input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; box-shadow: none; font: 800 32px/1 "Plus Jakarta Sans", system-ui, sans-serif; text-align: right; color: var(--tinta, #0E141B); }
+    /* FASE 2 · fix del teclado táctil: el body sigue al visualViewport */
+    body.pd-invitado { height: var(--vvh, 100dvh); }
   </style>
 </head>
 <body class="pd-invitado">
