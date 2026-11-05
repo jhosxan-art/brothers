@@ -3,6 +3,8 @@
    - Mapa con TODOS los repartidores, siempre (también cuando no tienen pedido)
    - Chats archivados de cada pedido
    - Agregar / quitar repartidores sin entrar a la consola de Firebase
+   FASE 3: fotos de perfil (registrado e invitado) desde el botón 📷 del equipo,
+     centro del mapa en Chinandega, watcher de fotosPerfil para avatares en vivo.
    ============================================================ */
 /* Si algo falla al cargar (p. ej. faltan archivos por subir), el motivo aparece escrito bajo el formulario */
 window.addEventListener("error", (e) => {
@@ -150,7 +152,7 @@ async function registrarPushAdmin(uid) {
     let p = await PN.checkPermissions();
     if (p.receive !== "granted") p = await PN.requestPermissions();   // ventana de Android 13+: "¿Permitir notificaciones?"
     if (p.receive !== "granted") { toast("Activa las notificaciones de la app en Ajustes para recibir los avisos de tus repartidores."); return; }
-    // Canal \"admin\": importancia 5 = ventana emergente con sonido (mismo nombre que usa el Worker y el AndroidManifest)
+    // Canal "admin": importancia 5 = ventana emergente con sonido (mismo nombre que usa el Worker y el AndroidManifest)
     await PN.createChannel({ id: "admin", name: "Avisos de Brothers", description: "Mensajes de repartidores y clientes que abren su enlace", importance: 5, visibility: 1, vibration: true, lights: true });
     await PN.removeAllListeners();
     PN.addListener("registration", (t) => {   // se dispara al registrar y cada vez que Google renueva el token
@@ -191,7 +193,8 @@ function normalizarTelefono(t) {
 /* ---------- Mapa ---------- */
 function initMapa() {
   if (!mapa) {
-    mapa = L.map("mapaAdmin", GestosMapa.opciones).setView([-12.0464, -77.0428], 12);
+    /* FASE 3: mapa centrado en Chinandega, Nicaragua (antes Lima, Perú) */
+    mapa = L.map("mapaAdmin", GestosMapa.opciones).setView([12.5700, -87.1311], 13);
     L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);   // zoom con botones
     GestosMapa.aplicar(mapa);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -696,6 +699,12 @@ function iniciarMonitoreo() {
 
   db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); if (refStats) cargarStats(); }, fallo);
 
+  /* FASE 3 · Fotos de perfil: actualiza los avatares del equipo en vivo */
+  db.ref("fotosPerfil").on("value", (s) => {
+    fotosCache = s.val() || {};
+    aplicarFotosAvatares();
+  }, () => { fotosCache = {}; aplicarFotosAvatares(); });
+
   // Últimas 50 conversaciones
   consultaChats = db.ref("chatsResumen").orderByChild("ts").limitToLast(50);
   let primeraCargaChats = true;
@@ -731,6 +740,7 @@ function detener() {
   [guias, sinLeerEq].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
   resEquipo = {}; selUid = null; selChats.clear(); modoSel = false;
   db.ref("repartidores").off();
+  db.ref("fotosPerfil").off();   /* FASE 3: corta el watcher de fotos al cerrar sesión */
   Object.keys(marcadores).forEach(quitarMarcador);
   Object.keys(clientesM).forEach((t) => { mapa.removeLayer(clientesM[t].pin); mapa.removeLayer(clientesM[t].linea); delete clientesM[t]; });
   [ubic, activos].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
@@ -903,20 +913,24 @@ function pintarEquipo() {
     const i = infoReg(uid), est = estadoDe(uid), [texto, clase] = ETIQUETA[est];
     return `<div class="tarjeta-rep">
       <div class="fila">
-        <span class="avatar">${RIDER_SVG}</span>
+        <span class="avatar" data-av="${esc(uid)}">${RIDER_SVG}</span>
         <div class="datos"><strong>${esc(nombreUid(uid))}</strong>
           <small>${i.email ? esc(i.email) : "Sin correo registrado · " + esc(uid.slice(0, 8)) + "…"}</small>
           <small>📱 ${i.telefono ? "WhatsApp +" + esc(i.telefono) : "Sin WhatsApp guardado"}</small></div>
         <span class="chip ${clase}">${texto}</span>
       </div>
       <div class="acciones-fila">
+        <button class="mini" data-foto-uid="${esc(uid)}" data-foto-nom="${esc(nombreUid(uid))}">📷 Foto</button>
         <button class="mini" data-accion="telefono" data-uid="${esc(uid)}">${i.telefono ? "Editar WhatsApp" : "Agregar WhatsApp"}</button>
         ${i.email ? `<button class="mini" data-accion="reset" data-uid="${esc(uid)}">Restablecer clave</button>` : ""}
         <button class="mini peligro" data-accion="quitar" data-uid="${esc(uid)}">Quitar</button>
       </div></div>`;
   }).join("") + (invitados ? '<h3 class="sec">Invitados activos</h3>' + invitados : "");
+  aplicarFotosAvatares();
 }
 $("listaEquipo").onclick = (e) => {
+  const fotoBtn = e.target.closest("button[data-foto-uid]");
+  if (fotoBtn) { abrirFotoPerfil(fotoBtn.dataset.fotoUid, fotoBtn.dataset.fotoNom); return; }
   const b = e.target.closest("button[data-accion]"); if (!b) return;
   const uid = b.dataset.uid, i = infoReg(uid), nombre = nombreUid(uid);
   if (b.dataset.accion === "telefono") {   // guardar / cambiar el WhatsApp al que llegan los pedidos nuevos
@@ -980,6 +994,8 @@ $("btnAgregar").onclick = async () => {
 Atras.iniciar([
   () => Chat.cerrarCapa(),
   () => (typeof PedidosAdmin !== "undefined" && PedidosAdmin.cerrarMapaForm()),
+  /* FASE 3: modal de foto */
+  () => { const m = $("modalFoto"); if (m && !m.classList.contains("oculto")) { m.classList.add("oculto"); fotoUid = null; return true; } return false; },
   () => { if (!$("modalAdmin").classList.contains("oculto")) { cerrarModal(); return true; } return false; },
   () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
   () => { if (!$("resBusq").classList.contains("oculto") || document.activeElement === $("busq")) { $("resBusq").classList.add("oculto"); $("busq").blur(); return true; } return false; },
@@ -1061,3 +1077,103 @@ function pintarCalif() {
       ${f.ult.slice(0, 8).map((r) => `<div style="padding:6px 0;border-top:1px solid #eee"><b style="color:#F59E0B">${estrellasTxt(r.estrellas)}</b> <small>${new Date(r.ts).toLocaleDateString()}${r.pedido ? " · pedido " + esc(r.pedido) : ""}</small>${r.comentario ? `<div>${esc(r.comentario)}</div>` : ""}</div>`).join("")}
     </details>`).join("");
 }
+
+/* ============================================================
+   FASE 3 · Fotos de perfil del repartidor (registrado e invitado)
+   - Se guardan en fotosPerfil/{uid} (mismo nodo que lee cliente-app.js)
+   - Compresión cliente-side a JPEG ≤ 300 KB
+   - Modal abierto desde el botón 📷 en la tarjeta del equipo
+   - aplicarFotosAvatares() aplica la foto al avatar con data-av (registrados + invitados)
+   ============================================================ */
+let fotoUid = null, fotoNom = "", fotosCache = {};
+
+function abrirFotoPerfil(uid, nombre) {
+  if (!uid) return;
+  fotoUid = uid; fotoNom = nombre || "";
+  const m = $("modalFoto");
+  if (!m) return;
+  $("fotoTitulo").textContent = "📷 Foto de " + (fotoNom || "repartidor");
+  $("fotoSub").textContent = "Se mostrará al cliente en su seguimiento.";
+  $("fotoPreview").textContent = "Cargando…";
+  $("fotoPreview").style.backgroundImage = "";
+  $("btnFotoBorrar").classList.add("oculto");
+  m.classList.remove("oculto");
+  db.ref("fotosPerfil/" + uid).once("value").then((s) => pintarPreviewFoto(s.val())).catch(() => pintarPreviewFoto(""));
+}
+function pintarPreviewFoto(dataUrl) {
+  const preview = $("fotoPreview");
+  if (!preview) return;
+  preview.textContent = "";
+  if (dataUrl && typeof dataUrl === "string" && dataUrl.indexOf("data:image/") === 0) {
+    preview.style.backgroundImage = "url('" + dataUrl + "')";
+    $("btnFotoBorrar").classList.remove("oculto");
+  } else {
+    preview.style.backgroundImage = "";
+    preview.textContent = "Sin foto (se muestra el ícono del repartidor)";
+    $("btnFotoBorrar").classList.add("oculto");
+  }
+}
+async function subirFotoPerfil(file) {
+  if (!fotoUid || !file) return;
+  if (!/^image\//.test(file.type)) return toast("Selecciona una imagen válida.");
+  if (file.size > 10 * 1024 * 1024) return toast("La imagen es demasiado grande (máx. 10 MB).");
+  $("btnFotoPick").disabled = true; $("btnFotoBorrar").disabled = true;
+  try {
+    const dataUrl = await comprimirFoto(file);
+    await db.ref("fotosPerfil/" + fotoUid).set(dataUrl);
+    pintarPreviewFoto(dataUrl);
+    toast("Foto guardada ✓");
+  } catch (err) {
+    toast("No se pudo subir la foto: " + (err.message || err));
+  } finally { $("btnFotoPick").disabled = false; $("btnFotoBorrar").disabled = false; }
+}
+function comprimirFoto(file) {
+  return new Promise((ok, fail) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let lado = 640;
+      for (let i = 0; i < 5; i++) {
+        const k = Math.min(1, lado / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.width * k));
+        c.height = Math.max(1, Math.round(img.height * k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        const salida = c.toDataURL("image/jpeg", 0.8);
+        if (salida.length <= 300000) return ok(salida);
+        lado = Math.round(lado * 0.75);
+      }
+      fail(new Error("La foto es demasiado grande incluso después de comprimir."));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); fail(new Error("No se pudo leer la imagen.")); };
+    img.src = url;
+  });
+}
+function aplicarFotosAvatares() {
+  document.querySelectorAll("[data-av]").forEach((el) => {
+    const f = fotosCache[el.dataset.av];
+    if (f && typeof f === "string" && f.indexOf("data:image/") === 0) {
+      el.style.backgroundImage = "url('" + f + "')";
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
+      el.classList.add("con-foto");
+    } else {
+      el.style.backgroundImage = "";
+      el.classList.remove("con-foto");
+    }
+  });
+}
+$("btnFotoPick").onclick = () => $("fotoFile").click();
+$("fotoFile").onchange = () => {
+  const f = $("fotoFile").files && $("fotoFile").files[0];
+  $("fotoFile").value = "";
+  if (f) subirFotoPerfil(f);
+};
+$("btnFotoBorrar").onclick = async () => {
+  if (!fotoUid) return;
+  if (!confirm("¿Quitar la foto de " + (fotoNom || "este repartidor") + "?")) return;
+  try { await db.ref("fotosPerfil/" + fotoUid).remove(); pintarPreviewFoto(""); toast("Foto quitada."); }
+  catch (e) { toast("No se pudo quitar: " + e.message); }
+};
+$("btnFotoCerrar").onclick = () => { $("modalFoto").classList.add("oculto"); fotoUid = null; };
+$("modalFoto").addEventListener("click", (e) => { if (e.target === $("modalFoto")) { $("modalFoto").classList.add("oculto"); fotoUid = null; } });
