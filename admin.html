@@ -205,7 +205,7 @@
 
     <section id="panelSolicitudes" class="oculto">
       <h2>Solicitudes entrantes</h2>
-      <p class="ayuda">Chats de clientes que piden por la app. Las conversaciones son de solo lectura: ves mensajes, fotos, facturas con sus mandados extra, valoraciones y el GPS de cliente y repartidor. Solo puedes eliminar los chats ya finalizados.</p>
+      <p class="ayuda">Chats de clientes que piden por la app. Las conversaciones son de solo lectura: ves mensajes, fotos, facturas con sus mandados extra, valoraciones y el GPS de cliente y repartidor. Puedes forzar el estado a entregado o cancelado si algo falla.</p>
       <div id="saResumen" class="sa-resumen"></div>
       <div id="saServicio" class="sa-servicio oculto" aria-label="Repartidores con pedido"></div>
       <div class="sa-filtros" id="saFiltros">
@@ -232,6 +232,8 @@
       <div class="modal-rep-caja sa-caja">
         <div class="sa-cab">
           <div><strong id="saTitulo">Cliente</strong><small id="saSub"></small></div>
+          <button id="saForzarEnt" class="oscuro oculto" type="button" aria-label="Forzar entregado" title="Forzar entregado">✅ Forzar</button>
+          <button id="saForzarCanc" class="peligro oculto" type="button" aria-label="Forzar cancelado" title="Forzar cancelado">🚫 Forzar</button>
           <button id="saMapaBtn" class="primario" type="button" aria-expanded="false" aria-controls="saMapaCaja">🗺️ Espectador</button>
           <button id="saBorrarUno" class="peligro oculto" type="button">🗑</button>
           <button id="saCerrar" class="oscuro" type="button">Cerrar</button>
@@ -247,6 +249,19 @@
     </div>
 
     <div id="modalAdmin" class="modal-rep oculto" role="dialog" aria-modal="true"><div class="modal-rep-caja" id="modalCaja" style="text-align:left"></div></div>
+
+    <!-- NUEVA FASE 3 · Modal de foto de perfil (repartidor registrado e invitado) -->
+    <div id="modalFoto" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="fotoTitulo">
+      <div class="modal-rep-caja foto-modal">
+        <h2 id="fotoTitulo">📷 Foto de perfil</h2>
+        <p id="fotoSub" class="ayuda"></p>
+        <div id="fotoPreview" class="foto-preview">Cargando…</div>
+        <input type="file" accept="image/*" id="fotoFile" hidden>
+        <button id="btnFotoPick" class="primario" type="button">📁 Elegir foto del dispositivo</button>
+        <button id="btnFotoBorrar" class="peligro oculto" type="button">🗑️ Quitar foto</button>
+        <button id="btnFotoCerrar" class="oscuro" type="button">Cerrar</button>
+      </div>
+    </div>
 
     <nav class="tabs">
       <button class="activa" data-tab="panelMapa">Mapa en vivo</button>
