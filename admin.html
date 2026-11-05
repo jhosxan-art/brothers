@@ -11,6 +11,58 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="ordenes.css">
+  <style>
+    /* ---- FASE 3 · Solicitudes entrantes (auditoría de chats cliente ↔ repartidor, solo lectura) ---- */
+    nav.tabs { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; }
+    nav.tabs button { font-size: 12px; padding: 0 4px; position: relative; }
+    .sa-badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: #E5322D; color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center; vertical-align: middle; }
+    #panelSolicitudes { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: grid; align-content: start; gap: 10px; max-width: 520px; width: 100%; margin: 0 auto; }
+    #panelSolicitudes.oculto { display: none !important; }
+    #panelSolicitudes h2 { font-size: 20px; font-weight: 800; }
+    .sa-filtros { display: flex; gap: 8px; }
+    .sa-filtros button { flex: 1; height: 38px; padding: 0 8px; border-radius: 19px; font-size: 13px; }
+    .sa-filtros button.on { background: #0E141B; border-color: #0E141B; color: #fff; }
+    .sa-item { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
+    .sa-item.nuevo { border-color: #3DB8F5; box-shadow: inset 4px 0 0 #3DB8F5; }
+    .sa-av { width: 44px; height: 44px; border-radius: 50%; background: #E8F6FE; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex: none; }
+    .sa-dat { flex: 1; min-width: 0; display: grid; gap: 1px; text-align: left; }
+    .sa-dat strong { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sa-dat small { font-size: 12.5px; font-weight: 600; color: #5B6672; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sa-estado { display: inline-block; width: fit-content; padding: 2px 8px; border-radius: 10px; font-size: 11.5px; font-weight: 800; background: #E8F6FE; }
+    .sa-estado.atendido { background: #E8F6EE; color: #17794A; }
+    .sa-item button { flex: none; width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 13px; }
+    .sa-vacio { padding: 14px; border-radius: 14px; background: #fff; border: 1px dashed #D6DDE3; font-size: 13.5px; font-weight: 600; color: #5B6672; }
+    /* Visor: ventana de solo lectura */
+    #modalSolicitud .sa-caja { max-width: 440px; height: min(86vh, 680px); padding: 0; gap: 0; overflow: hidden; grid-template-rows: auto 1fr auto; background: #EAF2F6; text-align: left; }
+    .sa-cab { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border-bottom: 1px solid #E1E6EB; }
+    .sa-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
+    .sa-cab strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sa-cab small { font-size: 12px; font-weight: 600; color: #5B6672; }
+    .sa-cab button { width: auto; height: 38px; padding: 0 14px; border-radius: 12px; font-size: 13px; flex: none; }
+    .sa-msgs { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; display: flex; flex-direction: column; gap: 3px; }
+    .sa-pie { padding: 9px 12px calc(9px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid #E1E6EB; font-size: 12.5px; font-weight: 700; color: #5B6672; text-align: center; }
+    .sa-dia { align-self: center; margin: 8px 0 4px; padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; color: #5B6672; }
+    .sa-quien { font-size: 11.5px; font-weight: 800; color: #0A86C9; margin-bottom: 1px; }
+    .sa-b { max-width: 84%; padding: 7px 10px 5px; border-radius: 14px; background: #fff; align-self: flex-start; border-top-left-radius: 4px; overflow-wrap: anywhere; }
+    .sa-b.rep { align-self: flex-end; background: #D3EEFC; border-top-left-radius: 14px; border-top-right-radius: 4px; }
+    .sa-b p { margin: 0; white-space: pre-wrap; font-size: 14.5px; color: #0E141B; }
+    .sa-h { display: block; text-align: right; margin-top: 2px; font-size: 11px; font-weight: 600; color: #5B6672; }
+    .sa-b.fac { width: min(90%, 320px); max-width: none; padding: 0; overflow: hidden; border: 1px solid #E1E6EB; }
+    .sa-fcab { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 9px 12px; background: #0E141B; color: #fff; }
+    .sa-fcab strong { font-size: 13.5px; font-weight: 800; }
+    .sa-fcab span { font-size: 12px; font-weight: 600; opacity: .8; }
+    .sa-fcue { padding: 10px 12px; display: grid; gap: 8px; color: #0E141B; }
+    .sa-fmeta { font-size: 12.5px; font-weight: 600; color: #5B6672; }
+    .sa-flis, .sa-ftot { display: grid; gap: 4px; }
+    .sa-ftot { padding-top: 8px; border-top: 1px dashed #E1E6EB; }
+    .sa-ffil { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; }
+    .sa-ffil b { font-weight: 700; white-space: nowrap; }
+    .sa-ffil.total { font-size: 16px; font-weight: 800; padding-top: 5px; border-top: 2px solid #0E141B; }
+    .sa-fcod { text-align: center; padding: 8px; border-radius: 12px; background: #E8F6FE; font-weight: 800; }
+    .sa-fcod small { display: block; font-size: 12px; font-weight: 600; color: #5B6672; }
+    .sa-fcod span { font-size: 20px; letter-spacing: 2px; }
+    .sa-b.fac .sa-h { padding: 0 12px 7px; }
+  </style>
 </head>
 <body class="admin">
   <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
@@ -151,32 +203,25 @@
       </details>
     </section>
 
-    <!-- Auditoría: todas las solicitudes_entrantes en tiempo real (pendientes vs. asignadas) -->
-    <section id="panelAuditoria" class="oculto">
-      <h2>Auditoría de chats</h2>
-      <p class="ayuda">Solicitudes entrantes en vivo. Toca una para leer la conversación entre el cliente y el repartidor (solo lectura).</p>
-      <div id="audResumen" class="aud-resumen" aria-live="polite"></div>
-      <div id="audFiltros" class="aud-filtros" role="tablist" aria-label="Filtrar solicitudes">
-        <button type="button" data-f="todas" class="on">Todas</button>
-        <button type="button" data-f="pendiente">Pendientes</button>
-        <button type="button" data-f="asignada">Asignadas</button>
-        <button type="button" data-f="pedido">Pedidos</button>
+    <section id="panelSolicitudes" class="oculto">
+      <h2>Solicitudes entrantes</h2>
+      <p class="ayuda">Chats de clientes que piden por la app. Aquí solo puedes mirar: lee la conversación con el repartidor y las facturas en tiempo real.</p>
+      <div class="sa-filtros" id="saFiltros">
+        <button class="on" type="button" data-f="todos">Todos</button>
+        <button type="button" data-f="nuevo">Sin atender</button>
+        <button type="button" data-f="atendido">Atendidos</button>
       </div>
-      <div id="audError" class="estado error oculto" role="alert"></div>
-      <div id="audLista" class="aud-lista"></div>
+      <div id="saLista" class="acciones"></div>
     </section>
 
-    <!-- Modo Espectador: panel grande de SOLO LECTURA (sin campo para escribir) -->
-    <div id="audVisor" class="aud-visor oculto" role="dialog" aria-modal="true" aria-labelledby="audVTitulo">
-      <div class="aud-caja">
-        <header class="aud-cab">
-          <div class="aud-cab-txt"><h2 id="audVTitulo">Conversación</h2><small id="audVSub"></small></div>
-          <span class="aud-solo">👁 Solo lectura</span>
-          <button id="audVCerrar" type="button" class="aud-x" aria-label="Cerrar">✕</button>
-        </header>
-        <div id="audVInfo" class="aud-info"></div>
-        <div id="audVMsgs" class="aud-msgs" role="log" aria-live="polite"></div>
-        <footer class="aud-pie"><span class="fv-vivo">En vivo</span> · El administrador solo observa: no puede escribir en este chat.</footer>
+    <div id="modalSolicitud" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="saTitulo">
+      <div class="modal-rep-caja sa-caja">
+        <div class="sa-cab">
+          <div><strong id="saTitulo">Cliente</strong><small id="saSub"></small></div>
+          <button id="saCerrar" class="oscuro" type="button">Cerrar</button>
+        </div>
+        <div id="saMsgs" class="sa-msgs" role="log" aria-live="polite"></div>
+        <div class="sa-pie">👁 Modo lectura: no puedes escribir en esta conversación</div>
       </div>
     </div>
 
@@ -186,8 +231,8 @@
       <button class="activa" data-tab="panelMapa">Mapa en vivo</button>
       <button data-tab="panelPedidos">Pedidos</button>
       <button data-tab="panelChats">Chats</button>
-      <button data-tab="panelAuditoria">Auditoría <span id="audBadge" class="badge-nav rojo oculto">0</span></button>
       <button data-tab="panelEquipo">Equipo</button>
+      <button data-tab="panelSolicitudes">Solicitudes<span id="saBadge" class="sa-badge oculto">0</span></button>
     </nav>
   </div>
 

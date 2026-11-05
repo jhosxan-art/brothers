@@ -122,7 +122,7 @@ const FRESCO_MS = 60000;     // la ubicación del cliente se considera "en vivo"
 const viajes = {};           // token → pedido en ruta (ver crearViaje)
 let orden = [];              // tokens, en el orden en que se crearon (define el número 1, 2, 3…)
 let seleccionado = null;     // token del pedido enfocado en el mapa
-let vistaActual = "factura"; // "factura" | "mapa"
+let vistaActual = "factura"; // "factura" | "mapa" | "chats"
 let chatToken = null;        // token cuyo chat está abierto ahora ("equipo" = chat con Brothers)
 const RUTA_EQUIPO = { chats: "chatsEquipo", resumen: "chatsEquipoResumen", fotos: "fotosEquipo" };
 let lugares = {}, lugarMarks = {}, refLugares = null, lugarDestino = null, marcaLugar = null, rutaLugar = null;
@@ -220,17 +220,18 @@ function mostrar(vista) {   // "login" | "usuario" | "app"
   $("vistaUsuario").classList.toggle("oculto", vista !== "usuario");
   $("btnSalir").classList.toggle("oculto", vista === "login");
   $("btnChatAdmin").classList.toggle("oculto", vista !== "app");
-  $("btnNuevosChats").classList.toggle("oculto", vista !== "app");
   $("btnFacturaVivo").classList.toggle("oculto", vista !== "app");
   if (vista !== "app") {
-    ["vistaFactura", "vistaMapa", "navApp"].forEach((id) => $(id).classList.add("oculto"));
+    ["vistaFactura", "vistaMapa", "vistaChats", "navApp"].forEach((id) => $(id).classList.add("oculto"));
   } else irA(vistaActual);
 }
 function irA(vista) {
   vistaActual = vista;
   $("vistaFactura").classList.toggle("oculto", vista !== "factura");
   $("vistaMapa").classList.toggle("oculto", vista !== "mapa");
+  $("vistaChats").classList.toggle("oculto", vista !== "chats");
   actualizarNav();
+  if (vista === "chats") { try { ChatsEntrantes.alMostrar(); } catch (_) {} }
   if (vista === "mapa") {
     renderLista();
     initMapa();
@@ -246,6 +247,11 @@ function actualizarNav() {
   document.body.classList.toggle("con-nav", !!hay);
   $("navFactura").classList.toggle("activa", vistaActual === "factura");
   $("navMapa").classList.toggle("activa", vistaActual === "mapa");
+  $("navChats").classList.toggle("activa", vistaActual === "chats");
+  let nuevosChats = 0;
+  try { nuevosChats = ChatsEntrantes.pendientes(); } catch (_) {}
+  $("badgeChats").textContent = String(nuevosChats);
+  $("badgeChats").classList.toggle("oculto", !nuevosChats);
   const sinLeer = orden.reduce((t, k) => t + (viajes[k] ? viajes[k].noLeidos : 0), 0) + noLeidosPedido();
   const b = $("badgeNav");
   b.textContent = sinLeer ? "💬 " + sinLeer : String(orden.length);
@@ -254,6 +260,7 @@ function actualizarNav() {
 }
 $("navFactura").onclick = () => irA("factura");
 $("navMapa").onclick = () => irA("mapa");
+$("navChats").onclick = () => irA("chats");
 
 /* ---------- Sesión y nombre de usuario ---------- */
 function msgLogin(t) {
@@ -271,7 +278,7 @@ try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {} 
 setTimeout(() => $("splash").classList.add("oculto"), 8000);   // por si algo tarda: nunca se queda cargando
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); Solicitudes.detener(); uidActual = null; usuario = null; $("clave").value = "";
+    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); try { ChatsEntrantes.detener(); } catch (_) {} uidActual = null; usuario = null; $("clave").value = "";
     return mostrar("login");
   }
   uidActual = user.uid;
@@ -321,40 +328,17 @@ async function entrarTurno() {
   vistaActual = orden.length ? "mapa" : "factura";   // la factura es lo primero, salvo que ya lleve un pedido en camino
   mostrar("app");
   escucharAdmin();                  // chat con Brothers + guías del administrador
-  iniciarSolicitudes();             // pestaña "Nuevos Chats": solicitudes_entrantes en tiempo real
+  ChatsEntrantes.iniciar();         // pestaña "Nuevos Chats": clientes que escriben desde cliente-app.html
   await permisosInicio();           // APK: explica y pide permisos (notificaciones…)
   registrarPush();                  // avisos push con la app cerrada
   iniciarNativo();                  // burbuja flotante, batería y ubicaciones compartidas (solo APK)
   iniciarGPS();                     // y aquí Android pide la ubicación (“todo el tiempo”)
 }
 
-/* ---------- Nuevos Chats (solicitudes_entrantes) · módulo Solicitudes de factura.js ---------- */
-function iniciarSolicitudes() {
-  Solicitudes.init({
-    db, tipo: "registrado",
-    uid: () => uidActual, nombre: () => usuario || "Repartidor", repartidorUid: () => uidActual,
-    boton: "btnNuevosChats", badge: "badgeNuevosChats",
-    codigo: () => CodigosBD.siguiente(),
-    instantanea: (f) => SubFactura.instantanea(f),
-    alNueva: (id, s) => { Pantalla.pedir(); Voz.hablar("Nuevo chat de cliente", { forzar: true }); },
-    alFacturada: (f) => {   // la factura y pedidos/{token} ya se escribieron en el módulo; aquí solo se sigue el viaje
-      contarFactura(f);
-      if (orden.length === 0) rastro = [];
-      const v = viajes[f.token] || crearViaje({ token: f.token, tel: f.tel, pedido: f.pedido, cliente: f.cliente });
-      v.sinFactura = false; v.pedido = f.pedido; v.cliente = f.cliente || v.cliente;
-      guardarViajes(); sincronizarContactos();
-      seleccionado = v.token;
-      Solicitudes.cerrar();
-      irA("mapa"); renderLista(); seleccionar(v.token, false);
-      setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
-    }
-  });
-}
-
 $("btnSalir").onclick = async () => {
   if (orden.length) return alert("Primero entrega o cancela los pedidos en curso.");
   if (!confirm("¿Cerrar sesión? Dejarás de compartir tu ubicación.")) return;
-  detenerGPS(); apagarNativo(); Solicitudes.detener();
+  detenerGPS(); apagarNativo();
   try { await db.ref(`repartidores/${uidActual}/fcmToken`).remove(); } catch (_) {}   // este teléfono deja de recibir avisos
   try {
     await db.ref("ubicaciones/" + uidActual).update({ enLinea: false, enViaje: false, ts: TS });
@@ -1906,7 +1890,6 @@ $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); i
 
 /* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
 Atras.iniciar([
-  () => Solicitudes.cerrarCapa(),
   () => Chat.cerrarCapa(),
   () => { for (const id of ["modalNuevoPedido", "modalSub", "modalFacturaVivo", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
   () => {   // ventanas de la factura
@@ -1946,3 +1929,256 @@ OrdenAdminRep.init({
   alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
   alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))   // el cliente priorizó un pedido asignado por el administrador
 });
+
+
+/* ============================================================
+   NUEVOS CHATS (clientes de cliente-app.html)
+   - Escucha solicitudes_entrantes en tiempo real.
+   - "Atender": el repartidor se asigna el chat con una TRANSACCIÓN sobre repartidorUid; solo el primero
+     lo consigue y los demás repartidores dejan de verlo.
+   - Conversación con el cliente + botón Facturar: factura.js arma la cuenta (Factura.prepararChat) y la
+     envía como tarjeta a la conversación (Factura.alEnviarChat).
+   Esquema: solicitudes_entrantes/{id} { clienteId, nombre, estado, repartidorUid, repartidorNombre, ultimoMensaje, ts }
+            solicitudes_entrantes/{id}/mensajes/{pushId} { de, tipo: "texto"|"factura", texto | factura, ts }
+   ============================================================ */
+const ChatsEntrantes = (() => {
+  const RAIZ = "solicitudes_entrantes";
+  let consulta = null, lista = {}, abiertoId = null, consultaMsgs = null;
+  const vistos = new Set();
+  let ultDia = null;
+
+  const libre = (d) => !!d && typeof d === "object" && !d.repartidorUid;
+  const mio = (d) => !!d && typeof d === "object" && !!uidActual && d.repartidorUid === uidActual;
+  const pendientes = () => Object.keys(lista).filter((k) => libre(lista[k])).length;
+
+  function el(tag, clase, texto) {
+    const e = document.createElement(tag);
+    if (clase) e.className = clase;
+    if (texto !== undefined) e.textContent = texto;
+    return e;
+  }
+  const dinero = (n) => "C$ " + (Number(n) || 0).toFixed(2);
+  const horaDe = (ts) => new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+  function etiquetaDia(ts) {
+    const d = new Date(ts), hoy = new Date();
+    const ini = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const dif = Math.round((ini(hoy) - ini(d)) / 86400000);
+    return dif === 0 ? "Hoy" : dif === 1 ? "Ayer" : d.toLocaleDateString("es", { day: "numeric", month: "long" });
+  }
+  function aviso(msg) {
+    const e = $("cnErr");
+    e.textContent = msg || "";
+    e.classList.toggle("oculto", !msg);
+  }
+
+  /* ---------- Lista en tiempo real ---------- */
+  function iniciar() {
+    detener();
+    consulta = db.ref(RAIZ).limitToLast(60);
+    consulta.on("value", (s) => {
+      lista = s.val() || {};
+      if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();   // el chat ya no es mío o fue eliminado
+      pintarLista();
+      actualizarNav();
+    }, (e) => {
+      lista = {};
+      pintarLista(e && e.code === "PERMISSION_DENIED" ? "Faltan permisos en Firebase para leer los chats (reglas)." : "No se pudieron cargar los chats.");
+    });
+  }
+
+  function detener() {
+    if (consulta) { consulta.off(); consulta = null; }
+    cerrarConversacion();
+    lista = {};
+    try { Factura.salirModoChat(true); } catch (_) {}
+  }
+
+  function filaChat(id, d, esMio) {
+    const f = el("div", "cn-item" + (esMio ? "" : " nuevo"));
+    const nombre = String(d.nombre || "Cliente").slice(0, 40);
+    f.appendChild(el("span", "cn-av", nombre.charAt(0).toUpperCase()));
+    const dat = el("div", "cn-dat");
+    dat.appendChild(el("strong", "", nombre));
+    const ult = d.ultimoMensaje ? String(d.ultimoMensaje) : (esMio ? "Sin mensajes todavía" : "Quiere hacer un pedido");
+    dat.appendChild(el("small", "", ult + (d.ts ? " · " + horaDe(d.ts) : "")));
+    f.appendChild(dat);
+    const b = el("button", esMio ? "oscuro" : "primario", esMio ? "Abrir" : "Atender");
+    b.type = "button";
+    b.addEventListener("click", () => (esMio ? abrir(id) : atender(id, b)));
+    f.appendChild(b);
+    return f;
+  }
+
+  function pintarLista(error) {
+    const nuevos = $("cnNuevos"), mios = $("cnMios");
+    nuevos.textContent = ""; mios.textContent = "";
+    if (error) { nuevos.appendChild(el("div", "cn-msg-bloq", error)); return; }
+    const ids = Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object")
+      .sort((a, b) => (Number(lista[b].ts) || 0) - (Number(lista[a].ts) || 0));
+    const libres = ids.filter((k) => libre(lista[k])), mios_ = ids.filter((k) => mio(lista[k]));
+    if (!libres.length) nuevos.appendChild(el("div", "cn-vacio", "No hay chats nuevos. Cuando un cliente escriba, aparecerá aquí al instante."));
+    libres.forEach((k) => nuevos.appendChild(filaChat(k, lista[k], false)));
+    if (!mios_.length) mios.appendChild(el("div", "cn-vacio", "Aún no atiendes ningún chat."));
+    mios_.forEach((k) => mios.appendChild(filaChat(k, lista[k], true)));
+  }
+
+  /* ---------- Atender: reclamar el chat (solo el primero lo logra) ---------- */
+  async function atender(id, btn) {
+    if (!uidActual || !usuario) return;
+    btn.disabled = true;
+    try {
+      const r = await db.ref(RAIZ + "/" + id + "/repartidorUid").transaction((cur) => (cur === null ? uidActual : undefined));
+      if (!r.committed || r.snapshot.val() !== uidActual) {
+        btn.disabled = false;
+        return alert("Otro repartidor ya tomó este chat.");
+      }
+      await db.ref(RAIZ + "/" + id).update({ estado: "atendido", repartidorNombre: usuario, atendidoTs: TS });
+      abrir(id);
+    } catch (e) {
+      btn.disabled = false;
+      alert("No se pudo atender el chat: " + (e.code || e.message));
+    }
+  }
+
+  /* ---------- Conversación ---------- */
+  function abrir(id) {
+    const d = lista[id];
+    if (!mio(d)) return;
+    cerrarConversacion();
+    abiertoId = id;
+    aviso("");
+    $("cnNombre").textContent = String(d.nombre || "Cliente").slice(0, 40);
+    $("cnLista").classList.add("oculto");
+    $("cnConv").classList.remove("oculto");
+    $("cnMsgs").textContent = "";
+    vistos.clear(); ultDia = null;
+    if (d.estado !== "atendido") {   // por si la reserva se hizo pero no se alcanzó a marcar como atendido
+      db.ref(RAIZ + "/" + id).update({ estado: "atendido", repartidorNombre: usuario, atendidoTs: TS }).catch(() => {});
+    }
+    consultaMsgs = db.ref(RAIZ + "/" + id + "/mensajes").limitToLast(300);
+    consultaMsgs.on("child_added", (s) => {
+      if (vistos.has(s.key)) return;
+      vistos.add(s.key);
+      const m = s.val();
+      if (m && typeof m === "object") pintarMensaje(m);
+    }, (e) => aviso("No se pudieron leer los mensajes: " + (e.code || e.message)));
+  }
+
+  function cerrarConversacion() {
+    if (consultaMsgs) { consultaMsgs.off(); consultaMsgs = null; }
+    abiertoId = null;
+    $("cnConv").classList.add("oculto");
+    $("cnLista").classList.remove("oculto");
+  }
+
+  const alFinal = () => { const c = $("cnMsgs"); c.scrollTop = c.scrollHeight; };
+
+  function pintarMensaje(m) {
+    const c = $("cnMsgs"), ts = Number(m.ts) || Date.now(), yo = m.de === "repartidor";
+    const pegado = c.scrollHeight - c.scrollTop - c.clientHeight < 80 || yo;
+    const dia = new Date(ts).toDateString();
+    if (dia !== ultDia) { ultDia = dia; c.appendChild(el("div", "cn-dia", etiquetaDia(ts))); }
+    const b = el("div", "cn-b" + (yo ? " yo" : ""));
+    if (m.tipo === "factura" && m.factura && typeof m.factura === "object") {
+      b.classList.add("fac");
+      b.appendChild(tarjetaFactura(m.factura));
+    } else {
+      b.appendChild(el("p", "", String(m.texto || "")));
+    }
+    b.appendChild(el("span", "cn-h", horaDe(ts)));
+    c.appendChild(b);
+    if (pegado) alFinal();
+  }
+
+  function filaF(etiqueta, valor, clase) {
+    const f = el("div", "cn-ffil" + (clase ? " " + clase : ""));
+    f.appendChild(el("span", "", etiqueta));
+    f.appendChild(el("b", "", valor));
+    return f;
+  }
+
+  function tarjetaFactura(f) {
+    const caja = document.createElement("div");
+    const cab = el("div", "cn-fcab");
+    cab.appendChild(el("strong", "", "🏍️ Brother’s Delivery"));
+    cab.appendChild(el("span", "", "Factura"));
+    caja.appendChild(cab);
+    const cue = el("div", "cn-fcue");
+    if (f.cliente) cue.appendChild(el("div", "cn-fmeta", "Cliente: " + String(f.cliente)));
+    if (f.deposito) cue.appendChild(el("div", "cn-fmeta", "Depósito: sí"));
+    const lis = el("div", "cn-flis");
+    (Array.isArray(f.productos) ? f.productos : []).forEach((p) => {
+      if (p && typeof p === "object") lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio)));
+    });
+    cue.appendChild(lis);
+    const tot = el("div", "cn-ftot");
+    tot.appendChild(filaF("Subtotal", dinero(f.subtotal)));
+    tot.appendChild(filaF(Number(f.mandadoExtra) > 0 ? "Delivery (con mandado extra)" : "Delivery", dinero(f.delivery)));
+    if (Number(f.prioridad) > 0) tot.appendChild(filaF("⚡ Prioridad", dinero(f.prioridad)));
+    tot.appendChild(filaF("Total", dinero(f.totalFinal != null ? f.totalFinal : f.total), "total"));
+    cue.appendChild(tot);
+    if (f.pedido) {
+      const cod = el("div", "cn-fcod");
+      cod.appendChild(el("small", "", "Código de retiro"));
+      cod.appendChild(el("span", "", String(f.pedido)));
+      cue.appendChild(cod);
+    }
+    caja.appendChild(cue);
+    return caja;
+  }
+
+  /* ---------- Enviar texto ---------- */
+  $("cnForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const inp = $("cnInput"), texto = inp.value.trim().slice(0, 600);
+    if (!texto || !abiertoId || !mio(lista[abiertoId])) return;
+    inp.value = ""; aviso("");
+    const id = abiertoId, clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
+    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "texto", texto, ts: TS };
+    cambios["ultimoMensaje"] = texto.slice(0, 80);
+    cambios["ultimoDe"] = "repartidor";
+    cambios["ts"] = TS;
+    try { await db.ref(RAIZ + "/" + id).update(cambios); }
+    catch (e) { inp.value = texto; aviso("No se pudo enviar: " + (e.code || e.message)); }
+    inp.focus();
+  });
+
+  $("cnVolver").addEventListener("click", cerrarConversacion);
+
+  /* ---------- Facturar desde el chat ---------- */
+  $("cnFacturar").addEventListener("click", () => {
+    const d = abiertoId && lista[abiertoId];
+    if (!mio(d)) return;
+    Factura.prepararChat({ solicitudId: abiertoId, cliente: d.nombre || "" });
+    irA("factura");
+  });
+
+  /* La factura generada llega a la conversación del cliente como una tarjeta */
+  async function enviarFactura(f) {
+    const id = f && f.chatId;
+    if (!id) throw new Error("Falta el chat de destino.");
+    const d = lista[id];
+    if (!mio(d)) throw new Error("Este chat ya no está asignado a ti.");
+    const fac = JSON.parse(JSON.stringify({
+      productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre), precio: Number(p.precio) || 0 })),
+      subtotal: f.subtotal, delivery: f.delivery, mandadoExtra: f.mandadoExtra || 0, prioridad: f.prioridad || 0,
+      deposito: !!f.deposito, total: f.total, totalFinal: f.totalFinal, pedido: f.pedido, cliente: f.cliente || d.nombre || ""
+    }));
+    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
+    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "factura", factura: fac, ts: TS };
+    cambios["ultimoMensaje"] = "🧾 Factura · " + dinero(f.totalFinal);
+    cambios["ultimoDe"] = "repartidor";
+    cambios["ts"] = TS;
+    await db.ref(RAIZ + "/" + id).update(cambios);
+  }
+
+  function alMostrar() {
+    pintarLista();
+    if (abiertoId) setTimeout(alFinal, 30);
+  }
+
+  Factura.alEnviarChat = (f) => enviarFactura(f);
+  Factura.alTerminarChat = () => irA("chats");   // factura enviada: de vuelta a la conversación
+
+  return { iniciar, detener, pendientes, alMostrar };
+})();

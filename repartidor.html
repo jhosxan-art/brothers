@@ -45,6 +45,55 @@
     .fx .fx-envio-app b { font-size: 14px; font-weight: 800; color: #2C3E50; }
     .fx .fx-envio-app small { font-size: 12px; font-weight: 600; color: #4A5A6A; }
     .fx .fx-envio-app button { flex: none; padding: 8px 12px; border-radius: 10px; background: #2C3E50; color: #fff; font-size: 13px; font-weight: 800; }
+    /* ---- FASE 2 · Nuevos Chats (clientes que escriben desde cliente-app.html) ---- */
+    .nav-app { grid-template-columns: 1fr 1fr 1fr; }
+    .nav-app button { padding: 0 4px; font-size: 13px; }
+    body.rep > #vistaChats { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #EAF2F6; }
+    #vistaChats.oculto { display: none !important; }
+    #vistaChats .cn-lista { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 14px 20px; display: grid; gap: 8px; align-content: start; }
+    #vistaChats .cn-tit { font-size: 14px; font-weight: 800; color: #5B6672; margin: 8px 2px 0; }
+    #vistaChats .cn-vacio { padding: 14px; border-radius: 14px; background: #fff; border: 1px dashed #D6DDE3; font-size: 13.5px; font-weight: 600; color: #5B6672; }
+    #vistaChats .cn-item { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
+    #vistaChats .cn-item.nuevo { border-color: #3DB8F5; box-shadow: inset 4px 0 0 #3DB8F5; }
+    #vistaChats .cn-av { width: 44px; height: 44px; border-radius: 50%; background: #E8F6FE; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex: none; }
+    #vistaChats .cn-dat { flex: 1; min-width: 0; display: grid; gap: 1px; text-align: left; }
+    #vistaChats .cn-dat strong { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #vistaChats .cn-dat small { font-size: 12.5px; font-weight: 600; color: #5B6672; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #vistaChats .cn-item button { flex: none; width: auto; height: 40px; padding: 0 16px; border-radius: 12px; font-size: 14px; }
+    #vistaChats .cn-msg-bloq { padding: 10px 12px; border-radius: 12px; background: #FFF4CC; color: #5A4A00; font-size: 13px; font-weight: 700; }
+    #vistaChats .cn-conv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    #vistaChats .cn-conv.oculto, #vistaChats .cn-lista.oculto { display: none !important; }
+    #vistaChats .cn-cab { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #fff; border-bottom: 1px solid #E1E6EB; }
+    #vistaChats .cn-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
+    #vistaChats .cn-cab strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #vistaChats .cn-cab small { font-size: 12px; font-weight: 600; color: #5B6672; }
+    #vistaChats .cn-cab button { width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 14px; flex: none; }
+    #vistaChats .cn-msgs { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; display: flex; flex-direction: column; gap: 3px; }
+    #vistaChats .cn-dia { align-self: center; margin: 8px 0 4px; padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; color: #5B6672; }
+    #vistaChats .cn-b { max-width: 82%; padding: 7px 10px 5px; border-radius: 14px; background: #fff; align-self: flex-start; border-top-left-radius: 4px; overflow-wrap: anywhere; }
+    #vistaChats .cn-b.yo { align-self: flex-end; background: #D3EEFC; border-top-left-radius: 14px; border-top-right-radius: 4px; }
+    #vistaChats .cn-b p { margin: 0; white-space: pre-wrap; font-size: 15px; }
+    #vistaChats .cn-h { display: block; text-align: right; margin-top: 2px; font-size: 11px; font-weight: 600; color: #5B6672; }
+    #vistaChats .cn-b.fac { width: min(88%, 340px); max-width: none; padding: 0; overflow: hidden; border: 1px solid #E1E6EB; }
+    #vistaChats .cn-fcab { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 10px 14px; background: #0E141B; color: #fff; }
+    #vistaChats .cn-fcab strong { font-size: 14px; font-weight: 800; }
+    #vistaChats .cn-fcab span { font-size: 12px; font-weight: 600; opacity: .8; }
+    #vistaChats .cn-fcue { padding: 12px 14px; display: grid; gap: 10px; }
+    #vistaChats .cn-fmeta { font-size: 12.5px; font-weight: 600; color: #5B6672; }
+    #vistaChats .cn-flis, #vistaChats .cn-ftot { display: grid; gap: 5px; }
+    #vistaChats .cn-ftot { padding-top: 10px; border-top: 1px dashed #E1E6EB; }
+    #vistaChats .cn-ffil { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+    #vistaChats .cn-ffil b { font-weight: 700; white-space: nowrap; }
+    #vistaChats .cn-ffil.total { font-size: 17px; font-weight: 800; padding-top: 6px; border-top: 2px solid #0E141B; }
+    #vistaChats .cn-fcod { text-align: center; padding: 10px; border-radius: 12px; background: #E8F6FE; font-weight: 800; }
+    #vistaChats .cn-fcod small { display: block; font-size: 12px; font-weight: 600; color: #5B6672; }
+    #vistaChats .cn-fcod span { font-size: 22px; letter-spacing: 2px; }
+    #vistaChats .cn-b.fac .cn-h { padding: 0 14px 8px; }
+    #vistaChats .cn-err { flex: none; margin: 0 10px 6px; padding: 10px 12px; border-radius: 12px; background: #FDECEB; color: #8E1B17; font-size: 13px; font-weight: 700; }
+    #vistaChats .cn-err.oculto { display: none; }
+    #vistaChats .cn-comp { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #fff; border-top: 1px solid #E1E6EB; }
+    #vistaChats .cn-comp input { flex: 1; min-width: 0; height: 44px; border-radius: 22px; padding: 0 16px; }
+    #vistaChats .cn-comp button { width: 44px; height: 44px; padding: 0; border-radius: 50%; flex: none; font-size: 18px; }
   </style>
 </head>
 <body class="rep">
@@ -53,7 +102,6 @@
     <span class="insignia" data-rider></span>
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span></small></div>
     <button id="btnFacturaVivo" class="salir chat-admin oculto" type="button" aria-label="Ver mi factura en vivo y agregar mandados extra">🧾</button>
-    <button id="btnNuevosChats" class="salir chat-admin oculto" type="button" aria-label="Nuevos chats de clientes">📥<span id="badgeNuevosChats" class="badge-nav rojo oculto">0</span></button>
     <button id="btnChatAdmin" class="salir chat-admin oculto" aria-label="Chat con Brothers (administración)">💬<span id="badgeAdmin" class="badge-nav rojo oculto">0</span></button>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
@@ -213,10 +261,34 @@
     <div id="hojaPedidos" class="hoja-pedidos"></div>
   </section>
 
+  <!-- 3) NUEVOS CHATS: clientes que escriben desde cliente-app.html -->
+  <section id="vistaChats" class="oculto">
+    <div id="cnLista" class="cn-lista">
+      <h2 class="cn-tit">Nuevos chats</h2>
+      <div id="cnNuevos"></div>
+      <h2 class="cn-tit">Mis chats</h2>
+      <div id="cnMios"></div>
+    </div>
+    <div id="cnConv" class="cn-conv oculto">
+      <div class="cn-cab">
+        <button id="cnVolver" type="button" aria-label="Volver a la lista de chats">←</button>
+        <div><strong id="cnNombre">Cliente</strong><small>Cliente</small></div>
+        <button id="cnFacturar" class="primario" type="button">🧾 Facturar</button>
+      </div>
+      <div id="cnMsgs" class="cn-msgs" role="log" aria-live="polite"></div>
+      <div id="cnErr" class="cn-err oculto" role="alert"></div>
+      <form id="cnForm" class="cn-comp" autocomplete="off">
+        <input id="cnInput" maxlength="600" placeholder="Escribe un mensaje" aria-label="Escribe un mensaje al cliente">
+        <button class="primario" type="submit" aria-label="Enviar mensaje">➤</button>
+      </form>
+    </div>
+  </section>
+
   <!-- Cambiar entre Factura y Mapa (aparece cuando hay pedidos en ruta) -->
   <nav id="navApp" class="nav-app oculto" aria-label="Cambiar de pantalla">
     <button id="navFactura" data-vista="factura" class="activa" type="button">🧾 Factura</button>
     <button id="navMapa" data-vista="mapa" type="button">🗺️ Mapa y entregas <span id="badgeNav" class="badge-nav oculto">0</span></button>
+    <button id="navChats" data-vista="chats" type="button">💬 Nuevos Chats <span id="badgeChats" class="badge-nav rojo oculto">0</span></button>
   </nav>
 
   <!-- Ventana tras confirmar una entrega -->

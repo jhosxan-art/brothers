@@ -1,62 +1,70 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#075E54">
-<title>Brother’s Deliverys</title>
-<link rel="stylesheet" href="cliente-app.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#3DB8F5">
+  <title>Brother’s Deliverys — Tu pedido</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="cliente-app.css">
 </head>
-<body>
-<div id="app">
-  <header class="barra">
-    <div class="avatar" id="avatar" aria-hidden="true">B</div>
-    <div class="quien">
-      <strong id="titulo">Brother’s Deliverys</strong>
-      <small id="sub">Pide tu delivery</small>
-    </div>
-    <button id="btnFin" class="btn-fin" type="button" hidden>Finalizar</button>
-  </header>
+<body class="wa-cliente">
 
-  <main id="chat" class="chat" aria-live="polite">
-    <p id="hint" class="hint"></p>
-    <div id="lista"></div>
+  <!-- Cargando -->
+  <main id="vCarga" class="wa-centro">
+    <div class="wa-estado" id="msgCarga">Abriendo tu chat…</div>
   </main>
 
-  <button id="fab" class="fab" type="button">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
-    Nuevo pedido
-  </button>
+  <!-- 1) Primera vez: pedir el nombre -->
+  <main id="vNombre" class="wa-centro oculto">
+    <div class="wa-bienvenida">
+      <div class="wa-logo" data-rider aria-hidden="true"></div>
+      <h1>Pide tu delivery por chat</h1>
+      <p>Te pondremos en contacto con un repartidor. Solo necesitamos tu nombre.</p>
+      <form id="formNombre" class="wa-form-nombre" autocomplete="off" novalidate>
+        <label for="inNombre">Tu nombre</label>
+        <input id="inNombre" name="nombre" maxlength="24" autocomplete="given-name" placeholder="Ej. María">
+        <div id="msgNombre" class="wa-estado error oculto" role="alert"></div>
+        <button id="btnNombre" class="primario" type="submit">Empezar chat</button>
+      </form>
+    </div>
+  </main>
 
-  <div id="cerrado" class="cerrado" hidden>Este chat fue cerrado. Toca “Nuevo pedido” para empezar otro.</div>
-
-  <footer class="composer">
-    <textarea id="entrada" rows="1" maxlength="600" placeholder="Escribe un mensaje" aria-label="Mensaje" autocomplete="off"></textarea>
-    <button id="enviar" class="enviar" type="button" aria-label="Enviar mensaje">
-      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-    </button>
-  </footer>
-
-  <div id="toast" class="toast" role="status" hidden></div>
-
-  <dialog id="dlg" class="dlg">
-    <form method="dialog">
-      <h2>Nuevo pedido</h2>
-      <p>¿Con qué nombre te atiende el repartidor?</p>
-      <input id="nombre" name="nombre" type="text" required minlength="2" maxlength="40" placeholder="Tu nombre" autocomplete="given-name">
-      <div class="dlg-acc">
-        <button value="cancel" formnovalidate class="sec">Cancelar</button>
-        <button value="ok" class="pri">Empezar chat</button>
+  <!-- 2) Chat -->
+  <section id="vChat" class="wa-chat oculto" aria-label="Conversación con tu repartidor">
+    <header class="wa-barra">
+      <span class="wa-avatar" id="avatarRep" aria-hidden="true">B</span>
+      <div class="wa-titulos">
+        <strong id="tituloChat">Brother’s Deliverys</strong>
+        <small id="subChat">Buscando repartidor…</small>
       </div>
-    </form>
-  </dialog>
-</div>
+    </header>
 
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script>window.NOMBRE_APP = "cliente";</script>
-<script src="firebase-config.js"></script>
-<script src="cliente-app.js"></script>
+    <div id="avisoEspera" class="wa-aviso">
+      <span class="wa-puntos" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>Estamos buscando un repartidor para ti. Cuando alguien tome tu chat podrás escribirle aquí.</span>
+    </div>
+
+    <div id="mensajes" class="wa-mensajes" role="log" aria-live="polite" aria-relevant="additions"></div>
+
+    <div id="msgError" class="wa-estado error oculto" role="alert"></div>
+
+    <form id="formMensaje" class="wa-compositor" autocomplete="off">
+      <input id="inMensaje" name="mensaje" maxlength="600" placeholder="Esperando repartidor…" aria-label="Escribe un mensaje" disabled>
+      <button id="btnEnviar" class="wa-enviar" type="submit" aria-label="Enviar mensaje" disabled>
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6l-.01 6.53L15 12 3.39 13.87z"/></svg>
+      </button>
+    </form>
+  </section>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="iconos.js"></script>
+  <script src="cliente-app.js"></script>
 </body>
 </html>
