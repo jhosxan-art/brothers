@@ -143,11 +143,9 @@
     #modalSolicitud .sa-acciones #saBorrarUno { background: #FDECEB; border-color: #E5322D; color: #8E1B17; flex: 0 0 auto; min-width: 44px; padding: 0 10px; }
     #modalSolicitud .sa-acciones #saCerrar { background: #F2F4F6; border-color: #E1E6EB; }
 
-    /* En móviles muy estrechos, los 4 botones se apilan 2×2 */
     @media (max-width: 400px) {
       #modalSolicitud .sa-acciones button { flex: 1 1 calc(50% - 3px); font-size: 12px; padding: 0 8px; height: 44px; }
     }
-    /* Landscape móvil: más altura del mensaje, cabecera/footer compactos */
     @media (max-height: 500px) and (orientation: landscape) {
       #modalSolicitud .sa-caja { height: 96dvh; }
       #modalSolicitud .sa-cab { padding: 8px 12px; }
@@ -158,7 +156,6 @@
       #saMapa { height: 140px; }
     }
 
-    /* Burbujas del chat (se mantienen iguales) */
     .sa-dia { align-self: center; margin: 8px 0 4px; padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; color: #5B6672; }
     .sa-quien { font-size: 11.5px; font-weight: 800; color: #0A86C9; margin-bottom: 1px; }
     .sa-b { max-width: 84%; padding: 7px 10px 5px; border-radius: 14px; background: #fff; align-self: flex-start; border-top-left-radius: 4px; overflow-wrap: anywhere; }
@@ -180,6 +177,33 @@
     .sa-fcod small { display: block; font-size: 12px; font-weight: 600; color: #5B6672; }
     .sa-fcod span { font-size: 20px; letter-spacing: 2px; }
     .sa-b.fac .sa-h { padding: 0 12px 7px; }
+
+    /* ---- FASE ÚNICA · Botón "Recargar" junto al título "Tu equipo" ---- */
+    .equipo-cab {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .equipo-cab h2 { margin: 0; }
+    #btnRecargarEquipo {
+      flex: none;
+      width: auto;
+      height: 34px;
+      padding: 0 12px;
+      font-size: 13px;
+      font-weight: 800;
+      border-radius: 12px;
+      background: #fff;
+      border: 1.5px solid var(--linea, #E1E6EB);
+      color: #0E141B;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #btnRecargarEquipo:active { transform: scale(.97); }
+    #btnRecargarEquipo[disabled] { opacity: .5; cursor: not-allowed; }
   </style>
 </head>
 <body class="admin">
@@ -280,7 +304,11 @@
       <h3 class="sec">⭐ Calificaciones de clientes</h3>
       <label>Periodo <select id="califRango"><option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="0">Todo el tiempo</option></select></label>
       <div id="califLista" class="acciones" style="margin:10px 0"></div>
-      <h2>Tu equipo</h2>
+      <!-- FASE ÚNICA · "Tu equipo" con botón Recargar -->
+      <div class="equipo-cab">
+        <h2>Tu equipo</h2>
+        <button id="btnRecargarEquipo" type="button" aria-label="Recargar lista de repartidores">🔄 Recargar</button>
+      </div>
       <div id="listaEquipo" class="acciones"></div>
       <h2>Negocios del mapa</h2>
       <p class="ayuda">Los repartidores ven estos negocios en su mapa y los pueden buscar por nombre.</p>
