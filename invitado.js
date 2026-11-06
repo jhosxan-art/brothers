@@ -3,15 +3,14 @@
    Abre con invitado.html?t=TOKEN → pide solo el nombre → mapa de ruta + chat con el cliente
    + botones Retirado / Entregado. Todo en tiempo real con ordenes/{token}.
 
-   FASE 2 (seguimiento de rutas) · ajustes aplicados:
-     - Dos modos de cámara: "fitbounds" (por defecto, mantiene al motorizado y al destino
-       visibles a la vez) y "navegacion" (centra la moto con zoom cercano). Los botones
-       🧭 y ⛶ alternan entre ellos.
-     - Al recibir la primera posición GPS se fuerza el cálculo de ruta y el encuadre.
-     - En cada posición nueva se aplica fitBounds dinámico si alguno se sale del viewport
-       (evita "sacudir" el mapa en cada tick).
-     - El mapa ya no "salta" al primer encuadre: se ajusta una sola vez al tener los
-       dos puntos (motorizado + destino) listos.
+   FASE 2 · mejoras aplicadas:
+     - Banner turn-by-turn: avanzarBanner() usa Ordenes.textoPaso() del paso actual y
+       avanza ruta.idx a medida que el invitado se acerca a la maniobra.
+     - fitBounds dinámico reforzado: en la primera posición fuerza encuadrar() y en
+       cada tick llama encuadrarDinamico() solo si algún punto se sale del viewport.
+     - Estado OCUPADO: chip visible en la cabecera (#chipOcupado) y en ubicaciones/{uid}
+       (conPedido/enViaje ya se publican en alPosicion).
+     - Responsividad: ver estilos inline de invitado.html (media queries 700/900/1200).
    ============================================================ */
 (() => {
   const O = Ordenes, esc = O.esc, TS = O.TS, $ = (id) => document.getElementById(id);
@@ -27,9 +26,17 @@
   let chatAdmAbierto = false, sinLeerAdm = 0;
   let flechasCapa = null, ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: 0 };
   let yaEncuadrado = false, chatAbierto = false, sinLeer = 0, terminado = false;
-  let modoSeguir = "fitbounds";   // "fitbounds" | "navegacion"
+  let modoSeguir = "fitbounds";
   const vista = (id) => ["vCarga", "vEntrada", "vApp", "vFin", "vTomado"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
   const msgCarga = (m) => { $("msgCarga").textContent = m; $("msgCarga").className = "estado error"; };
+
+  function mostrarOcupado(on) {
+    const chip = $("chipOcupado");
+    if (chip) {
+      chip.classList.toggle("oculto", !on);
+      chip.textContent = on ? "🛵 OCUPADO · CON PEDIDO" : "";
+    }
+  }
 
   /* ---------- Arranque ---------- */
   const esMio = (o, guardado) => { const a = (o && o.asignacion) || {}; return a.authUid ? a.authUid === auth.currentUser.uid : !!guardado && a.nombre === guardado; };
@@ -38,6 +45,7 @@
     terminado = true;
     [refVigia, refOrden, refChat, refChatAdm].forEach((r) => { if (r) r.off(); });
     try { Solicitudes.detener(); } catch (_) {}
+    mostrarOcupado(false);
     $("btnNuevosChats").classList.add("oculto");
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     $("txtTomado").textContent = `Este pedido ya fue tomado por ${nom}, muchas gracias.`;
@@ -113,7 +121,8 @@
     try { await db.ref().update(upd); }
     catch (e) { aceptando = false; $("btnEntrar").disabled = false; vista("vEntrada"); $("msgEntrada").textContent = "Aceptaste, pero no se pudo iniciar: " + e.message; $("msgEntrada").classList.remove("oculto"); return; }
     aceptando = false;
-    db.ref("ubicaciones/" + uid).onDisconnect().update({ enLinea: false, enViaje: false, ts: TS });
+    mostrarOcupado(true);
+    db.ref("ubicaciones/" + uid).onDisconnect().update({ enLinea: false, enViaje: false, conPedido: false, ts: TS });
     $("subTitulo").textContent = "Invitado · " + n;
     vista("vApp"); iniciarMapa(); escucharOrden(); escucharChat(); escucharChatAdm(); iniciarGPS();
     aplicarModo();
@@ -218,6 +227,7 @@
 
   function final(estado) {
     terminado = true;
+    mostrarOcupado(false);
     try { Solicitudes.detener(); } catch (_) {}
     if (refOrden) refOrden.off(); if (refPedido) refPedido.off(); if (refChat) refChat.off(); if (refChatAdm) refChatAdm.off();
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -255,7 +265,6 @@
     pinGuia = poner(pinGuia, orden.guia, O.pinIcono(orden.guia && orden.guia.punto === "entrega" ? "entrega" : "retiro", "📍"));
     if (!yaEncuadrado) encuadrar();
   }
-  // Encuadre forzado (primer encuadre o al pulsar ⛶)
   function encuadrar() {
     if (!mapa) return;
     const pts = [];
@@ -264,7 +273,6 @@
     if (pts.length > 1) { mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 17 }); yaEncuadrado = true; }
     else if (pts.length === 1) { mapa.setView(pts[0], 16); yaEncuadrado = !!pos; }
   }
-  // FASE 2: encuadre dinámico: solo re-encuadra si alguno se sale del viewport
   function encuadrarDinamico() {
     if (!mapa || !pos || modoSeguir !== "fitbounds") return;
     const d = orden && destinoActual();
@@ -280,7 +288,6 @@
       mapa.setView(pts[0], Math.max(mapa.getZoom(), 15));
     }
   }
-  // FASE 2: centrar en la moto (modo navegación)
   function centrarMoto() {
     if (!mapa || !pos) return;
     mapa.setView([pos.lat, pos.lng], 17, { animate: true, duration: 0.5 });
@@ -314,20 +321,27 @@
     if (!ruta.pts) banner(null, `Calculando ruta por calles hasta ${d.etiqueta}…`);
     const r = await O.rutaCalles({ lat: pos.lat, lng: pos.lng }, { lat: d.lat, lng: d.lng });
     if (!r) { ruta.en = Date.now() - 12000; return banner(null, "No se pudo calcular la ruta por calles. Reintentando…"); }
-    Object.assign(ruta, { pts: r.pts, pasos: r.pasos, idx: Math.min(1, r.pasos.length - 1), dist: r.dist, dur: r.dur, origen: { lat: pos.lat, lng: pos.lng }, dest: { lat: d.lat, lng: d.lng }, en: Date.now() });
+    Object.assign(ruta, { pts: r.pts, pasos: r.pasos, idx: 0, dist: r.dist, dur: r.dur, origen: { lat: pos.lat, lng: pos.lng }, dest: { lat: d.lat, lng: d.lng }, en: Date.now() });
     linea.setLatLngs([[pos.lat, pos.lng], ...r.pts]); O.flechas(r.pts, flechasCapa, "#0A86C9");
     avanzarBanner();
   }
   function limpiarRuta() { ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: ruta.en }; linea.setLatLngs([]); flechasCapa.clearLayers(); }
   const fmtDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m");
+
+  /* FASE 2 · banner turn-by-turn: usa el paso actual de la ruta + ETA + destino */
   function banner(paso, aviso) {
     const b = $("bannerRuta"); b.classList.remove("oculto");
-    if (!paso) { b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt">${esc(aviso)}</span>`; return; }
-    b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt"><b>${fmtDist(ruta.dist)}</b> · ≈ ${Math.max(1, Math.round(ruta.dur / 60))} min · ${esc(destinoActual().etiqueta)}</span>`;
+    if (!paso && aviso) { b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt">${esc(aviso)}</span>`; return; }
+    if (!paso) {
+      b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt"><b>${fmtDist(ruta.dist)}</b><span>≈ ${Math.max(1, Math.round(ruta.dur / 60))} min · ${esc(destinoActual().etiqueta)}</span></span>`;
+      return;
+    }
+    const info = O.textoPaso(paso);
+    b.innerHTML = `<span class="ir-ic">${info[0] || "🧭"}</span><span class="ir-txt"><b>${esc(info[1] || "")}</b><span>${fmtDist(ruta.dist)} · ≈ ${Math.max(1, Math.round(ruta.dur / 60))} min · ${esc(destinoActual().etiqueta)}</span></span>`;
   }
   function avanzarBanner() {
     if (!ruta.pasos || !pos) return;
-    while (ruta.idx < ruta.pasos.length - 1 && O.distM(pos, ruta.pasos[ruta.idx].loc) < 30) ruta.idx++;
+    while (ruta.idx < ruta.pasos.length - 1 && ruta.pasos[ruta.idx] && ruta.pasos[ruta.idx].loc && O.distM(pos, ruta.pasos[ruta.idx].loc) < 30) ruta.idx++;
     banner(ruta.pasos[ruta.idx]);
     if (ruta.pts) linea.setLatLngs([[pos.lat, pos.lng], ...ruta.pts]);
   }
@@ -347,7 +361,6 @@
     if (!marcaYo) marcaYo = L.marker([pos.lat, pos.lng], { icon: (typeof iconoRepartidorNombre === "function" ? iconoRepartidorNombre(nombre) : O.pinIcono("", "🛵")), zIndexOffset: 1000 }).addTo(mapa);
     else marcaYo.setLatLng([pos.lat, pos.lng]);
     if (primera) {
-      // FASE 2: en la primera posición forzar ruta y encuadre
       yaEncuadrado = false;
       encuadrar();
       calcularRuta(true);
