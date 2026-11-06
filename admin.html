@@ -32,15 +32,133 @@
     .sa-estado.atendido { background: #E8F6EE; color: #17794A; }
     .sa-item button { flex: none; width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 13px; }
     .sa-vacio { padding: 14px; border-radius: 14px; background: #fff; border: 1px dashed #D6DDE3; font-size: 13.5px; font-weight: 600; color: #5B6672; }
-    /* Visor: ventana de solo lectura */
-    #modalSolicitud .sa-caja { max-width: 440px; height: min(86vh, 680px); padding: 0; gap: 0; overflow: hidden; grid-template-rows: auto 1fr auto; background: #EAF2F6; text-align: left; }
-    .sa-cab { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border-bottom: 1px solid #E1E6EB; }
-    .sa-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
-    .sa-cab strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sa-cab small { font-size: 12px; font-weight: 600; color: #5B6672; }
-    .sa-cab button { width: auto; height: 38px; padding: 0 14px; border-radius: 12px; font-size: 13px; flex: none; }
-    .sa-msgs { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; display: flex; flex-direction: column; gap: 3px; }
-    .sa-pie { padding: 9px 12px calc(9px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid #E1E6EB; font-size: 12.5px; font-weight: 700; color: #5B6672; text-align: center; }
+
+    /* ============================================================
+       FASE 3 · VISOR REORGANIZADO (footer de acciones fijo)
+       La cabecera solo tiene info; los botones NO tapan el nombre.
+       En móvil, los botones se apilan 2×2 si hace falta.
+       ============================================================ */
+    #modalSolicitud .sa-caja {
+      max-width: 480px;
+      width: 100%;
+      height: min(92vh, 760px);
+      height: min(92dvh, 760px);
+      padding: 0;
+      gap: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #EAF2F6;
+      text-align: left;
+    }
+    #modalSolicitud .sa-cab {
+      flex: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: #fff;
+      border-bottom: 1px solid #E1E6EB;
+    }
+    #modalSolicitud .sa-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
+    #modalSolicitud .sa-cab strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #modalSolicitud .sa-cab small { font-size: 12px; font-weight: 600; color: #5B6672; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    #modalSolicitud .sa-pedido {
+      flex: none;
+      padding: 8px 12px;
+      background: #FFF8DB;
+      border-bottom: 1px solid #E8DFA8;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #5A4A00;
+      overflow-wrap: anywhere;
+      text-align: left;
+    }
+    #modalSolicitud .sa-pedido.oculto { display: none !important; }
+
+    #modalSolicitud .sa-mapa-caja {
+      flex: none;
+      position: relative;
+      border-bottom: 1px solid #E1E6EB;
+      background: #E8F6FE;
+    }
+    #modalSolicitud .sa-mapa-caja.oculto { display: none !important; }
+
+    #modalSolicitud .sa-msgs {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    /* ---- FOOTER FIJO con los botones agrupados ---- */
+    #modalSolicitud .sa-footer {
+      flex: none;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      background: #fff;
+      border-top: 1px solid #E1E6EB;
+      display: grid;
+      gap: 8px;
+    }
+    #modalSolicitud .sa-lectura {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #5B6672;
+      text-align: center;
+      line-height: 1.25;
+    }
+    #modalSolicitud .sa-acciones {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+      align-items: stretch;
+    }
+    #modalSolicitud .sa-acciones button {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 42px;
+      padding: 0 12px;
+      font-size: 13px;
+      font-weight: 800;
+      border-radius: 12px;
+      white-space: nowrap;
+      border: 1.5px solid #E1E6EB;
+      background: #fff;
+      color: #0E141B;
+      cursor: pointer;
+      transition: transform .1s;
+    }
+    #modalSolicitud .sa-acciones button:active { transform: scale(.97); }
+    #modalSolicitud .sa-acciones button.oculto { display: none !important; }
+    #modalSolicitud .sa-acciones #saForzarEnt { background: #E8F6EE; border-color: #1E9B5A; color: #0E141B; }
+    #modalSolicitud .sa-acciones #saForzarCanc { background: #FDECEB; border-color: #E5322D; color: #8E1B17; }
+    #modalSolicitud .sa-acciones #saMapaBtn { background: #0E141B; border-color: #0E141B; color: #fff; }
+    #modalSolicitud .sa-acciones #saMapaBtn[aria-expanded="true"] { background: #1E9B5A; border-color: #1E9B5A; }
+    #modalSolicitud .sa-acciones #saBorrarUno { background: #FDECEB; border-color: #E5322D; color: #8E1B17; flex: 0 0 auto; min-width: 44px; padding: 0 10px; }
+    #modalSolicitud .sa-acciones #saCerrar { background: #F2F4F6; border-color: #E1E6EB; }
+
+    /* En móviles muy estrechos, los 4 botones se apilan 2×2 */
+    @media (max-width: 400px) {
+      #modalSolicitud .sa-acciones button { flex: 1 1 calc(50% - 3px); font-size: 12px; padding: 0 8px; height: 44px; }
+    }
+    /* Landscape móvil: más altura del mensaje, cabecera/footer compactos */
+    @media (max-height: 500px) and (orientation: landscape) {
+      #modalSolicitud .sa-caja { height: 96dvh; }
+      #modalSolicitud .sa-cab { padding: 8px 12px; }
+      #modalSolicitud .sa-cab strong { font-size: 15px; }
+      #modalSolicitud .sa-footer { padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); gap: 4px; }
+      #modalSolicitud .sa-lectura { display: none; }
+      #modalSolicitud .sa-acciones button { height: 38px; font-size: 12px; }
+      #saMapa { height: 140px; }
+    }
+
+    /* Burbujas del chat (se mantienen iguales) */
     .sa-dia { align-self: center; margin: 8px 0 4px; padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; color: #5B6672; }
     .sa-quien { font-size: 11.5px; font-weight: 800; color: #0A86C9; margin-bottom: 1px; }
     .sa-b { max-width: 84%; padding: 7px 10px 5px; border-radius: 14px; background: #fff; align-self: flex-start; border-top-left-radius: 4px; overflow-wrap: anywhere; }
@@ -229,15 +347,14 @@
       <div id="saLista" class="acciones"></div>
     </section>
 
+    <!-- ============================================================
+         FASE 3 · MODAL DE AUDITORÍA REDISEÑADO
+         Cabecera con info · Cuerpo con pedido + mapa + mensajes · Footer con botones
+         ============================================================ -->
     <div id="modalSolicitud" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="saTitulo">
       <div class="modal-rep-caja sa-caja">
         <div class="sa-cab">
           <div><strong id="saTitulo">Cliente</strong><small id="saSub"></small></div>
-          <button id="saForzarEnt" class="oscuro oculto" type="button" aria-label="Forzar entregado" title="Forzar entregado">✅ Forzar</button>
-          <button id="saForzarCanc" class="peligro oculto" type="button" aria-label="Forzar cancelado" title="Forzar cancelado">🚫 Forzar</button>
-          <button id="saMapaBtn" class="primario" type="button" aria-expanded="false" aria-controls="saMapaCaja">🗺️ Espectador</button>
-          <button id="saBorrarUno" class="peligro oculto" type="button">🗑</button>
-          <button id="saCerrar" class="oscuro" type="button">Cerrar</button>
         </div>
         <div id="saPedido" class="sa-pedido oculto"></div>
         <div id="saMapaCaja" class="sa-mapa-caja oculto">
@@ -245,7 +362,16 @@
           <div id="saMapaInfo" class="sa-mapa-info" role="status"></div>
         </div>
         <div id="saMsgs" class="sa-msgs" role="log" aria-live="polite"></div>
-        <div class="sa-pie">👁 Modo lectura: no puedes escribir en esta conversación</div>
+        <div class="sa-footer">
+          <div class="sa-lectura">👁 Modo lectura: no puedes escribir en esta conversación</div>
+          <div class="sa-acciones">
+            <button id="saForzarEnt" class="oculto" type="button" aria-label="Marcar como entregado" title="Marcar como entregado">Entregado ✅</button>
+            <button id="saForzarCanc" class="oculto" type="button" aria-label="Forzar cancelado" title="Forzar cancelado">🚫 Forzar</button>
+            <button id="saMapaBtn" type="button" aria-expanded="false" aria-controls="saMapaCaja">🗺️ Espectador</button>
+            <button id="saBorrarUno" class="oculto" type="button" aria-label="Eliminar este chat">🗑</button>
+            <button id="saCerrar" type="button">Cerrar</button>
+          </div>
+        </div>
       </div>
     </div>
 
