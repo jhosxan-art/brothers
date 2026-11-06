@@ -131,6 +131,7 @@
 
     .sol-pin { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px 0 8px; border-radius: 22px; background: #E5322D; color: #fff; border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,.45); font: 800 13px/1 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; cursor: pointer; animation: solPulso 1.2s ease-in-out infinite; }
     .sol-pin span { font-size: 20px; line-height: 1; }
+    .sol-pin.calculando { background: #7A1F1C; }
     .sol-cli { display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px 0 8px; border-radius: 16px; background: #0E141B; color: #fff; border: 2px solid #3DB8F5; box-shadow: 0 3px 10px rgba(0,0,0,.4); font: 800 12px/1 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; }
     @keyframes solPulso { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
     @media (prefers-reduced-motion: reduce) { .sol-pin, .chip-con-pedido { animation: none; } }
@@ -376,14 +377,14 @@
       <div class="cn-cab">
         <button id="cnVolver" type="button" aria-label="Volver a la lista de chats">←</button>
         <div><strong id="cnNombre">Cliente</strong><small id="cnSub">Cliente</small></div>
-        <button id="cnUbicacion" class="cn-ico" type="button" aria-label="Ver al cliente en el mapa">📍</button>
+        <!-- FASE 1 · eliminado el ícono 📍 (cnUbicacion). Se mantiene el ➕ que se quitará en Fase 3. -->
         <button id="cnExtras" class="cn-ico" type="button" aria-label="Agregar mandados extra al total">➕</button>
         <button id="cnFacturar" class="primario" type="button">🧾 Facturar</button>
       </div>
       <div id="cnResumen" class="cn-resumen"></div>
       <div id="cnUltimaDir" class="cn-ultima-dir oculto">
         <div class="cn-ultima-dir-txt" id="cnUltimaDirTxt"></div>
-        <button id="cnSugerirDir" class="oscuro" type="button">📮 Sugerir al cliente</button>
+        <!-- FASE 1 · eliminado el botón "Sugerir al cliente". Solo queda la info de la última dirección. -->
       </div>
       <div class="cn-acciones">
         <button id="cnLlegado" class="oscuro" type="button">📍 He llegado</button>
@@ -393,8 +394,11 @@
       <div id="cnMsgs" class="cn-msgs" role="log" aria-live="polite"></div>
       <div id="cnErr" class="cn-err oculto" role="alert"></div>
       <form id="cnForm" class="cn-comp" autocomplete="off">
-        <button id="cnFoto" class="cn-foto" type="button" aria-label="Tomar o enviar una foto">📷</button>
-        <input id="cnInFoto" class="oculto" type="file" accept="image/*" tabindex="-1" aria-hidden="true">
+        <!-- FASE 1 · separación de cámara (📷) y galería (🖼️) -->
+        <button id="cnFoto" class="cn-foto" type="button" aria-label="Tomar foto con la cámara">📷</button>
+        <button id="cnGaleria" class="cn-foto" type="button" aria-label="Elegir foto de la galería">🖼️</button>
+        <input id="cnInFoto" class="oculto" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
+        <input id="cnInGaleria" class="oculto" type="file" accept="image/*" tabindex="-1" aria-hidden="true">
         <input id="cnInput" maxlength="600" placeholder="Escribe un mensaje" aria-label="Escribe un mensaje al cliente">
         <button class="primario" type="submit" aria-label="Enviar mensaje">➤</button>
       </form>
