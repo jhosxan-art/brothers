@@ -34,6 +34,20 @@
         ".validate": "newData.isString() && newData.val().beginsWith('data:image/') && newData.val().length < 400000"
       }
     },
+    "clientes": {
+      "$clienteId": {
+        ".read": "auth != null",
+        "ultimaDireccion": {
+          ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous'",
+          ".validate": "newData.hasChildren(['tipo','ts']) && (newData.child('tipo').val() === 'gps' || newData.child('tipo').val() === 'pin' || newData.child('tipo').val() === 'direccion') && newData.child('ts').isNumber() && (!newData.hasChild('lat') || (newData.child('lat').isNumber() && newData.child('lat').val() >= -90 && newData.child('lat').val() <= 90)) && (!newData.hasChild('lng') || (newData.child('lng').isNumber() && newData.child('lng').val() >= -180 && newData.child('lng').val() <= 180)) && (!newData.hasChild('texto') || (newData.child('texto').isString() && newData.child('texto').val().length >= 1 && newData.child('texto').val().length <= 200))",
+          "tipo": {},
+          "lat": {},
+          "lng": {},
+          "texto": {},
+          "ts": {}
+        }
+      }
+    },
     "ubicaciones": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -311,6 +325,7 @@
           ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 64"
         },
         "nombre": {
+          ".write": "auth != null && ((root.child('admins').child(auth.uid).exists()) || (auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').exists()))",
           ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 60"
         },
         "creado": {
@@ -384,6 +399,20 @@
           "$uid": {
             ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
             ".validate": "newData.val() === true && $uid === auth.uid"
+          }
+        },
+        "leidos": {
+          "$rol": {
+            ".read": "auth != null && ($rol === 'cliente' || $rol === 'repartidor') && (root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').exists())",
+            ".write": "auth != null && ((($rol === 'cliente') && auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val()) || (($rol === 'repartidor') && root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid))",
+            ".validate": "newData.isNumber()"
+          }
+        },
+        "typing": {
+          "$rol": {
+            ".read": "auth != null",
+            ".write": "auth != null && ((($rol === 'cliente') && auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val()) || (($rol === 'repartidor') && root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid))",
+            ".validate": "newData.isNumber()"
           }
         },
         "pedido": {
@@ -539,55 +568,19 @@
         "$solicitudId": {
           ".validate": "newData.hasChildren(['repartidorUid', 'totalFinal', 'orden', 'ts'])",
           ".write": "auth != null && !data.exists() && root.child('repartidores').child(auth.uid).exists() && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'entregado' && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && newData.child('repartidorUid').val() === auth.uid",
-          "repartidorUid": {
-            ".validate": "newData.isString()"
-          },
-          "repartidorNombre": {
-            ".validate": "newData.isString() && newData.val().length <= 60"
-          },
-          "cliente": {
-            ".validate": "newData.isString() && newData.val().length <= 60"
-          },
-          "pedido": {
-            ".validate": "newData.isString() && newData.val().length <= 30"
-          },
-          "productos": {
-            "$i": {
-              "nombre": {
-                ".validate": "newData.isString() && newData.val().length <= 80"
-              },
-              "precio": {
-                ".validate": "newData.isNumber()"
-              },
-              "$otro": {
-                ".validate": false
-              }
-            }
-          },
-          "subtotal": {
-            ".validate": "newData.isNumber()"
-          },
-          "delivery": {
-            ".validate": "newData.isNumber()"
-          },
-          "extras": {
-            ".validate": "newData.isNumber()"
-          },
-          "totalFinal": {
-            ".validate": "newData.isNumber()"
-          },
-          "orden": {
-            ".validate": "newData.isNumber() && newData.val() >= 1"
-          },
-          "sinFactura": {
-            ".validate": "newData.isBoolean()"
-          },
-          "ts": {
-            ".validate": "newData.isNumber() && newData.val() <= now"
-          },
-          "$otro": {
-            ".validate": false
-          }
+          "repartidorUid": { ".validate": "newData.isString()" },
+          "repartidorNombre": { ".validate": "newData.isString() && newData.val().length <= 60" },
+          "cliente": { ".validate": "newData.isString() && newData.val().length <= 60" },
+          "pedido": { ".validate": "newData.isString() && newData.val().length <= 30" },
+          "productos": { "$i": { "nombre": { ".validate": "newData.isString() && newData.val().length <= 80" }, "precio": { ".validate": "newData.isNumber()" }, "$otro": { ".validate": false } } },
+          "subtotal": { ".validate": "newData.isNumber()" },
+          "delivery": { ".validate": "newData.isNumber()" },
+          "extras": { ".validate": "newData.isNumber()" },
+          "totalFinal": { ".validate": "newData.isNumber()" },
+          "orden": { ".validate": "newData.isNumber() && newData.val() >= 1" },
+          "sinFactura": { ".validate": "newData.isBoolean()" },
+          "ts": { ".validate": "newData.isNumber() && newData.val() <= now" },
+          "$otro": { ".validate": false }
         }
       }
     }
