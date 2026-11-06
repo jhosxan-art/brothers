@@ -1,5 +1,5 @@
 /* ============================================================
-   Cliente — chat tipo WhatsApp
+   Cliente — chat tipo WhatsApp + seguimiento en vivo
    Reutiliza las variables de style.css (--celeste, --tinta, --linea…).
    Todo va bajo body.wa-cliente para no chocar con los estilos globales
    de button / input / label de style.css.
@@ -188,13 +188,26 @@ body.wa-cliente {
 }
 .wa-cliente .wa-estado-mapa.oculto { display: none !important; }
 
-/* NUEVO: Pin minimalista circular verde/blanco tipo WhatsApp */
+/* Banner con distancia, tiempo y calle actual (Fase 1) */
+.wa-cliente .wa-ruta-info {
+  position: absolute; z-index: 901; left: 10px; right: 10px; top: 10px;
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: #0E141B; color: #fff; border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.4);
+  font-size: 12.5px; font-weight: 700; line-height: 1.3;
+}
+.wa-cliente .wa-ruta-info.oculto { display: none !important; }
+.wa-cliente .wa-ruta-info .ri-ic { font-size: 18px; line-height: 1; flex: none; }
+.wa-cliente .wa-ruta-info .ri-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-cliente .wa-ruta-info .ri-txt b { color: #7FD3FF; font-weight: 800; }
+
+/* Pin minimalista circular blanco+color tipo WhatsApp */
 .wa-cliente .pin-discreto {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   background: #fff;
-  border: 3.5px solid var(--c, #25D366);
+  border: 3px solid var(--c, #25D366);
   box-shadow: 0 3px 8px rgba(0,0,0,0.35);
   position: relative;
 }
@@ -209,6 +222,7 @@ body.wa-cliente {
   background: var(--c, #25D366);
   transform: translate(-50%, -50%);
 }
+/* Repartidor: pulso suave verde para indicar que se está moviendo */
 .wa-cliente .pin-discreto.pulso {
   animation: pin-latido 1.5s infinite;
 }
@@ -216,6 +230,16 @@ body.wa-cliente {
   0% { box-shadow: 0 0 0 0 rgba(37,211,102, 0.6), 0 3px 8px rgba(0,0,0,0.35); }
   70% { box-shadow: 0 0 0 12px rgba(37,211,102, 0), 0 3px 8px rgba(0,0,0,0.35); }
   100% { box-shadow: 0 0 0 0 rgba(37,211,102, 0), 0 3px 8px rgba(0,0,0,0.35); }
+}
+
+/* Flechas de dirección sobre la ruta */
+.wa-cliente .flecha-ruta {
+  width: 16px; height: 16px;
+  font-size: 14px; line-height: 16px; text-align: center;
+  color: #3B82F6;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+  font-weight: 900;
+  pointer-events: none;
 }
 
 /* ---------- Modales (inicial y cierre) ---------- */
