@@ -120,13 +120,20 @@
     #vistaChats .cn-reg details summary { font-size: 13px; font-weight: 700; color: #0A86C9; cursor: pointer; }
     #vistaChats .cn-reg .cn-ffil { font-size: 13px; }
     #vistaChats .cn-reg button.cn-borrar { width: auto; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; justify-self: end; }
-    .chip-con-pedido { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: #25D366; color: #0E141B; font-size: 11px; font-weight: 800; vertical-align: middle; }
+
+    /* ---- FASE 2 · chip OCUPADO visible con pulso ---- */
+    .chip-con-pedido { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: #25D366; color: #0E141B; font-size: 11px; font-weight: 800; vertical-align: middle; animation: pulsoChipOcupado 1.6s ease-in-out infinite; }
     .chip-con-pedido.oculto { display: none !important; }
+    @keyframes pulsoChipOcupado {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(37,211,102,.55); }
+      50% { box-shadow: 0 0 0 6px rgba(37,211,102,0); }
+    }
+
     .sol-pin { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px 0 8px; border-radius: 22px; background: #E5322D; color: #fff; border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,.45); font: 800 13px/1 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; cursor: pointer; animation: solPulso 1.2s ease-in-out infinite; }
     .sol-pin span { font-size: 20px; line-height: 1; }
     .sol-cli { display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px 0 8px; border-radius: 16px; background: #0E141B; color: #fff; border: 2px solid #3DB8F5; box-shadow: 0 3px 10px rgba(0,0,0,.4); font: 800 12px/1 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; }
     @keyframes solPulso { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
-    @media (prefers-reduced-motion: reduce) { .sol-pin { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .sol-pin, .chip-con-pedido { animation: none; } }
     #vistaMapa .mapa-caja { flex: 1; min-height: 40dvh; }
     #vistaMapa .hoja-pedidos { max-height: 28dvh; }
     .pin-cli-min { width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 2.5px solid var(--pin-cli-c, #E5322D); box-shadow: 0 2px 6px rgba(0,0,0,.35); position: relative; }
@@ -152,13 +159,86 @@
     #solToast small { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     body.rep { height: var(--vvh, 100dvh); }
     body.rep > #vistaChats { min-height: 0; }
+
+    /* ---- FASE 2 · Banner turn-by-turn más legible ---- */
+    .banner-ruta .ir-txt b { display: block; font-size: 15.5px; line-height: 1.25; font-weight: 800; }
+    .banner-ruta .ir-txt b + span { display: block; margin-top: 2px; font-size: 12px; opacity: .85; font-weight: 600; }
+
+    /* ============================================================
+       FASE 2 · RESPONSIVIDAD (tablet, laptop, desktop)
+       ============================================================ */
+
+    /* Tablet (>= 700px) */
+    @media (min-width: 700px) {
+      body.rep { background: #dfe6ec; }
+      body.rep > .barra-marca { padding: calc(16px + env(safe-area-inset-top)) 22px 16px; }
+      body.rep > #mainAuth { max-width: 560px; padding: 22px; }
+      #vistaFactura, #vistaMapa, #vistaChats { max-width: 100%; }
+      #vistaMapa .mapa-caja { min-height: 44dvh; }
+      #vistaMapa .hoja-pedidos { max-height: 32dvh; padding: 16px 18px 26px; }
+      .pedido-card { padding: 12px; gap: 12px; }
+      .pc-botones button { height: 50px; font-size: 15px; }
+      #vistaChats .cn-lista { padding: 18px 22px 28px; max-width: 720px; margin: 0 auto; width: 100%; }
+      #vistaChats .cn-conv { max-width: 720px; margin: 0 auto; width: 100%; }
+      #vistaChats .cn-msgs { padding: 16px 20px; }
+      #vistaChats .cn-item { padding: 14px; }
+      #vistaChats .cn-av { width: 48px; height: 48px; font-size: 20px; }
+      #vistaChats .cn-dat strong { font-size: 16px; }
+      #vistaChats .cn-b { font-size: 15.5px; max-width: 74%; }
+      #vistaChats .cn-b p { font-size: 15.5px; }
+      .fx .invoice-container { max-width: 620px; padding: 16px; }
+      .fx .fx-totales b { font-size: 16px; }
+      .fx .fx-totales .gran b { font-size: 24px; }
+      .fx .invoice-container .generate-btn { height: 58px; font-size: 18px; }
+      .fx #savedProductsList { max-height: 34vh; }
+    }
+
+    /* Laptop (>= 900px) */
+    @media (min-width: 900px) {
+      #vistaMapa .mapa-caja { min-height: 46dvh; }
+      #vistaMapa .hoja-pedidos { max-height: 36dvh; }
+      .pedido-card { max-width: 720px; margin: 0 auto; width: 100%; }
+      .pedido-card + .pedido-card { margin-top: 10px; }
+      #vistaChats .cn-lista, #vistaChats .cn-conv { max-width: 820px; }
+      .fx .invoice-container { max-width: 720px; padding: 20px; }
+      .fx .fx-cab input, .fx .fx-campo input { font-size: 16px; }
+      .fx .fx-totales { grid-template-columns: 1fr 1fr 1.6fr; gap: 8px; }
+      .fx .fx-totales small { font-size: 11px; }
+      .fx .fx-totales b { font-size: 17px; }
+      .fx .fx-totales .gran b { font-size: 26px; }
+      .fx .fx-prod .product-item { grid-template-columns: 1fr 34%; }
+      .fx #savedProductsList { max-height: 32vh; }
+      .fx .fx-prod .add-product-btn { width: 50px; height: 50px; }
+      .fx .product-list-item { padding: 10px 14px 10px 16px; }
+      .fx .product-list-item .name, .fx .product-list-item .price { font-size: 15px; }
+    }
+
+    /* Desktop (>= 1200px) */
+    @media (min-width: 1200px) {
+      body.rep > #vistaFactura { max-width: 900px; margin: 0 auto; width: 100%; }
+      .fx .invoice-container { max-width: 780px; padding: 24px; }
+      .fx .fx-cab { gap: 12px; }
+      .fx .fx-cab input, .fx .fx-campo input, .fx .fx-moneda input { height: 50px; font-size: 17px; }
+      .fx .invoice-container .generate-btn { height: 60px; font-size: 19px; }
+      #vistaMapa { max-width: 960px; margin: 0 auto; width: 100%; flex: 1; display: flex; flex-direction: column; }
+      #vistaChats { max-width: 960px; margin: 0 auto; width: 100%; }
+      #vistaChats .cn-lista, #vistaChats .cn-conv { max-width: 880px; }
+      .banner-ruta { max-width: 900px; left: 50%; right: auto; transform: translateX(-50%); width: calc(100% - 40px); }
+    }
+
+    /* Landscape móvil */
+    @media (max-height: 500px) and (orientation: landscape) {
+      #vistaMapa .mapa-caja { min-height: 56dvh; }
+      #vistaMapa .hoja-pedidos { max-height: 40dvh; }
+      .fx .invoice-container { padding: 12px; }
+    }
   </style>
 </head>
 <body class="rep">
   <div id="splash" class="splash"><div class="splash-caja"><span class="insignia" data-rider></span><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
   <header class="barra-marca">
     <span class="insignia" data-rider></span>
-    <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span><span id="chipConPedido" class="chip-con-pedido oculto" role="status">💬 con pedido</span></small></div>
+    <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span><span id="chipConPedido" class="chip-con-pedido oculto" role="status" aria-live="polite">🛵 OCUPADO</span></small></div>
     <button id="btnFacturaVivo" class="salir chat-admin oculto" type="button" aria-label="Ver mi factura en vivo y agregar mandados extra">🧾</button>
     <button id="btnChatAdmin" class="salir chat-admin oculto" aria-label="Chat con Brothers (administración)">💬<span id="badgeAdmin" class="badge-nav rojo oculto">0</span></button>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
