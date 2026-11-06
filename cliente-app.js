@@ -9,11 +9,12 @@
      6) Cuando el estado pasa a "entregado" (o "cancelado") el chat se vacía y queda un modal
         para valorar (1–5 estrellas) y el botón PEDIR NUEVAMENTE.
 
-   FASE 1 · Seguimiento del pedido en el mapa:
-     - Pin minimalista circular blanco+color tipo WhatsApp (verde = repartidor, azul = cliente).
-     - fitBounds inteligente que muestra repartidor y cliente simultáneamente sin "sacudir" el mapa.
-     - Ruta OSRM con flechas de dirección y banner "X km · Y min · calle actual".
-     - Fallback punteado si OSRM no responde (nunca se dibuja una ruta falsa).
+   FASE 1 · mejoras aplicadas:
+     - Pin escalable con el zoom (--pin-scale actualizado en cada zoomend).
+     - fitBounds forzado en el primer encuadre cuando repartidor + cliente están disponibles.
+     - Fallback claro de la ruta OSRM (línea punteada gris, no recta).
+     - Banner de ruta "km · min · calle actual" con desvanecimiento suave.
+     - Breakpoints responsive (700/900/1200 px) en cliente-app.css.
    ============================================================ */
 (() => {
   "use strict";
@@ -31,8 +32,8 @@
   const TYPING_MS = 1500, TYPING_CADUCA = 4000;
   const COLOR_TICK_ENVIADO = "#8696A0";
   const COLOR_TICK_LEIDO = "#25D366";
-  const COLOR_PIN_REP = "#25D366";           // verde WhatsApp = repartidor (en movimiento)
-  const COLOR_PIN_CLI = "#2F6FED";           // azul = cliente / destino
+  const COLOR_PIN_REP = "#25D366";
+  const COLOR_PIN_CLI = "#2F6FED";
 
   const $ = (id) => document.getElementById(id);
   const db = APP.database();
@@ -796,10 +797,11 @@
   }
 
   /* ============================================================
-     MAPA DE SEGUIMIENTO DEL PEDIDO (FASE 1)
+     MAPA DE SEGUIMIENTO DEL PEDIDO (Fase 1)
      - Pin minimalista blanco+color tipo WhatsApp (verde = repartidor, azul = cliente)
      - fitBounds inteligente: muestra ambos sin sacudir el mapa
-     - Ruta OSRM con flechas + banner "X km · Y min · calle actual → siguiente"
+     - Pin escalable: --pin-scale se recalcula en cada zoomend
+     - Ruta OSRM con flechas + banner "X km · Y min · calle actual"
      ============================================================ */
   let mapa = null, marcaRep = null, marcaCli = null, posRep = null, encuadrado = false;
   let capaRuta = null, capaFlechas = null;
@@ -814,6 +816,16 @@
       iconSize: [28, 28],
       iconAnchor: [14, 14]
     });
+  }
+
+  /* FASE 1 · Escala del pin según el zoom: 0.75 en zoom 14, 1.0 en zoom 16, 1.3 en zoom 19 */
+  function escalaPin(z) {
+    return Math.max(0.75, Math.min(1.3, 0.75 + (z - 14) * 0.11));
+  }
+  function aplicarEscalaPin() {
+    if (!mapa) return;
+    const s = escalaPin(mapa.getZoom());
+    mapa.getContainer().style.setProperty("--pin-scale", s.toFixed(2));
   }
 
   function escucharRepartidorGps() {
@@ -851,8 +863,9 @@
       capaRuta = L.polyline([], { color: "#3B82F6", weight: 6, opacity: 0.85, lineCap: "round" }).addTo(mapa);
       capaFlechas = L.layerGroup().addTo(mapa);
 
-      // Pausar auto-encuadre si el usuario interactúa
       mapa.on("dragstart zoomstart", () => { mapa._lastUserMove = Date.now(); });
+      mapa.on("zoomend", aplicarEscalaPin);   // FASE 1: pin escalable
+      aplicarEscalaPin();
     }
 
     setTimeout(() => { mapa.invalidateSize(); encuadrado = false; actualizarMapa(); }, 60);
@@ -885,7 +898,6 @@
       return;
     }
 
-    // ¿Ya se ven ambos con margen? → no tocar el mapa
     if (!forzar && encuadrado) {
       const v = mapa.getBounds();
       const b = L.latLngBounds(pts);
@@ -915,7 +927,10 @@
 
     $("estadoMapa").classList.toggle("oculto", !!posRep);
 
-    ajustarEncuadre([c, posRep].filter(Boolean), false);
+    /* FASE 1: primer encuadre forzado cuando ambos están presentes */
+    const pts = [c, posRep].filter(Boolean);
+    const forzar = pts.length === 2 && !encuadrado;
+    ajustarEncuadre(pts, forzar);
 
     if (c && posRep) {
       trazarRutaCliente(posRep, c);
@@ -926,7 +941,7 @@
     }
   }
 
-  /* ---------- Ruta por calles con flechas e indicaciones (Fase 1) ---------- */
+  /* ---------- Ruta por calles con flechas e indicaciones ---------- */
   async function trazarRutaCliente(rep, cli) {
     const ahora = Date.now();
     if (ultimaRutaPos && distanciaM(ultimaRutaPos, rep) < 30 && ahora - ultimaRutaFetch < 15000) return;
@@ -935,7 +950,6 @@
     ultimaRutaPos = rep;
 
     try {
-      // Ruta.pedir (buscador.js) → OSRM con steps=true (calles + distancias + maniobras)
       if (typeof Ruta === "undefined" || typeof Ruta.pedir !== "function") throw new Error("módulo Ruta no disponible");
       const r = await Ruta.pedir(rep, cli);
       if (!r || !r.pts) throw new Error("sin ruta");
@@ -943,7 +957,6 @@
         capaRuta.setStyle({ color: "#3B82F6", dashArray: null, opacity: 0.85 });
         capaRuta.setLatLngs([[rep.lat, rep.lng], ...r.pts]);
       }
-      // Flechas sobre la ruta (mismo helper que usa el admin/repartidor)
       if (capaFlechas && typeof Ruta.flechas === "function") {
         Ruta.flechas(r.pts, capaFlechas, "#3B82F6");
       }
@@ -953,7 +966,6 @@
       pintarInfoRuta();
     } catch (e) {
       console.warn("Ruta OSRM:", e && e.message);
-      // Fallback: línea punteada gris (nunca una línea azul engañosa que parezca "ruta real")
       if (capaRuta) {
         capaRuta.setStyle({ color: "#94A3B8", dashArray: "6 10", opacity: 0.7 });
         capaRuta.setLatLngs([[rep.lat, rep.lng], [cli.lat, cli.lng]]);
