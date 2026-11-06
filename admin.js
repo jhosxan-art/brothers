@@ -12,6 +12,12 @@
      · Al abrir la pestaña "Mapa en vivo", fitBounds de todos los pedidos activos.
      · Palomitas verdes ✓✓ en el Modo Espectador (via ordenes-admin.js).
      · Línea "📮 Última dirección del cliente" en el visor (via ordenes-admin.js).
+   FASE 3 · mapa maestro del administrador:
+     · Badge "🛵 Con Pedido" sobre el ícono de cada repartidor ocupado.
+     · Polyline punteada animada por repartidor en ruta hacia su cliente (toggle 🛣).
+     · Pines pulsantes de alerta para solicitudes_entrantes pendientes en el mapa.
+     · Encuadre maestro que incluye solicitudes y todos los repartidores en línea.
+     · fitBounds automático al llegar una nueva solicitud si el admin está en el mapa.
    ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
@@ -44,6 +50,14 @@ let lugares = {}, refLugares = null;
 const lugarMarks = {};
 let modoNegocio = false, marcaBusq = null, datosBusq = null, resultadosBusq = [];
 const selChats = new Set();
+
+/* FASE 3 · rutas de repartidores y pines de solicitudes pendientes */
+let verRutas = localStorage.getItem("verRutasAdmin") !== "0";
+const capaRutas = {};               // uid → polyline
+const marcasSolicitud = {};         // id → marker de alerta
+let solicitudesMapa = {};           // solicitudes_entrantes (últimas 60)
+let refSolicMapa = null;
+let primeraSolMapa = true;
 
 function setMsg(id, texto, tipo = "") {
   const el = $(id);
@@ -110,19 +124,28 @@ document.querySelectorAll(".tabs button").forEach((b) => {
 });
 
 /* FASE 4 · Encuadra el mapa del admin para que se vean todos los pedidos activos.
-   Se llama al pulsar la pestaña "Mapa en vivo" y una vez al iniciar sesión. */
+   FASE 3 · También incluye TODOS los repartidores en línea y las solicitudes pendientes. */
 let encuadrePedidosHecho = false;
 function encuadrarTodosActivos() {
   if (!mapa) return;
   const pts = [];
+  // Pedidos activos
   Object.entries(activos).forEach(([, d]) => {
     if (!d || d.estado !== "en_ruta") return;
     if (typeof d.destLat === "number" && typeof d.destLng === "number") pts.push([d.destLat, d.destLng]);
     else if (d.cliente && typeof d.cliente.lat === "number" && typeof d.cliente.lng === "number") pts.push([d.cliente.lat, d.cliente.lng]);
   });
+  // Todos los repartidores con posición conocida
   Object.keys(ubic).forEach((uid) => {
     const u = ubic[uid]; if (!u || typeof u.lat !== "number") return;
-    if (viajeDe(uid)) pts.push([u.lat, u.lng]);
+    if (viajeDe(uid) || u.enLinea !== false) pts.push([u.lat, u.lng]);
+  });
+  // FASE 3 · pines de solicitudes pendientes también entran en el encuadre
+  Object.entries(solicitudesMapa).forEach(([, s]) => {
+    if (!s || s.repartidorUid) return;
+    if (s.estado && s.estado !== "nuevo") return;
+    const p = puntoSolicitud(s);
+    if (p) pts.push([p.lat, p.lng]);
   });
   if (pts.length >= 2) {
     mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
@@ -155,7 +178,6 @@ auth.onAuthStateChanged(async (user) => {
   iniciarMonitoreo();
   registrarPushAdmin(user.uid);
   Policia.iniciar({ db, mapa: () => mapa, uid: () => auth.currentUser && auth.currentUser.uid, nombre: () => "Brothers (admin)", rol: "admin", pos: () => null });
-  /* FASE 4 · primera vez: encuadre de todos los pedidos activos cuando terminen de llegar los snapshots */
   setTimeout(() => { if (!encuadrePedidosHecho) encuadrarTodosActivos(); }, 1500);
 });
 $("btnSalir").onclick = async () => { if (!confirm("¿Cerrar sesión?")) return; await quitarPushAdmin(); auth.signOut(); };
@@ -249,9 +271,12 @@ const EST_ICONO = {
 };
 function iconoRepAdmin(nombre, est) {
   const [col, txt] = EST_ICONO[est] || EST_ICONO.sinDatos, apagado = ["desconectado", "sinSenal", "sinDatos"].includes(est);
+  /* FASE 3 · badge "Con Pedido" en la esquina del ícono cuando hay viaje activo */
+  const conPedido = est === "enRuta";
+  const badge = conPedido ? '<span class="badge-pedido" aria-label="Con pedido activo">🛵</span>' : "";
   return L.divIcon({
     className: "",
-    html: `<div class="marca-rider-caja"><div class="marca-rider${apagado ? " apagado" : ""}">${RIDER_SVG}<i class="pt-est" style="background:${col}"></i></div>` +
+    html: `<div class="marca-rider-caja"><div class="marca-rider${apagado ? " apagado" : ""}">${RIDER_SVG}<i class="pt-est" style="background:${col}"></i></div>${badge}` +
           `<span class="etiqueta-rider">${esc(nombre)}<small class="est" style="color:${col}">● ${txt}</small></span></div>`,
     iconSize: [56, 56], iconAnchor: [28, 28]
   });
@@ -285,12 +310,129 @@ function aplicarHerramientas() {
   if (!mapa) return;
   mapa.getContainer().style.setProperty("--escala-rep", escalaRep);
   $("btnVerNegocios").classList.toggle("on", verNegocios);
+  /* FASE 3 · toggle de rutas */
+  const br = $("btnRutas");
+  if (br) { br.classList.toggle("on", verRutas); br.setAttribute("aria-pressed", String(verRutas)); }
   Object.values(lugarMarks).forEach((m) => { if (verNegocios) m.addTo(mapa); else mapa.removeLayer(m); });
 }
 $("btnVerNegocios").onclick = () => { verNegocios = !verNegocios; localStorage.setItem("verNegocios", verNegocios ? "1" : "0"); aplicarHerramientas(); toast(verNegocios ? "Negocios visibles" : "Negocios ocultos"); };
 const cambiarEscala = (d) => { escalaRep = Math.max(.5, Math.min(2, +(escalaRep + d).toFixed(1))); localStorage.setItem("escalaRep", escalaRep); aplicarHerramientas(); toast("Tamaño de iconos: " + Math.round(escalaRep * 100) + " %"); };
 $("btnIconoMas").onclick = () => cambiarEscala(.2);
 $("btnIconoMenos").onclick = () => cambiarEscala(-.2);
+/* FASE 3 · toggle de rutas de repartidores */
+$("btnRutas").onclick = () => {
+  verRutas = !verRutas;
+  try { localStorage.setItem("verRutasAdmin", verRutas ? "1" : "0"); } catch (_) {}
+  aplicarHerramientas();
+  pintarRutas();
+  toast(verRutas ? "🛣 Rutas visibles" : "Rutas ocultas");
+};
+
+/* ============================================================
+   FASE 3 · RUTAS DE REPARTIDORES EN EL MAPA DEL ADMIN
+   Por cada repartidor con viaje activo se dibuja una polyline punteada
+   animada (clase .ruta-viva) desde su posición hasta el destino del pedido.
+   ============================================================ */
+function pintarRutas() {
+  if (!mapa) return;
+  // Quitar las rutas de repartidores que ya no están en viaje o si está desactivado
+  Object.keys(capaRutas).forEach((uid) => {
+    if (!verRutas || !viajeDe(uid)) {
+      try { mapa.removeLayer(capaRutas[uid]); } catch (_) {}
+      delete capaRutas[uid];
+    }
+  });
+  if (!verRutas) return;
+  // Dibujar/actualizar rutas
+  Object.entries(activos).forEach(([, d]) => {
+    if (!d || d.estado !== "en_ruta") return;
+    const uid = d.repartidorUid;
+    if (!uid || !ubic[uid] || typeof ubic[uid].lat !== "number") return;
+    if (typeof d.destLat !== "number" || typeof d.destLng !== "number") return;
+    const desde = [ubic[uid].lat, ubic[uid].lng];
+    const hasta = [d.destLat, d.destLng];
+    const color = colorUid(uid);
+    if (capaRutas[uid]) {
+      capaRutas[uid].setLatLngs([desde, hasta]);
+      capaRutas[uid].setStyle({ color });
+    } else {
+      capaRutas[uid] = L.polyline([desde, hasta], {
+        color, weight: 5, opacity: .8, dashArray: "10 14", lineCap: "round", className: "ruta-admin"
+      }).addTo(mapa);
+    }
+  });
+}
+
+/* ============================================================
+   FASE 3 · ALERTAS VISUALES DE SOLICITUDES EN EL MAPA DEL ADMIN
+   Pin pulsante rojo con el nombre del cliente para cada solicitud pendiente.
+   ============================================================ */
+function puntoSolicitud(s) {
+  if (!s) return null;
+  const g = s.clienteGps;
+  if (g && typeof g.lat === "number" && typeof g.lng === "number") return { lat: g.lat, lng: g.lng };
+  const p = s.pedido && s.pedido.destino;
+  if (p && typeof p.lat === "number" && typeof p.lng === "number") return { lat: p.lat, lng: p.lng };
+  return null;
+}
+function iconoSolAdmin(nombre) {
+  return L.divIcon({
+    className: "",
+    html: `<div class="pin-solicitud-admin"><span>📥</span></div><span class="etq-solicitud-admin">${esc(nombre || "Cliente")}</span>`,
+    iconSize: [44, 44], iconAnchor: [22, 22]
+  });
+}
+function pintarSolicitudesMapa() {
+  if (!mapa) return;
+  const activas = new Set();
+  Object.entries(solicitudesMapa).forEach(([id, s]) => {
+    if (!s || s.repartidorUid) return;                 // ya tomada por un repartidor
+    if (s.estado && s.estado !== "nuevo") return;      // ya no está pendiente
+    const p = puntoSolicitud(s);
+    if (!p) return;
+    activas.add(id);
+    if (marcasSolicitud[id]) {
+      marcasSolicitud[id].setLatLng([p.lat, p.lng]);
+      marcasSolicitud[id].setIcon(iconoSolAdmin(s.nombre));
+    } else {
+      const mk = L.marker([p.lat, p.lng], { icon: iconoSolAdmin(s.nombre), zIndexOffset: 2000 }).addTo(mapa);
+      mk.on("click", () => { try { irAPestana("panelSolicitudes"); } catch (_) {} });
+      marcasSolicitud[id] = mk;
+    }
+  });
+  // Quitar los pines que ya no están activos
+  Object.keys(marcasSolicitud).forEach((id) => {
+    if (!activas.has(id)) {
+      try { mapa.removeLayer(marcasSolicitud[id]); } catch (_) {}
+      delete marcasSolicitud[id];
+    }
+  });
+}
+function iniciarSolicitudesMapa() {
+  if (refSolicMapa) refSolicMapa.off();
+  primeraSolMapa = true;
+  refSolicMapa = db.ref("solicitudes_entrantes").limitToLast(60);
+  refSolicMapa.on("value", (s) => {
+    const antes = solicitudesMapa;
+    solicitudesMapa = s.val() || {};
+    pintarSolicitudesMapa();
+    /* FASE 3 · Detectar nuevas solicitudes pendientes y hacer fitBounds si el admin está en el mapa */
+    if (!primeraSolMapa) {
+      const nuevas = Object.keys(solicitudesMapa).filter((id) => {
+        const n = solicitudesMapa[id], a = antes[id];
+        const esNueva = n && !n.repartidorUid && (!n.estado || n.estado === "nuevo");
+        const eraNueva = a && !a.repartidorUid && (!a.estado || a.estado === "nuevo");
+        return esNueva && !eraNueva;
+      });
+      if (nuevas.length) {
+        const enMapa = document.querySelector('.tabs button[data-tab="panelMapa"]').classList.contains("activa");
+        if (enMapa) setTimeout(() => encuadrarTodosActivos(), 400);
+      }
+    }
+    primeraSolMapa = false;
+    pintarRutas();
+  }, () => {});
+}
 
 function popupRep(uid) {
   const est = estadoDe(uid), [texto, clase] = ETIQUETA[est], n = sinLeerEq[uid] || 0;
@@ -667,9 +809,9 @@ function iniciarMonitoreo() {
   const fallo = () => setMsg("msgEquipo", "Sin permiso para leer datos. Revisa las reglas y tu registro en 'admins'.", "error");
 
   refUbic = db.ref("ubicaciones");
-  refUbic.on("child_added", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarClientes(); pintarLista(); }, fallo);
-  refUbic.on("child_changed", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarClientes(); pintarLista(); });
-  refUbic.on("child_removed", (s) => { delete ubic[s.key]; quitarMarcador(s.key); pintarLista(); });
+  refUbic.on("child_added", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarClientes(); pintarLista(); pintarRutas(); }, fallo);
+  refUbic.on("child_changed", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarClientes(); pintarLista(); pintarRutas(); });
+  refUbic.on("child_removed", (s) => { delete ubic[s.key]; quitarMarcador(s.key); pintarLista(); pintarRutas(); });
 
   $("diaStats").value = Dia.clave(); cargarStats(); cargarCalif();
 
@@ -701,10 +843,10 @@ function iniciarMonitoreo() {
   if (typeof PedidosAdmin !== "undefined") PedidosAdmin.iniciar();
 
   consultaActivos = db.ref("pedidos").orderByChild("estado").equalTo("en_ruta");
-  const alCambiar = (s) => { activos[s.key] = s.val(); pintarClientes(); refrescar(); };
+  const alCambiar = (s) => { activos[s.key] = s.val(); pintarClientes(); refrescar(); pintarRutas(); };
   consultaActivos.on("child_added", alCambiar, fallo);
   consultaActivos.on("child_changed", alCambiar);
-  consultaActivos.on("child_removed", (s) => { delete activos[s.key]; pintarClientes(); refrescar(); });
+  consultaActivos.on("child_removed", (s) => { delete activos[s.key]; pintarClientes(); refrescar(); pintarRutas(); });
 
   db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); if (refStats) cargarStats(); }, fallo);
 
@@ -727,6 +869,10 @@ function iniciarMonitoreo() {
     primeraCargaChats = false;
     resumenes = nuevos; pintarChats();
   }, fallo);
+
+  /* FASE 3 · Suscripción a solicitudes_entrantes para pintar pines pulsantes + rutas */
+  iniciarSolicitudesMapa();
+  pintarRutas();
 }
 function detener() {
   Policia.detener();
@@ -752,6 +898,11 @@ function detener() {
   [ubic, activos].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
   registrados = {}; resumenes = {}; ajusteProgramado = false;
   encuadrePedidosHecho = false;
+  /* FASE 3 · limpieza de rutas y pines de solicitudes */
+  if (refSolicMapa) { refSolicMapa.off(); refSolicMapa = null; }
+  Object.keys(marcasSolicitud).forEach((id) => { try { if (mapa) mapa.removeLayer(marcasSolicitud[id]); } catch (_) {} delete marcasSolicitud[id]; });
+  solicitudesMapa = {}; primeraSolMapa = true;
+  Object.keys(capaRutas).forEach((uid) => { try { if (mapa) mapa.removeLayer(capaRutas[uid]); } catch (_) {} delete capaRutas[uid]; });
 }
 function refrescar() { Object.keys(ubic).forEach(pintarMarcador); pintarClientes(); pintarLista(); pintarEquipo(); if (selUid) pintarSeleccion(); }
 setInterval(() => { if (!$("vistaApp").classList.contains("oculto")) refrescar(); }, 15000);
