@@ -1,5 +1,7 @@
 /* ============================================================
    ORDENES-ADMIN · Panel del administrador (Fases 2, 3 y 4 unificadas)
+   FASE ÚNICA: se añade el módulo EQUIPO que reemplaza a pintarEquipo()
+   con un renderizado robusto, redundante y auto-recuperable.
    ============================================================ */
 
 /* ============================================================
@@ -601,6 +603,8 @@ const PedidosAdmin = (() => {
 
   function iniciar() {
     detener(); primera = true;
+    // FASE ÚNICA · Arrancar el módulo EQUIPO lo antes posible (aunque el mapa falle)
+    try { EQUIPO.iniciar(); } catch (e) { console.error("[EQUIPO] iniciar:", e); }
     if (!listo) {
       listo = true;
       mapa.on("preclick", () => { busqAbierta = !el("resBusq").classList.contains("oculto"); });
@@ -652,7 +656,13 @@ const PedidosAdmin = (() => {
       pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista();
     }, () => { el("listaPedidos").innerHTML = '<p class="ayuda">Sin permiso para leer "ordenes". Revisa las reglas de Firebase.</p>'; });
   }
-  function detener() { if (ref) { ref.off(); ref = null; } if (refChatInv) { refChatInv.off(); refChatInv = null; } ordenes = {}; resInv = {}; sinLeerInv = {}; cerrarMapaForm(); quitarTemp(); cancelarClick(); }
+  function detener() {
+    if (ref) { ref.off(); ref = null; }
+    if (refChatInv) { refChatInv.off(); refChatInv = null; }
+    ordenes = {}; resInv = {}; sinLeerInv = {};
+    try { EQUIPO.detener(); } catch (e) {}
+    cerrarMapaForm(); quitarTemp(); cancelarClick();
+  }
 
   return {
     iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado,
@@ -660,6 +670,217 @@ const PedidosAdmin = (() => {
     forzarEstadoOrden, asignarManual
   };
 })();
+
+
+/* ============================================================
+   FASE ÚNICA · EQUIPO (renderizado robusto y auto-recuperable)
+   ------------------------------------------------------------
+   - Registra su PROPIO listener de repartidores + repartidorFotos.
+   - Reemplaza window.pintarEquipo() para que TODAS las llamadas
+     (de admin.js y de ordenes-admin.js) usen esta versión defensiva.
+   - try/catch por fila: si una fila falla, las demás se pintan igual.
+   - Detecta errores de permisos / red y ofrece botón "Reintentar".
+   - Reintenta automáticamente 3 veces (15 s entre cada intento).
+   - Botón "🔄 Recargar" en admin.html llama a refrescarManual().
+   ============================================================ */
+const EQUIPO = (() => {
+  const g = (id) => document.getElementById(id);
+  const cache = { registrados: {}, fotos: {}, error: null, cargando: true };
+  let refRep = null, refFotos = null, tRetry = null, intentos = 0, lastHash = "";
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function render(force) {
+    const cont = g("listaEquipo");
+    if (!cont) { console.warn("[EQUIPO] No existe #listaEquipo"); return; }
+
+    const hash = (() => {
+      try { return JSON.stringify([Object.keys(cache.registrados).sort(), cache.fotos, cache.error && (cache.error.message || cache.error.code), cache.cargando]); }
+      catch (_) { return ""; }
+    })();
+    if (!force && hash && hash === lastHash) return;
+    lastHash = hash;
+
+    // A. Error de Firebase
+    if (cache.error) {
+      const mensaje = cache.error.message || cache.error.code || "error desconocido";
+      cont.innerHTML =
+        '<div class="estado error" style="margin:0 0 10px" role="alert">' +
+        '<div style="flex:1;min-width:0">⚠️ No se pudo leer la lista de repartidores: ' + esc(mensaje) + '. Verifica tu conexión y las reglas de Firebase (admins).</div>' +
+        '</div>' +
+        '<button id="eqRetry" class="mini primario" type="button" style="width:auto;height:40px;padding:0 16px;border-radius:12px">🔄 Reintentar</button>';
+      const btn = g("eqRetry");
+      if (btn) btn.onclick = () => { intentos = 0; iniciar(); };
+      return;
+    }
+
+    // B. Estado de carga
+    if (cache.cargando) {
+      cont.innerHTML = '<p class="ayuda">Cargando repartidores…</p>';
+      return;
+    }
+
+    // C. Lista de IDs válidos (objetos)
+    const data = cache.registrados || {};
+    const ids = Object.keys(data).filter((uid) => {
+      const r = data[uid];
+      return r && typeof r === "object";
+    });
+
+    // D. Invitados activos (desde PedidosAdmin)
+    let invitados = "";
+    try {
+      if (typeof PedidosAdmin !== "undefined" && typeof PedidosAdmin.htmlInvitados === "function") {
+        invitados = PedidosAdmin.htmlInvitados() || "";
+      }
+    } catch (e) { console.warn("[EQUIPO] invitados:", e); }
+
+    // E. Vacío real
+    if (!ids.length && !invitados) {
+      cont.innerHTML = '<p class="ayuda">Aún no hay repartidores registrados. Usa el formulario de arriba para crear el primero.</p>';
+      return;
+    }
+
+    // F. Renderizar cada tarjeta (con try/catch por fila)
+    const filas = ids.map((uid) => {
+      try {
+        const r = data[uid] || {};
+        const nombre = r.usuario || r.nombre || (r.email ? String(r.email).split("@")[0] : "") || "Repartidor";
+        const email = r.email || "";
+        const tel = r.telefono || "";
+
+        let estado = "sinDatos", estadoLabel = "Sin datos", estadoClase = "";
+        try {
+          if (typeof estadoDe === "function") {
+            estado = estadoDe(uid);
+            if (typeof ETIQUETA !== "undefined" && Array.isArray(ETIQUETA[estado])) {
+              estadoLabel = ETIQUETA[estado][0];
+              estadoClase = ETIQUETA[estado][1] || "";
+            }
+          }
+        } catch (_) {}
+
+        const avatar = (typeof RIDER_SVG !== "undefined" && RIDER_SVG) ? RIDER_SVG : '<span style="font-size:24px;display:grid;place-items:center;width:100%;height:100%">🛵</span>';
+        const foto = cache.fotos[uid];
+        const tieneFoto = foto && typeof foto === "string" && foto.indexOf("data:image/") === 0;
+        const avatarStyle = tieneFoto ? ' style="background-image:url(\'' + foto + '\');background-size:cover;background-position:center;background-color:transparent"' : "";
+        const avatarInner = tieneFoto ? "" : avatar;
+
+        return '<div class="tarjeta-rep">' +
+          '<div class="fila">' +
+          '<span class="avatar' + (tieneFoto ? ' con-foto' : '') + '" data-av="' + esc(uid) + '"' + avatarStyle + '>' + avatarInner + '</span>' +
+          '<div class="datos">' +
+          '<strong>' + esc(nombre) + '</strong>' +
+          '<small>' + (email ? esc(email) : "Sin correo registrado · " + esc(String(uid).slice(0, 8)) + "…") + '</small>' +
+          '<small>📱 ' + (tel ? "WhatsApp +" + esc(tel) : "Sin WhatsApp guardado") + '</small>' +
+          '</div>' +
+          '<span class="chip ' + esc(estadoClase) + '">' + esc(estadoLabel) + '</span>' +
+          '</div>' +
+          '<div class="acciones-fila">' +
+          '<button class="mini" data-foto-uid="' + esc(uid) + '" data-foto-nom="' + esc(nombre) + '" type="button">📷 Foto</button>' +
+          '<button class="mini" data-accion="telefono" data-uid="' + esc(uid) + '" type="button">' + (tel ? "Editar WhatsApp" : "Agregar WhatsApp") + '</button>' +
+          (email ? '<button class="mini" data-accion="reset" data-uid="' + esc(uid) + '" type="button">Restablecer clave</button>' : '') +
+          '<button class="mini peligro" data-accion="quitar" data-uid="' + esc(uid) + '" type="button">Quitar</button>' +
+          '</div>' +
+          '</div>';
+      } catch (e) {
+        console.error("[EQUIPO] error renderizando uid=" + uid, e);
+        return '<div class="tarjeta-rep" style="border-color:#E5322D"><small>⚠️ Error al mostrar el repartidor ' + esc(String(uid).slice(0, 8)) + '…</small></div>';
+      }
+    }).join("");
+
+    // G. Insertar HTML final
+    let html = filas;
+    if (invitados) html += '<h3 class="sec">Invitados activos</h3>' + invitados;
+    cont.innerHTML = html;
+
+    // H. Aplicar fotos vía función de admin.js (por si el listener de allí trae más)
+    try {
+      if (typeof aplicarFotosAvatares === "function") aplicarFotosAvatares();
+    } catch (_) {}
+  }
+
+  function iniciar() {
+    detener();
+    cache.cargando = true;
+    cache.error = null;
+    render(true);
+
+    // Botón "Recargar" en admin.html
+    const btnRecargar = g("btnRecargarEquipo");
+    if (btnRecargar && !btnRecargar._eqBound) {
+      btnRecargar._eqBound = true;
+      btnRecargar.onclick = () => { intentos = 0; iniciar(); };
+    }
+
+    if (typeof db === "undefined") {
+      cache.error = { message: "Firebase no está inicializado" };
+      cache.cargando = false;
+      render(true);
+      return;
+    }
+
+    // Listener de repartidores
+    try {
+      refRep = db.ref("repartidores");
+      refRep.on("value", (s) => {
+        const data = s.val();
+        cache.cargando = false;
+        if (data === null) {
+          cache.registrados = {};
+          cache.error = null;
+        } else if (typeof data === "object") {
+          cache.registrados = data;
+          cache.error = null;
+        } else {
+          cache.registrados = {};
+          cache.error = { message: "Estructura inesperada en repartidores/ (se esperaba objeto)" };
+        }
+        render(true);
+      }, (err) => {
+        console.error("[EQUIPO] repartidores:", err);
+        cache.cargando = false;
+        cache.error = err || { message: "Error al leer Firebase" };
+        render(true);
+        if (intentos < 3) {
+          intentos++;
+          clearTimeout(tRetry);
+          tRetry = setTimeout(() => iniciar(), 15000);
+        }
+      });
+    } catch (e) {
+      console.error("[EQUIPO] refRep:", e);
+      cache.cargando = false;
+      cache.error = e;
+      render(true);
+    }
+
+    // Listener de fotos (para avatares)
+    try {
+      refFotos = db.ref("repartidorFotos");
+      refFotos.on("value", (s) => {
+        cache.fotos = s.val() || {};
+        render(true);
+      }, () => { cache.fotos = {}; });
+    } catch (e) { console.warn("[EQUIPO] refFotos:", e); }
+  }
+
+  function detener() {
+    if (refRep) { try { refRep.off(); } catch (_) {} refRep = null; }
+    if (refFotos) { try { refFotos.off(); } catch (_) {} refFotos = null; }
+    clearTimeout(tRetry); tRetry = null;
+    intentos = 0;
+    lastHash = "";
+  }
+
+  return { iniciar, detener, render, refrescarManual: iniciar };
+})();
+
+// Sobrescribir pintarEquipo() para que todas las llamadas (de admin.js y de
+// ordenes-admin.js) usen el renderizado robusto de EQUIPO.
+try { window.pintarEquipo = () => EQUIPO.render(); } catch (_) {}
 
 
 /* ============================================================
