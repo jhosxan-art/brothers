@@ -19,7 +19,7 @@
   color-scheme: light;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; }
 html, body { height: 100%; }
 body {
   font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -85,17 +85,18 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--tinta); out
 .estado.error::before { background: var(--rojo); }
 @keyframes latido { 0% { box-shadow: 0 0 0 0 rgba(229,50,45,.5); } 100% { box-shadow: 0 0 0 10px rgba(229,50,45,0); } }
 .ayuda { font-size: 13px; color: var(--texto2); }
+.enlace { font-size: 13px; word-break: break-all; background: var(--gris); border-radius: 12px; padding: 12px; color: var(--texto2); }
 
 /* ============================================================
-   ADMINISTRADOR (Panel, Mapa, Equipo, Pedidos)
+   ESTRUCTURA ADMINISTRADOR
    ============================================================ */
 body.admin { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 #vistaApp { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; z-index: 1; }
 #panelMapa { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .mapa-caja { position: relative; flex: 1; min-height: 240px; }
-#mapaAdmin, #mapaRuta, #mapaSeguir { position: absolute; inset: 0; z-index: 1; }
+#mapaAdmin, #mapaRuta, #mapaSeguir, #saMapa { position: absolute; inset: 0; z-index: 1; }
 
-/* Controles flotantes del mapa */
+/* Controles flotantes del mapa del admin */
 .chip-mapa { position: absolute; z-index: 1000; top: 62px; left: 10px; background: var(--tinta); color: #fff; font-weight: 800; font-size: 12px; padding: 0 12px; height: 34px; border-radius: 999px; display: grid; place-items: center; max-width: calc(100% - 90px); white-space: nowrap; }
 .barra-herr { position: absolute; z-index: 1000; top: 62px; right: 10px; display: grid; gap: 6px; }
 .herr { width: 58px; height: 54px; min-height: 54px; padding: 0; border-radius: 14px; background: #fff; border: 2px solid var(--linea); display: grid; place-items: center; align-content: center; gap: 1px; line-height: 1; box-shadow: 0 3px 10px rgba(0,0,0,.22); font: inherit; color: var(--tinta); z-index: 1001; }
@@ -111,8 +112,8 @@ body.admin { display: flex; flex-direction: column; height: 100%; overflow: hidd
 .buscador input { flex: 1; min-width: 0; height: 44px; border-radius: 14px; border: 2px solid var(--linea); background: #fff; padding: 0 14px; font-size: 15px; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
 .buscador button { width: 48px; height: 44px; min-height: 44px; padding: 0; border-radius: 14px; background: var(--celeste); border: 0; font-size: 18px; box-shadow: 0 4px 12px rgba(0,0,0,.2); flex: none; }
 
-/* Listas y Tarjetas */
-#panelPedidos, #panelEquipo, #panelSolicitudes {
+/* Listas del Admin */
+#panelPedidos, #panelEquipo, #panelSolicitudes, #panelChats {
   flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: grid; align-content: start; gap: 12px;
   max-width: 520px; width: 100%; margin: 0 auto; z-index: 10; position: relative; background: var(--gris);
 }
@@ -139,6 +140,15 @@ body.admin { display: flex; flex-direction: column; height: 100%; overflow: hidd
 #panelPedidos .pdl-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 #panelPedidos .pdl-card .pdl-add button { width: 100%; height: 42px; padding: 0 6px; font-size: 13px; border-radius: 12px; background: #fff; border: 1.5px dashed var(--celeste-prof); }
 
+/* Mapa del formulario de pedidos (pdm) */
+.pdm { position: fixed; inset: 0; z-index: 3000; background: #dfe6ec; }
+.pdm .pdm-mapa { position: absolute; inset: 0; z-index: 0; }
+.pdm .pdm-top { position: absolute; z-index: 1100; top: 0; left: 0; right: 0; display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: calc(10px + env(safe-area-inset-top)) 10px 6px; pointer-events: none; }
+.pdm .pdm-top > * { pointer-events: auto; }
+.pdm .pdm-x { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: #fff; color: var(--tinta); font-size: 18px; font-weight: 800; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+.pdm .pdm-top-fila { display: flex; align-items: center; gap: 8px; }
+.pdm .pdm-panel { position: absolute; z-index: 1100; left: 0; right: 0; bottom: 0; display: grid; gap: 8px; max-height: 62vh; overflow-y: auto; padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); background: #fff; border-radius: 20px 20px 0 0; box-shadow: 0 -6px 24px rgba(0,0,0,.25); }
+
 /* Navegación Inferior (Tabs) */
 .tabs { display: grid; grid-template-columns: repeat(5, 1fr); background: #fff; border-top: 1px solid var(--linea); padding-bottom: env(safe-area-inset-bottom); z-index: 1000; position: relative; }
 .tabs button { height: 56px; min-height: 56px; border: 0; border-radius: 0; background: #fff; color: var(--texto2); font-size: 12px; padding: 0 4px; }
@@ -164,7 +174,6 @@ body.rep > #vistaMapa { flex: 1; min-height: 0; display: flex; flex-direction: c
 /* ============================================================
    MARCADORES DEL MAPA (Discretos y Originales)
    ============================================================ */
-/* Repartidor (Admin y Cliente) */
 .marca-rider-caja { position: relative; width: 56px; height: 56px; transform: scale(var(--escala-rep, 1)); transform-origin: 28px 28px; }
 .marca-rider { width: 56px; height: 56px; border-radius: 50%; background: #fff; border: 3px solid var(--celeste); padding: 3px; animation: pulso 2s infinite; }
 .marca-rider svg { width: 100%; height: 100%; display: block; }
@@ -301,7 +310,92 @@ body.wa-cliente .wa-foto { width: 46px; height: 46px; padding: 0; border-radius:
 .wa-cliente .wa-ultima-dir-acc button { height: 44px; min-height: 44px; font-size: 14px; }
 
 /* ============================================================
-   MODALES Y PANTALLAS COMPLETAS
+   AUDITORÍA / MODO ESPECTADOR (Admin)
+   ============================================================ */
+#modalSolicitud .sa-caja { display: flex; flex-direction: column; }
+#modalSolicitud .sa-caja .sa-cab, #modalSolicitud .sa-caja .sa-pedido, #modalSolicitud .sa-caja .sa-mapa-caja, #modalSolicitud .sa-caja .sa-pie { flex: none; }
+#modalSolicitud .sa-caja .sa-msgs { flex: 1; min-height: 0; }
+.sa-msgs > * { flex-shrink: 0; }
+.sa-b.fac { margin: 4px 0; }
+.sa-b.foto { padding: 4px 4px 5px; }
+.sa-b.foto img { display: block; width: 220px; max-width: 100%; min-height: 80px; height: auto; border-radius: 10px; background: var(--gris); }
+.sa-b.foto .sa-quien, .sa-b.foto .sa-h { padding: 0 6px; }
+.sa-cab { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border-bottom: 1px solid #E1E6EB; }
+.sa-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
+.sa-cab strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-cab small { font-size: 12px; font-weight: 600; color: #5B6672; }
+.sa-cab button { width: auto; height: 38px; padding: 0 14px; border-radius: 12px; font-size: 13px; flex: none; }
+.sa-cab button.oculto { display: none !important; }
+.sa-pedido { padding: 8px 12px; background: #FFF8DB; border-bottom: 1px solid #E8DFA8; font-size: 12.5px; font-weight: 600; color: #5A4A00; overflow-wrap: anywhere; text-align: left; }
+.sa-pedido.oculto, .sa-mapa-caja.oculto { display: none !important; }
+.sa-b { max-width: 84%; padding: 7px 10px 5px; border-radius: 14px; background: #fff; align-self: flex-start; border-top-left-radius: 4px; overflow-wrap: anywhere; }
+.sa-b.rep { align-self: flex-end; background: #D3EEFC; border-top-left-radius: 14px; border-top-right-radius: 4px; }
+.sa-b p { margin: 0; white-space: pre-wrap; font-size: 14.5px; color: #0E141B; }
+.sa-h { display: block; text-align: right; margin-top: 2px; font-size: 11px; font-weight: 600; color: #5B6672; }
+.sa-quien { font-size: 11.5px; font-weight: 800; color: #0A86C9; margin-bottom: 1px; }
+.sa-dia { align-self: center; margin: 8px 0 4px; padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; color: #5B6672; }
+.sa-item { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
+.sa-item.nuevo { border-color: #3DB8F5; box-shadow: inset 4px 0 0 #3DB8F5; }
+.sa-av { width: 44px; height: 44px; border-radius: 50%; background: #E8F6FE; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex: none; }
+.sa-dat { flex: 1; min-width: 0; display: grid; gap: 1px; text-align: left; }
+.sa-dat strong { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-dat small { font-size: 12.5px; font-weight: 600; color: #5B6672; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-acc { display: flex; gap: 6px; flex: none; }
+.sa-acc button { width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 13px; }
+.sa-mapa-caja { position: relative; border-bottom: 1px solid #E1E6EB; background: #E8F6FE; }
+.sa-mapa-info { padding: 7px 12px; background: #fff; font-size: 12.5px; font-weight: 700; color: #0E141B; text-align: left; }
+.sa-pin { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; background: #fff; border: 3px solid #3DB8F5; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.sa-pin.cli { border-color: #E5322D; }
+
+/* ============================================================
+   FACTURACIÓN (vista Factura del Repartidor)
+   ============================================================ */
+#vistaFactura { --ink: #0E141B; --cel: #3DB8F5; --cel-d: #1E9BE0; --rojo: #E5322D; --gris: #F1F5F9; --linea: #E1E8F0; padding: 8px; }
+#vistaFactura .invoice-container { background: #fff; border-radius: 20px; padding: 12px; margin: 0 auto; max-width: 500px; display: grid; gap: 10px; box-shadow: 0 8px 24px rgba(14,20,27,.12); border-top: 5px solid var(--cel); overflow: visible; }
+.fx .fx-campo { display: grid; gap: 4px; min-width: 0; }
+.fx .fx-grow { flex: 1; min-width: 0; }
+.fx .fx-et { font-size: 11px; font-weight: 700; letter-spacing: .02em; color: #5B6B7B; text-transform: uppercase; }
+.fx .fx-cab { display: flex; gap: 8px; align-items: flex-end; }
+.fx .fx-fila2 { display: grid; grid-template-columns: 38% 1fr; gap: 8px; align-items: end; }
+.fx input[type="text"], .fx input[type="number"] { height: 46px; padding: 0 12px; border: 2px solid transparent; border-radius: 12px; background: var(--gris); font-size: 16px; font-weight: 700; color: var(--ink); min-width: 0; width: 100%; }
+.fx input::placeholder { color: #9AA8B6; font-weight: 600; }
+.fx input:focus { outline: none; border-color: var(--cel); background: #fff; }
+.fx .fx-moneda { position: relative; }
+.fx .fx-moneda i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-style: normal; font-weight: 800; color: #5B6B7B; pointer-events: none; }
+.fx .fx-moneda input { padding-left: 38px; }
+.fx .invoice-container .stats-btn { position: static; flex: none; width: 46px; height: 46px; padding: 0; margin: 0; font-size: 20px; border-radius: 12px; background: var(--ink); box-shadow: none; display: grid; place-items: center; }
+
+.fx .extra-errand-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 0; background: var(--gris); border-radius: 12px; padding: 3px; height: 46px; }
+.fx .extra-errand-btn { min-width: 0; padding: 0 2px; border: 0; border-radius: 9px; background: transparent; color: var(--ink); font-size: 13px; font-weight: 800; transition: background .15s, color .15s; }
+.fx .extra-errand-btn.active { background: var(--ink); color: #fff; box-shadow: 0 2px 6px rgba(14,20,27,.3); }
+
+.fx .fx-prod { display: flex; gap: 8px; }
+.fx .fx-prod #productInputSection { flex: 1; min-width: 0; margin: 0; }
+.fx .fx-prod .product-item { display: grid; grid-template-columns: 1fr 34%; gap: 8px; margin: 0; padding: 0; box-shadow: none; background: none; border: 0; }
+.fx .fx-prod .add-product-btn { flex: none; width: 46px; height: 46px; margin: 0; padding: 0; border-radius: 12px; font-size: 28px; font-weight: 700; line-height: 1; background: linear-gradient(135deg, var(--cel), var(--cel-d)); color: #fff; box-shadow: 0 4px 10px rgba(30,155,224,.4); display: grid; place-items: center; }
+
+#vistaFactura #savedProductsList { max-height: 28vh; overflow-y: auto; margin: 0; display: grid; gap: 6px; align-content: start; -webkit-overflow-scrolling: touch; }
+#vistaFactura #savedProductsList:empty { max-height: none; }
+#vistaFactura #savedProductsList:empty::before { content: "Aún no hay productos. Agrégalos arriba 👆"; display: block; text-align: center; font-size: 12.5px; font-weight: 600; color: #8796A5; border: 2px dashed var(--linea); border-radius: 12px; padding: 9px; }
+.fx .product-list-item { margin: 0; padding: 6px 6px 6px 12px; border: 1px solid var(--linea); border-left: 4px solid var(--cel); border-radius: 10px; background: #fff; box-shadow: none; gap: 8px; display: flex; justify-content: space-between; align-items: center; }
+.fx .product-list-item:hover { box-shadow: none; border-color: var(--linea); border-left-color: var(--cel); }
+.fx .product-info { flex-direction: row; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+.fx .product-info .name { font-size: 14px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fx .product-info .price { font-size: 14px; font-weight: 800; color: var(--rojo); white-space: nowrap; }
+.fx .product-actions { gap: 4px; display: flex; }
+.fx .product-actions .edit-btn, .fx .product-actions .delete-btn { width: 34px; height: 34px; padding: 0; border-radius: 9px; font-size: 15px; background: var(--gris); display: grid; place-items: center; }
+
+.fx .fx-totales { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 6px; }
+.fx .fx-totales > div { display: grid; text-align: center; background: var(--gris); border-radius: 12px; padding: 7px 4px; }
+.fx .fx-totales small { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: #5B6B7B; }
+.fx .fx-totales b { font-size: 15px; font-weight: 800; color: var(--ink); }
+.fx .fx-totales .gran { background: linear-gradient(135deg, #E5322D, #FF6A5F); box-shadow: 0 6px 14px rgba(229,50,45,.35); }
+.fx .fx-totales .gran small { color: rgba(255,255,255,.9); }
+.fx .fx-totales .gran b { color: #fff; font-size: 21px; line-height: 1.1; }
+.fx .invoice-container .generate-btn { margin: 0; padding: 0; height: 54px; border-radius: 14px; font-size: 17px; font-weight: 800; background: var(--ink); color: #fff; box-shadow: 0 6px 16px rgba(14,20,27,.3); }
+
+/* ============================================================
+   MODALES GENERALES Y UTILIDADES
    ============================================================ */
 .modal-rep { position: fixed; inset: 0; z-index: 2500; background: rgba(14,20,27,.65); display: grid; place-items: center; padding: 20px; }
 .modal-rep-caja { background: #fff; border-radius: 22px; padding: 24px 20px; max-width: 380px; width: 100%; display: grid; gap: 12px; text-align: center; max-height: 92vh; overflow-y: auto; z-index: 2600; position: relative; }
@@ -309,7 +403,6 @@ body.wa-cliente .wa-foto { width: 46px; height: 46px; padding: 0; border-radius:
 .modal-rep-caja p { color: var(--texto2); }
 .gran-check { width: 72px; height: 72px; border-radius: 50%; background: var(--celeste); font-size: 40px; font-weight: 800; display: grid; place-items: center; justify-self: center; }
 
-/* Toast y alertas flotantes */
 .toast-admin { position: absolute; z-index: 200; left: 10px; right: 10px; top: 54px; background: var(--tinta); color: #fff; font-weight: 700; font-size: 13px; border-radius: 12px; padding: 10px 14px; text-align: center; }
 .toast-admin.oculto { display: none !important; }
 
@@ -326,5 +419,7 @@ body.upd-bloqueado { overflow: hidden !important; }
 .upd-icono { width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; font-size: 42px; background: var(--celeste-suave); border: 4px solid var(--celeste); margin-top: -62px; }
 .upd-btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 60px; border-radius: 18px; background: var(--tinta); color: #fff; font-size: 18px; font-weight: 800; text-decoration: none; }
 
-/* Ocultar elementos de forma segura */
-.oculto { display: none !important; }
+/* Estilos de scrollbar para móviles */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
