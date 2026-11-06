@@ -707,9 +707,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 
 /* ============================================================
    FASE 3 · MAPA MAESTRO DEL ADMINISTRADOR
-   - Badge "Con Pedido" sobre el ícono del repartidor ocupado
-   - Pin pulsante de solicitud pendiente (con etiqueta del cliente)
-   - Polyline punteada animada por repartidor en ruta (clase .ruta-admin)
    ============================================================ */
 .marca-rider-caja .badge-pedido {
   position: absolute;
@@ -799,10 +796,7 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 
 /* ============================================================
    FASE 3 · ADMIN RESPONSIVO
-   Escalado del mapa principal y de los paneles por dispositivo
    ============================================================ */
-
-/* Tablet (>= 700px) */
 @media (min-width: 700px) {
   body.admin > .barra-marca { padding: calc(16px + env(safe-area-inset-top)) 22px 16px; }
   body.admin .tabs button { font-size: 13px; padding: 0 4px; height: 60px; }
@@ -820,8 +814,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   .sa-caja { max-width: 620px !important; }
   #saMapa { height: 260px; }
 }
-
-/* Laptop (>= 900px) */
 @media (min-width: 900px) {
   .mapa-caja { min-height: 460px; }
   #panelEquipo, #panelChats, #panelSolicitudes { max-width: 820px; padding: 24px; }
@@ -830,8 +822,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   #saMapa { height: 300px; }
   .sa-acciones button { height: 44px; font-size: 14px; }
 }
-
-/* Desktop (>= 1200px) */
 @media (min-width: 1200px) {
   body.admin > .barra-marca { padding: calc(18px + env(safe-area-inset-top)) 28px 18px; }
   body.admin > .barra-marca strong { font-size: 20px; }
@@ -847,8 +837,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   .sa-acciones button { height: 46px; font-size: 14.5px; }
   .sa-msgs .sa-b p { font-size: 15px; }
 }
-
-/* Móviles muy pequeños (<= 360px): reducir paddings y letra del tabs */
 @media (max-width: 360px) {
   body.admin .tabs button { font-size: 10.5px; letter-spacing: -.02em; height: 52px; padding: 0 1px; }
   body.admin .tabs .sa-badge { min-width: 16px; padding: 0 4px; font-size: 10px; line-height: 16px; }
@@ -857,8 +845,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   .herr small { font-size: 8px; }
   .mapa-caja { min-height: 220px; }
 }
-
-/* Landscape móvil: barra-herr más compacta */
 @media (max-height: 500px) and (orientation: landscape) {
   .mapa-caja { min-height: 66dvh; }
   .barra-herr { top: 54px; gap: 4px; }
@@ -866,4 +852,220 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   .herr b { font-size: 14px; }
   .herr small { font-size: 8px; }
   #panelEquipo, #panelChats, #panelSolicitudes { padding: 12px; gap: 8px; }
+}
+
+/* ============================================================
+   FASE 4 · BOTONES WHATSAPP-STYLE + RESPONSIVE UNIVERSAL
+   Botones nuevos: Iniciar Entrega, Mandado Extra, Cámara y Galería
+   ============================================================ */
+
+/* ---- Base botón WhatsApp verde (Send / Iniciar Entrega) ---- */
+.btn-wa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #25D366 0%, #1E9B5A 100%);
+  color: #fff;
+  font: 800 15px/1.15 "Plus Jakarta Sans", system-ui, sans-serif;
+  letter-spacing: .02em;
+  box-shadow: 0 6px 16px rgba(37, 211, 102, .35);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+.btn-wa:hover { transform: translateY(-1px); }
+.btn-wa:active { transform: scale(.97); }
+.btn-wa:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
+.btn-wa:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+
+/* ---- Base botón Mandado Extra (naranja WhatsApp Business) ---- */
+.btn-wa-mandado {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  color: #fff;
+  font: 800 13px/1.1 "Plus Jakarta Sans", system-ui, sans-serif;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, .35);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.btn-wa-mandado:hover { transform: translateY(-1px); }
+.btn-wa-mandado:active { transform: scale(.97); }
+.btn-wa-mandado:focus-visible { outline: 3px solid #F59E0B; outline-offset: 2px; }
+
+/* ---- Base botón icono (Cámara / Galería) ---- */
+.btn-wa-icono {
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #E8F6FE;
+  color: #0E141B;
+  font-size: 20px;
+  line-height: 1;
+  flex: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s ease, background-color .12s ease;
+}
+.btn-wa-icono:hover { background: #D2ECFB; }
+.btn-wa-icono:active { transform: scale(.92); }
+.btn-wa-icono:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
+.btn-wa-icono:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---- Aplicar al HTML existente del chat ---- */
+.cn-cab button,
+.cn-acciones button,
+.cn-comp button {
+  transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+
+.cn-cab #cnFacturar {
+  background: #0E141B;
+  border: 0;
+  color: #fff;
+  border-radius: 12px;
+  font-weight: 800;
+}
+.cn-cab #cnFacturar:hover { background: #1a2530; }
+
+.cn-cab #cnMandado {
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  border: 0;
+  color: #fff;
+  border-radius: 12px;
+  font-weight: 800;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, .35);
+}
+.cn-cab #cnMandado:hover { transform: translateY(-1px); }
+.cn-cab #cnMandado:active { transform: scale(.97); }
+.cn-cab #cnMandado:focus-visible { outline: 3px solid #F59E0B; outline-offset: 2px; }
+
+.cn-comp button.cn-foto {
+  background: #E8F6FE;
+  border: 0;
+  color: #0E141B;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  line-height: 1;
+  transition: transform .12s ease, background-color .12s ease;
+}
+.cn-comp button.cn-foto:hover { background: #D2ECFB; }
+.cn-comp button.cn-foto:active { transform: scale(.92); }
+.cn-comp button.cn-foto:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
+.cn-comp button.cn-foto:disabled { opacity: .5; }
+
+#cnIniciarEntrega,
+.pd-iniciar {
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+#cnIniciarEntrega:hover,
+.pd-iniciar:hover { transform: translateY(-1px); }
+#cnIniciarEntrega:active,
+.pd-iniciar:active { transform: scale(.97); }
+#cnIniciarEntrega:focus-visible,
+.pd-iniciar:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
+
+/* ---- Responsive móviles muy pequeños (≤380px) ---- */
+@media (max-width: 380px) {
+  .cn-cab { gap: 4px; padding: 6px 8px; }
+  .cn-cab #cnFacturar,
+  .cn-cab #cnMandado {
+    font-size: 11px;
+    padding: 4px 8px;
+    min-height: 44px;
+    height: auto;
+    white-space: normal;
+    line-height: 1.1;
+    text-align: center;
+    flex: 0 0 auto;
+  }
+  #cnIniciarEntrega,
+  .pd-iniciar {
+    font-size: 14px;
+    min-height: 48px;
+    padding: 0 12px;
+  }
+  .cn-comp button.cn-foto {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    font-size: 18px;
+  }
+  .cn-comp input#cnInput { height: 42px; font-size: 15px; }
+}
+
+/* ---- Responsive tablet + desktop (≥768px) ---- */
+@media (min-width: 768px) {
+  .cn-cab #cnFacturar,
+  .cn-cab #cnMandado {
+    height: 44px;
+    min-height: 44px;
+    font-size: 14px;
+    padding: 0 16px;
+  }
+  #cnIniciarEntrega,
+  .pd-iniciar {
+    height: 58px;
+    min-height: 58px;
+    font-size: 17px;
+    border-radius: 16px;
+  }
+  .cn-comp button.cn-foto {
+    width: 50px;
+    height: 50px;
+    min-width: 50px;
+    font-size: 22px;
+  }
+  .cn-comp input#cnInput { height: 50px; font-size: 16px; border-radius: 25px; }
+  .cn-comp > button[type="submit"] { width: 50px; height: 50px; }
+}
+
+/* ---- Landscape móvil: compacto pero legible ---- */
+@media (max-height: 500px) and (orientation: landscape) {
+  #cnIniciarEntrega,
+  .pd-iniciar {
+    height: 44px;
+    min-height: 44px;
+    font-size: 14px;
+    margin: 4px 0;
+  }
+}
+
+/* ---- Accesibilidad: prefers-reduced-motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  .btn-wa,
+  .btn-wa-mandado,
+  .btn-wa-icono,
+  #cnIniciarEntrega,
+  .pd-iniciar,
+  .cn-comp button.cn-foto,
+  .cn-cab button {
+    transition: none !important;
+  }
+  .btn-wa:hover,
+  .btn-wa-mandado:hover,
+  .btn-wa-icono:hover,
+  #cnIniciarEntrega:hover,
+  .pd-iniciar:hover,
+  .cn-cab #cnMandado:hover {
+    transform: none !important;
+  }
 }
