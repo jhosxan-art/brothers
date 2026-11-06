@@ -491,8 +491,8 @@ label.opcion input { width: 20px; height: 20px; flex: none; }
 .fx .fx-acciones button:active { transform: scale(.98); }
 
 /* ---------- Confirmación de lectura y lista para ocultar repartidores ---------- */
-.ticks { margin-left: 6px; font-size: 11px; font-weight: 800; letter-spacing: -2px; color: rgba(14,20,27,.45); }
-.ticks.leido { color: #0B5FA8; letter-spacing: -2px; }
+.ticks { margin-left: 6px; font-size: 11px; font-weight: 800; letter-spacing: -2px; color: rgba(14,20,27,.45); transition: color .2s; }
+.ticks.leido { color: #25D366; letter-spacing: -2px; }
 .lista-sw { display: grid; gap: 6px; margin: 8px 0; }
 .fila-sw { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #F3F6F9; border-radius: 12px; padding: 10px 12px; }
 .fila-sw > span { display: grid; gap: 4px; min-width: 0; }
@@ -720,7 +720,6 @@ body.cliente .fac-fila.fac-ext { color: #b45309; font-weight: 700; }
 .fv-lista-pedidos { display: grid; gap: 8px; }
 .fv-lista-pedidos .pd-rep { width: 100%; }
 
-
 /* ---------- FASE 3 · Auditoría de solicitudes entrantes + Modo Espectador (solo lectura) ---------- */
 body.admin .tabs { grid-template-columns: repeat(5, 1fr); }
 body.admin .tabs button { font-size: 12px; padding: 0 2px; }
@@ -778,7 +777,6 @@ body.admin .tabs .badge-nav { margin-left: 3px; min-width: 18px; height: 18px; p
 .aud-fac time { display: block; text-align: right; padding: 0 12px 8px; font-size: 10.5px; font-weight: 700; color: var(--texto2); }
 .aud-pie { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--linea); font-size: 12px; font-weight: 600; color: var(--texto2); text-align: center; }
 @media (min-width: 900px) { .aud-visor { background: rgba(14,20,27,.35); } }
-
 
 /* ---------- Administrador · Solicitudes entrantes (Fase 3): estados, borrado, modo espectador ---------- */
 /* Ventana del visor en columna flexible: lo que está oculto no deja huecos y nada se solapa */
@@ -873,13 +871,13 @@ body.admin .tabs .badge-nav { margin-left: 3px; min-width: 18px; height: 18px; p
    banner de última dirección y botón de cambiar nombre.
    ============================================================ */
 
-/* Palomitas ✓ / ✓✓ en los tres chats */
-.ticks, .wa-tick, .cn-tick, .sa-tick {
+/* Palomitas ✓ / ✓✓ en los tres chats (aditivo: no pisa .ticks base) */
+.wa-tick, .cn-tick, .sa-tick {
   font-weight: 800;
   letter-spacing: -2px;
   transition: color .2s;
 }
-.ticks.leido, .wa-tick.leido, .cn-tick.leido, .sa-tick.leido { color: #25D366 !important; }
+.wa-tick.leido, .cn-tick.leido, .sa-tick.leido { color: #25D366 !important; }
 
 /* "Escribiendo…" en los subtítulos */
 .wa-titulos small.escribiendo,
@@ -1009,3 +1007,131 @@ body.admin .cn-cab small.escribiendo,
 
 /* Botón "Cambiar mi nombre" en la cabecera del chat del cliente */
 .wa-cliente .wa-btn-barra + .wa-btn-barra { margin-left: 0; }
+
+
+/* ============================================================
+   FIX DEFINITIVO: Corrección de desproporción y solapamiento en botones
+   (Afecta las vistas de listas de solicitudes y el modal de espectador)
+   ============================================================ */
+
+/* 1. Permitir que los botones fluyan y bajen a la siguiente línea si no caben */
+.sa-acc, 
+.acciones-fila, 
+.sa-cab, 
+.pc-botones,
+.fx-acciones {
+    flex-wrap: wrap !important;
+}
+
+/* 2. Evitar que los botones se hagan gigantes o deformes en pantallas pequeñas */
+.sa-acc button, 
+.acciones-fila button {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: auto !important;
+    padding: 0 12px !important;
+    white-space: normal !important;
+    text-align: center !important;
+    line-height: 1.15 !important;
+}
+
+/* 3. Arreglar el layout de las tarjetas para que los botones no tapen los datos del cliente/repartidor */
+.aud-item, 
+.sa-item {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: stretch !important;
+}
+
+.aud-item .barra, 
+.sa-item .barra {
+    width: 6px !important;
+    flex: none !important;
+}
+
+.aud-item .cuerpo, 
+.sa-item .cuerpo {
+    flex: 1 1 200px !important;
+    padding: 10px 12px !important;
+    min-width: 0 !important;
+}
+
+.aud-item .lado, 
+.sa-item .lado {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+    flex: 1 1 auto !important;
+}
+
+.aud-item .lado .aud-etq, 
+.sa-item .lado .aud-etq {
+    margin-right: auto !important;
+}
+
+/* 4. Ajustes para celulares: botones siempre abajo del texto, alineados a la izquierda */
+@media (max-width: 600px) {
+    .aud-item .lado, 
+    .sa-item .lado {
+        justify-content: flex-start !important;
+        padding-top: 0 !important;
+        width: 100% !important;
+    }
+    
+    .aud-item .lado .aud-etq, 
+    .sa-item .lado .aud-etq {
+        margin-right: 0 !important;
+        margin-bottom: 4px !important;
+    }
+    
+    .sa-acc {
+        width: 100% !important;
+        justify-content: flex-start !important;
+    }
+    
+    .sa-acc button {
+        flex: 1 1 auto !important;
+        min-width: 100px !important;
+    }
+    
+    /* El modal de espectador apila el título arriba y los botones abajo */
+    .sa-cab {
+        flex-wrap: wrap !important;
+    }
+    
+    .sa-cab-txt {
+        flex: 1 1 100% !important;
+        margin-bottom: 6px !important;
+    }
+    
+    .sa-cab button {
+        flex: 1 1 auto !important;
+        height: 38px !important;
+        padding: 0 8px !important;
+        font-size: 12px !important;
+        white-space: normal !important;
+    }
+}
+
+/* 5. Corrección específica para la lista de Modo Espectador */
+#saLista .sa-acc {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    flex: 1 1 auto !important;
+    justify-content: flex-end !important;
+}
+
+#saLista .sa-acc button {
+    width: auto !important;
+    height: 34px !important;
+    padding: 0 10px !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+    min-width: 0 !important;
+    flex: 0 1 auto !important;
+}
