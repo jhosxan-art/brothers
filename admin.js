@@ -1,17 +1,5 @@
 /* ============================================================
-   PANEL DE ADMINISTRACIÓN
-   - Mapa con TODOS los repartidores, siempre (también cuando no tienen pedido)
-   - Chats archivados de cada pedido
-   - Agregar / quitar repartidores sin entrar a la consola de Firebase
-   FASE 3: fotos de perfil (registrado e invitado) desde el botón 📷 del equipo,
-     centro del mapa en Chinandega, watcher de repartidorFotos para avatares en vivo.
-   FASE 3 v2: ruta de fotos renombrada a repartidorFotos, permiso de Web Notifications
-     solicitado junto al de voz.
-   FASE 4 · ajustes aplicados
-     · Ícono del pedido en el mapa del admin más discreto (24 px con etiqueta al costado).
-     · Al abrir la pestaña "Mapa en vivo", fitBounds de todos los pedidos activos.
-     · Palomitas verdes ✓✓ en el Modo Espectador (via ordenes-admin.js).
-     · Línea "📮 Última dirección del cliente" en el visor (via ordenes-admin.js).
+   PANEL DE ADMINISTRACIÓN (Fase 4 completa)
    ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
@@ -94,23 +82,25 @@ function mostrar(vista) {
   $("vistaApp").classList.toggle("oculto", vista !== "app");
   $("btnSalir").classList.toggle("oculto", vista !== "app");
 }
-const PANELES = ["panelMapa", "panelPedidos", "panelChats", "panelEquipo"];
+const PANELES = ["panelMapa", "panelPedidos", "panelChats", "panelEquipo", "panelSolicitudes"];
 document.querySelectorAll(".tabs button").forEach((b) => {
   b.onclick = () => {
     document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("activa", x === b));
-    PANELES.forEach((id) => $(id).classList.toggle("oculto", id !== b.dataset.tab));
+    PANELES.forEach((id) => {
+      const el = $(id);
+      if (el) el.classList.toggle("oculto", id !== b.dataset.tab);
+    });
     if (b.dataset.tab === "panelMapa") {
       setTimeout(() => {
-        mapa.invalidateSize();
-        /* FASE 4 · al abrir "Mapa en vivo", encuadrar todos los pedidos activos */
-        encuadrarTodosActivos();
+        if (mapa) {
+          mapa.invalidateSize();
+          encuadrarTodosActivos();
+        }
       }, 60);
     }
   };
 });
 
-/* FASE 4 · Encuadra el mapa del admin para que se vean todos los pedidos activos.
-   Se llama al pulsar la pestaña "Mapa en vivo" y una vez al iniciar sesión. */
 let encuadrePedidosHecho = false;
 function encuadrarTodosActivos() {
   if (!mapa) return;
@@ -155,7 +145,6 @@ auth.onAuthStateChanged(async (user) => {
   iniciarMonitoreo();
   registrarPushAdmin(user.uid);
   Policia.iniciar({ db, mapa: () => mapa, uid: () => auth.currentUser && auth.currentUser.uid, nombre: () => "Brothers (admin)", rol: "admin", pos: () => null });
-  /* FASE 4 · primera vez: encuadre de todos los pedidos activos cuando terminen de llegar los snapshots */
   setTimeout(() => { if (!encuadrePedidosHecho) encuadrarTodosActivos(); }, 1500);
 });
 $("btnSalir").onclick = async () => { if (!confirm("¿Cerrar sesión?")) return; await quitarPushAdmin(); auth.signOut(); };
@@ -320,7 +309,6 @@ function popupRep(uid) {
     ${viajesDe(uid).map((x) => `<button class="mini" data-pa="entregarped" data-token="${esc(x.token)}" type="button">✓ Marcar entregado: ${esc(x.d.pedido || "—")}</button>`).join("")}</div>`;
 }
 
-/* FASE 4 · Ícono del pedido en el mapa del admin: pin discreto (24 px) con etiqueta al costado */
 function iconoClienteAdmin(uid, token, d) {
   const col = colorUid(uid || token);
   const vivo = d && d.cliente && !d.cliente.manual && d.cliente.ts && Date.now() - d.cliente.ts < 60000;
@@ -527,7 +515,6 @@ $("listaNegocios").onclick = (e) => {
   }
 };
 
-/* FASE 4 · Clientes en el mapa del admin con ícono discreto (24 px) */
 const clientesM = {};
 function pintarClientes() {
   if (!mapa) return;
@@ -557,7 +544,8 @@ function pintarClientes() {
 const PALETA = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2", "#DB2777", "#65A30D"];
 function colorUid(uid) { let h = 0; for (const c of uid) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETA[h % PALETA.length]; }
 function toast(t) {
-  const e = $("toastAdmin"); e.textContent = t; e.classList.remove("oculto");
+  const e = $("toastAdmin"); if (!e) return;
+  e.textContent = t; e.classList.remove("oculto");
   clearTimeout(toast._t); toast._t = setTimeout(() => e.classList.add("oculto"), 3800);
 }
 function pintarGuia(uid) {
