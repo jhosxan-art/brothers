@@ -14,23 +14,29 @@
   <link rel="stylesheet" href="ordenes.css">
   <style>
     /* ---- FASE 2 · factura de un pedido aceptado ---- */
+    /* Botón "Crear Factura" que se inyecta sobre el mapa cuando el repartidor acepta un pedido */
     .btn-crear-factura { position: absolute; left: 12px; bottom: 14px; z-index: 900; display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px; border: 0; border-radius: 24px; background: #0E141B; color: #fff; font: 800 15px/1 "Plus Jakarta Sans", system-ui, sans-serif; box-shadow: 0 6px 18px rgba(14, 20, 27, .38); cursor: pointer; -webkit-tap-highlight-color: transparent; }
     .btn-crear-factura:active { transform: scale(.97); }
     .btn-crear-factura:focus-visible { outline: 3px solid #3DB8F5; outline-offset: 3px; }
     .btn-crear-factura:disabled { background: #1E9B5A; opacity: 1; cursor: default; }
+    /* Aviso breve en el marcador del cliente cuando comparte su ubicación nueva */
     @keyframes pinActualizado { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1); } }
     .pin-actualizado .pin-cli { animation: pinActualizado 1s ease-out 1; }
     @media (prefers-reduced-motion: reduce) { .pin-actualizado .pin-cli { animation: none; } }
+    /* Banner dentro de la factura */
     .fx .fx-pedido-banner { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #E8F6EE; border: 2px solid #1E9B5A; color: #0E141B; }
     .fx .fx-pedido-banner > div { flex: 1; min-width: 0; display: grid; gap: 2px; }
     .fx .fx-pedido-banner b { font-size: 14px; font-weight: 800; }
     .fx .fx-pedido-banner small { font-size: 12px; font-weight: 600; color: #2F5D44; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fx .fx-pedido-banner button { flex: none; width: 34px; height: 34px; border-radius: 10px; background: #fff; font-size: 15px; font-weight: 800; color: #0E141B; display: grid; place-items: center; }
+    /* Delivery fijado por el sistema (no se escribe a mano) */
     .fx .fx-sistema { display: grid; gap: 1px; align-content: center; height: 46px; padding: 0 12px; border-radius: 12px; background: #E8F6EE; border: 2px solid #1E9B5A; }
     .fx .fx-sistema b { font-size: 16px; font-weight: 800; color: #0E141B; line-height: 1.1; }
     .fx .fx-sistema small { font-size: 10.5px; font-weight: 700; color: #17602B; line-height: 1; }
+    /* Cargo de prioridad que aceptó el cliente */
     .fx .fx-prio-fila { display: none; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: #FFF4E5; border: 2px solid #F59E0B; color: #7C3A00; font-size: 13px; font-weight: 700; }
     .fx .fx-prio-fila b { font-weight: 800; }
+    /* Estado del envío silencioso en la ventana "Factura lista" */
     .fx .fx-envio-app { display: flex; align-items: center; gap: 10px; text-align: left; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: #F1F5F9; border: 2px solid #BDC3C7; }
     .fx .fx-envio-app.ok { background: #E8F6EE; border-color: #1E9B5A; }
     .fx .fx-envio-app.error { background: #FDECEA; border-color: #E74C3C; }
@@ -39,8 +45,7 @@
     .fx .fx-envio-app b { font-size: 14px; font-weight: 800; color: #2C3E50; }
     .fx .fx-envio-app small { font-size: 12px; font-weight: 600; color: #4A5A6A; }
     .fx .fx-envio-app button { flex: none; padding: 8px 12px; border-radius: 10px; background: #2C3E50; color: #fff; font-size: 13px; font-weight: 800; }
-
-    /* ---- FASE 4 · Nuevos Chats ---- */
+    /* ---- FASE 2 · Nuevos Chats (clientes que escriben desde cliente-app.html) ---- */
     .nav-app { grid-template-columns: 1fr 1fr 1fr; }
     .nav-app button { padding: 0 4px; font-size: 13px; }
     body.rep > #vistaChats { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #EAF2F6; }
@@ -62,7 +67,6 @@
     #vistaChats .cn-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
     #vistaChats .cn-cab strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #vistaChats .cn-cab small { font-size: 12px; font-weight: 600; color: #5B6672; }
-    #vistaChats .cn-cab small.escribiendo { color: #1E9B5A; font-style: italic; opacity: 1; }
     #vistaChats .cn-cab button { width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 14px; flex: none; }
     #vistaChats .cn-msgs { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; display: flex; flex-direction: column; gap: 3px; }
     #vistaChats .cn-dia { align-self: center; margin: 8px 0 4px; padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; color: #5B6672; }
@@ -90,6 +94,8 @@
     #vistaChats .cn-comp { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #fff; border-top: 1px solid #E1E6EB; }
     #vistaChats .cn-comp input { flex: 1; min-width: 0; height: 44px; border-radius: 22px; padding: 0 16px; }
     #vistaChats .cn-comp button { width: 44px; height: 44px; padding: 0; border-radius: 50%; flex: none; font-size: 18px; }
+    /* ---- FASE 2 · flujo de solicitudes: alerta, mapa, vista previa, entrega y cancelación ---- */
+    /* BUGFIX: sin esto la factura (overflow:hidden) se encogía dentro del flex y el mensaje siguiente quedaba encima */
     #vistaChats .cn-msgs > * { flex-shrink: 0; }
     #vistaChats .cn-b.fac { margin: 4px 0; }
     #vistaChats .cn-b.foto { padding: 4px 4px 5px; }
@@ -98,19 +104,15 @@
     #vistaChats .cn-cab button.cn-ico { width: 40px; padding: 0; font-size: 18px; background: #E8F6FE; border-color: #E8F6FE; }
     #vistaChats .cn-resumen { flex: none; padding: 8px 12px; background: #FFF8DB; border-bottom: 1px solid #E8DFA8; font-size: 12.5px; font-weight: 600; color: #5A4A00; overflow-wrap: anywhere; }
     #vistaChats .cn-resumen:empty { display: none; }
-    /* FASE 4 · última dirección del cliente dentro del chat */
-    #vistaChats .cn-ultima-dir { flex: none; padding: 10px 12px; background: #E8F6FE; border-bottom: 1px solid #CFE3F5; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    #vistaChats .cn-ultima-dir.oculto { display: none !important; }
-    #vistaChats .cn-ultima-dir-txt { flex: 1 1 100%; font-size: 12.5px; font-weight: 600; color: #0B4A6B; line-height: 1.3; overflow-wrap: anywhere; }
-    #vistaChats .cn-ultima-dir-txt b { font-weight: 800; }
-    #vistaChats .cn-ultima-dir button { width: auto; height: 34px; padding: 0 12px; border-radius: 10px; font-size: 12.5px; }
-
+    /* FASE 2: tres botones en una fila (He llegado · Entregado · Cancelar) */
     #vistaChats .cn-acciones { flex: none; display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; padding: 8px 10px; background: #fff; border-bottom: 1px solid #E1E6EB; }
     #vistaChats .cn-acciones button { height: 42px; border-radius: 12px; font-size: 13px; padding: 0 10px; }
+    /* Estado "llegada marcada": verde, sin opacidad de botón deshabilitado */
     #vistaChats .cn-acciones button.llegado { background: #E8F6EE; border-color: #1E9B5A; color: #0E141B; cursor: default; opacity: 1; }
     #vistaChats .cn-comp button.cn-foto { background: #E8F6FE; border-color: #E8F6FE; }
     #vistaChats .cn-sinleer { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; background: #E5322D; color: #fff; font-size: 11px; font-weight: 800; }
     #vistaChats .cn-item button.cn-ver { background: #E5322D; border-color: #E5322D; color: #fff; }
+    /* Registro local de facturas entregadas (por fecha y orden de entrega) */
     #vistaChats .cn-dia-reg { margin: 10px 2px 0; font-size: 13px; font-weight: 800; color: #5B6672; }
     #vistaChats .cn-reg { display: grid; gap: 6px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
     #vistaChats .cn-reg-cab { display: flex; align-items: center; gap: 10px; }
@@ -122,26 +124,16 @@
     #vistaChats .cn-reg details summary { font-size: 13px; font-weight: 700; color: #0A86C9; cursor: pointer; }
     #vistaChats .cn-reg .cn-ffil { font-size: 13px; }
     #vistaChats .cn-reg button.cn-borrar { width: auto; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; justify-self: end; }
+    /* Aviso "con pedido" en la barra superior */
     .chip-con-pedido { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: #25D366; color: #0E141B; font-size: 11px; font-weight: 800; vertical-align: middle; }
     .chip-con-pedido.oculto { display: none !important; }
+    /* Iconos del mapa */
     .sol-pin { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px 0 8px; border-radius: 22px; background: #E5322D; color: #fff; border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,.45); font: 800 13px/1 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; cursor: pointer; animation: solPulso 1.2s ease-in-out infinite; }
     .sol-pin span { font-size: 20px; line-height: 1; }
     .sol-cli { display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px 0 8px; border-radius: 16px; background: #0E141B; color: #fff; border: 2px solid #3DB8F5; box-shadow: 0 3px 10px rgba(0,0,0,.4); font: 800 12px/1 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; }
     @keyframes solPulso { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
     @media (prefers-reduced-motion: reduce) { .sol-pin { animation: none; } }
-
-    /* FASE 4 · PIN DEL PEDIDO MÁS DISCRETO + ETIQUETA AL COSTADO (mapa más alto y hoja de pedidos más chica) */
-    #vistaMapa .mapa-caja { flex: 1; min-height: 40dvh; }
-    #vistaMapa .hoja-pedidos { max-height: 28dvh; }
-    .pin-cli-min { width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 2.5px solid var(--pin-cli-c, #E5322D); box-shadow: 0 2px 6px rgba(0,0,0,.35); position: relative; }
-    .pin-cli-min::after { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: var(--pin-cli-c, #E5322D); transform: translate(-50%, -50%); }
-    .pin-cli-min.sel { box-shadow: 0 0 0 3px rgba(61,184,245,.65), 0 2px 6px rgba(0,0,0,.35); }
-    .pin-cli-min.vivo { animation: pulsoRojoMin 2s infinite; }
-    @keyframes pulsoRojoMin { 0% { box-shadow: 0 0 0 0 rgba(229,50,45,.65), 0 2px 6px rgba(0,0,0,.35); } 70%, 100% { box-shadow: 0 0 0 12px rgba(229,50,45,0), 0 2px 6px rgba(0,0,0,.35); } }
-    .etq-cli-min { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); white-space: nowrap; background: #0E141B; color: #fff; font-weight: 800; font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35); max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-    .etq-cli-min b { color: #7FD3FF; font-weight: 800; }
-    .zoom-lejos .etq-cli-min { display: none; }
-
+    /* Vista previa de la solicitud */
     .sp-cuerpo { display: grid; gap: 8px; }
     .sp-fila { display: grid; gap: 1px; padding: 10px 12px; border-radius: 12px; background: #F2F4F6; }
     .sp-fila small { font-size: 11.5px; font-weight: 700; color: #5B6672; text-transform: uppercase; letter-spacing: .03em; }
@@ -149,12 +141,14 @@
     .sp-chat { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; background: #EAF2F6; font-size: 13px; }
     .sp-chat small { font-weight: 800; color: #5B6672; }
     .sp-chat p { margin: 0; overflow-wrap: anywhere; }
+    /* Aviso breve (mensaje del cliente mientras estás en otra pantalla, solicitudes nuevas…) */
     #solToast { position: fixed; z-index: 5000; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); width: calc(100% - 24px); max-width: 440px; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; background: #0E141B; color: #fff; box-shadow: 0 8px 26px rgba(0,0,0,.4); cursor: pointer; text-align: left; font-weight: 700; font-size: 14px; }
     #solToast.oculto { display: none !important; }
     #solToast span { font-size: 22px; line-height: 1; flex: none; }
     #solToast div { min-width: 0; display: grid; gap: 1px; }
     #solToast b { font-size: 13px; color: #3DB8F5; }
     #solToast small { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* FASE 2 · fix del teclado táctil: el body sigue al visualViewport */
     body.rep { height: var(--vvh, 100dvh); }
     body.rep > #vistaChats { min-height: 0; }
   </style>
@@ -171,103 +165,137 @@
     </button>
   </header>
 
+  <!-- Inicio de sesión y nombre de usuario -->
   <main id="mainAuth">
     <section id="vistaLogin" class="acciones">
-      <div class="hero"><div class="gran-icono" data-rider></div><h1>Hola, repartidor</h1><p>Entra para empezar tus entregas.</p></div>
+      <div class="hero">
+        <div class="gran-icono" data-rider></div>
+        <h1>Hola, repartidor</h1>
+        <p>Entra para empezar tus entregas.</p>
+      </div>
       <label>Correo <input id="email" type="email" autocomplete="username"></label>
       <label>Contraseña <input id="clave" type="password" autocomplete="current-password"></label>
       <div id="msgLogin" class="estado error oculto"></div>
       <button id="btnLogin" class="primario">Entrar</button>
     </section>
+
     <section id="vistaUsuario" class="acciones oculto">
-      <div class="hero"><div class="gran-icono" data-rider></div><h1>¿Cómo te llamas?</h1><p>Elige tu nombre de usuario. Tus clientes y el administrador lo verán en el mapa.</p></div>
+      <div class="hero">
+        <div class="gran-icono" data-rider></div>
+        <h1>¿Cómo te llamas?</h1>
+        <p>Elige tu nombre de usuario. Tus clientes y el administrador lo verán en el mapa.</p>
+      </div>
       <label>Nombre de usuario <input id="inputUsuario" maxlength="24" placeholder="Ej. Rodrigo" autocomplete="off"></label>
       <button id="btnGuardarUsuario" class="primario">Guardar y continuar</button>
     </section>
   </main>
 
-  <!-- 1) FACTURA -->
+  <!-- 1) FACTURA: lo primero que ve el repartidor al entrar -->
   <div id="vistaFactura" class="fx oculto">
-    <div class="invoice-container" id="invoiceContainer">
-      <div id="pedidoBanner" class="fx-pedido-banner" style="display:none">
-        <div><b>🧾 Factura del pedido <span id="pedidoBannerCod"></span></b><small id="pedidoBannerTxt"></small></div>
-        <button type="button" onclick="Factura.salirModoPedido()" aria-label="Salir de la factura de este pedido">✕</button>
-      </div>
-      <div id="contactoFila" class="fx-campo" style="display:none">
-        <span class="fx-et">🔗 Enlace de contacto ya abierto</span>
-        <select id="contactoSel" onchange="alElegirContacto()" aria-label="Enlace de contacto"></select>
-      </div>
-      <div class="fx-cab">
-        <div class="fx-campo fx-grow">
-          <span class="fx-et">👤 Cliente</span>
-          <input type="text" id="customerName" placeholder="Nombre del cliente" autocomplete="off">
+<div class="invoice-container" id="invoiceContainer">
+        <div id="pedidoBanner" class="fx-pedido-banner" style="display:none">
+            <div><b>🧾 Factura del pedido <span id="pedidoBannerCod"></span></b><small id="pedidoBannerTxt"></small></div>
+            <button type="button" onclick="Factura.salirModoPedido()" aria-label="Salir de la factura de este pedido">✕</button>
         </div>
-        <button type="button" class="stats-btn" onclick="showStats()" aria-label="Estadísticas">📊</button>
-      </div>
-      <div class="fx-fila2">
-        <div class="fx-campo fx-delivery">
-          <span class="fx-et">🛵 Delivery</span>
-          <div class="fx-moneda" id="deliveryManual"><i>C$</i><input type="number" id="deliveryPrice" value="" placeholder="0" min="0" step="0.01" oninput="calculateTotal()" inputmode="decimal"></div>
-          <div class="fx-sistema" id="deliverySistema" style="display:none"><b id="deliverySistemaMonto">C$ 0.00</b><small>Precio del sistema</small></div>
+
+        <div id="contactoFila" class="fx-campo" style="display:none">
+            <span class="fx-et">🔗 Enlace de contacto ya abierto</span>
+            <select id="contactoSel" onchange="alElegirContacto()" aria-label="Enlace de contacto"></select>
         </div>
-        <div class="fx-campo fx-grow">
-          <span class="fx-et">➕ Mandado extra</span>
-          <div class="extra-errand-buttons">
-            <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(0)">Ninguno</button>
-            <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(10)">+C$10</button>
-            <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(20)">+C$20</button>
-          </div>
-        </div>
-      </div>
-      <div class="fx-campo">
-        <span class="fx-et">📦 Producto y precio</span>
-        <div class="fx-prod">
-          <div id="productInputSection">
-            <div class="product-item">
-              <input type="text" placeholder="Producto" id="currentProductName" autocomplete="off">
-              <input type="number" placeholder="C$" id="currentProductPrice" min="0" step="0.01" inputmode="decimal">
+
+        <div class="fx-cab">
+            <div class="fx-campo fx-grow">
+                <span class="fx-et">👤 Cliente</span>
+                <input type="text" id="customerName" placeholder="Nombre del cliente" autocomplete="off">
             </div>
-          </div>
-          <button type="button" class="add-product-btn" onclick="addProductToList()" aria-label="Agregar producto">+</button>
+            <button type="button" class="stats-btn" onclick="showStats()" aria-label="Estadísticas">📊</button>
         </div>
-      </div>
-      <div id="savedProductsList"></div>
-      <div class="fx-totales">
-        <div><small>Subtotal</small><b id="subtotal">C$ 0.00</b></div>
-        <div><small>Delivery</small><b id="deliveryCost">C$ 0.00</b></div>
-        <div class="gran"><small>Total a pagar</small><b id="grandTotal">C$ 0.00</b></div>
-      </div>
-      <div id="fxPrioFila" class="fx-prio-fila"><span>⚡ Prioridad aceptada por el cliente</span><b id="fxPrioMonto">+C$ 0.00</b></div>
-      <div class="fx-acciones">
-        <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">🧾 Generar factura</button>
-        <button type="button" class="contacto-btn" id="btnContactoCliente">📞 Contactarme al cliente</button>
-      </div>
+
+        <div class="fx-fila2">
+            <div class="fx-campo fx-delivery">
+                <span class="fx-et">🛵 Delivery</span>
+                <div class="fx-moneda" id="deliveryManual"><i>C$</i><input type="number" id="deliveryPrice" value="" placeholder="0" min="0" step="0.01" oninput="calculateTotal()" inputmode="decimal"></div>
+                <div class="fx-sistema" id="deliverySistema" style="display:none"><b id="deliverySistemaMonto">C$ 0.00</b><small>Precio del sistema</small></div>
+            </div>
+            <div class="fx-campo fx-grow">
+                <span class="fx-et">➕ Mandado extra</span>
+                <div class="extra-errand-buttons">
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(0)">Ninguno</button>
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(10)">+C$10</button>
+                    <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(20)">+C$20</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="fx-campo">
+            <span class="fx-et">📦 Producto y precio</span>
+            <div class="fx-prod">
+                <div id="productInputSection">
+                    <div class="product-item">
+                        <input type="text" placeholder="Producto" id="currentProductName" autocomplete="off">
+                        <input type="number" placeholder="C$" id="currentProductPrice" min="0" step="0.01" inputmode="decimal">
+                    </div>
+                </div>
+                <button type="button" class="add-product-btn" onclick="addProductToList()" aria-label="Agregar producto">+</button>
+            </div>
+        </div>
+
+        <div id="savedProductsList"></div>
+
+        <div class="fx-totales">
+            <div><small>Subtotal</small><b id="subtotal">C$ 0.00</b></div>
+            <div><small>Delivery</small><b id="deliveryCost">C$ 0.00</b></div>
+            <div class="gran"><small>Total a pagar</small><b id="grandTotal">C$ 0.00</b></div>
+        </div>
+
+        <div id="fxPrioFila" class="fx-prio-fila"><span>⚡ Prioridad aceptada por el cliente</span><b id="fxPrioMonto">+C$ 0.00</b></div>
+
+        <div class="fx-acciones">
+            <button type="button" class="generate-btn" onclick="promptGenerateInvoice()">🧾 Generar factura</button>
+            <button type="button" class="contacto-btn" id="btnContactoCliente">📞 Contactarme al cliente</button>
+        </div>
     </div>
 
     <div class="stats-container" id="statsContainer">
-      <button type="button" class="back-btn" onclick="hideStats()">← Volver</button>
-      <div class="stats-header"><h1>📊 Mis Estadísticas</h1></div>
-      <div class="stats-card"><h3>Total de Pedidos Hoy</h3><p class="big-number" id="totalOrders">0</p></div>
-      <div class="stats-card"><h3>Total en Delivery + Extras</h3><p class="big-number" id="totalEarnings">C$ 0.00</p></div>
-      <div class="iva-section">
-        <label for="ivaAmount">Restar I.V.A (C$):</label>
-        <input type="number" id="ivaAmount" value="0" min="0" step="0.01" oninput="calculateIVA()" placeholder="Ingrese monto a restar">
-        <div id="ivaResult" style="display: none;" class="iva-result"></div>
-      </div>
-      <div class="deposits-card">
-        <h3>📌 Facturas “Por Cobrar” (Depósito)</h3>
-        <div class="small-muted">Aquí se guardan los pedidos marcados como “pagó por depósito” con detalles para cobrar después.</div>
-        <div id="depositInvoicesList" style="margin-top: 10px;"></div>
-        <button type="button" class="reset-deposits-btn" onclick="clearDepositInvoices()">🧹 Limpiar “Por Cobrar”</button>
-      </div>
-      <button type="button" class="reset-stats-btn" onclick="resetStats()">🔄 Reiniciar Estadísticas</button>
-    </div>
-  </div>
+        <button type="button" class="back-btn" onclick="hideStats()">← Volver</button>
+        
+        <div class="stats-header">
+            <h1>📊 Mis Estadísticas</h1>
+        </div>
 
-  <!-- 2) MAPA -->
+        <div class="stats-card">
+            <h3>Total de Pedidos Hoy</h3>
+            <p class="big-number" id="totalOrders">0</p>
+        </div>
+
+        <div class="stats-card">
+            <h3>Total en Delivery + Extras</h3>
+            <p class="big-number" id="totalEarnings">C$ 0.00</p>
+        </div>
+
+        <div class="iva-section">
+            <label for="ivaAmount">Restar I.V.A (C$):</label>
+            <input type="number" id="ivaAmount" value="0" min="0" step="0.01" oninput="calculateIVA()" placeholder="Ingrese monto a restar">
+            <div id="ivaResult" style="display: none;" class="iva-result"></div>
+        </div>
+
+        <div class="deposits-card">
+            <h3>📌 Facturas “Por Cobrar” (Depósito)</h3>
+            <div class="small-muted">Aquí se guardan los pedidos marcados como “pagó por depósito” con detalles para cobrar después.</div>
+            <div id="depositInvoicesList" style="margin-top: 10px;"></div>
+            <button type="button" class="reset-deposits-btn" onclick="clearDepositInvoices()">🧹 Limpiar “Por Cobrar”</button>
+        </div>
+
+        <button type="button" class="reset-stats-btn" onclick="resetStats()">🔄 Reiniciar Estadísticas</button>
+    </div>
+
+      </div>
+
+  <!-- 2) MAPA: seguimiento en vivo de todos los pedidos en ruta -->
   <section id="vistaMapa" class="oculto">
     <div class="mapa-caja">
       <div id="mapaRuta"></div>
+      <!-- Barra superior: buscador + herramientas (nada se encima) -->
       <div class="barra-sup-rep">
         <form id="formBusqRep" autocomplete="off">
           <input id="busqRep" type="search" placeholder="Buscar negocio o lugar…" enterkeyhint="search" aria-label="Buscar negocio o lugar">
@@ -290,7 +318,7 @@
     <div id="hojaPedidos" class="hoja-pedidos"></div>
   </section>
 
-  <!-- 3) NUEVOS CHATS -->
+  <!-- 3) NUEVOS CHATS: clientes que escriben desde cliente-app.html -->
   <section id="vistaChats" class="oculto">
     <div id="cnLista" class="cn-lista">
       <h2 class="cn-tit">Nuevos chats</h2>
@@ -303,17 +331,13 @@
     <div id="cnConv" class="cn-conv oculto">
       <div class="cn-cab">
         <button id="cnVolver" type="button" aria-label="Volver a la lista de chats">←</button>
-        <div><strong id="cnNombre">Cliente</strong><small id="cnSub">Cliente</small></div>
+        <div><strong id="cnNombre">Cliente</strong><small>Cliente</small></div>
         <button id="cnUbicacion" class="cn-ico" type="button" aria-label="Ver al cliente en el mapa">📍</button>
         <button id="cnExtras" class="cn-ico" type="button" aria-label="Agregar mandados extra al total">➕</button>
         <button id="cnFacturar" class="primario" type="button">🧾 Facturar</button>
       </div>
       <div id="cnResumen" class="cn-resumen"></div>
-      <!-- FASE 4 · última dirección del cliente -->
-      <div id="cnUltimaDir" class="cn-ultima-dir oculto">
-        <div class="cn-ultima-dir-txt" id="cnUltimaDirTxt"></div>
-        <button id="cnSugerirDir" class="oscuro" type="button">📮 Sugerir al cliente</button>
-      </div>
+      <!-- FASE 2 · He llegado · Entregado · Cancelar -->
       <div class="cn-acciones">
         <button id="cnLlegado" class="oscuro" type="button">📍 He llegado</button>
         <button id="cnEntregado" class="primario" type="button">✅ Entregado</button>
@@ -330,12 +354,14 @@
     </div>
   </section>
 
+  <!-- Cambiar entre Factura y Mapa (aparece cuando hay pedidos en ruta) -->
   <nav id="navApp" class="nav-app oculto" aria-label="Cambiar de pantalla">
     <button id="navFactura" data-vista="factura" class="activa" type="button">🧾 Factura</button>
     <button id="navMapa" data-vista="mapa" type="button">🗺️ Mapa y entregas <span id="badgeNav" class="badge-nav oculto">0</span></button>
     <button id="navChats" data-vista="chats" type="button">💬 Nuevos Chats <span id="badgeChats" class="badge-nav rojo oculto">0</span></button>
   </nav>
 
+  <!-- Solicitud de pedido: vista previa ANTES de atender -->
   <div id="modalSolicitud" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="spTitulo">
     <div class="modal-rep-caja" style="text-align:left;max-height:90vh;overflow-y:auto">
       <div class="gran-check" style="text-align:center">📥</div>
@@ -348,6 +374,7 @@
     </div>
   </div>
 
+  <!-- Cancelar un pedido atendido: se pide el motivo -->
   <div id="modalCancelar" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="cancTitulo">
     <div class="modal-rep-caja">
       <h2 id="cancTitulo">¿Por qué cancelas?</h2>
@@ -358,8 +385,10 @@
     </div>
   </div>
 
+  <!-- Aviso breve: cliente que escribe, solicitud nueva… (toca para abrir) -->
   <button id="solToast" class="oculto" type="button" role="status"><span id="solToastIco" aria-hidden="true">💬</span><div><b id="solToastTit"></b><small id="solToastTxt"></small></div></button>
 
+  <!-- Ventana tras confirmar una entrega -->
   <div id="modalEntregado" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
       <div class="gran-check">✓</div>
@@ -370,6 +399,7 @@
     </div>
   </div>
 
+  <!-- Pedido nuevo asignado por el administrador -->
   <div id="modalNuevoPedido" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja" style="text-align:left;max-height:90vh;overflow-y:auto">
       <div class="gran-check" style="text-align:center">🛵</div>
@@ -384,6 +414,7 @@
     </div>
   </div>
 
+  <!-- Sub-factura: adiciones del cliente a un pedido en curso -->
   <div id="modalSub" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja" style="text-align:left">
       <h2>🧾 Sub-factura <span class="pd-etiqueta">Adiciones del cliente</span></h2>
@@ -401,6 +432,7 @@
     </div>
   </div>
 
+  <!-- Factura en vivo del repartidor: productos, delivery, extras y total. Aquí se agregan los Mandados Extra -->
   <div id="modalFacturaVivo" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="fvTitulo">
     <div class="modal-rep-caja fv-caja">
       <h2 id="fvTitulo">🧾 Factura en vivo</h2>
@@ -426,6 +458,7 @@
     </div>
   </div>
 
+  <!-- Elegir a qué cliente contactar (cuando hay varios pedidos) -->
   <div id="modalContacto" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
       <h2>¿A qué cliente?</h2>
@@ -435,6 +468,7 @@
     </div>
   </div>
 
+  <!-- Elegir un pedido (chat desde la burbuja, ubicación recibida) -->
   <div id="modalElegir" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
       <h2 id="elegirTitulo" style="white-space:pre-line"></h2>
@@ -443,6 +477,7 @@
     </div>
   </div>
 
+  <!-- Burbuja flotante y batería (solo APK) -->
   <div id="modalBurbuja" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
       <div class="gran-check">🫧</div>
@@ -454,6 +489,7 @@
     </div>
   </div>
 
+  <!-- Permisos del APK (se explican antes de que Android los pida) -->
   <div id="modalPermisos" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
       <div class="gran-check">🔔</div>
@@ -469,65 +505,79 @@
     </div>
   </div>
 
+  <!-- Ventanas de la factura (alertas, depósito, factura lista) -->
   <div id="fxModales" class="fx">
-    <div class="popup-overlay" id="depositPromptPopup">
-      <div class="popup-content">
-        <h2>¿Método de Pago?</h2>
-        <p>¿El cliente pagó por depósito?</p>
-        <div style="display: flex; gap: 10px; margin-top: 20px; flex-direction: column;">
-          <button type="button" class="close-popup-btn" style="background-color: #27AE60; color: var(--white); margin-top: 0; font-weight: 700; padding: 13px;" onclick="confirmDeposit(true)">Sí, pagó por depósito</button>
-          <button type="button" class="close-popup-btn" style="background-color: var(--red); color: var(--white); margin-top: 0; font-weight: 700; padding: 13px;" onclick="confirmDeposit(false)">No pagó por depósito</button>
-        </div>
-      </div>
-    </div>
-    <div class="custom-modal-overlay" id="customAlertModal">
-      <div class="custom-modal-box">
-        <div class="custom-modal-icon">⚠️</div>
-        <h3 id="customAlertTitle">Atención</h3>
-        <p id="customAlertMessage">Por favor, agrega al menos un producto.</p>
-        <button type="button" class="custom-modal-btn" onclick="closeCustomAlert()">Entendido</button>
-      </div>
-    </div>
-    <div class="custom-modal-overlay" id="customConfirmModal">
-      <div class="custom-modal-box" style="border-top-color: var(--sky-blue);">
-        <div class="custom-modal-icon" style="animation: fx-pulseWarning 1.5s infinite;">🗑️</div>
-        <h3>Eliminar Producto</h3>
-        <p id="customConfirmMessage">¿Estás seguro de eliminar este producto?</p>
-        <div style="display: flex; gap: 10px; margin-top: 15px;">
-          <button type="button" class="custom-modal-btn" style="background-color: var(--light-gray); color: var(--black); box-shadow: none;" onclick="closeCustomConfirm(false)">Cancelar</button>
-          <button type="button" class="custom-modal-btn" style="background-color: var(--red); box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3);" onclick="closeCustomConfirm(true)">Eliminar</button>
-        </div>
-      </div>
-    </div>
-    <div class="custom-modal-overlay" id="customLoadingModal">
-      <div class="custom-modal-box loading-box">
-        <div class="loading-spinner"></div>
-        <h3>Guardando Imagen</h3>
-        <p>Tu factura se está guardando como imagen...</p>
-      </div>
-    </div>
-    <div class="popup-overlay" id="invoicePopup">
-      <div class="popup-content">
-        <h2>¡Factura Lista!</h2>
-        <p>Tu factura ha sido generada correctamente.</p>
-        <div id="generatedInvoiceDisplay"></div>
-        <p style="margin-top: 15px; font-weight: bold; color: var(--red); font-size: 0.9em;">¡Importante! Puedes guardar la imagen de la factura.</p>
-        <button type="button" class="whatsapp-btn" id="whatsappShareBtn" onclick="enviarFacturaWhatsApp()">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
-          Enviar factura por WhatsApp
-        </button>
-        <p class="track-note" id="fxTrackNote">Se envía al WhatsApp del negocio, se activa el seguimiento y pasas al mapa.</p>
-        <div id="fxEnvioApp" class="fx-envio-app" style="display:none" role="status" aria-live="polite">
-          <span id="fxEnvioIcono">⏳</span>
-          <div><b id="fxEnvioTitulo">Enviando a la app del cliente…</b><small id="fxEnvioTxt"></small></div>
-          <button type="button" id="fxEnvioReintentar" style="display:none" onclick="reintentarEnvioPedido()">Reintentar</button>
-        </div>
-        <button type="button" class="add-product-btn" style="background-color: var(--sky-blue); margin-top: 10px;" onclick="downloadInvoiceImage()">📥 Guardar Factura en Imagen</button>
-        <button type="button" class="close-popup-btn" onclick="closePopup()">Cerrar</button>
-      </div>
-    </div>
-  </div>
 
+    <!-- DEPOSIT PROMPT POPUP -->
+    <div class="popup-overlay" id="depositPromptPopup">
+        <div class="popup-content">
+            <h2>¿Método de Pago?</h2>
+            <p>¿El cliente pagó por depósito?</p>
+            <div style="display: flex; gap: 10px; margin-top: 20px; flex-direction: column;">
+                <button type="button" class="close-popup-btn" style="background-color: #27AE60; color: var(--white); margin-top: 0; font-weight: 700; padding: 13px;" onclick="confirmDeposit(true)">Sí, pagó por depósito</button>
+                <button type="button" class="close-popup-btn" style="background-color: var(--red); color: var(--white); margin-top: 0; font-weight: 700; padding: 13px;" onclick="confirmDeposit(false)">No pagó por depósito</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CUSTOM ALERT MODAL -->
+    <div class="custom-modal-overlay" id="customAlertModal">
+        <div class="custom-modal-box">
+            <div class="custom-modal-icon">⚠️</div>
+            <h3 id="customAlertTitle">Atención</h3>
+            <p id="customAlertMessage">Por favor, agrega al menos un producto.</p>
+            <button type="button" class="custom-modal-btn" onclick="closeCustomAlert()">Entendido</button>
+        </div>
+    </div>
+
+    <!-- CUSTOM CONFIRM MODAL FOR DELETE PRODUCT -->
+    <div class="custom-modal-overlay" id="customConfirmModal">
+        <div class="custom-modal-box" style="border-top-color: var(--sky-blue);">
+            <div class="custom-modal-icon" style="animation: fx-pulseWarning 1.5s infinite;">🗑️</div>
+            <h3>Eliminar Producto</h3>
+            <p id="customConfirmMessage">¿Estás seguro de eliminar este producto?</p>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button type="button" class="custom-modal-btn" style="background-color: var(--light-gray); color: var(--black); box-shadow: none;" onclick="closeCustomConfirm(false)">Cancelar</button>
+                <button type="button" class="custom-modal-btn" style="background-color: var(--red); box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3);" onclick="closeCustomConfirm(true)">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CUSTOM LOADING MODAL -->
+    <div class="custom-modal-overlay" id="customLoadingModal">
+        <div class="custom-modal-box loading-box">
+            <div class="loading-spinner"></div>
+            <h3>Guardando Imagen</h3>
+            <p>Tu factura se está guardando como imagen...</p>
+        </div>
+    </div>
+
+    <div class="popup-overlay" id="invoicePopup">
+        <div class="popup-content">
+            <h2>¡Factura Lista!</h2>
+            <p>Tu factura ha sido generada correctamente.</p>
+            <div id="generatedInvoiceDisplay"></div>
+            <p style="margin-top: 15px; font-weight: bold; color: var(--red); font-size: 0.9em;">¡Importante! Puedes guardar la imagen de la factura.</p>
+            <button type="button" class="whatsapp-btn" id="whatsappShareBtn" onclick="enviarFacturaWhatsApp()">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                </svg>
+                Enviar factura por WhatsApp
+            </button>
+            <p class="track-note" id="fxTrackNote">Se envía al WhatsApp del negocio, se activa el seguimiento y pasas al mapa.</p>
+            <div id="fxEnvioApp" class="fx-envio-app" style="display:none" role="status" aria-live="polite">
+                <span id="fxEnvioIcono">⏳</span>
+                <div><b id="fxEnvioTitulo">Enviando a la app del cliente…</b><small id="fxEnvioTxt"></small></div>
+                <button type="button" id="fxEnvioReintentar" style="display:none" onclick="reintentarEnvioPedido()">Reintentar</button>
+            </div>
+            <button type="button" class="add-product-btn" style="background-color: var(--sky-blue); margin-top: 10px;" onclick="downloadInvoiceImage()">📥 Guardar Factura en Imagen</button>
+            <button type="button" class="close-popup-btn" onclick="closePopup()">Cerrar</button>
+        </div>
+    </div>
+
+      </div>
+
+  <!-- Bloqueo por actualización obligatoria (sin botón de cerrar; se muestra desde JS) -->
   <div id="modalActualizacion" class="upd-fondo oculto" role="alertdialog" aria-modal="true" aria-labelledby="updTitulo" aria-describedby="updNovedades">
     <div class="upd-caja">
       <div class="upd-icono" aria-hidden="true">🚀</div>
@@ -543,6 +593,7 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Rotación del mapa (modo "hacia adelante"). Si no carga, la cámara sigue funcionando sin rotar. -->
   <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
