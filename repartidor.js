@@ -1867,6 +1867,7 @@ $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); i
 
 Atras.iniciar([
   () => Chat.cerrarCapa(),
+  () => { if (typeof ChatsEntrantes !== "undefined" && ChatsEntrantes.abierto && ChatsEntrantes.abierto()) { ChatsEntrantes.cerrarConversacion(); return true; } return false; },
   () => { for (const id of ["modalNuevoPedido", "modalSub", "modalFacturaVivo", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
   () => {
     if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
@@ -1991,8 +1992,8 @@ const ChatsEntrantes = (() => {
   function textoDestino(d) {
     const x = d && d.pedido && d.pedido.destino;
     if (!x) return "Sin datos de ubicación";
-    if (x.tipo === "gps") return "Ubicación en vivo del cliente (GPS)";
-    if (x.tipo === "pin") return "Pin marcado en el mapa";
+    if (x.tipo === "gps") return "Ubicación en vivo del cliente";
+    if (x.tipo === "pin") return "Ubicación en vivo del cliente";
     return x.texto ? cortar(x.texto, 200) : "Dirección sin texto";
   }
 
@@ -2294,11 +2295,6 @@ const ChatsEntrantes = (() => {
     sinLeer[id] = 0;
     actualizarNav();
     aviso("");
-    const btnLleg = $("cnLlegado");
-    if (btnLleg) {
-      if (d.llegadaTs) { btnLleg.textContent = "📍 Llegada marcada"; btnLleg.classList.add("llegado"); btnLleg.disabled = true; }
-      else { btnLleg.textContent = "📍 He llegado"; btnLleg.classList.remove("llegado"); btnLleg.disabled = false; }
-    }
     const p = d.pedido || {};
     $("cnNombre").textContent = String(d.nombre || "Cliente").slice(0, 40);
     $("cnResumen").textContent = p.quiere ? "🛍️ " + cortar(p.quiere, 120) + " · de " + cortar(p.origen, 80) + " · 📍 " + textoDestino(d) : "";
@@ -2479,13 +2475,6 @@ const ChatsEntrantes = (() => {
     return f;
   }
 
-  /* FASE 3 · tarjeta de factura en el chat:
-     desglose transparente en secciones:
-       - Productos (normales)
-       - Delivery base
-       - Mandado Extra (productos con prefijo "➕" + envío extra)
-       - Prioridad (si aplica)
-       - GRAN TOTAL  */
   function tarjetaFactura(f) {
     const caja = document.createElement("div");
     const prods = (Array.isArray(f.productos) ? f.productos : []).filter((p) => p && typeof p === "object");
@@ -2502,7 +2491,6 @@ const ChatsEntrantes = (() => {
     if (f.cliente) cue.appendChild(el("div", "cn-fmeta", "Cliente: " + String(f.cliente)));
     if (f.deposito) cue.appendChild(el("div", "cn-fmeta", "Depósito: sí"));
 
-    // Sección: Productos normales
     if (normales.length) {
       cue.appendChild(el("div", "cn-fsec", "📦 Productos"));
       const lis = el("div", "cn-flis");
@@ -2512,7 +2500,6 @@ const ChatsEntrantes = (() => {
       cue.appendChild(filaF("Total productos", dinero(subtotal), "sub"));
     }
 
-    // Sección: Delivery base
     const mandadoEnvio = Number(f.mandadoExtra) || 0;
     const deliveryTotal = Number(f.delivery) || 0;
     const deliveryBase = Math.max(0, deliveryTotal - mandadoEnvio);
@@ -2520,7 +2507,6 @@ const ChatsEntrantes = (() => {
       cue.appendChild(filaF("🛵 Delivery base", dinero(deliveryBase)));
     }
 
-    // Sección: Mandado Extra (productos con "➕" + envío extra)
     if (tieneExtras) {
       cue.appendChild(el("div", "cn-fsec", "➕ Mandado Extra"));
       if (extras.length) {
@@ -2535,12 +2521,10 @@ const ChatsEntrantes = (() => {
       }
     }
 
-    // Prioridad
     if (Number(f.prioridad) > 0) {
       cue.appendChild(filaF("⚡ Prioridad", dinero(f.prioridad)));
     }
 
-    // GRAN TOTAL
     cue.appendChild(filaF("GRAN TOTAL", dinero(f.totalFinal != null ? f.totalFinal : f.total), "total"));
 
     if (f.pedido) {
@@ -2568,7 +2552,7 @@ const ChatsEntrantes = (() => {
     inp.focus();
   });
   $("cnInput").addEventListener("input", () => { if (abiertoId) marcarTypingPropio(); });
-  $("cnVolver").addEventListener("click", cerrarConversacion);
+  $("cnVolver") && $("cnVolver").addEventListener("click", cerrarConversacion);
   function comprimirImagen(archivo) {
     return new Promise((ok, fallo) => {
       if (!archivo || !/^image\//.test(archivo.type)) return fallo(new Error("tipo"));
@@ -2636,9 +2620,6 @@ const ChatsEntrantes = (() => {
     Factura.prepararChat({ solicitudId: abiertoId, cliente: d.nombre || "" });
     irA("factura");
   });
-  /* FASE 3 · el antiguo botón ➕ (cnExtras) se reemplazó por un botón explícito
-     "Mandado Extra" (#cnMandado) junto al de "Factura". La lógica es la misma:
-     abre el formulario SubFactura para añadir tareas/compras adicionales. */
   $("cnMandado").addEventListener("click", () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
@@ -2743,22 +2724,6 @@ const ChatsEntrantes = (() => {
     t.appendChild(bt);
     return t;
   }
-  $("cnLlegado").addEventListener("click", async () => {
-    const id = abiertoId, d = id && lista[id];
-    if (!mio(d)) return;
-    if (d.llegadaTs) return;
-    const btn = $("cnLlegado");
-    btn.disabled = true;
-    try {
-      const cambios = { llegadaTs: TS, llegadaPor: "manual" };
-      if (ultimaPos) { cambios.llegadaLat = ultimaPos.lat; cambios.llegadaLng = ultimaPos.lng; }
-      await db.ref(RAIZ + "/" + id).update(cambios);
-      btn.textContent = "📍 Llegada marcada";
-      btn.classList.add("llegado");
-      aviso("Llegada marcada ✓ El cliente ya recibió el aviso de cercanía.");
-      setTimeout(() => aviso(""), 4000);
-    } catch (e) { btn.disabled = false; aviso("No se pudo marcar la llegada: " + (e.code || e.message)); }
-  });
   $("cnIniciarEntrega").addEventListener("click", () => {
     const id = abiertoId;
     if (!id) return;
@@ -2768,6 +2733,7 @@ const ChatsEntrantes = (() => {
       crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true });
       try { guardarViajes(); sincronizarContactos(); } catch (_) {}
     }
+    cerrarConversacion();
     irA("mapa");
     seleccionar(id, false);
     seguirme = true;
@@ -2796,7 +2762,7 @@ const ChatsEntrantes = (() => {
     await db.ref(RAIZ + "/" + id).update(cambios);
     guardarFacLocal(id, fac, fac);
   }
-  $("cnEntregado").addEventListener("click", async () => {
+  $("cnEntregado") && $("cnEntregado").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
     const reg = leerFacLocal(id), nombre = cortar(d.nombre || "el cliente", 40);
@@ -2839,7 +2805,7 @@ const ChatsEntrantes = (() => {
   }
   Factura.alEnviarChat = (f) => enviarFactura(f);
   Factura.alTerminarChat = () => irA("chats");
-  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes };
+  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes, cerrarConversacion, abierto: () => !!abiertoId };
 })();
 
 function ajustarViewportRep() {
