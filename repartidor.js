@@ -8,14 +8,16 @@
       y entregarlos en el orden que quiera. Entre pantallas se mueve con la barra inferior.
    4) El cliente comparte su ubicación al abrir el enlace; aquí se ve en tiempo real.
 
-   FASE 2 · mejoras aplicadas:
-     · Banner turn-by-turn: actualizarBanner() usa Ordenes.textoPaso() con el paso actual
-       de la ruta OSRM y avanza rutaIdx a medida que el motorizado se acerca a la maniobra.
-     · fitBounds dinámico reforzado: Camara.actualizar(true) se llama al atender chat/pedido,
-       al reanudar viajes y en cada posición GPS nueva.
-     · Estado OCUPADO: se actualizan ubicaciones/{uid}.conPedido=true y enViaje=true al crear
-       cualquier viaje (factura/chat/pedido admin) y se muestran en el chip de la cabecera.
-     · Responsividad: ver estilos inline de repartidor.html (media queries 700/900/1200).
+   FASE 1 · cambios aplicados:
+     · Vista previa de ruta pre-aceptación: en ChatsEntrantes, para cada solicitud
+       pendiente se dibuja automáticamente la polyline desde la posición actual
+       del motorizado y se muestra la distancia (km/m) sobre el pin 📥.
+     · Eliminados el ícono 📍 (#cnUbicacion) y el botón "Sugerir al cliente"
+       (#cnSugerirDir) de la interfaz del chat.
+     · Cámara (📷) y Galería (🖼️) separadas:
+         - #cnFoto    → #cnInFoto    con capture="environment"
+         - #cnGaleria → #cnInGaleria sin capture
+       Ambas llaman a subirFotoChat(archivo) que centraliza la lógica de subida.
    ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
@@ -364,6 +366,7 @@ function initMapa() {
   actualizarBanner();
   ["pointerdown", "touchstart", "wheel"].forEach((ev) => mapa.getContainer().addEventListener(ev, Camara.gesto, { passive: true, capture: true }));
   mapa.on("zoomstart", Camara.alZoom);
+  try { ChatsEntrantes.pintarRutasPendientes(); } catch (_) {}
 }
 let seguirme = true;
 
@@ -1392,9 +1395,6 @@ function dibujarRutaLugar() {
 
 /* ============================================================
    FASE 2 · BANNER TURN-BY-TURN
-   Muestra el ícono del próximo giro + texto (calle), con ETA y distancia.
-   El paso actual (rutaIdx) se avanza en procesarPosicion() a medida que el
-   motorizado se acerca a la maniobra.
    ============================================================ */
 function actualizarBanner() {
   const b = $("bannerRuta"); if (!b) return;
@@ -1412,7 +1412,6 @@ function actualizarBanner() {
   } else if (!n.rutaPasos || !n.rutaPasos.length) {
     txt = escHtml(`Calculando ruta a ${titulo}…`);
   } else {
-    // Avance del paso actual (idempotente: se puede llamar varias veces)
     let idx = Math.max(0, Math.min(n.rutaIdx || 0, n.rutaPasos.length - 1));
     while (idx < n.rutaPasos.length - 1 && n.rutaPasos[idx] && n.rutaPasos[idx].loc &&
            distanciaM(ultimaPos.lat, ultimaPos.lng, n.rutaPasos[idx].loc.lat, n.rutaPasos[idx].loc.lng) < 30) idx++;
@@ -1800,6 +1799,7 @@ function procesarPosicion(c) {
     ts: TS, enLinea: true, enViaje: ocupado, conPedido: ocupado, usuario
   }).catch(() => {});
   try { ChatsEntrantes.publicarGps({ lat, lng }); } catch (_) {}
+  try { ChatsEntrantes.pintarRutasPendientes(); } catch (_) {}
   const base = { lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed), ts: TS };
   orden.forEach((t) => evaluarViaje(viajes[t], base));
   OrdenAdminRep.publicar(base);
@@ -1944,7 +1944,7 @@ OrdenAdminRep.init({
 });
 
 /* ============================================================
-   CHATS ENTRANTES
+   CHATS ENTRANTES  (FASE 1 · vista previa de ruta pre-aceptación)
    ============================================================ */
 const ChatsEntrantes = (() => {
   const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos";
@@ -1965,6 +1965,9 @@ const ChatsEntrantes = (() => {
   const marcasSol = {}, marcasCli = {};
   let lect = {}, typing = {}, ultimaDirCliente = null, refUltimaDir = null, refLeidos = null, refTyping = null;
   let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
+
+  /* FASE 1 · rutas de vista previa de cada solicitud pendiente */
+  const rutasPend = {};   // id → { linea, ts, punto, pos, dist, calculando }
 
   const termino = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
   const omitida = (d) => !!(d && d.omitidoPor && uidActual && d.omitidoPor[uidActual]);
@@ -2051,6 +2054,7 @@ const ChatsEntrantes = (() => {
     lista = {};
     avisadas.clear();
     [marcasSol, marcasCli].forEach((c) => Object.keys(c).forEach((id) => { try { mapa.removeLayer(c[id]); } catch (_) {} delete c[id]; }));
+    Object.keys(rutasPend).forEach((id) => { try { if (rutasPend[id] && rutasPend[id].linea) mapa.removeLayer(rutasPend[id].linea); } catch (_) {} delete rutasPend[id]; });
     ultimoConPedido = null;
     $("chipConPedido").classList.add("oculto");
     if (!conservarFactura) { try { Factura.salirModoChat(true); } catch (_) {} }
@@ -2159,11 +2163,74 @@ const ChatsEntrantes = (() => {
     if (typeof mapa === "undefined" || !mapa) return;
     Object.keys(lista).forEach((id) => {
       const d = lista[id];
-      marca(marcasSol, id, libre(d) ? puntoDe(d) : null, '<div class="sol-pin"><span>📥</span>Solicitud de pedido</div>', [190, 44], () => vistaPrevia(id));
+      marca(marcasSol, id, libre(d) ? puntoDe(d) : null, '<div class="sol-pin calculando"><span>📥</span>…</div>', [190, 44], () => vistaPrevia(id));
       marca(marcasCli, id, mio(d) ? puntoDe(d) : null, '<div class="sol-cli">📍 ' + escHtml(cortar(d && d.nombre || "Cliente", 20)) + "</div>", [150, 32]);
     });
     [marcasSol, marcasCli].forEach((c) => Object.keys(c).forEach((id) => { if (!lista[id]) { mapa.removeLayer(c[id]); delete c[id]; } }));
+    pintarRutasPendientes();
   }
+
+  /* FASE 1 · Vista previa de ruta para cada solicitud pendiente:
+     - Polyline punteada roja desde la posición actual del motorizado
+       hasta el punto del cliente.
+     - Distancia (km/m) mostrada sobre el pin 📥.
+     - Reintenta cada 20s o cuando el motorizado se mueve ~25 m. */
+  function pintarRutasPendientes() {
+    if (typeof mapa === "undefined" || !mapa) return;
+    if (typeof Ordenes === "undefined" || typeof Ordenes.rutaCalles !== "function") return;
+    const ahora = Date.now();
+    Object.keys(lista).forEach((id) => {
+      const d = lista[id];
+      const pendiente = libre(d) && ultimaPos;
+      if (!pendiente) {
+        if (rutasPend[id]) {
+          try { mapa.removeLayer(rutasPend[id].linea); } catch (_) {}
+          delete rutasPend[id];
+        }
+        return;
+      }
+      const punto = puntoDe(d);
+      if (!punto) return;
+      const prev = rutasPend[id];
+      const cambioPunto = !prev || !prev.punto || Math.abs(prev.punto.lat - punto.lat) > 0.0001 || Math.abs(prev.punto.lng - punto.lng) > 0.0001;
+      const cambioPos = !prev || !prev.pos || Math.abs(prev.pos.lat - ultimaPos.lat) > 0.00025 || Math.abs(prev.pos.lng - ultimaPos.lng) > 0.00025;
+      const expirado = !prev || ahora - prev.ts > 20000;
+      if (prev && prev.calculando) return;
+      if (!cambioPunto && !cambioPos && !expirado) return;
+
+      if (!prev) {
+        const linea = L.polyline([[ultimaPos.lat, ultimaPos.lng], [punto.lat, punto.lng]], {
+          color: "#E5322D", weight: 4, opacity: .75, dashArray: "6 10", lineCap: "round"
+        }).addTo(mapa);
+        rutasPend[id] = { linea, ts: ahora, punto, pos: { lat: ultimaPos.lat, lng: ultimaPos.lng }, calculando: true };
+      } else {
+        prev.ts = ahora;
+        prev.punto = punto;
+        prev.pos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
+        prev.calculando = true;
+      }
+      const rp = rutasPend[id];
+      Ordenes.rutaCalles({ lat: ultimaPos.lat, lng: ultimaPos.lng }, punto).then((r) => {
+        if (!rutasPend[id] || rutasPend[id] !== rp || !r) { if (rp) rp.calculando = false; return; }
+        rp.calculando = false;
+        rp.dist = r.dist;
+        rp.linea.setStyle({ color: "#E5322D", weight: 5, opacity: .9, dashArray: null });
+        rp.linea.setLatLngs([[rp.pos.lat, rp.pos.lng], ...r.pts]);
+        if (marcasSol[id]) {
+          const txt = r.dist >= 1000 ? (r.dist / 1000).toFixed(1) + " km" : Math.round(r.dist) + " m";
+          const html = '<div class="sol-pin"><span>📥</span>' + txt + '</div>';
+          try { marcasSol[id].setIcon(L.divIcon({ className: "", html, iconSize: [190, 44], iconAnchor: [95, 22] })); } catch (_) {}
+        }
+      }).catch(() => { if (rp) rp.calculando = false; });
+    });
+    Object.keys(rutasPend).forEach((id) => {
+      if (!lista[id] || !libre(lista[id]) || !ultimaPos) {
+        try { mapa.removeLayer(rutasPend[id].linea); } catch (_) {}
+        delete rutasPend[id];
+      }
+    });
+  }
+
   function vistaPrevia(id) {
     const d = lista[id];
     if (mio(d)) { irA("chats"); return abrir(id); }
@@ -2403,6 +2470,7 @@ const ChatsEntrantes = (() => {
       sub.classList.remove("escribiendo");
     }
   }
+  /* FASE 1 · solo se muestra la última dirección (informativo). Sin botón "Sugerir al cliente". */
   function leerUltimaDirCliente(d) {
     if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
     ultimaDirCliente = null;
@@ -2501,10 +2569,9 @@ const ChatsEntrantes = (() => {
       img.src = url;
     });
   }
-  $("cnFoto").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("cnInFoto").click(); });
-  $("cnInFoto").addEventListener("change", async () => {
-    const archivo = $("cnInFoto").files && $("cnInFoto").files[0], id = abiertoId;
-    $("cnInFoto").value = "";
+  /* FASE 1 · lógica centralizada de subida: la comparten Cámara y Galería. */
+  async function subirFotoChat(archivo) {
+    const id = abiertoId;
     if (!archivo || !id || !mio(lista[id])) return;
     aviso("");
     let foto;
@@ -2518,14 +2585,18 @@ const ChatsEntrantes = (() => {
     cambios[RAIZ + "/" + id + "/ts"] = TS;
     try { await db.ref().update(cambios); }
     catch (e) { aviso("No se pudo enviar la foto: " + (e.code || e.message)); }
+  }
+  $("cnFoto").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("cnInFoto").click(); });
+  $("cnGaleria").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("cnInGaleria").click(); });
+  $("cnInFoto").addEventListener("change", () => {
+    const f = $("cnInFoto").files && $("cnInFoto").files[0];
+    $("cnInFoto").value = "";
+    if (f) subirFotoChat(f);
   });
-  $("cnUbicacion").addEventListener("click", () => {
-    const d = abiertoId && lista[abiertoId];
-    if (!mio(d)) return;
-    const p = puntoDe(d);
-    if (!p) return aviso("El cliente no marcó un punto en el mapa. Dirección: " + textoDestino(d));
-    irA("mapa");
-    setTimeout(() => { try { mapa.setView([p.lat, p.lng], 17); } catch (_) {} }, 250);
+  $("cnInGaleria").addEventListener("change", () => {
+    const f = $("cnInGaleria").files && $("cnInGaleria").files[0];
+    $("cnInGaleria").value = "";
+    if (f) subirFotoChat(f);
   });
   function leerFacLocal(id) {
     try { const o = JSON.parse(localStorage.getItem(CLAVE_FAC + id) || "null"); return o && o.actual ? o : null; } catch (_) { return null; }
@@ -2684,16 +2755,6 @@ const ChatsEntrantes = (() => {
       setTimeout(() => aviso(""), 4000);
     } catch (e) { btn.disabled = false; aviso("No se pudo marcar la llegada: " + (e.code || e.message)); }
   });
-  $("cnSugerirDir").addEventListener("click", async () => {
-    const id = abiertoId, d = id && lista[id];
-    if (!mio(d)) return;
-    if (!ultimaDirCliente) return aviso("No hay una dirección anterior del cliente.");
-    const txt = "📮 Hola " + (d.nombre ? String(d.nombre).split(/\s+/)[0] : "") + ", ¿recibe en " + ultimaDirCliente.texto + " de nuevo? Si sí, confirme por favor.";
-    const inp = $("cnInput");
-    inp.value = txt;
-    inp.focus();
-    inp.dispatchEvent(new Event("input", { bubbles: true }));
-  });
   $("cnEntregado").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
@@ -2737,7 +2798,7 @@ const ChatsEntrantes = (() => {
   }
   Factura.alEnviarChat = (f) => enviarFactura(f);
   Factura.alTerminarChat = () => irA("chats");
-  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido };
+  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes };
 })();
 
 function ajustarViewportRep() {
