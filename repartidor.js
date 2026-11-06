@@ -9,15 +9,15 @@
    4) El cliente comparte su ubicación al abrir el enlace; aquí se ve en tiempo real.
 
    FASE 1 · cambios aplicados:
-     · Vista previa de ruta pre-aceptación: en ChatsEntrantes, para cada solicitud
-       pendiente se dibuja automáticamente la polyline desde la posición actual
-       del motorizado y se muestra la distancia (km/m) sobre el pin 📥.
+     · Vista previa de ruta pre-aceptación: en ChatsEntrantes, para cada solicitud pendiente
+       se dibuja automáticamente la polyline roja punteada desde la posición actual del
+       motorizado y se muestra la distancia (km/m) sobre el pin 📥.
      · Eliminados el ícono 📍 (#cnUbicacion) y el botón "Sugerir al cliente"
        (#cnSugerirDir) de la interfaz del chat.
      · Cámara (📷) y Galería (🖼️) separadas:
          - #cnFoto    → #cnInFoto    con capture="environment"
          - #cnGaleria → #cnInGaleria sin capture
-       Ambas llaman a subirFotoChat(archivo) que centraliza la lógica de subida.
+       Ambas llaman a subirFotoChat(archivo) que centraliza la compresión y subida.
    ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
@@ -366,15 +366,17 @@ function initMapa() {
   actualizarBanner();
   ["pointerdown", "touchstart", "wheel"].forEach((ev) => mapa.getContainer().addEventListener(ev, Camara.gesto, { passive: true, capture: true }));
   mapa.on("zoomstart", Camara.alZoom);
+  /* FASE 1 · pintar rutas de solicitudes pendientes al abrir el mapa */
   try { ChatsEntrantes.pintarRutasPendientes(); } catch (_) {}
 }
 let seguirme = true;
 
 /* ============================================================
-   CÁMARA DEL REPARTIDOR — FASE 2
+   CÁMARA DEL REPARTIDOR
    Dos modos:
      - "fitbounds" (por defecto): mantiene a la vez al motorizado y al cliente.
-     - "navegacion": cámara invertida tipo GPS con la moto en el tercio inferior.
+     - "navegacion": cámara invertida tipo GPS con la moto en el tercio inferior
+       y zoom dinámico según la distancia al destino.
    ============================================================ */
 const Camara = (() => {
   const SIGNO_ROTACION = 1;
@@ -1799,6 +1801,7 @@ function procesarPosicion(c) {
     ts: TS, enLinea: true, enViaje: ocupado, conPedido: ocupado, usuario
   }).catch(() => {});
   try { ChatsEntrantes.publicarGps({ lat, lng }); } catch (_) {}
+  /* FASE 1 · recalcular rutas de solicitudes pendientes con la nueva posición */
   try { ChatsEntrantes.pintarRutasPendientes(); } catch (_) {}
   const base = { lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed), ts: TS };
   orden.forEach((t) => evaluarViaje(viajes[t], base));
