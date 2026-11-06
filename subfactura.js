@@ -1,16 +1,15 @@
 /* ============================================================
-   SUB-FACTURA DINÁMICA (Función 3) · UI del repartidor
-   Permite agregar productos a un pedido en curso SIN tocar la factura original.
-   Guarda en pedidos/{token}/subfactura:
-     { etiqueta:"Adiciones del cliente", items:[{nombre,precio}], subtotal, envioExtra, ts }
-   y lee pedidos/{token}/factura (la crea repartidor.js al enviar la factura):
-     { subtotal, delivery, total }
-   Desglose final:  Total Factura Original + Total Sub-factura + Envíos combinados = Gran Total
+   MANDADO EXTRA · UI del repartidor (antes "Sub-factura")
+   FASE 3 · Se renombra conceptualmente de "Sub-factura / Adiciones
+   del cliente" a "Mandado Extra / Compras o tareas adicionales",
+   para alinearlo con el botón "Mandado Extra" del chat.
+   Sigue guardando en pedidos/{token}/subfactura:
+     { etiqueta:"Mandado Extra", items:[{nombre,precio}], subtotal,
+       envioExtra, ts }
+   Desglose final:  Total Factura Original + Total Mandado Extra + Envíos combinados = Gran Total
    ============================================================ */
 const SubFactura = (() => {
-  const ETIQUETA = "Adiciones del cliente";
-  /* ⚙️ Ajuste según factura.js: ¿el "total" que entrega la factura YA incluye el delivery?
-     (true = "Total a pagar" = subtotal + delivery, como en la pantalla de factura). */
+  const ETIQUETA = "Mandado Extra";
   const TOTAL_INCLUYE_ENVIO = true;
 
   const n = (x) => (Number.isFinite(+x) ? +x : 0);
@@ -19,14 +18,12 @@ const SubFactura = (() => {
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const $ = (id) => document.getElementById(id);
 
-  /* Foto de la factura original (se guarda al enviarla) */
   function instantanea(f) {
     const delivery = n(f.delivery), total = n(f.total);
     const subtotal = Number.isFinite(f.subtotal) ? f.subtotal : (TOTAL_INCLUYE_ENVIO ? Math.max(0, total - delivery) : total);
     return { subtotal: r2(subtotal), delivery: r2(delivery), total: r2(subtotal + delivery) };
   }
 
-  /* Cálculo puro del desglose */
   function calcular(factura, sub) {
     const f = factura || {}, items = (sub && sub.items) || [];
     const original = n(f.subtotal), envioOrig = n(f.delivery);
@@ -37,27 +34,26 @@ const SubFactura = (() => {
 
   const desgloseHtml = (c) => `<div class="pd-desglose">
       <div><span>Total Factura Original</span><b>${money(c.original)}</b></div>
-      <div><span>+ Total Sub-factura</span><b>${money(c.totalSub)}</b></div>
+      <div><span>+ Total Mandado Extra</span><b>${money(c.totalSub)}</b></div>
       <div><span>+ Envíos combinados</span><b>${money(c.envios)}</b></div>
       <div style="font-size:12px;color:var(--texto2)"><span>(original ${money(c.envioOrig)} + extra ${money(c.envioExtra)})</span><span></span></div>
       <div class="gran"><span>= Gran Total</span><b>${money(c.gran)}</b></div></div>`;
 
   function mensaje(v, ctx, c, sub) {
     const lineas = (sub.items || []).map((i) => `• ${i.nombre} — ${money(n(i.precio))}`).join("\n");
-    return `🧾 *SUB-FACTURA · ${ETIQUETA.toUpperCase()}*\n🏍️ Repartidor: ${ctx.usuario()}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n\n${lineas}\n` +
-      `\nTotal sub-factura: ${money(c.totalSub)}\nEnvío extra: ${money(c.envioExtra)}\n\n` +
+    return `🧾 *MANDADO EXTRA*\n🏍️ Repartidor: ${ctx.usuario()}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n\n${lineas}\n` +
+      `\nTotal mandado extra: ${money(c.totalSub)}\nEnvío extra: ${money(c.envioExtra)}\n\n` +
       `Factura original: ${money(c.original)}\nEnvíos combinados: ${money(c.envios)}\n*GRAN TOTAL: ${money(c.gran)}*`;
   }
 
-  /* ---------- Ventana ---------- */
   function abrir(v, ctx) {
     let draft = { items: ((v.sub && v.sub.items) || []).map((i) => ({ nombre: i.nombre, precio: n(i.precio) })), envioExtra: n(v.sub && v.sub.envioExtra) };
-    const refSub = ctx.db.ref(ctx.rutaSub || `pedidos/${v.token}/subfactura`);   // ctx.rutaSub: chats de clientes (solicitudes_entrantes/{id}/subfactura)
+    const refSub = ctx.db.ref(ctx.rutaSub || `pedidos/${v.token}/subfactura`);
     const guardar = () => {
       const subtotal = r2(draft.items.reduce((t, i) => t + i.precio, 0));
       const obj = { etiqueta: ETIQUETA, items: draft.items, subtotal, envioExtra: r2(draft.envioExtra), ts: firebase.database.ServerValue.TIMESTAMP };
-      v.sub = obj;   // se ve al instante; la nube confirma después
-      (draft.items.length || draft.envioExtra ? refSub.set(obj) : refSub.remove()).catch((e) => alert("No se pudo guardar la sub-factura: " + e.message));
+      v.sub = obj;
+      (draft.items.length || draft.envioExtra ? refSub.set(obj) : refSub.remove()).catch((e) => alert("No se pudo guardar el mandado extra: " + e.message));
       ctx.alCambiar && ctx.alCambiar(v);
     };
     const pintar = () => {
@@ -66,13 +62,13 @@ const SubFactura = (() => {
       $("subSinFactura").classList.toggle("oculto", !!v.factura);
       $("subItems").innerHTML = draft.items.length
         ? draft.items.map((i, k) => `<div class="pd-sub-item"><span>${esc(i.nombre)}</span><span><b>${money(i.precio)}</b> <button type="button" class="peligro" data-del="${k}" aria-label="Quitar ${esc(i.nombre)}">✕</button></span></div>`).join("")
-        : '<p class="ayuda">Aún no hay productos adicionales.</p>';
+        : '<p class="ayuda">Aún no hay tareas ni compras adicionales.</p>';
       $("subDesglose").innerHTML = desgloseHtml(c);
       $("btnSubWa").disabled = !draft.items.length;
     };
     const agregar = () => {
       const nombre = $("subNombre").value.trim(), precio = parseFloat($("subPrecio").value);
-      if (!nombre) return alert("Escribe el nombre del producto.");
+      if (!nombre) return alert("Escribe el nombre de la tarea o producto.");
       if (!(precio >= 0)) return alert("Escribe un precio válido.");
       draft.items.push({ nombre: nombre.slice(0, 60), precio: r2(precio) });
       $("subNombre").value = ""; $("subPrecio").value = ""; $("subNombre").focus();
@@ -86,15 +82,15 @@ const SubFactura = (() => {
       const b = e.target.closest("button[data-del]"); if (!b) return;
       draft.items.splice(+b.dataset.del, 1); guardar(); pintar();
     };
-    $("subEnvio").oninput = () => { draft.envioExtra = Math.max(0, n($("subEnvio").value)); pintar(); };   // el desglose se recalcula mientras escribes
+    $("subEnvio").oninput = () => { draft.envioExtra = Math.max(0, n($("subEnvio").value)); pintar(); };
     $("subEnvio").onchange = guardar;
     const btnEnviar = $("btnSubWa");
     if (btnEnviar.dataset.txt === undefined) btnEnviar.dataset.txt = btnEnviar.textContent;
-    btnEnviar.textContent = ctx.enviarChat ? "💬 Enviar al chat del cliente" : btnEnviar.dataset.txt;
+    btnEnviar.textContent = ctx.enviarChat ? "💬 Enviar mandado al chat del cliente" : btnEnviar.dataset.txt;
     btnEnviar.onclick = async () => {
       const sub = { items: draft.items, envioExtra: draft.envioExtra }, c = calcular(v.factura, sub);
       if (!ctx.enviarChat) return ctx.wa(mensaje(v, ctx, c, sub));
-      btnEnviar.disabled = true;     // en un chat el total actualizado llega como una tarjeta nueva en la conversación
+      btnEnviar.disabled = true;
       try { await ctx.enviarChat(c, sub); $("modalSub").classList.add("oculto"); }
       catch (e) { alert("No se pudo enviar al chat: " + (e.message || e)); }
       btnEnviar.disabled = !draft.items.length;
