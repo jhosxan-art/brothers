@@ -9,41 +9,6 @@
         (estado "atendido" + repartidorUid), y solo conversa con ese repartidor.
      6) Cuando el estado pasa a "entregado" (o "cancelado") el chat se vacía y queda un modal
         para valorar (1–5 estrellas) y el botón PEDIR NUEVAMENTE (crea una solicitud nueva).
-
-   FASE 4 · ajustes aplicados
-     · Palomitas ✓/✓✓ verdes en los mensajes del cliente (nodo solicitudes_entrantes/{id}/leidos/repartidor).
-     · Indicador "escribiendo…" del repartidor (nodo solicitudes_entrantes/{id}/typing/repartidor).
-       El cliente escribe su propio typing en solicitudes_entrantes/{id}/typing/cliente.
-     · Botón "✏️ Cambiar mi nombre" en la cabecera, solo visible cuando estado === "nuevo"
-       (sin repartidor asignado). Guarda en solicitudes_entrantes/{id}/nombre + LocalStorage.
-     · Guardado de la última dirección del cliente en clientes/{clienteId}/ultimaDireccion
-       (Firebase) y en localStorage (caché) al enviar el pedido. El tipo "gps" NO se guarda como
-       confirmable (depende de dónde esté el cliente en ese momento).
-     · Banner "La última vez pediste a: …" en el paso 3e del modal, con botones "Sí, aquí" / "No, otra dirección".
-       Solo se ofrece si la última dirección es pin o direccion.
-
-   Esquema en Realtime Database:
-     solicitudes_entrantes/{solicitudId}
-        clienteId, nombre, estado ("nuevo" | "atendido" | "entregado" | "cancelado"), creado, ts,
-        pedido {quiere, origen, modo: "recibe"|"envia",
-                destino: {tipo: "gps"|"pin"|"direccion", lat, lng | texto}},
-        clienteGps {lat, lng, prec, ts}     (el cliente lo actualiza en vivo si modo "recibe")
-        repartidorGps {lat, lng, ts}        (lo escribe el repartidor al atender)
-        valoracion {estrellas, ts}          (el cliente, una vez "entregado")
-        llegadaTs                           (el repartidor, al marcar "He llegado")
-        repartidorUid, repartidorNombre,
-        ultimoMensaje, ultimoDe,
-        leidos/repartidor (ts de la última lectura del repartidor)
-        leidos/cliente    (ts de la última lectura del cliente)
-        typing/cliente    (ts del último latido de "escribiendo…" del cliente)
-        typing/repartidor (ts del último latido de "escribiendo…" del repartidor)
-     clientes/{clienteId}/ultimaDireccion = { tipo:"pin"|"direccion"|"gps", lat, lng, texto, ts }
-     repartidorFotos/{repartidorUid}  (data URL JPEG de la foto del repartidor; lectura pública)
-     solicitudes_entrantes/{solicitudId}/mensajes/{pushId}
-        de ("cliente" | "repartidor"), tipo ("texto" | "factura" | "foto"), ts,
-        texto            (tipo "texto")
-        (tipo "foto": sin datos; la imagen va en solicitudes_fotos/{solicitudId}/{pushId})
-        factura {…}      (tipo "factura")
    ============================================================ */
 (() => {
   "use strict";
@@ -58,8 +23,7 @@
   const RAIZ_PERFIL = "repartidorFotos";
   const CENTRO_MAPA = [12.5700, -87.1311];   // Chinandega, Nicaragua
   const RADIO_CERCA_M = 200;
-  const TYPING_MS = 1500;          // debounce del "escribiendo…"
-  const TYPING_CADUCA = 4000;      // se apaga a los 4 s sin nuevos latidos
+  const TYPING_MS = 1500, TYPING_CADUCA = 4000;
   const COLOR_TICK_ENVIADO = "#8696A0";
   const COLOR_TICK_LEIDO = "#25D366";
 
@@ -82,10 +46,9 @@
   let mensajesListos = false;
   let avisadoCerca = false;
   let fotoRepUid = null;
-  let lect = {};                    // { cliente: ts, repartidor: ts } leídos desde refLeidos
-  let typingOtro = {};              // { cliente: ts, repartidor: ts } leídos desde refTyping
+  let lect = {};                    
+  let typingOtro = {};              
   let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
-  let primeraLecturaSolicitud = true;
 
   /* ---------- Utilidades ---------- */
   const vista = (id) => ["vCarga", "vNombre", "vPedido", "vChat"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
@@ -115,15 +78,12 @@
         window.crypto.getRandomValues(b);
         return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
       }
-    } catch (_) { /* cae al respaldo */ }
+    } catch (_) { }
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
   }
 
   const dinero = (n) => "C$ " + (Number(n) || 0).toFixed(2);
-
-  function hora(ts) {
-    return new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
-  }
+  const hora = (ts) => new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
 
   function etiquetaDia(ts) {
     const d = new Date(ts), hoy = new Date();
@@ -145,18 +105,18 @@
       if (p && typeof p === "object" && idValido(p.id) && nombreValido(p.nombre)) {
         return { id: p.id, nombre: p.nombre, solicitudId: idValido(p.solicitudId) ? p.solicitudId : null };
       }
-    } catch (_) { /* JSON dañado: se descarta */ }
-    try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { /* nada */ }
+    } catch (_) { }
+    try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { }
     return null;
   }
 
   function guardarPerfil(p) {
     respaldoMemoria = p;
     try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify({ id: p.id, nombre: p.nombre, solicitudId: p.solicitudId || null })); }
-    catch (_) { /* sin almacenamiento: queda en memoria durante la sesión */ }
+    catch (_) { }
   }
 
-  /* ---------- Última dirección (localStorage caché) ---------- */
+  /* ---------- Última dirección ---------- */
   function leerUltimaDirLocal() {
     try {
       const o = JSON.parse(localStorage.getItem(CLAVE_ULTIMA_DIR) || "null");
@@ -167,9 +127,6 @@
   function guardarUltimaDirLocal(d) {
     try { localStorage.setItem(CLAVE_ULTIMA_DIR, JSON.stringify(d)); } catch (_) {}
   }
-
-  /* Guarda la última dirección en Firebase (clientes/{clienteId}/ultimaDireccion) y en localStorage.
-     Solo persiste si es "pin" o "direccion" (gps depende de dónde esté el cliente en ese momento). */
   async function guardarUltimaDireccion(destino) {
     if (!destino || !perfil) return;
     if (destino.tipo !== "pin" && destino.tipo !== "direccion") return;
@@ -178,7 +135,7 @@
     if (destino.tipo === "direccion") dato.texto = String(destino.texto || "").slice(0, 200);
     guardarUltimaDirLocal(dato);
     try { await db.ref(RAIZ_CLIENTES + "/" + perfil.id + "/ultimaDireccion").set(dato); }
-    catch (_) { /* sin permiso o sin red: queda la copia local para la próxima */ }
+    catch (_) { }
   }
 
   /* ---------- Arranque ---------- */
@@ -213,11 +170,11 @@
     abrirChat();
   });
 
-  /* ---------- Crear o retomar el chat en solicitudes_entrantes ---------- */
+  /* ---------- Crear o retomar el chat ---------- */
   async function abrirChat() {
-    if (!perfil || !idValido(perfil.id)) {
+    if (!perfil || !idValido(perfil.id)) {          
       perfil = null;
-      try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { /* nada */ }
+      try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { }
       vista("vNombre");
       return;
     }
@@ -237,7 +194,7 @@
 
     try {
       const s = await refSolicitud.once("value");
-      if (!s.exists()) return pedirDetalles();
+      if (!s.exists()) return pedirDetalles();      
     } catch (e) {
       return errorCarga("No se pudo abrir tu chat: " + (e.code || e.message));
     }
@@ -267,7 +224,6 @@
     marcarLeidoPropio();
   }
 
-  /* Detiene todo lo del chat actual y deja la pantalla lista para otro */
   function detenerTodo() {
     if (refSolicitud) { refSolicitud.off(); refSolicitud.child("repartidorGps").off(); }
     if (refMensajes) refMensajes.off();
@@ -286,7 +242,6 @@
 
   /* ---------- Estado de la solicitud ---------- */
   function escucharSolicitud() {
-    primeraLecturaSolicitud = true;
     refSolicitud.on("value", (s) => {
       if (!s.exists()) {
         if (cerrado) return;
@@ -295,8 +250,6 @@
       }
       const d = s.val() || {};
       pedidoActual = d.pedido && typeof d.pedido === "object" ? d.pedido : null;
-
-      /* FASE 4 · botón "Cambiar mi nombre" visible solo en estado "nuevo" */
       $("btnCambiarNombre").classList.toggle("oculto", !(d.estado === "nuevo"));
 
       if (d.estado === "entregado" || d.estado === "cancelado") return cerrarCiclo(d);
@@ -306,6 +259,7 @@
       pintarEstado(ahoraAsignado, nombreRep, d.repartidorUid);
       pintarResumen();
       iniciarGps();
+      
       if (ahoraAsignado && !asignado) setMapaVisible(true);
       if (!ahoraAsignado && asignado) {
         setMapaVisible(false);
@@ -317,9 +271,9 @@
       }
       if (!ahoraAsignado) avisadoCerca = false;
       asignado = ahoraAsignado;
+      
       if (ahoraAsignado && d.llegadaTs) avisarCerca();
       primerSnapshot = false;
-      primeraLecturaSolicitud = false;
     }, (e) => mostrarError("Se perdió la conexión con tu chat: " + (e.code || e.message)));
   }
 
@@ -341,7 +295,7 @@
       img.alt = "Foto de " + (nombre || "tu repartidor");
       img.src = f;
       img.classList.remove("oculto"); letra.classList.add("oculto");
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   function pintarEstado(conRepartidor, nombreRep, uidRep) {
@@ -369,8 +323,6 @@
     }, () => {});
   }
 
-  /* Marca como leído el chat por parte del cliente.
-     Solo si hay repartidor asignado y la app está visible. */
   let tmLeidoCliente = null, tUltLeidoCliente = 0;
   function marcarLeidoPropio() {
     if (!refSolicitud || cerrado || !asignado || document.visibilityState !== "visible") return;
@@ -382,11 +334,9 @@
   }
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") marcarLeidoPropio(); });
 
-  /* Palomitas en cada burbuja mía (mensajes del cliente) */
   function actualizarTicks() {
     $("mensajes").querySelectorAll(".wa-tick").forEach((t) => {
       const ts = +t.dataset.ts || 0;
-      /* El mensaje es del cliente: se considera leído cuando el repartidor leyó (leidos.repartidor >= ts) */
       const leido = ts > 0 && (Number(lect.repartidor) || 0) >= ts;
       t.textContent = leido ? "✓✓" : "✓";
       t.classList.toggle("leido", leido);
@@ -446,7 +396,6 @@
       sub.classList.remove("escribiendo");
     }
   }
-  /* El cliente avisa al escribir */
   $("inMensaje").addEventListener("input", () => { if (asignado) marcarTypingPropio(); });
 
   /* ---------- Mensajes ---------- */
@@ -526,7 +475,6 @@
     h.className = "wa-hora";
     h.textContent = hora(ts);
 
-    /* Palomitas solo en MIS mensajes (los del cliente) */
     if (yo) {
       const tick = document.createElement("span");
       tick.className = "wa-tick";
@@ -641,8 +589,6 @@
     e.classList.toggle("oculto", !msg);
   }
 
-  /* FASE 4 · Muestra el banner con la última dirección guardada (solo pin o direccion).
-     Si el cliente tocó "Sí, aquí", se rellena el destino y se salta al envío. */
   function mostrarUltimaDireccion() {
     const box = $("ultimaDireccionBox"), txt = $("ultimaDireccionTxt");
     const dir = leerUltimaDirLocal();
@@ -667,7 +613,6 @@
       if (dir.tipo === "direccion") {
         setTipoEnvio("direccion");
         $("inDir").value = dir.texto || "";
-        /* Enviamos directo al usuario al submit */
         $("formPedido").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
       } else if (dir.tipo === "pin" && okLL(dir.lat, dir.lng)) {
         setTipoEnvio("pin");
@@ -755,6 +700,7 @@
     }
     setTimeout(() => mapaPin.invalidateSize(), 80);
   }
+
   function colocarPin(ll) {
     pin = { lat: redondear(ll.lat), lng: redondear(ll.lng) };
     if (!marcaPin) {
@@ -795,7 +741,6 @@
     btn.disabled = true;
     try {
       await crearSolicitud(pedido);
-      /* FASE 4 · guardar la última dirección (solo pin o direccion) para el próximo pedido */
       guardarUltimaDireccion(destino);
     } catch (e) {
       btn.disabled = false;
@@ -806,7 +751,7 @@
   });
 
   /* ============================================================
-     GPS en vivo del cliente (solo si recibe él mismo)
+     GPS en vivo del cliente
      ============================================================ */
   let watchId = null, ultimaEscritura = 0, ultimaEnviada = null;
 
@@ -839,14 +784,25 @@
     if (ultimaEnviada && distanciaM(ultimaEnviada, pos) < 5 && ahora - ultimaEscritura < 20000) return;
     ultimaEscritura = ahora; ultimaEnviada = pos;
     if (refSolicitud) {
-      refSolicitud.child("clienteGps").set({ lat: pos.lat, lng: pos.lng, prec: Math.round(p.coords.accuracy || 0), ts: firebase.database.ServerValue.TIMESTAMP }).catch(() => {});
+      refSolicitud.child("clienteGps").set({ lat: pos.lat, lng: pos.lng, prec: Math.round(p.coords.accuracy || 0), ts: firebase.database.ServerValue.TIMESTAMP }).catch(() => { });
     }
   }
 
   /* ============================================================
-     Mapa de seguimiento
+     MAPA DE SEGUIMIENTO (NUEVAS FUNCIONES FASE 1)
      ============================================================ */
   let mapa = null, marcaRep = null, marcaCli = null, posRep = null, encuadrado = false;
+  let capaRuta = null, ultimaRutaFetch = 0, ultimaRutaPos = null;
+
+  // Icono minimalista tipo WhatsApp
+  function iconoPinDiscreto(color, pulso = false) {
+    return L.divIcon({
+      className: "",
+      html: `<div class="pin-discreto${pulso ? " pulso" : ""}" style="--c: ${color}"></div>`,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+  }
 
   function escucharRepartidorGps() {
     refSolicitud.child("repartidorGps").on("value", (s) => {
@@ -854,7 +810,7 @@
       posRep = g && okLL(g.lat, g.lng) ? { lat: g.lat, lng: g.lng } : null;
       actualizarMapa();
       revisarCercania();
-    }, () => {});
+    }, () => { });
   }
 
   function avisarCerca() {
@@ -863,6 +819,7 @@
     avisoSistema("Tu repartidor está cerca de tu destino.");
     if (window.Voz) Voz.clienteRepartidorCerca();
   }
+
   function revisarCercania() {
     if (!asignado || avisadoCerca || !posRep) return;
     const c = puntoCliente();
@@ -874,12 +831,21 @@
     $("panelMapa").classList.toggle("oculto", !abrir);
     $("btnMapa").setAttribute("aria-expanded", String(abrir));
     if (!abrir) return;
+    
     if (!mapa) {
       mapa = L.map("mapaSeguir", { zoomControl: false }).setView(CENTRO_MAPA, 14);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
+      
+      // Capa para la ruta (se dibuja debajo de los marcadores)
+      capaRuta = L.polyline([], { color: "#3B82F6", weight: 6, opacity: 0.8, lineCap: "round" }).addTo(mapa);
+
+      // Pausar auto-encuadre si el usuario mueve el mapa manualmente
+      mapa.on("dragstart zoomstart", () => { mapa._lastUserMove = Date.now(); });
     }
+    
     setTimeout(() => { mapa.invalidateSize(); encuadrado = false; actualizarMapa(); }, 60);
   }
+
   $("btnMapa").addEventListener("click", () => setMapaVisible($("panelMapa").classList.contains("oculto")));
 
   function puntoCliente() {
@@ -887,33 +853,83 @@
     const d = pedidoActual && pedidoActual.destino;
     return d && okLL(d.lat, d.lng) ? { lat: d.lat, lng: d.lng } : null;
   }
+
   function ponerMarca(marca, punto, icono) {
     if (!punto) { if (marca) mapa.removeLayer(marca); return null; }
     if (!marca) return L.marker([punto.lat, punto.lng], { icon: icono, interactive: false }).addTo(mapa);
     marca.setLatLng([punto.lat, punto.lng]);
     return marca;
   }
+
   function actualizarMapa() {
     if (!mapa || $("panelMapa").classList.contains("oculto")) return;
+    
     const c = puntoCliente();
-    marcaCli = ponerMarca(marcaCli, c, iconoPin("wa-pin-cli", pedidoActual && pedidoActual.modo === "envia" ? "🏠" : "📍"));
-    marcaRep = ponerMarca(marcaRep, posRep, iconoPin("wa-pin-rep", "🛵"));
+    // Cliente: pin rojo. Repartidor: pin verde con pulso.
+    marcaCli = ponerMarca(marcaCli, c, iconoPinDiscreto("#E5322D"));
+    marcaRep = ponerMarca(marcaRep, posRep, iconoPinDiscreto("#25D366", true));
+    
     $("estadoMapa").classList.toggle("oculto", !!posRep);
-    if (encuadrado) return;
-    const pts = [c, posRep].filter(Boolean).map((q) => [q.lat, q.lng]);
-    if (pts.length === 2) { mapa.fitBounds(pts, { padding: [48, 48], maxZoom: 17 }); encuadrado = true; }
-    else if (pts.length === 1) mapa.setView(pts[0], 16);
+
+    // 1) FIT BOUNDS: Ajustar automáticamente para ver a ambos
+    const pts = [c, posRep].filter(Boolean);
+    if (pts.length === 2) {
+      // Solo auto-encuadrar si el usuario no movió el mapa en los últimos 10 segundos
+      if (!mapa._lastUserMove || Date.now() - mapa._lastUserMove > 10000) {
+        mapa.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 17, animate: true, duration: 1.0 });
+      }
+    } else if (pts.length === 1 && !encuadrado) {
+      if (!mapa._lastUserMove || Date.now() - mapa._lastUserMove > 10000) {
+        mapa.setView(pts[0], 16);
+        encuadrado = true;
+      }
+    }
+
+    // 2) TRAZADO DE RUTA
+    if (c && posRep) {
+      trazarRutaCliente(posRep, c);
+    } else {
+      if (capaRuta) capaRuta.setLatLngs([]);
+    }
   }
+
+  async function trazarRutaCliente(rep, cli) {
+    const ahora = Date.now();
+    // Throttle: No consultar OSRM más de 1 vez cada 10 segundos o si el repartidor se movió menos de 30 metros
+    if (ultimaRutaPos && distanciaM(ultimaRutaPos, rep) < 30 && ahora - ultimaRutaFetch < 15000) return;
+    if (ahora - ultimaRutaFetch < 5000) return; // Límite duro de 5s
+
+    ultimaRutaFetch = ahora;
+    ultimaRutaPos = rep;
+
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${rep.lng},${rep.lat};${cli.lng},${cli.lat}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const json = await res.json();
+      
+      if (json.code === "Ok" && json.routes && json.routes[0]) {
+        const pts = json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+        if (capaRuta) {
+          capaRuta.setLatLngs(pts);
+        }
+      }
+    } catch (e) {
+      console.warn("No se pudo trazar la ruta OSRM", e);
+    }
+  }
+
   function limpiarMapa() {
     if (mapa) {
       if (marcaCli) mapa.removeLayer(marcaCli);
       if (marcaRep) mapa.removeLayer(marcaRep);
+      if (capaRuta) mapa.removeLayer(capaRuta);
     }
     marcaCli = null; marcaRep = null; posRep = null; encuadrado = false;
+    capaRuta = null; ultimaRutaFetch = 0; ultimaRutaPos = null;
     setMapaVisible(false);
   }
 
-  /* ---------- Cancelar mientras nadie ha tomado el pedido ---------- */
+  /* ---------- Cancelar ---------- */
   $("btnCancelar").addEventListener("click", async () => {
     if (!refSolicitud || asignado || cerrado) return;
     if (!confirm("¿Cancelar tu solicitud? Dejaremos de buscar repartidor.")) return;
@@ -931,7 +947,6 @@
     }
   });
 
-  /* ---------- Resumen del pedido en el aviso de búsqueda ---------- */
   function pintarResumen() {
     const e = $("resumenPedido"), p = pedidoActual;
     e.textContent = p ? String(p.quiere || "") + " · de " + String(p.origen || "") : "";
@@ -939,7 +954,7 @@
   }
 
   /* ============================================================
-     Fotos (cámara o galería) → JPEG comprimido
+     Fotos (cámara o galería)
      ============================================================ */
   function comprimirImagen(archivo) {
     return new Promise((ok, fallo) => {
@@ -965,6 +980,7 @@
       img.src = url;
     });
   }
+
   $("btnFoto").addEventListener("click", () => { if (asignado) $("inFoto").click(); });
   $("inFoto").addEventListener("change", async () => {
     const archivo = $("inFoto").files && $("inFoto").files[0];
@@ -974,6 +990,7 @@
     let foto;
     try { foto = await comprimirImagen(archivo); }
     catch (_) { return mostrarError("No se pudo preparar la foto. Prueba con otra."); }
+
     const clave = refMensajes.push().key;
     const ts = firebase.database.ServerValue.TIMESTAMP;
     const base = RAIZ + "/" + perfil.solicitudId, cambios = {};
@@ -987,7 +1004,83 @@
   });
 
   /* ============================================================
-     FASE 4 · Cambiar mi nombre (solo mientras estado === "nuevo")
+     Cierre del ciclo
+     ============================================================ */
+  function cerrarCiclo(d) {
+    const entregado = d.estado === "entregado";
+    if (!cerrado) {
+      cerrado = true;
+      detenerGps();
+      if (refMensajes) refMensajes.off();
+      $("mensajes").textContent = "";
+      ultimoDe = null; ultimoDia = null;
+      $("vChat").classList.add("cerrado");
+      setMapaVisible(false);
+      mostrarError("");
+      $("btnCambiarNombre").classList.add("oculto");
+    }
+    const est = d.valoracion && Number(d.valoracion.estrellas);
+    $("cierreIcono").textContent = entregado ? "✅" : "🚫";
+    $("cierreTitulo").textContent = entregado ? "¡Pedido entregado!" : "Pedido cancelado";
+    $("cierreSub").textContent = entregado ? "¿Cómo estuvo tu repartidor?" : "Tu pedido fue cancelado. Puedes pedir de nuevo cuando quieras.";
+    $("boxEstrellas").classList.toggle("oculto", !entregado);
+    if (est >= 1 && est <= 5) {
+      valorada = true;
+      pintarEstrellas(est, true);
+      mensajeValoracion("¡Gracias por tu valoración!");
+    } else if (!valorada) {
+      pintarEstrellas(0, false);
+      $("msgValoracion").classList.add("oculto");
+    }
+    $("vCierre").classList.remove("oculto");
+  }
+
+  function pintarEstrellas(n, bloquear) {
+    document.querySelectorAll("#boxEstrellas .wa-estrella").forEach((b) => {
+      const k = Number(b.dataset.n);
+      b.classList.toggle("on", k <= n);
+      b.setAttribute("aria-checked", String(k === n));
+      b.disabled = !!bloquear;
+    });
+  }
+
+  function mensajeValoracion(texto, error) {
+    const e = $("msgValoracion");
+    e.textContent = texto;
+    e.className = "wa-estado" + (error ? " error" : "");
+  }
+
+  document.querySelectorAll("#boxEstrellas .wa-estrella").forEach((b) => b.addEventListener("click", async () => {
+    if (valorada || !refSolicitud) return;
+    const n = Number(b.dataset.n);
+    valorada = true;
+    pintarEstrellas(n, true);
+    try {
+      const e = await refSolicitud.child("estado").once("value");
+      if (e.exists()) {
+        await refSolicitud.child("valoracion").set({ estrellas: n, ts: firebase.database.ServerValue.TIMESTAMP });
+      }
+      mensajeValoracion("¡Gracias por tu valoración!");
+    } catch (err) {
+      valorada = false;
+      pintarEstrellas(0, false);
+      mensajeValoracion("No se pudo guardar tu valoración: " + (err.code || err.message), true);
+    }
+  }));
+
+  $("btnNuevo").addEventListener("click", () => {
+    detenerTodo();
+    cerrado = false; valorada = false;
+    $("btnCancelar").disabled = false;
+    $("vCierre").classList.add("oculto");
+    $("vChat").classList.remove("cerrado");
+    perfil = { id: generarId(), nombre: perfil.nombre, solicitudId: null };
+    guardarPerfil(perfil);
+    abrirChat();
+  });
+
+  /* ============================================================
+     Cambiar mi nombre
      ============================================================ */
   function abrirCambiarNombre() {
     if (!refSolicitud || asignado || cerrado) return;
@@ -1033,81 +1126,6 @@
       return;
     }
     btn.disabled = false;
-  });
-
-  /* ============================================================
-     Cierre del ciclo
-     ============================================================ */
-  function cerrarCiclo(d) {
-    const entregado = d.estado === "entregado";
-    if (!cerrado) {
-      cerrado = true;
-      detenerGps();
-      if (refMensajes) refMensajes.off();
-      $("mensajes").textContent = "";
-      ultimoDe = null; ultimoDia = null;
-      $("vChat").classList.add("cerrado");
-      setMapaVisible(false);
-      mostrarError("");
-      $("btnCambiarNombre").classList.add("oculto");
-    }
-    const est = d.valoracion && Number(d.valoracion.estrellas);
-    $("cierreIcono").textContent = entregado ? "✅" : "🚫";
-    $("cierreTitulo").textContent = entregado ? "¡Pedido entregado!" : "Pedido cancelado";
-    $("cierreSub").textContent = entregado ? "¿Cómo estuvo tu repartidor?" : "Tu pedido fue cancelado. Puedes pedir de nuevo cuando quieras.";
-    $("boxEstrellas").classList.toggle("oculto", !entregado);
-    if (est >= 1 && est <= 5) {
-      valorada = true;
-      pintarEstrellas(est, true);
-      mensajeValoracion("¡Gracias por tu valoración!");
-    } else if (!valorada) {
-      pintarEstrellas(0, false);
-      $("msgValoracion").classList.add("oculto");
-    }
-    $("vCierre").classList.remove("oculto");
-  }
-
-  function pintarEstrellas(n, bloquear) {
-    document.querySelectorAll("#boxEstrellas .wa-estrella").forEach((b) => {
-      const k = Number(b.dataset.n);
-      b.classList.toggle("on", k <= n);
-      b.setAttribute("aria-checked", String(k === n));
-      b.disabled = !!bloquear;
-    });
-  }
-  function mensajeValoracion(texto, error) {
-    const e = $("msgValoracion");
-    e.textContent = texto;
-    e.className = "wa-estado" + (error ? " error" : "");
-  }
-
-  document.querySelectorAll("#boxEstrellas .wa-estrella").forEach((b) => b.addEventListener("click", async () => {
-    if (valorada || !refSolicitud) return;
-    const n = Number(b.dataset.n);
-    valorada = true;
-    pintarEstrellas(n, true);
-    try {
-      const e = await refSolicitud.child("estado").once("value");
-      if (e.exists()) {
-        await refSolicitud.child("valoracion").set({ estrellas: n, ts: firebase.database.ServerValue.TIMESTAMP });
-      }
-      mensajeValoracion("¡Gracias por tu valoración!");
-    } catch (err) {
-      valorada = false;
-      pintarEstrellas(0, false);
-      mensajeValoracion("No se pudo guardar tu valoración: " + (err.code || err.message), true);
-    }
-  }));
-
-  $("btnNuevo").addEventListener("click", () => {
-    detenerTodo();
-    cerrado = false; valorada = false;
-    $("btnCancelar").disabled = false;
-    $("vCierre").classList.add("oculto");
-    $("vChat").classList.remove("cerrado");
-    perfil = { id: generarId(), nombre: perfil.nombre, solicitudId: null };
-    guardarPerfil(perfil);
-    abrirChat();
   });
 
   /* ============================================================
