@@ -7,6 +7,11 @@
    FASE 3 · Control manual: forzar estado a "entregado" / "cancelado" desde la lista y desde el Modo Espectador,
       y asignación manual forzada (transacción sobre repartidorUid) cuando nadie toma una solicitud.
       Notificación sonora + toast cuando llega una solicitud nueva (solo en el panel del admin).
+   FASE 3 v2 ·
+      · Se permite RE-forzar aunque el pedido ya esté en estado terminal.
+      · Se pide un motivo (prompt) y se guarda en motivoForzado (máx. 300 caracteres).
+      · El forzado solo escribe en el nodo donde se hace clic (no sincroniza entre ordenes/pedidos/solicitudes_entrantes).
+      · Voz.solicitudAdmin() + toast + Web Notification del navegador al llegar una solicitud nueva.
    Se carga DESPUÉS de admin.js y usa sus globales (db, mapa, ubic, registrados, toast, modal…).
    ============================================================ */
 const PedidosAdmin = (() => {
@@ -444,18 +449,25 @@ const PedidosAdmin = (() => {
   }
 
   /* ============================================================
-     FASE 3 · CONTROL MANUAL (Tachar/Forzar)
+     FASE 3 v2 · CONTROL MANUAL (Tachar/Forzar) — pedidos del administrador
      ============================================================ */
   /* Fuerza el estado de un pedido del administrador (ordenes/{token}) a "entregado" o "cancelado".
-     Se escribe en ordenes/{token} y en pedidos/{token} para que el cliente lo vea al instante.
-     También limpia la guía y la ubicación del invitado. */
+     - Se permite RE-forzar aunque ya esté en ese estado.
+     - Pide un motivo por prompt() y lo guarda en motivoForzado (máx. 300 caracteres).
+     - SOLO se escribe en ordenes/{token}. No sincroniza con pedidos/{token} ni con solicitudes_entrantes. */
   async function forzarEstadoOrden(token, nuevoEstado) {
     const o = ordenes[token];
     if (!o) return toast("No encuentro ese pedido.");
     if (!["entregado", "cancelado"].includes(nuevoEstado)) return toast("Estado no válido.");
-    if (o.estado === nuevoEstado) return toast("El pedido ya está en ese estado.");
     const esEnt = nuevoEstado === "entregado";
-    if (!confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el pedido " + cod(o.codigo) + "?\n\nEsto sobrescribe el estado sin importar lo que diga el repartidor o el cliente.")) return;
+    const yaEsta = o.estado === nuevoEstado;
+    // FASE 3 v2 · Se permite re-forzar aunque el pedido ya esté en estado terminal
+    if (yaEsta && !confirm(`El pedido ${cod(o.codigo)} YA está ${esEnt ? "ENTREGADO" : "CANCELADO"}.\n¿Re-forzar de todos modos? (actualiza los sellos de tiempo)`)) return;
+    if (!yaEsta && !confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el pedido " + cod(o.codigo) + "?\n\nEsto sobrescribe el estado sin importar lo que diga el repartidor o el cliente.")) return;
+    // FASE 3 v2 · Motivo del forzado (queda en el historial del pedido)
+    const motivo = (prompt("Motivo del forzado (queda en el historial, máx. 300 caracteres):", "") || "").trim().slice(0, 300);
+    if (!motivo && !confirm("Sin motivo. ¿Continuar igual?")) return;
+    // FASE 3 v2 · Solo se escribe en ordenes/{token} (no se sincroniza con pedidos ni solicitudes_entrantes)
     const upd = {
       [`ordenes/${token}/estado`]: nuevoEstado,
       [`ordenes/${token}/actualizado`]: O.TS,
@@ -463,15 +475,8 @@ const PedidosAdmin = (() => {
       [`ordenes/${token}/forzadoTs`]: O.TS
     };
     if (esEnt) upd[`ordenes/${token}/entregadoTs`] = O.TS;
-    // También actualiza el pedido del cliente (si existe) para que lo vea al instante
-    try {
-      const existe = (await db.ref("pedidos/" + token).once("value")).exists();
-      if (existe) {
-        upd[`pedidos/${token}/estado`] = nuevoEstado;
-        if (esEnt) upd[`pedidos/${token}/fin`] = O.TS;
-        upd[`pedidos/${token}/forzadoPorAdmin`] = true;
-      }
-    } catch (_) {}
+    else upd[`ordenes/${token}/canceladoTs`] = O.TS;
+    if (motivo) upd[`ordenes/${token}/motivoForzado`] = motivo;
     // Limpia guía y ubicación del invitado (si aplica)
     const a = o.asignacion || {};
     if (a.tipo === "registrado" && a.uid && guias[a.uid] && guias[a.uid].ordenId === token) upd["guias/" + a.uid] = null;
@@ -531,11 +536,11 @@ const PedidosAdmin = (() => {
     return `<div class="tarjeta-rep pd-orden">
       <div class="fila"><div class="datos"><strong>${esc(cod(o.codigo))} · ${esc(o.cliente || "Sin nombre")}</strong>
         <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
-      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}${o.forzadoPorAdmin ? "<br>🛡️ <b>Forzado por el administrador</b>" : ""}</div>
+      <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}${o.forzadoPorAdmin ? "<br>🛡️ <b>Forzado por el administrador</b>" + (o.motivoForzado ? ": " + esc(o.motivoForzado) : "") : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
         ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}${a.tipo && activa(o) ? btn("factura", "🧾 Factura", "pri") : ""}${inv && activa(o) ? btn("recorrido", "🗺 Recorrido") : ""}
         ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
-        ${activa(o) ? btn("forzar-ent", "✅ Forzar entregado") : ""}${activa(o) ? btn("forzar-canc", "🚫 Forzar cancelado") : ""}
+        ${btn("forzar-ent", "✅ Forzar entregado")}${btn("forzar-canc", "🚫 Forzar cancelado")}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
       </div></div>`;
   }
@@ -965,12 +970,14 @@ const PedidosAdmin = (() => {
 
 /* ============================================================
    SOLICITUDES ENTRANTES · panel del administrador
-   - Lista en vivo de solicitudes_entrantes con su estado: Sin atender · Con pedido · Entregado · Cancelado.
+   - Lista en vivo de solicitudes_entrantes con su estado: Sin atender · Con pedido (WhatsApp) · Entregado · Cancelado.
    - Visor de SOLO LECTURA: mensajes, fotos, facturas con el desglose de mandados extra y valoración del cliente.
-   - "Modo espectador": mapa con el GPS del cliente y del repartidor a la vez, en vivo.
+   - "Modo espectador": mapa con el GPS del cliente y el del repartidor a la vez, en vivo.
    - Borrado de chats FINALIZADOS: uno por uno, por fecha o por selección múltiple.
    - FASE 3 · Notificación sonora + toast al recibir solicitudes nuevas (solo una vez, al pasar a "nuevo").
    - FASE 3 · Control manual: forzar estado a entregado o cancelado desde el visor o la lista.
+   - FASE 3 v2 · Re-forzar permitido, motivo por prompt(), Web Notification al llegar solicitud nueva,
+                y forzar visible también en estados terminales.
    Usa los globales de admin.js (auth, db). Cuenta propia de pestaña: funciona aunque admin.js no la conozca.
    ============================================================ */
 const SolicitudesAdmin = (() => {
@@ -1029,13 +1036,24 @@ const SolicitudesAdmin = (() => {
     m.className = "sa-msg" + (error ? " error" : "") + (texto ? "" : " oculto");
   }
 
-  /* ---------- FASE 3 · Notificación sonora + toast al recibir una solicitud nueva ---------- */
+  /* ---------- FASE 3 v2 · Notificación sonora + toast + Notification del navegador al recibir una solicitud nueva ---------- */
   function anunciarNuevas(ids) {
     if (!ids.length) return;
-    try { if (typeof Voz !== "undefined" && Voz.solicitud) Voz.solicitud(); } catch (_) {}
+    try { if (typeof Voz !== "undefined" && Voz.solicitudAdmin) Voz.solicitudAdmin(); } catch (_) {}
     if (typeof toast === "function") {
       toast("📥 " + (ids.length === 1 ? "Nueva solicitud de cliente pendiente" : ids.length + " solicitudes nuevas pendientes"));
     }
+    // Web Notifications API (si el admin dio permiso al pulsar "Activar alertas de voz")
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        const titulo = "📥 " + (ids.length === 1 ? "Nueva solicitud de pedido" : ids.length + " solicitudes nuevas");
+        const cuerpo = ids.length === 1
+          ? "Un cliente quiere hacer un pedido. Toca para abrir el panel de Solicitudes."
+          : ids.length + " clientes quieren hacer pedidos. Toca para abrir el panel de Solicitudes.";
+        const n = new Notification(titulo, { body: cuerpo, tag: "solicitud-nueva", requireInteraction: false });
+        n.onclick = () => { try { window.focus(); } catch (_) {} ; try { irAPestana("panelSolicitudes"); } catch (_) {} ; try { n.close(); } catch (_) {} };
+      }
+    } catch (_) {}
   }
 
   /* ---------- Lista en vivo ---------- */
@@ -1145,8 +1163,8 @@ const SolicitudesAdmin = (() => {
       b.type = "button"; b.setAttribute("aria-label", "Leer el chat de " + nombre);
       b.addEventListener("click", () => abrirVisor(k));
       acc.appendChild(b);
-      // FASE 3: si la solicitud está activa (atendida), ofrecer forzar cancelado/entregado desde la lista
-      if (!fin(d) && d.repartidorUid) {
+      // FASE 3 v2 · forzar siempre que haya un repartidor asignado (permite re-forzar en estados terminales)
+      if (d.repartidorUid) {
         const fEnt = el("button", "primario", "✅");
         fEnt.type = "button"; fEnt.title = "Forzar entregado"; fEnt.setAttribute("aria-label", "Forzar entregado");
         fEnt.addEventListener("click", () => forzarEstadoSolicitud(k, "entregado"));
@@ -1199,14 +1217,20 @@ const SolicitudesAdmin = (() => {
     setTimeout(() => msg(""), 4000);
   }
 
-  /* ---------- FASE 3 · Forzar estado (Control manual) ---------- */
+  /* ---------- FASE 3 v2 · Forzar estado (Control manual) ---------- */
   async function forzarEstadoSolicitud(id, nuevoEstado) {
     const d = lista[id];
     if (!d) return msg("No encuentro esa solicitud.", true);
     if (!["entregado", "cancelado"].includes(nuevoEstado)) return msg("Estado no válido.", true);
-    if (d.estado === nuevoEstado) return msg("La solicitud ya está en ese estado.", true);
     const esEnt = nuevoEstado === "entregado";
-    if (!confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el chat de " + cortar(d.nombre || "Cliente", 30) + "?\n\nEsto sobrescribe el estado sin importar lo que diga el repartidor o el cliente.")) return;
+    const yaEsta = d.estado === nuevoEstado;
+    // Se permite re-forzar aunque ya esté en estado terminal
+    if (yaEsta && !confirm("La solicitud YA está " + (esEnt ? "ENTREGADA" : "CANCELADA") + ".\n¿Re-forzar de todos modos? (actualiza los sellos de tiempo)")) return;
+    if (!yaEsta && !confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el chat de " + cortar(d.nombre || "Cliente", 30) + "?\n\nEsto sobrescribe el estado sin importar lo que diga el repartidor o el cliente.")) return;
+    // Motivo del forzado (queda en el historial de la solicitud)
+    const motivo = (prompt("Motivo del forzado (queda en el historial, máx. 300 caracteres):", "") || "").trim().slice(0, 300);
+    if (!motivo && !confirm("Sin motivo. ¿Continuar igual?")) return;
+    // Solo se escribe en solicitudes_entrantes/{id} (no se sincroniza con pedidos ni ordenes)
     const upd = {
       [RAIZ + "/" + id + "/estado"]: nuevoEstado,
       [RAIZ + "/" + id + "/forzadoPorAdmin"]: true,
@@ -1214,6 +1238,7 @@ const SolicitudesAdmin = (() => {
     };
     if (esEnt) upd[RAIZ + "/" + id + "/entregadoTs"] = firebase.database.ServerValue.TIMESTAMP;
     else upd[RAIZ + "/" + id + "/canceladoTs"] = firebase.database.ServerValue.TIMESTAMP;
+    if (motivo) upd[RAIZ + "/" + id + "/motivoForzado"] = motivo;
     try {
       await db.ref().update(upd);
       msg(esEnt ? "✅ Chat forzado a ENTREGADO" : "🚫 Chat forzado a CANCELADO");
@@ -1232,8 +1257,8 @@ const SolicitudesAdmin = (() => {
       : est === "entregado" ? "Entregado" + (d.repartidorNombre ? " por " + cortar(d.repartidorNombre, 30) : "") + (v ? " · " + estrellas(v) : " · sin valoración") + (d.forzadoPorAdmin ? " · forzado" : "")
       : "Cancelado" + (d.motivoCancelacion === "cliente" ? " · lo decidió el cliente" : "") + (d.forzadoPorAdmin ? " · forzado" : "");
     g("saBorrarUno").classList.toggle("oculto", !fin(d));
-    // FASE 3: forzar solo si la solicitud está activa (atendida)
-    const activa = !fin(d) && !!d.repartidorUid;
+    // FASE 3 v2 · forzar siempre que haya un repartidor asignado (permite re-forzar en estados terminales)
+    const activa = !!d.repartidorUid;
     g("saForzarEnt").classList.toggle("oculto", !activa);
     g("saForzarCanc").classList.toggle("oculto", !activa);
     const p = d.pedido;
@@ -1447,7 +1472,6 @@ const SolicitudesAdmin = (() => {
 
   if (g(PANEL)) {
     enlazar();
-    if (typeof auth !== "undefined") auth.onAuthStateChange = auth.onAuthStateChange;   // (no-op)
     if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
   }
   return { iniciar, detener, forzarEstadoSolicitud };
