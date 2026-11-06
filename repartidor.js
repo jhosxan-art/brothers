@@ -7,21 +7,16 @@
    3) Cada nueva factura agrega otro pedido (otro token): el repartidor puede llevar varios
       y entregarlos en el orden que quiera. Entre pantallas se mueve con la barra inferior.
    4) El cliente comparte su ubicación al abrir el enlace; aquí se ve en tiempo real.
-   - Turno: la ubicación del repartidor se comparte SIEMPRE mientras haya sesión (mapa del administrador)
-   - En el APK (Capacitor) el GPS sigue en segundo plano; en el navegador solo con la pantalla activa
-   FASE 2 (PedidoRep): al aceptar un pedido del administrador aparece "Crear Factura" sobre el mapa; la factura se guarda
-   directo en Firebase (la ve el cliente en su rastreo, con la prioridad de C$ 10 si la aceptó) y la ubicación del cliente
-   se actualiza en el mapa en el mismo instante en que él la cambia.
-   NAVEGACIÓN INMERSIVA (Camara): zoom dinámico por proximidad al destino, mapa que rota hacia donde avanza la moto (bearing de las
-   últimas dos coordenadas), repartidor fijo en el tercio inferior de la pantalla e ícono que escala con el zoom.
-   PANTALLA ACTIVA (Pantalla): Screen Wake Lock con reconexión automática al volver a la app.
-   FACTURA EN VIVO (FacturaVivo): ícono 🧾 en la cabecera → productos, delivery, prioridad, mandados extra (varios por pedido,
-   guardados en pedidos/{token}/extras) y total. El cliente y el administrador lo ven al instante.
-   FASE 2 (Llegada + notificaciones): botón "📍 He llegado" en el chat del cliente + aviso automático por proximidad
-   (≤200 m) que escribe llegadaTs en solicitudes_entrantes/{id} → cliente-app.js dispara Voz.clienteRepartidorCerca.
-   Las notificaciones locales guardan su id por solicitud/token/equipo para poder cancelarlas con notification.close().
-   ============================================================ */
-/* Si algo falla al cargar (p. ej. faltan archivos por subir), el motivo aparece escrito bajo el formulario */
+
+   FASE 4 · ajustes aplicados
+     · Palomitas ✓/✓✓ verdes en el chat del repartidor (ChatsEntrantes).
+     · Indicador "escribiendo…" del cliente en la cabecera del chat.
+     · Última dirección del cliente (clientes/{clienteId}/ultimaDireccion):
+         - Se muestra en un banner arriba del chat.
+         - Botón "📮 Sugerir al cliente" envía un mensaje preformateado al chat.
+     · Ícono del pedido en el mapa más discreto (pin de 24 px con etiqueta al costado).
+     · Al abrir el mapa, fitBounds de todos los pedidos activos (más zona visible).
+     ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
   if (m) { m.textContent = "Error en la página: " + e.message + ". Puede que falten archivos por subir a GitHub."; m.className = "estado error"; }
@@ -32,10 +27,7 @@ const $ = (id) => document.getElementById(id);
 const TS = firebase.database.ServerValue.TIMESTAMP;
 
 /* ============================================================
-   PANTALLA ACTIVA · Screen Wake Lock API
-   - pedir(): solicita el wake lock "screen" (al abrir la app, al iniciar turno y al empezar un viaje).
-   - Si el repartidor minimiza la app, el navegador libera el bloqueo solo; al volver (visibilitychange) se vuelve a pedir.
-   - En el APK, si existe el plugin nativo "KeepAwake" también se usa (respaldo para WebViews sin Wake Lock).
+   PANTALLA ACTIVA · Screen Wake Lock
    ============================================================ */
 const Pantalla = (() => {
   let lock = null, quiere = false;
@@ -47,11 +39,11 @@ const Pantalla = (() => {
     const ka = nativoKA();
     if (ka && typeof ka.keepAwake === "function") { try { await ka.keepAwake(); ind(true); } catch (_) {} }
     if (!soportado() || document.visibilityState !== "visible") return;
-    if (lock && !lock.released) return;   // ya está activo
+    if (lock && !lock.released) return;
     try {
       lock = await navigator.wakeLock.request("screen");
       ind(true);
-      lock.addEventListener("release", () => { ind(false); });   // el sistema lo soltó (app minimizada, ahorro de batería…): visibilitychange lo reactiva
+      lock.addEventListener("release", () => { ind(false); });
     } catch (_) { ind(false); }
   }
   function soltar() {
@@ -61,17 +53,13 @@ const Pantalla = (() => {
     const ka = nativoKA();
     if (ka && typeof ka.allowSleep === "function") { try { ka.allowSleep(); } catch (_) {} }
   }
-  /* Reconexión: al volver a la app (o a la pestaña) se reactiva el bloqueo si se había pedido */
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && quiere) pedir(); });
   window.addEventListener("pageshow", () => { if (quiere) pedir(); });
   return { pedir, soltar, soportado };
 })();
 
 /* ============================================================
-   ACTUALIZACIONES OBLIGATORIAS (In-App Updates) · app Repartidor
-   Firebase: configuracion/actualizaciones/repartidor = { version: 2, novedades: "texto", url: "https://…apk" }
-   Si version > APP_VERSION se bloquea la app con una pantalla que no se puede cerrar.
-   Va al principio para que el bloqueo funcione aunque más abajo algo falle.
+   ACTUALIZACIONES OBLIGATORIAS
    ============================================================ */
 const APP_VERSION = 1;
 const ActualizacionApp = (() => {
@@ -81,11 +69,11 @@ const ActualizacionApp = (() => {
   const urlSegura = (u) => { try { const x = new URL(String(u || "").trim()); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch (_) { return ""; } };
   function mostrar(d) {
     const url = urlSegura(d.url), btn = g("btnActualizarApp");
-    g("updNovedades").textContent = String(d.novedades || "").trim() || "Mejoras de rendimiento y correcciones.";   // textContent: nunca se interpreta como HTML
+    g("updNovedades").textContent = String(d.novedades || "").trim() || "Mejoras de rendimiento y correcciones.";
     g("updVersionTxt").textContent = "Tu versión: " + APP_VERSION + " · Nueva versión: " + Number(d.version);
     if (url) {
       btn.href = url; btn.removeAttribute("aria-disabled");
-      btn.onclick = (e) => { e.preventDefault(); try { window.open(url, "_system"); } catch (_) { window.location.href = url; } };   // _system: abre el navegador desde el APK
+      btn.onclick = (e) => { e.preventDefault(); try { window.open(url, "_system"); } catch (_) { window.location.href = url; } };
     } else {
       btn.removeAttribute("href"); btn.setAttribute("aria-disabled", "true"); btn.onclick = (e) => e.preventDefault();
     }
@@ -101,32 +89,28 @@ const ActualizacionApp = (() => {
   function vigilar() {
     if (ref) return;
     ref = db.ref(RUTA);
-    ref.on("value", (s) => evaluar(s.val()), () => { ref = null; });   // si aún no hay permiso (sin sesión), se reintenta al iniciar sesión
+    ref.on("value", (s) => evaluar(s.val()), () => { ref = null; });
   }
   return { vigilar, evaluar };
 })();
 ActualizacionApp.vigilar();
 auth.onAuthStateChanged((u) => { if (u) ActualizacionApp.vigilar(); });
 
-/* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
-   Sirve para avisar al administrador (push en su APK Admin) cuando escribes en un chat. Mientras diga "TU-WORKER" no se envía nada. */
 const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
-const PRIORIDAD_EXTRA = 10;   // C$ de propina cuando el cliente prioriza su pedido
-/* Suma de los mandados extra de un pedido (pedidos/{token}/extras/{id} = { monto, nota, ts, por }) */
+const PRIORIDAD_EXTRA = 10;
 const sumaExtras = (o) => (o && typeof o === "object" ? Object.values(o).reduce((t, e) => t + (Number(e && e.monto) || 0), 0) : 0);
 
 let watchId = null, bgId = null, bgPlugin = null, latido = null;
 let uidActual = null, usuario = null, ultimaPos = null, ultimaEscritura = 0;
-const INTERVALO_MS = 4000;   // máximo 1 escritura de GPS cada 4 s
-const RADIO_AVISO_M = 200;   // distancia que dispara "El repartidor está cerca" en el cliente
-const FRESCO_MS = 60000;     // la ubicación del cliente se considera "en vivo" si es más reciente que esto
+const INTERVALO_MS = 4000;
+const RADIO_AVISO_M = 200;
+const FRESCO_MS = 60000;
 
-/* Estado de la app */
-const viajes = {};           // token → pedido en ruta (ver crearViaje)
-let orden = [];              // tokens, en el orden en que se crearon (define el número 1, 2, 3…)
-let seleccionado = null;     // token del pedido enfocado en el mapa
-let vistaActual = "factura"; // "factura" | "mapa" | "chats"
-let chatToken = null;        // token cuyo chat está abierto ahora ("equipo" = chat con Brothers)
+const viajes = {};
+let orden = [];
+let seleccionado = null;
+let vistaActual = "factura";
+let chatToken = null;
 const RUTA_EQUIPO = { chats: "chatsEquipo", resumen: "chatsEquipoResumen", fotos: "fotosEquipo" };
 let lugares = {}, lugarMarks = {}, refLugares = null, lugarDestino = null, marcaLugar = null, rutaLugar = null;
 let capaLugar = null, flechasLugar = null, flechasOrden = null, flechasClave = "", resultadosRep = [];
@@ -135,7 +119,6 @@ let mapa = null, marcaYo = null, estelaProp = null, capaRuta = null, capaFlujo =
 let rastro = [], marcando = false, nombreYoMarcado = "";
 const iconoDestino = iconoPin();
 
-/* ---------- Utilidades ---------- */
 function setEstado(texto, tipo = "") {
   const el = $("estadoGps"); if (!el) return;
   el.textContent = texto; el.className = "estado " + tipo;
@@ -145,7 +128,6 @@ function generarToken(largo = 14) {
   const bytes = crypto.getRandomValues(new Uint8Array(largo));
   return Array.from(bytes, (b) => abc[b % abc.length]).join("");
 }
-/* FASE 3: enlace de rastreo limpio (solo ?id=TOKEN). Usa el mismo constructor que factura.js. */
 function enlaceDe(token, extra) {
   if (window.Factura && typeof window.Factura.enlaceRastreo === "function") return window.Factura.enlaceRastreo(token, extra);
   try {
@@ -158,18 +140,10 @@ function enlaceDe(token, extra) {
     return u.toString();
   } catch (e) { return `${URL_RASTREO}?id=${token}` + (extra ? "&" + Object.keys(extra).map((k) => k + "=" + extra[k]).join("&") : ""); }
 }
-/* FASE 3: leyenda persuasiva que acompaña al enlace en WhatsApp */
 const leyendaEnlace = (link) =>
   "📍 *Importante:* abra el enlace y comparta su ubicación en tiempo real para que su repartidor lo encuentre y su pedido llegue más rápido.\n" +
   "👉 " + link;
 
-/* ============================================================
-   CÓDIGOS DE RETIRO COMPARTIDOS (BD00001 … BD99999)
-   Un solo contador en Firebase (codigosRetiro/contador) reparte los códigos a TODOS los repartidores en un orden
-   pseudoaleatorio sin repetir ninguno hasta agotar los 99999. Cada aparato reserva un lote por adelantado (funciona sin internet
-   mientras le queden códigos) y los códigos reservados nunca se pierden aunque se cierre la app o cambie el repartidor.
-   Fórmula: código = (índice × A) mod P, con P = 100003 (primo) → cada índice da un valor distinto; los 3 valores >99999 se omiten.
-   ============================================================ */
 const CodigosBD = (() => {
   const P = 100003, A = 48271, LOTE = 25, MINIMO = 8, CLAVE = "brothersCodigosBDReservados";
   let cola = [], pidiendo = false;
@@ -183,23 +157,22 @@ const CodigosBD = (() => {
       if (r.committed) {
         const fin = Number(r.snapshot.val()) || 0;
         for (let k = fin - LOTE; k < fin; k++) {
-          const idx = (k % (P - 1)) + 1, v = (idx * A) % P;      // idx 1…P-1 → v 1…P-1 (todos distintos en cada ciclo)
+          const idx = (k % (P - 1)) + 1, v = (idx * A) % P;
           if (v >= 1 && v <= 99999) cola.push("BD" + String(v).padStart(5, "0"));
         }
         guardar();
       }
-    } catch (_) { /* sin conexión o sin permisos: se reintenta en el próximo código */ }
+    } catch (_) {}
     pidiendo = false;
   }
   function siguiente() {
     const c = cola.shift() || null;
     if (c) guardar();
     if (cola.length < MINIMO) reponer();
-    return c;   // null = no hay reservados (primer uso sin internet): factura.js usa un código local de respaldo
+    return c;
   }
   return { siguiente, reponer };
 })();
-/* Código tal como se ve en la app: WA12345 (factura por WhatsApp) / APP12345 (pedido hecho desde la app). En Firebase y en el texto de WhatsApp sigue como BD12345. */
 const etiquetaPedido = (codigo, origen) => (window.Factura && typeof window.Factura.etiquetaPedido === "function")
   ? window.Factura.etiquetaPedido(codigo, origen)
   : (((origen === "app" ? "APP" : "WA") + String(codigo == null ? "" : codigo).replace(/\D/g, "").padStart(5, "0")));
@@ -215,8 +188,7 @@ function distanciaM(lat1, lng1, lat2, lng2) {
 const nombreDe = (v) => v.cliente || ("Pedido " + etiquetaWA(v));
 const esVivo = (v) => !!(v.cliPos && !v.cliPos.manual && v.cliPos.ts && Date.now() - v.cliPos.ts < FRESCO_MS);
 
-/* ---------- Pantallas ---------- */
-function mostrar(vista) {   // "login" | "usuario" | "app"
+function mostrar(vista) {
   $("splash").classList.add("oculto");
   $("mainAuth").classList.toggle("oculto", vista === "app");
   $("vistaLogin").classList.toggle("oculto", vista !== "login");
@@ -238,15 +210,20 @@ function irA(vista) {
   if (vista === "mapa") {
     renderLista();
     initMapa();
-    try { ChatsEntrantes.pintarMapa(); } catch (_) {}   // íconos de solicitud y clientes de los chats
-    setTimeout(() => { mapa.invalidateSize(); if (seguirme && ultimaPos) Camara.actualizar(true); else encuadrar(); }, 60);
+    try { ChatsEntrantes.pintarMapa(); } catch (_) {}
+    setTimeout(() => {
+      mapa.invalidateSize();
+      if (seguirme && ultimaPos) Camara.actualizar(true);
+      else encuadrar();
+      // FASE 4 · al abrir el mapa, centrar en todos los pedidos activos
+      encuadrarTodosPedidos();
+    }, 60);
   }
 }
-/* PedidoRep se define más abajo: estos accesos son seguros aunque aún no exista */
 const noLeidosPedido = () => { try { return PedidoRep.noLeidos(); } catch (_) { return 0; } };
 const htmlPedidoChat = () => { try { return PedidoRep.htmlChat(); } catch (_) { return ""; } };
 function actualizarNav() {
-  const hay = !!uidActual && !!usuario;   // Factura ⇄ Mapa siempre disponibles; el mapa también sirve sin pedidos
+  const hay = !!uidActual && !!usuario;
   $("navApp").classList.toggle("oculto", !hay);
   document.body.classList.toggle("con-nav", !!hay);
   $("navFactura").classList.toggle("activa", vistaActual === "factura");
@@ -266,7 +243,6 @@ $("navFactura").onclick = () => irA("factura");
 $("navMapa").onclick = () => irA("mapa");
 $("navChats").onclick = () => irA("chats");
 
-/* ---------- Sesión y nombre de usuario ---------- */
 function msgLogin(t) {
   const e = $("msgLogin");
   if (!e) { if (t) alert(t); return; }
@@ -278,8 +254,8 @@ $("btnLogin").onclick = () => {
       .catch(() => msgLogin("No se pudo entrar: correo o contraseña incorrectos."));
 };
 
-try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}   // la sesión se recuerda en este aparato
-setTimeout(() => $("splash").classList.add("oculto"), 8000);   // por si algo tarda: nunca se queda cargando
+try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}
+setTimeout(() => $("splash").classList.add("oculto"), 8000);
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
     detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); try { ChatsEntrantes.detener(); } catch (_) {} uidActual = null; usuario = null; $("clave").value = "";
@@ -299,7 +275,6 @@ auth.onAuthStateChanged(async (user) => {
       msgLogin("No se pudo verificar tu cuenta: faltan permisos en Firebase (reglas).");
       return auth.signOut();
     }
-    // sin internet o muy lenta: NO se cierra la sesión; se entra con los datos guardados la última vez
     try { reg = JSON.parse(localStorage.getItem(claveCache) || "null"); } catch (_) { reg = null; }
     if (!reg) { msgLogin("Sin conexión: no se pudo verificar tu cuenta. Revisa tu internet."); return mostrar("login"); }
   }
@@ -308,7 +283,7 @@ auth.onAuthStateChanged(async (user) => {
     return auth.signOut();
   }
   usuario = typeof reg === "object" && reg.usuario ? reg.usuario : null;
-  if (!usuario) return mostrar("usuario");   // primera vez: pedir nombre de usuario
+  if (!usuario) return mostrar("usuario");
   entrarTurno();
 });
 
@@ -322,28 +297,27 @@ $("btnGuardarUsuario").onclick = async () => {
 };
 
 async function entrarTurno() {
-  // Si se corta la conexión, el administrador lo verá como "desconectado"
   db.ref("ubicaciones/" + uidActual).onDisconnect().update({ enLinea: false, enViaje: false, conPedido: false, ts: TS });
   Factura.nombreRepartidor = usuario;
   Factura.codigoCompartido = () => CodigosBD.siguiente();
   CodigosBD.reponer();
-  Pantalla.pedir();                 // pantalla siempre encendida mientras trabajas
-  reanudarViajes();                 // por si la app se cerró con pedidos en ruta
-  vistaActual = orden.length ? "mapa" : "factura";   // la factura es lo primero, salvo que ya lleve un pedido en camino
+  Pantalla.pedir();
+  reanudarViajes();
+  vistaActual = orden.length ? "mapa" : "factura";
   mostrar("app");
-  escucharAdmin();                  // chat con Brothers + guías del administrador
-  ChatsEntrantes.iniciar();         // pestaña "Nuevos Chats": clientes que escriben desde cliente-app.html
-  await permisosInicio();           // APK: explica y pide permisos (notificaciones…)
-  registrarPush();                  // avisos push con la app cerrada
-  iniciarNativo();                  // burbuja flotante, batería y ubicaciones compartidas (solo APK)
-  iniciarGPS();                     // y aquí Android pide la ubicación (“todo el tiempo”)
+  escucharAdmin();
+  ChatsEntrantes.iniciar();
+  await permisosInicio();
+  registrarPush();
+  iniciarNativo();
+  iniciarGPS();
 }
 
 $("btnSalir").onclick = async () => {
   if (orden.length || ChatsEntrantes.activos()) return alert("Primero entrega o cancela los pedidos en curso.");
   if (!confirm("¿Cerrar sesión? Dejarás de compartir tu ubicación.")) return;
   detenerGPS(); apagarNativo();
-  try { await db.ref(`repartidores/${uidActual}/fcmToken`).remove(); } catch (_) {}   // este teléfono deja de recibir avisos
+  try { await db.ref(`repartidores/${uidActual}/fcmToken`).remove(); } catch (_) {}
   try {
     await db.ref("ubicaciones/" + uidActual).update({ enLinea: false, enViaje: false, ts: TS });
     db.ref("ubicaciones/" + uidActual).onDisconnect().cancel();
@@ -352,32 +326,31 @@ $("btnSalir").onclick = async () => {
 };
 
 /* ============================================================
-   MAPA (repartidor + clientes + ruta)
+   MAPA
    ============================================================ */
 function initMapa() {
   if (mapa) return;
   mapa = L.map("mapaRuta", Object.assign({}, GestosMapa.opciones, Camara.opcionesMapa())).setView([-12.0464, -77.0428], 14);
-  L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);   // zoom: botones, doble toque o pellizco
+  L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);
   GestosMapa.aplicar(mapa);
-  mapa.on("click movestart", cerrarBusquedaRep);   // tocar o mover el mapa cierra la búsqueda y deja el mapa completo
+  mapa.on("click movestart", cerrarBusquedaRep);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
-  // Recorrido del repartidor (lo que ya avanzó) + ruta hacia el cliente (con línea animada encima)
   estelaProp = L.polyline([], { color: "#7B8794", weight: 5, opacity: .65 }).addTo(mapa);
   capaRuta = L.polyline([], { color: "#0A86C9", weight: 7, opacity: .9, lineCap: "round" }).addTo(mapa);
   capaFlujo = L.polyline([], { color: "#fff", weight: 3, opacity: .95, className: "ruta-viva" }).addTo(mapa);
-  flechasOrden = L.layerGroup().addTo(mapa);   // flechas: sentido de circulación en cada calle
+  flechasOrden = L.layerGroup().addTo(mapa);
   capaLugar = L.polyline([], { color: "#F59E0B", weight: 7, opacity: .9, lineCap: "round" }).addTo(mapa);
   flechasLugar = L.layerGroup().addTo(mapa);
   mapa.on("zoomend", () => mapa.getContainer().classList.toggle("zoom-lejos", mapa.getZoom() < 15));
-  mapa.on("zoom zoomend", Camara.aplicarEscala);   // el ícono del repartidor crece con el zoom (respeta el ancho de la calle)
+  mapa.on("zoom zoomend", Camara.aplicarEscala);
   Camara.aplicarEscala();
   mapa.getContainer().classList.add("zoom-lejos");
-  mapa.on("popupopen", (e) => {   // botón "Ir aquí" dentro de la ventanita de un negocio
+  mapa.on("popupopen", (e) => {
     const el = e.popup.getElement(); if (!el) return;
     el.querySelectorAll("button[data-ir]").forEach((b) => b.onclick = () => { mapa.closePopup(); irALugar(lugares[b.dataset.ir], true); });
   });
   mapa.on("click", (e) => { if (Policia.clickMapa(e.latlng)) return; if (marcando) fijarDestinoManual(e.latlng.lat, e.latlng.lng); });
-  mapa.on("dragstart", () => { seguirme = false; Camara.refrescarBoton(); });   // el repartidor movió el mapa con el dedo: se pausa la cámara (botón 🧭 para retomar)
+  mapa.on("dragstart", () => { seguirme = false; Camara.refrescarBoton(); });
   if (ultimaPos) { pintarYo(); mapa.setView([ultimaPos.lat, ultimaPos.lng], 15); }
   Policia.pintar();
   orden.forEach((t) => pintarCliente(viajes[t]));
@@ -388,40 +361,29 @@ function initMapa() {
   if (lugarDestino) { pintarLugarDestino(); dibujarRutaLugar(); }
   actualizarBanner();
   ["pointerdown", "touchstart", "wheel"].forEach((ev) => mapa.getContainer().addEventListener(ev, Camara.gesto, { passive: true, capture: true }));
-  mapa.on("zoomstart", Camara.alZoom);   // se registra al final para ignorar los zooms de arranque
+  mapa.on("zoomstart", Camara.alZoom);
 }
-let seguirme = true;   // el mapa sigue al repartidor hasta que lo mueve con el dedo
+let seguirme = true;
 
-/* ============================================================
-   CÁMARA INTELIGENTE (navegación inmersiva)
-   1) Zoom dinámico: cuanto más cerca del destino, más zoom (de ~14.5 lejos a 19 pegado al destino), con pasos de 0.25.
-   2) Bearing: el rumbo se calcula con las dos últimas coordenadas (mínimo 4 m de avance) y el mapa rota para que la moto apunte
-      hacia arriba. Usa el plugin leaflet-rotate; si no está cargado, el mapa queda con el norte arriba y lo demás sigue igual.
-   3) Tercio inferior: el centro del mapa se corre H/6 px "hacia adelante" del rumbo, así el marcador queda en la línea de 2/3
-      de la altura y se ve más ruta por delante.
-   4) Ícono proporcional: --escala-rep (CSS) crece con el zoom: ~0.7 lejos → 1.6 con el máximo acercamiento.
-   ============================================================ */
 const Camara = (() => {
-  const SIGNO_ROTACION = 1;      // si en tu equipo el mapa gira al revés, cambia a -1
-  const MIN_PASO_M = 4;          // avance mínimo entre dos puntos para recalcular el rumbo (evita temblor del GPS parado)
-  const MIN_MS = 900;            // la cámara se mueve como máximo una vez por segundo
+  const SIGNO_ROTACION = 1;
+  const MIN_PASO_M = 4;
+  const MIN_MS = 900;
   let prev = null, suave = 0, tieneRumbo = false, ult = 0, ultGesto = 0;
   const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
   const rotable = () => !!(mapa && typeof mapa.setBearing === "function");
-  /* Si el repartidor hace zoom con el dedo o los botones, la cámara automática se pausa (🧭 para retomarla) */
   const gesto = () => { ultGesto = Date.now(); };
   const alZoom = () => { if (Date.now() - ultGesto < 1500 && seguirme) { seguirme = false; refrescarBoton(); } };
   const opcionesMapa = () => ({ rotate: true, bearing: 0, touchRotate: false, rotateControl: false, zoomSnap: 0.25, zoomDelta: 1 });
 
-  /* Ángulo (0–360°, desde el norte, horario) entre dos coordenadas */
   function rumboEntre(a, b) {
     const dLng = rad(b.lng - a.lng);
     const y = Math.sin(dLng) * Math.cos(rad(b.lat));
     const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(dLng);
     return (deg(Math.atan2(y, x)) + 360) % 360;
   }
-  function giroSuave(a, b) { const d = ((b - a + 540) % 360) - 180; return (a + d * 0.5 + 360) % 360; }   // camino más corto entre ángulos, suavizado
-  function registrar(lat, lng) {   // se llama con cada lectura del GPS
+  function giroSuave(a, b) { const d = ((b - a + 540) % 360) - 180; return (a + d * 0.5 + 360) % 360; }
+  function registrar(lat, lng) {
     const p = { lat, lng };
     if (!prev) { prev = p; return; }
     if (distanciaM(prev.lat, prev.lng, lat, lng) < MIN_PASO_M) return;
@@ -430,8 +392,6 @@ const Camara = (() => {
     suave = tieneRumbo ? giroSuave(suave, r) : r;
     tieneRumbo = true;
   }
-
-  /* Destino activo: negocio/lugar elegido > pedido seleccionado > cliente del pedido del administrador */
   function destino() {
     if (lugarDestino) return lugarDestino;
     const v = viajes[seleccionado];
@@ -440,7 +400,7 @@ const Camara = (() => {
   }
   function zoomPara(dist) {
     if (dist == null) return 17;
-    const z = 19 - Math.log2(Math.max(dist, 80) / 80) * 0.75;   // 80 m → 19 · 640 m → 16.75 · 5 km → 14.5
+    const z = 19 - Math.log2(Math.max(dist, 80) / 80) * 0.75;
     return Math.round(Math.min(19, Math.max(14.5, z)) * 4) / 4;
   }
   function escalaPara(z) { return Math.round(Math.min(1.6, Math.max(0.7, 0.7 * Math.pow(2, (z - 15) * 0.3))) * 100) / 100; }
@@ -454,25 +414,22 @@ const Camara = (() => {
     b.classList.toggle("on", !!seguirme);
     b.setAttribute("aria-pressed", String(!!seguirme));
   }
-
-  /* Mueve la cámara: zoom por distancia + rotación + marcador en el tercio inferior */
   function actualizar(forzar) {
     if (!mapa || !ultimaPos || !seguirme || vistaActual !== "mapa") return;
-    if (marcando || document.activeElement === $("busqRep") || !$("resBusqRep").classList.contains("oculto")) return;   // no se mueve mientras se busca o se marca un destino
+    if (marcando || document.activeElement === $("busqRep") || !$("resBusqRep").classList.contains("oculto")) return;
     const ahora = Date.now();
     if (!forzar && ahora - ult < MIN_MS) return;
     ult = ahora;
     const d = destino(), dist = d ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
     const z = zoomPara(dist), ang = rotable() && tieneRumbo ? suave : 0;
-    const k = mapa.getSize().y / 6;                 // 1/6 de la altura por debajo del centro = línea del tercio inferior
+    const k = mapa.getSize().y / 6;
     const t = rad(ang), pr = mapa.project([ultimaPos.lat, ultimaPos.lng], z);
-    const centro = mapa.unproject(L.point(pr.x + Math.sin(t) * k, pr.y - Math.cos(t) * k), z);   // punto "por delante" del repartidor
+    const centro = mapa.unproject(L.point(pr.x + Math.sin(t) * k, pr.y - Math.cos(t) * k), z);
     if (rotable()) { try { mapa.setBearing((SIGNO_ROTACION * ang + 360) % 360); } catch (_) {} }
     mapa.setView(centro, z, { animate: !forzar, duration: 0.8, easeLinearity: 0.5, noMoveStart: true });
     aplicarEscala();
     refrescarBoton();
   }
-  /* Vista general (Ver todo, encuadrar un pedido…): norte arriba */
   function norte() {
     if (rotable()) { try { mapa.setBearing(0); } catch (_) {} }
     setTimeout(refrescarBoton, 0);
@@ -491,16 +448,18 @@ function pintarYo(rumbo) {
   Camara.marcarIcono();
   if (rastro.length) estelaProp.setLatLngs(rastro);
 }
+
+/* FASE 4 · Ícono discreto del pedido (24 px) con etiqueta al costado */
 function iconoCliente(n, nombre, sel, vivo) {
+  const color = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2"][(Number(n) - 1 + 6) % 6];
   return L.divIcon({
     className: "",
-    html: `<div class="pin-cli${sel ? " sel" : ""}${vivo ? " vivo" : ""}"><b>${n}</b></div><span class="etq-cli">${escHtml(nombre)}</span>`,
-    iconSize: [34, 34], iconAnchor: [17, 17]
+    html: `<div class="pin-cli-min${sel ? " sel" : ""}${vivo ? " vivo" : ""}" style="--pin-cli-c:${color}"></div><span class="etq-cli-min"><b>${n}</b> · ${escHtml(nombre)}</span>`,
+    iconSize: [24, 24], iconAnchor: [12, 12]
   });
 }
 const iconoClienteDot = L.divIcon({ className: "", html: '<div class="marca-cliente"><span>Cliente</span></div>', iconSize: [26, 26], iconAnchor: [13, 13] });
 
-/* Dibuja el destino del pedido (= ubicación del cliente) y, si hubo destino manual, también la del cliente */
 function pintarCliente(v) {
   if (!mapa || !v) return;
   const n = orden.indexOf(v.token) + 1, sel = v.token === seleccionado, vivo = esVivo(v);
@@ -532,16 +491,32 @@ function encuadrar(soloSeleccionado) {
   if (pts.length > 1) mapa.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 17 });
   else if (pts.length === 1) mapa.setView(pts[0], 16);
 }
+/* FASE 4 · Centra en TODOS los pedidos activos (para que se vean todos en el mapa) */
+function encuadrarTodosPedidos() {
+  if (!mapa) return;
+  const pts = [];
+  orden.forEach((t) => {
+    const v = viajes[t];
+    if (v && v.destino) pts.push([v.destino.lat, v.destino.lng]);
+    else if (v && v.cliPos) pts.push([v.cliPos.lat, v.cliPos.lng]);
+  });
+  const cliPed = PedidoRep.posCliente(); if (cliPed) pts.push([cliPed.lat, cliPed.lng]);
+  if (pts.length >= 2) {
+    seguirme = false; Camara.refrescarBoton();
+    mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
+  } else if (pts.length === 1) {
+    seguirme = false; Camara.refrescarBoton();
+    mapa.setView(pts[0], 16);
+  }
+}
 $("btnVerTodo").onclick = () => { seguirme = false; encuadrar(false); };
-$("btnSeguir").onclick = () => {   // retoma la cámara de navegación (sigue a la moto, zoom por distancia, rotación)
+$("btnSeguir").onclick = () => {
   if (!ultimaPos) return setEstado("Esperando tu ubicación para seguirte…", "error");
   seguirme = true; Camara.refrescarBoton();
   Camara.actualizar(true);
 };
 Camara.refrescarBoton();
 
-/* ---------- Ruta hacia el pedido seleccionado ---------- */
-// Ruta por calles con el servidor público de OSRM (gratis, para uso ligero). Si falla, se dibuja una línea recta.
 async function pedirRuta(v, forzar) {
   if (!v || !v.destino || !ultimaPos) return;
   const ahora = Date.now();
@@ -551,13 +526,13 @@ async function pedirRuta(v, forzar) {
   if (!forzar && v.rutaPts && !cambioOrigen && !cambioDest) return;
   v.rutaEn = ahora;
   const o = { lat: ultimaPos.lat, lng: ultimaPos.lng }, d = { lat: v.destino.lat, lng: v.destino.lng };
-  try {   // ruta por calles: respeta sentidos únicos y giros; si falla, línea recta
-    const r = await Ordenes.rutaCalles(o, d);   // varios servidores de respaldo; null si todos fallan
+  try {
+    const r = await Ordenes.rutaCalles(o, d);
     if (!r) throw new Error("sin ruta");
     v.rutaFallo = false;
     v.rutaPts = r.pts; v.rutaDur = r.dur; v.rutaDist = r.dist; v.rutaPasos = r.pasos; v.rutaIdx = Math.min(1, r.pasos.length - 1);
     v.rutaOrigen = o; v.rutaDest = d;
-  } catch (_) {   // sin ruta aún: avisa y reintenta cada ~3 s (nunca se dibuja línea recta)
+  } catch (_) {
     v.rutaFallo = true; v.rutaEn = Date.now() - 12000;
     if (!v._reint) v._reint = setTimeout(() => { v._reint = null; if (viajes[v.token] && v.token === seleccionado) pedirRuta(v, true); }, 3000);
   }
@@ -569,7 +544,7 @@ function dibujarRuta() {
   const v = viajes[seleccionado];
   let pts = [];
   if (v && v.destino && ultimaPos) {
-    pts = v.rutaPts ? [[ultimaPos.lat, ultimaPos.lng], ...v.rutaPts] : [];   // solo por calles: mientras se calcula no se dibuja nada
+    pts = v.rutaPts ? [[ultimaPos.lat, ultimaPos.lng], ...v.rutaPts] : [];
   }
   capaRuta.setLatLngs(pts); capaFlujo.setLatLngs(pts);
   capaRuta.setStyle({ opacity: v && v.rutaPts ? .9 : .5 });
@@ -578,7 +553,6 @@ function dibujarRuta() {
   pintarGuia();
 }
 
-/* ---------- Selección y destino manual ---------- */
 function seleccionar(token, enfocar) {
   if (!viajes[token]) return;
   seleccionado = token;
@@ -612,9 +586,6 @@ function usarUbicacionCliente(v) {
   guardarViajes(); pintarCliente(v); dibujarRuta(); pedirRuta(v, true); evaluarViaje(v); refrescarTextos();
 }
 
-/* ============================================================
-   PEDIDOS EN RUTA (varios a la vez)
-   ============================================================ */
 function guardarViajes() {
   try {
     const otros = JSON.parse(localStorage.getItem("viajesActivos") || "[]").filter((x) => x.uid !== uidActual);
@@ -630,7 +601,7 @@ function crearViaje(info) {
     rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null
   };
   viajes[v.token] = v;
-  Pantalla.pedir();   // al iniciar un viaje se asegura la pantalla encendida
+  Pantalla.pedir();
   if (!orden.includes(v.token)) orden.push(v.token);
   escucharCliente(v);
   escucharChat(v);
@@ -639,7 +610,6 @@ function crearViaje(info) {
   return v;
 }
 
-/* ---------- Push al administrador cuando el repartidor escribe en un chat (lo envía el Worker de Cloudflare) ---------- */
 async function avisarAlAdminChat(a) {
   try {
     if (/TU-WORKER/.test(WORKER_URL_BROTHERS)) return;
@@ -653,8 +623,6 @@ async function avisarAlAdminChat(a) {
   } catch (_) {}
 }
 
-/* ---------- Prioridad: el cliente pagó 10 C$ para que su pedido salga primero ---------- */
-/* Desglose que ve el cliente en su enlace (pedidos/{token}/detalle). Si el cliente ya priorizó, el total ya lleva la propina. */
 function detalleDeFactura(f, conPrioridad) {
   const base = Number(f.total) || 0;
   const d = {
@@ -664,29 +632,25 @@ function detalleDeFactura(f, conPrioridad) {
   if (conPrioridad) { d.prioridad = PRIORIDAD_EXTRA; d.total = Math.round((base + PRIORIDAD_EXTRA) * 100) / 100; }
   return JSON.parse(JSON.stringify(d));
 }
-/* Voz (TTS) + vibración + notificación. Se avisa una sola vez por pedido en este aparato. */
 function alertaPrioridad(token, codigo) {
   const k = "prioAvisada_" + token;
   try { if (localStorage.getItem(k)) return; localStorage.setItem(k, "1"); } catch (_) {}
   const frase = Voz.FRASES.prioridadCliente(codigo);
-  Voz.prioridad(codigo);   // “El cliente de la factura [número] quiere priorizar su pedido”
+  Voz.prioridad(codigo);
   navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 400]);
   notificarTexto("⚡ Prioridad", frase, "Prioridad", { token });
   if (!document.hidden) setEstado("⚡ " + frase + " (+C$ " + PRIORIDAD_EXTRA.toFixed(2) + " de propina por prioridad)", "ok");
 }
 const money2 = (n) => "C$ " + Number(n || 0).toFixed(2);
-/* Total visible del pedido con la propina de prioridad ya sumada (o null si no se conoce el total) */
 function totalConPropina(v) {
-  if (v.detalle && typeof v.detalle.total === "number") return v.detalle.total;   // el cliente ya lo dejó sumado
+  if (v.detalle && typeof v.detalle.total === "number") return v.detalle.total;
   if (v.factura && typeof v.factura.total === "number") return v.factura.total + PRIORIDAD_EXTRA;
   return null;
 }
-
-/* Total a cobrar al cliente: compras + delivery (+ productos agregados con la sub-factura) + propina de prioridad, o null si aún no hay factura */
 function totalCobrar(v) {
   const f = v && v.factura; if (!f || typeof f.total !== "number") return null;
   const r2n = (n) => Math.round(n * 100) / 100;
-  let base = f.total;   // compras + delivery de la factura (sin propina)
+  let base = f.total;
   try {
     if (v.sub && v.sub.items && v.sub.items.length) { const g = SubFactura.calcular(f, v.sub).gran; if (typeof g === "number" && isFinite(g)) base = g; }
   } catch (_) {}
@@ -694,26 +658,24 @@ function totalCobrar(v) {
   return { total: r2n(base + propina + extras), delivery: r2n(delivery), propina, extras: r2n(extras), compras: r2n(Math.max(0, base - delivery)) };
 }
 
-/* Factura original + sub-factura del pedido (sincronizadas en pedidos/{token}) */
 function escucharSubfactura(v) {
   const base = db.ref("pedidos/" + v.token);
   const f = base.child("factura"), s = base.child("subfactura"), dt = base.child("detalle"), pr = base.child("prioridad");
   f.on("value", (x) => { v.factura = x.val(); refrescarTextos(); }, () => {});
   s.on("value", (x) => { v.sub = x.val(); refrescarTextos(); }, () => {});
   dt.on("value", (x) => { v.detalle = x.val(); refrescarTextos(); }, () => {});
-  pr.on("value", (x) => {   // el cliente tocó "Priorizar": alerta de voz + etiqueta en la tarjeta
+  pr.on("value", (x) => {
     const activa = x.val() === true, era = v.prioridad === true;
     v.prioridad = activa;
     if (activa && !era) alertaPrioridad(v.token, etiquetaWA(v));
     refrescarTextos();
   }, () => {});
-  const ex = base.child("extras");   // mandados extra que agrega el repartidor (también los ve el cliente)
+  const ex = base.child("extras");
   ex.on("value", (x) => { v.extras = x.val(); refrescarTextos(); }, () => {});
   v.refExtra = [f, s, dt, pr, ex];
 }
 const ctxSub = { db, usuario: () => usuario, wa: (m) => abrirWhatsApp(m), alCambiar: () => refrescarTextos() };
 
-/* Si Brothers marca el pedido como entregado (o se cancela), desaparece también de este teléfono */
 function escucharEstado(v) {
   v.refEstado = db.ref("pedidos/" + v.token + "/estado");
   v.refEstado.on("value", (s) => {
@@ -728,22 +690,20 @@ function escucharEstado(v) {
   }, () => {});
 }
 
-/* Enlaces de contacto sin factura: la factura los puede usar después (mismo enlace) */
 function sincronizarContactos() {
   Factura.contactos = orden.filter((t) => viajes[t] && viajes[t].sinFactura).map((t) => ({ token: t, pedido: viajes[t].pedido, cliente: viajes[t].cliente }));
   Factura.refrescarContactos();
 }
-function contarFactura(f) {   // suma al contador del día que ve el administrador
+function contarFactura(f) {
   const inc = (n) => firebase.database.ServerValue.increment(Number(n) || 0);
   db.ref(`estadisticas/${Dia.clave()}/${uidActual}`).update({ facturas: inc(1), total: inc(f.total), delivery: inc(f.delivery), nombre: usuario }).catch(() => {});
 }
 
-/* Nuevo pedido: lo llama factura.js cuando se pulsa "Enviar factura por WhatsApp" */
 Factura.alEnviar = (f) => {
   if (!uidActual || !usuario) return;
   contarFactura(f);
   const ex = viajes[f.token];
-  if (ex) {   // la factura usa un enlace de contacto que ya estaba abierto: mismo token, ahora con factura
+  if (ex) {
     ex.sinFactura = false; ex.cliente = f.cliente || ex.cliente; ex.pedido = f.pedido;
     ex.factura = SubFactura.instantanea(f);
     db.ref("pedidos/" + f.token).update({ pedido: f.pedido, sinFactura: null, factura: ex.factura, detalle: detalleDeFactura(f, ex.prioridad === true) }).catch(() => {});
@@ -755,7 +715,6 @@ Factura.alEnviar = (f) => {
   if (orden.length === 0) rastro = [];
   const v = crearViaje({ token: f.token, tel: f.tel, pedido: f.pedido, cliente: f.cliente });
   guardarViajes();
-  // El pedido se crea en la nube (se aplica de inmediato en el aparato y se sincroniza)
   db.ref("pedidos/" + f.token).set({
     estado: "en_ruta", pedido: f.pedido, inicio: TS,
     repartidorUid: uidActual, repartidorNombre: usuario, factura: SubFactura.instantanea(f), detalle: detalleDeFactura(f, false)
@@ -770,14 +729,6 @@ Factura.alEnviar = (f) => {
   setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
 };
 
-/* ============================================================
-   PEDIDO DEL ADMINISTRADOR YA ACEPTADO (FASE 2)
-   1) Botón "Crear Factura" sobre el mapa.
-   2) La factura usa el delivery del sistema y se guarda directo en Firebase (pedidos/{id}) → el cliente la ve en vivo.
-   3) La ubicación del cliente (pedidos/{id}/cliente) mueve su marcador en el mapa al instante.
-   Solo lee ordenes/{id} (el mismo pedido que ya sigue OrdenAdminRep) y escribe en pedidos/{id}, como el flujo normal.
-   ============================================================ */
-/* Pequeño "salto" en un marcador de Leaflet para que se note que acaba de moverse */
 function pulsarMarca(m) {
   const e = m && m.getElement && m.getElement(); if (!e) return;
   e.classList.remove("pin-actualizado"); void e.offsetWidth; e.classList.add("pin-actualizado");
@@ -787,18 +738,16 @@ function pulsarMarca(m) {
 const PedidoRep = (() => {
   const ACTIVO = ["pendiente", "asignado", "retirado"];
   let id = null, datos = null, prio = false, prioPed = false, facturada = false, refs = [], cli = null, marca = null;
-  let noLeidos = 0, chatListo = false;   // chat con el cliente del pedido asignado por el administrador
+  let noLeidos = 0, chatListo = false;
 
-  /* Delivery del sistema = el total que el administrador fijó al crear el pedido (delivery + IVA, si lleva) */
   function precioDelivery(o) {
     try { if (typeof Ordenes !== "undefined" && typeof Ordenes.totalDelivery === "function") { const t = Number(Ordenes.totalDelivery(o)); if (Number.isFinite(t)) return t; } } catch (_) {}
     return Math.round(((Number(o.delivery) || 0) + (Number(o.iva) || 0)) * 100) / 100;
   }
-  const prioridad = () => prio || prioPed;   // el cliente pagó los 10 C$ para salir primero
+  const prioridad = () => prio || prioPed;
   const aceptado = () => !!(datos && datos.estado_asignacion === "aceptado" && ACTIVO.includes(datos.estado));
   const nombre = () => (datos && datos.cliente) || "Cliente";
 
-  /* ---------- Escucha del pedido ---------- */
   function seguir(nuevo) {
     if (!nuevo || nuevo === id) return;
     soltar();
@@ -807,17 +756,16 @@ const PedidoRep = (() => {
     escuchar(db.ref("ordenes/" + nuevo), (s) => {
       if (id !== nuevo) return;
       const d = s.val();
-      const ajeno = d && d.asignacion && d.asignacion.tipo === "registrado" && d.asignacion.uid && d.asignacion.uid !== uidActual;   // lo reasignaron a otro
+      const ajeno = d && d.asignacion && d.asignacion.tipo === "registrado" && d.asignacion.uid && d.asignacion.uid !== uidActual;
       if (!d || ajeno || ["entregado", "cancelado"].includes(d.estado)) return soltar();
       datos = d; prio = d.prioridad === true;
       pintarBoton(); alCambiarPrioridad(); pintarCliente();
-      renderLista();   // la tarjeta del chat aparece apenas el pedido está asignado (aceptado o no)
-      if (abrirPendiente === nuevo) { abrirPendiente = null; irA("mapa"); abrirChatPedido(); }   // tocó una notificación de este chat antes de que cargara el pedido
+      renderLista();
+      if (abrirPendiente === nuevo) { abrirPendiente = null; irA("mapa"); abrirChatPedido(); }
     });
-    escuchar(db.ref("pedidos/" + nuevo + "/cliente"), (s) => aplicarCliente(s.val()));            // ubicación del cliente en vivo
+    escuchar(db.ref("pedidos/" + nuevo + "/cliente"), (s) => aplicarCliente(s.val()));
     escuchar(db.ref("pedidos/" + nuevo + "/prioridad"), (s) => { prioPed = s.val() === true; alCambiarPrioridad(); });
     escuchar(db.ref("pedidos/" + nuevo + "/factura"), (s) => { facturada = s.val() != null; pintarBoton(); });
-    /* Chat universal del pedido: la MISMA sala chats/{id} que abre el cliente con su enlace */
     chatListo = false; noLeidos = 0;
     const rc = db.ref("chats/" + nuevo).limitToLast(1);
     rc.on("child_added", (s) => { if (chatListo && id === nuevo) alMensajeChat(s.key, s.val()); }, () => {});
@@ -835,8 +783,6 @@ const PedidoRep = (() => {
     pintarBoton();
     if (hubo) { try { renderLista(); actualizarNav(); } catch (_) {} }
   }
-
-  /* ---------- Chat con el cliente (siempre disponible mientras el pedido siga activo) ---------- */
   const chatDisponible = () => !!(uidActual && usuario && id && datos && ACTIVO.includes(datos.estado) && datos.estado_asignacion !== "rechazado");
   const codigoApp = () => etiquetaPedido(datos && datos.codigo, "app");
   function pintarBadgeChat() {
@@ -844,11 +790,8 @@ const PedidoRep = (() => {
     actualizarNav();
   }
   function alMensajeChat(key, m) {
-    if (!m || !id || m.sistema) return;   // los avisos automáticos (p. ej. "pedido entregado") no son mensajes de chat
-    if (m.de === "repartidor") {   // push al admin: le escribiste al cliente
-      avisarAlAdminChat({ clave: id + "|" + key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, pedido: datos && datos.codigo, cliente: nombre(), equipo: false });
-      return;
-    }
+    if (!m || !id || m.sistema) return;
+    if (m.de === "repartidor") { avisarAlAdminChat({ clave: id + "|" + key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, pedido: datos && datos.codigo, cliente: nombre(), equipo: false }); return; }
     if (m.de !== "cliente") return;
     Voz.hablar(orden.length && datos && datos.cliente ? `El cliente ${datos.cliente} te ha escrito` : Voz.FRASES.mensajeCliente);
     navigator.vibrate && navigator.vibrate(200);
@@ -858,7 +801,7 @@ const PedidoRep = (() => {
   function abrirChatPedido() {
     if (!chatDisponible()) return;
     const mio = id;
-    cancelarNotif({ token: mio });   /* FASE 2: al abrir el chat del cliente, se limpia la notificación pendiente */
+    cancelarNotif({ token: mio });
     Chat.iniciar({
       token: mio, yo: "repartidor", pedido: datos.codigo, nombreRepartidor: usuario, avisos: false,
       titulo: () => "Chat con " + ((datos && datos.cliente) || "el cliente"),
@@ -868,7 +811,7 @@ const PedidoRep = (() => {
     chatToken = mio; noLeidos = 0; pintarBadgeChat();
     Chat.abrir();
   }
-  function responderRapido(texto) {   // respuesta desde la notificación, sin abrir la app
+  function responderRapido(texto) {
     if (!id || !texto) return;
     Chat.enviarA(id, "repartidor", { pedido: datos && datos.codigo, nombreRepartidor: usuario }, String(texto).slice(0, 600), null).catch(() => {});
   }
@@ -881,8 +824,6 @@ const PedidoRep = (() => {
     const b = e.target.closest && e.target.closest('button[data-adm="chat"]'); if (!b) return false;
     abrirChatPedido(); return true;
   }
-
-  /* ---------- Marcador del cliente: se mueve en el mismo instante en que él actualiza su ubicación ---------- */
   function aplicarCliente(c) {
     const antes = cli;
     cli = c && typeof c.lat === "number" && typeof c.lng === "number" ? { lat: c.lat, lng: c.lng, manual: !!c.manual, ts: c.ts || 0 } : null;
@@ -902,25 +843,21 @@ const PedidoRep = (() => {
       if (marca._clave !== clave) { marca.setIcon(iconoCliente("👤", nombre(), true, vivo)); marca._clave = clave; }
     }
   }
-
-  /* ---------- Prioridad: si el cliente la acepta, el total lleva +10 C$ ---------- */
   function alCambiarPrioridad() {
-    try { if (Factura.enModoPedido()) Factura.recalcular(); } catch (_) {}   // la factura abierta se actualiza sola
-    if (facturada && prioridad()) sumarPrioridadAlDetalle();                  // la factura ya estaba enviada: se corrige lo que ve el cliente
+    try { if (Factura.enModoPedido()) Factura.recalcular(); } catch (_) {}
+    if (facturada && prioridad()) sumarPrioridadAlDetalle();
   }
   async function sumarPrioridadAlDetalle() {
     const mio = id; if (!mio) return;
     try {
       const ref = db.ref("pedidos/" + mio + "/detalle"), d = (await ref.once("value")).val();
-      if (!d || d.prioridad || id !== mio) return;   // ya lleva la propina (la suma el cliente o la hizo antes la app)
+      if (!d || d.prioridad || id !== mio) return;
       const base = typeof d.totalBase === "number" ? d.totalBase : Number(d.total) || 0;
       const total = Math.round((base + PRIORIDAD_EXTRA) * 100) / 100;
       await ref.update({ prioridad: PRIORIDAD_EXTRA, total });
       db.ref("ordenes/" + mio + "/facturaResumen").update({ prioridad: PRIORIDAD_EXTRA, total }).catch(() => {});
     } catch (_) {}
   }
-
-  /* ---------- Botón "Crear Factura" (se inyecta en la ventana del mapa) ---------- */
   function pintarBoton() {
     const caja = document.querySelector("#vistaMapa .mapa-caja"); if (!caja) return;
     let b = $("btnCrearFactura");
@@ -938,23 +875,20 @@ const PedidoRep = (() => {
   function abrirFactura() {
     if (!aceptado() || !datos) return;
     if (facturada) return alert("Este pedido ya tiene su factura enviada al cliente.");
-    Factura.prepararPedido({ id, codigo: datos.codigo || id, cliente: datos.cliente || "", delivery: precioDelivery(datos) });   // delivery: del sistema, sin teclearlo
+    Factura.prepararPedido({ id, codigo: datos.codigo || id, cliente: datos.cliente || "", delivery: precioDelivery(datos) });
     irA("factura");
   }
-
-  /* ---------- Envío silencioso: guarda la factura en pedidos/{id} y el cliente la ve en vivo ---------- */
   async function enviarFactura(f) {
     if (!uidActual || !usuario) throw new Error("Tu sesión no está activa.");
     if (!id || f.token !== id || !aceptado()) throw new Error("Este pedido ya no está en curso.");
     const mio = id, conPrio = (Number(f.prioridad) || 0) > 0 || prioridad();
-    const detalle = detalleDeFactura(f, conPrio);   // el total ya suma los +10 C$ si el cliente aceptó la prioridad
+    const detalle = detalleDeFactura(f, conPrio);
     const datosFactura = JSON.parse(JSON.stringify({ pedido: f.pedido, factura: SubFactura.instantanea(f), detalle }));
     const estado = (await db.ref("pedidos/" + mio + "/estado").once("value")).val();
-    if (!estado) Object.assign(datosFactura, { estado: "en_ruta", inicio: TS, repartidorUid: uidActual, repartidorNombre: usuario });   // el cliente aún no había abierto su enlace
+    if (!estado) Object.assign(datosFactura, { estado: "en_ruta", inicio: TS, repartidorUid: uidActual, repartidorNombre: usuario });
     await db.ref("pedidos/" + mio).update(datosFactura);
     if (id === mio) { facturada = true; pintarBoton(); }
     contarFactura(f);
-    // Resumen para el panel del administrador (si las reglas no lo permiten, no afecta al cliente)
     db.ref("ordenes/" + mio + "/facturaResumen").set({
       total: detalle.total, subtotal: Number(f.subtotal) || 0, delivery: Number(f.delivery) || 0, prioridad: detalle.prioridad || 0,
       items: (f.productos || []).length, deposito: !!f.deposito, ts: TS, repartidor: usuario
@@ -962,7 +896,6 @@ const PedidoRep = (() => {
     navigator.vibrate && navigator.vibrate(120);
     return true;
   }
-
   return {
     seguir, soltar, pintarCliente, pintarBoton, posCliente: () => cli, prioridadExtra: () => (aceptado() && prioridad() ? PRIORIDAD_EXTRA : 0), enviarFactura,
     htmlChat, alClick, abrirChat: abrirChatPedido, responderRapido, noLeidos: () => noLeidos, esMio: (t) => !!id && t === id,
@@ -972,16 +905,9 @@ const PedidoRep = (() => {
   };
 })();
 Factura.alEnviarPedido = (f) => PedidoRep.enviarFactura(f);
-Factura.alTerminarPedido = () => irA("mapa");   // factura enviada: de vuelta al mapa
+Factura.alTerminarPedido = () => irA("mapa");
 Factura.prioridadExtra = () => PedidoRep.prioridadExtra();
 
-/* ============================================================
-   FACTURA EN VIVO (ícono 🧾 de la cabecera, tarjetas de pedido)
-   - Lee pedidos/{token} en tiempo real: productos, delivery, prioridad, mandados extra y total a cobrar.
-   - "Agregar Mandado Extra": suma cargos adicionales UNA, DOS o MÁS veces al mismo pedido.
-     Cada uno se guarda como un registro propio en pedidos/{token}/extras/{id} = { monto, nota, ts, por }
-     (el cliente lo ve al instante en su rastreo y el administrador lo audita en su mapa).
-   ============================================================ */
 const FacturaVivo = (() => {
   let tokenSel = null, ref = null, datos = null;
   const r2 = (n) => Math.round(n * 100) / 100;
@@ -993,8 +919,6 @@ const FacturaVivo = (() => {
     return "Pedido";
   }
   function aviso(txt, tipo) { const e = $("fvAviso"); e.textContent = txt || ""; e.className = "estado " + (tipo || "") + (txt ? "" : " oculto"); }
-
-  /* Desglose a partir de pedidos/{token}: detalle (lo que ve el cliente) o, si no existe, la factura original */
   function calc(d) {
     if (!d) return null;
     const f = d.factura && typeof d.factura === "object" ? d.factura : null, det = d.detalle && typeof d.detalle === "object" ? d.detalle : null;
@@ -1012,7 +936,6 @@ const FacturaVivo = (() => {
     return { productos, subtotal, delivery, prio, extras, extrasTotal, total: r2(base + prio + extrasTotal) };
   }
   const activo = (d) => !!d && (!d.estado || d.estado === "en_ruta");
-
   function pintar() {
     const cont = $("fvResumen"), c = calc(datos);
     $("fvForm").classList.toggle("oculto", !(c && activo(datos)));
@@ -1032,7 +955,6 @@ const FacturaVivo = (() => {
     h += '<div class="fv-total"><span>Total a cobrar</span><b>' + money2(c.total) + "</b></div>";
     cont.innerHTML = h;
   }
-
   function pintarSel() {
     const l = tokens(), s = $("fvSel");
     s.innerHTML = l.map((t) => '<option value="' + escHtml(t) + '">' + escHtml(nombreTok(t)) + "</option>").join("");
@@ -1054,8 +976,6 @@ const FacturaVivo = (() => {
     $("modalFacturaVivo").classList.remove("oculto");
   }
   function cerrar() { soltar(); $("modalFacturaVivo").classList.add("oculto"); }
-
-  /* Agregar Mandado Extra: cada toque agrega un cargo nuevo (se puede repetir las veces que haga falta) */
   function agregar() {
     const t = tokenSel;
     if (!t || !calc(datos) || !activo(datos)) return aviso("Primero envía la factura de este pedido.", "error");
@@ -1064,12 +984,11 @@ const FacturaVivo = (() => {
     if (monto > 100000) return aviso("Ese monto es demasiado alto.", "error");
     const nota = $("fvNota").value.trim().slice(0, 80);
     const reg = { monto, ts: TS, por: usuario || "" }; if (nota) reg.nota = nota;
-    db.ref("pedidos/" + t + "/extras").push(reg).catch((e) => aviso("No se pudo guardar el mandado extra: " + e.message, "error"));   // se aplica al instante en el aparato y sincroniza al conectar
+    db.ref("pedidos/" + t + "/extras").push(reg).catch((e) => aviso("No se pudo guardar el mandado extra: " + e.message, "error"));
     $("fvMonto").value = ""; $("fvNota").value = "";
     navigator.vibrate && navigator.vibrate(80);
     aviso("Mandado extra de " + money2(monto) + " agregado ✓ El cliente ya lo ve.", "ok");
   }
-
   $("btnFacturaVivo").onclick = () => abrir();
   $("btnFvCerrar").onclick = cerrar;
   $("btnFvAgregar").onclick = agregar;
@@ -1082,16 +1001,14 @@ const FacturaVivo = (() => {
   };
   $("fvMonto").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); agregar(); } });
   $("modalFacturaVivo").addEventListener("click", (e) => { if (e.target === $("modalFacturaVivo")) cerrar(); });
-  /* Si la ventana se cierra por otra vía (botón atrás), se dejan de escuchar los cambios */
   new MutationObserver(() => { if ($("modalFacturaVivo").classList.contains("oculto")) soltar(); }).observe($("modalFacturaVivo"), { attributes: true, attributeFilter: ["class"] });
   return { abrir, cerrar };
 })();
 
-/* Al abrir la app: recuperar los pedidos que seguían en ruta */
 function reanudarViajes() {
   let guardados = [];
   try { guardados = JSON.parse(localStorage.getItem("viajesActivos") || "[]"); } catch (_) {}
-  try {   // compatibilidad con la versión anterior (un solo viaje)
+  try {
     const viejo = JSON.parse(localStorage.getItem("viajeActivo") || "null");
     if (viejo && viejo.token && !guardados.some((g) => g.token === viejo.token)) guardados.push(viejo);
     localStorage.removeItem("viajeActivo");
@@ -1100,7 +1017,7 @@ function reanudarViajes() {
     const v = crearViaje(g);
     db.ref("pedidos/" + g.token).once("value").then((s) => {
       const d = s.val();
-      if (!d || d.estado !== "en_ruta") return quitarViaje(g.token);   // ya terminó en otro aparato
+      if (!d || d.estado !== "en_ruta") return quitarViaje(g.token);
       if (d.pedido) v.pedido = d.pedido;
       if (typeof d.destLat === "number" && !v.destino) v.destino = { lat: d.destLat, lng: d.destLng };
       v.cerca = d.cerca === true;
@@ -1116,7 +1033,7 @@ function reanudarViajes() {
   actualizarNav();
 }
 
-function soltarViajesEnMemoria() {   // al cerrar sesión: no borra nada en la nube ni en localStorage
+function soltarViajesEnMemoria() {
   orden.forEach((t) => { const v = viajes[t]; if (!v) return; v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off(); (v.refExtra || []).forEach((r) => r.off()); if (mapa) { v.marca && mapa.removeLayer(v.marca); v.marcaCli && mapa.removeLayer(v.marcaCli); } delete viajes[t]; });
   orden = []; seleccionado = null; chatToken = null; rastro = [];
   try { Chat.detener(); } catch (_) {}
@@ -1124,14 +1041,14 @@ function soltarViajesEnMemoria() {   // al cerrar sesión: no borra nada en la n
 }
 
 let ultGuardadoRastro = 0;
-function guardarRastro() {   // el recorrido sobrevive aunque Android cierre la pantalla de la app
+function guardarRastro() {
   const n = Date.now(); if (n - ultGuardadoRastro < 10000) return; ultGuardadoRastro = n;
   try { localStorage.setItem("rastroViaje", JSON.stringify({ uid: uidActual, pts: rastro.slice(-800) })); } catch (_) {}
 }
 function quitarViaje(token) {
   const v = viajes[token]; if (!v) return;
   v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off(); (v.refExtra || []).forEach((r) => r.off());
-  if (chatToken === token) { Chat.detener(); chatToken = null; }   // el repartidor no conserva rastro del chat
+  if (chatToken === token) { Chat.detener(); chatToken = null; }
   if (mapa) { v.marca && mapa.removeLayer(v.marca); v.marcaCli && mapa.removeLayer(v.marcaCli); }
   delete viajes[token];
   orden = orden.filter((t) => t !== token);
@@ -1143,14 +1060,13 @@ function quitarViaje(token) {
   if (!orden.length && vistaActual === "mapa") irA("factura");
 }
 
-/* Ubicación del cliente en tiempo real → es el destino del pedido (salvo destino manual) */
 function escucharCliente(v) {
   v.refCli = db.ref("pedidos/" + v.token + "/cliente");
   v.refCli.on("value", (s) => {
     const c = s.val(), antes = v.cliPos;
     v.cliPos = c && typeof c.lat === "number" ? { lat: c.lat, lng: c.lng, manual: !!c.manual, ts: c.ts || 0, precision: c.precision || 0 } : null;
     if (v.cliPos && !v.destManual) v.destino = { lat: v.cliPos.lat, lng: v.cliPos.lng };
-    pintarCliente(v);   // el marcador se mueve YA: antes de recalcular la ruta o los textos
+    pintarCliente(v);
     if (v.cliPos && (!antes || antes.lat !== v.cliPos.lat || antes.lng !== v.cliPos.lng)) pulsarMarca(v.destManual ? v.marcaCli : v.marca);
     if (v.token === seleccionado) { dibujarRuta(); pedirRuta(v); }
     evaluarViaje(v);
@@ -1158,7 +1074,6 @@ function escucharCliente(v) {
   }, () => {});
 }
 
-/* Distancia, aviso de cercanía y envío de datos al cliente. `base` = posición del repartidor (si viene del GPS) */
 function evaluarViaje(v, base) {
   const cambios = base ? Object.assign({}, base) : {};
   let dispararCerca = false;
@@ -1168,26 +1083,25 @@ function evaluarViaje(v, base) {
       const dist = Math.round(distanciaM(ultimaPos.lat, ultimaPos.lng, v.destino.lat, v.destino.lng));
       v.dist = dist; cambios.distancia = dist;
       if (dist <= RADIO_AVISO_M && !v.cerca) { v.cerca = true; cambios.cerca = true; cambios.cercaTs = TS; dispararCerca = true; }
-      else if (v.cerca && dist > RADIO_AVISO_M * 2) { v.cerca = false; cambios.cerca = false; }   // el cliente se alejó
+      else if (v.cerca && dist > RADIO_AVISO_M * 2) { v.cerca = false; cambios.cerca = false; }
     }
   }
   if (!Object.keys(cambios).length) return;
   db.ref("pedidos/" + v.token).update(cambios).then(() => {
     if (dispararCerca) { navigator.vibrate && navigator.vibrate([300, 150, 300]); refrescarTextos(); }
   }).catch((e) => {
-    if (dispararCerca) v.cerca = false;   // no llegó: se reintenta en la siguiente posición
+    if (dispararCerca) v.cerca = false;
     setEstado("Error de red: " + e.message, "error");
   });
 }
 
-/* ---------- Chat por pedido (avisos por voz aunque el chat esté cerrado) ---------- */
 function escucharChat(v) {
   v.refChat = db.ref("chats/" + v.token).limitToLast(1);
   v.chatListo = false;
   v.refChat.on("child_added", (s) => {
-    if (!v.chatListo) return;                       // mensajes que ya existían al abrir la app
+    if (!v.chatListo) return;
     const m = s.val();
-    if (m && m.de === "repartidor") avisarAlAdminChat({ clave: v.token + "|" + s.key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, pedido: v.pedido, cliente: v.cliente, equipo: false });   // push al admin: escribiste al cliente
+    if (m && m.de === "repartidor") avisarAlAdminChat({ clave: v.token + "|" + s.key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, pedido: v.pedido, cliente: v.cliente, equipo: false });
     if (!m || m.de !== "cliente") return;
     Voz.hablar(orden.length > 1 && v.cliente ? `El cliente ${v.cliente} te ha escrito` : Voz.FRASES.mensajeCliente);
     navigator.vibrate && navigator.vibrate(200);
@@ -1197,7 +1111,7 @@ function escucharChat(v) {
   v.refChat.once("value", () => { v.chatListo = true; });
 }
 function abrirChat(v) {
-  cancelarNotif({ token: v.token });   /* FASE 2: limpiar la notificación pendiente de este pedido */
+  cancelarNotif({ token: v.token });
   Chat.iniciar({
     token: v.token, yo: "repartidor", pedido: v.pedido, nombreRepartidor: usuario, avisos: false,
     titulo: () => "Chat con " + (v.cliente || "el cliente"),
@@ -1209,12 +1123,11 @@ function abrirChat(v) {
   refrescarTextos(); actualizarNav();
 }
 
-/* ---------- Chat con Brothers (administración) ---------- */
 function pintarBadgeAdmin() {
   const b = $("badgeAdmin"); b.textContent = noLeidosAdmin; b.classList.toggle("oculto", !noLeidosAdmin);
 }
 function abrirChatAdmin() {
-  cancelarNotif({ equipo: "chat" });   /* FASE 2: limpiar la notificación pendiente del chat con Brothers */
+  cancelarNotif({ equipo: "chat" });
   Chat.iniciar({
     token: uidActual, yo: "repartidor", ruta: RUTA_EQUIPO, pedido: "Equipo", nombreRepartidor: usuario, avisos: false,
     titulo: () => "Brothers (administración)", subtitulo: () => usuario || "",
@@ -1241,16 +1154,15 @@ function escucharAdmin() {
   refAdminChat.on("child_added", (s) => {
     if (!adminListo) return;
     const m = s.val();
-    if (m && m.de === "repartidor") avisarAlAdminChat({ clave: "equipo|" + s.key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, equipo: true });   // push al admin: le escribiste a Brothers
+    if (m && m.de === "repartidor") avisarAlAdminChat({ clave: "equipo|" + s.key, texto: m.texto, foto: !m.texto, nombreRepartidor: usuario, equipo: true });
     if (!m || m.de !== "admin") return;
-    Voz.hablar(Voz.FRASES.mensajeAdmin);   // “Brothers te ha escrito”
+    Voz.hablar(Voz.FRASES.mensajeAdmin);
     navigator.vibrate && navigator.vibrate(200);
     if (chatToken !== "equipo" || document.hidden) notificarTexto("Brothers", m.texto ? m.texto : "📷 Te envió una foto", "Administración", { equipo: "chat" });
     if (chatToken !== "equipo") { noLeidosAdmin++; pintarBadgeAdmin(); }
   }, () => {});
   refAdminChat.once("value", () => { adminListo = true; });
 
-  // Guía de Brothers: solo para este repartidor (cada uno tiene la suya en guias/{su uid})
   Policia.iniciar({ db, mapa: () => mapa, uid: () => uidActual, nombre: () => usuario || "Repartidor", rol: "repartidor", pos: () => ultimaPos, alVer: () => irA("mapa") });
   if (refLugares) refLugares.off();
   refLugares = db.ref("lugares");
@@ -1259,17 +1171,17 @@ function escucharAdmin() {
   refGuia = db.ref("guias/" + uidActual);
   refGuia.on("value", (s) => {
     const g = s.val(), primera = guiaTsVisto === undefined;
-    if (g && g.ordenId) { OrdenAdminRep.seguir(g.ordenId); PedidoRep.seguir(g.ordenId); }   // pedido asignado por el administrador: tarjeta con Retirado / Entregado
+    if (g && g.ordenId) { OrdenAdminRep.seguir(g.ordenId); PedidoRep.seguir(g.ordenId); }
     if (!g || typeof g.lat !== "number") { guiaActual = null; guiaTsVisto = null; pintarGuia(); dibujarRuta(); return; }
-    if (primera && g.ts && Date.now() - g.ts > 12 * 3600 * 1000) { guiaTsVisto = g.ts; return; }   // guía vieja de otro día: se ignora
+    if (primera && g.ts && Date.now() - g.ts > 12 * 3600 * 1000) { guiaTsVisto = g.ts; return; }
     const nueva = !primera && g.ts !== guiaTsVisto;
     guiaTsVisto = g.ts;
     aplicarGuia(g, nueva);
   }, () => {});
 }
 const iconoGuia = L.divIcon({ className: "", html: '<div class="pin-cli sel"><b>🏠</b></div><span class="etq-cli">Cliente (Brothers)</span>', iconSize: [34, 34], iconAnchor: [17, 17] });
-const guiaCliente = () => (guiaActual && guiaActual.tipo !== "negocio" ? guiaActual : null);   // la guía a un negocio se maneja como destino libre
-function pintarGuia() {   // sin pedido en curso se dibuja el pin de la guía; con pedido, la guía ya es su destino
+const guiaCliente = () => (guiaActual && guiaActual.tipo !== "negocio" ? guiaActual : null);
+function pintarGuia() {
   if (!mapa) return;
   if (guiaCliente() && !orden.length) {
     const p = [guiaActual.lat, guiaActual.lng];
@@ -1278,9 +1190,9 @@ function pintarGuia() {   // sin pedido en curso se dibuja el pin de la guía; c
 }
 function aplicarGuia(g, nueva) {
   guiaActual = g;
-  if (g.tipo === "negocio") {   // Brothers te manda a un negocio: se abre como destino con su ruta por calles
+  if (g.tipo === "negocio") {
     irALugar({ nombre: g.negocio || g.nombre || "Negocio", lat: g.lat, lng: g.lng, icono: g.icono || "📍", producto: g.producto, etiqueta: !!g.ordenId, clase: g.punto === "entrega" ? "entrega" : "retiro" }, !!nueva);
-    if (nueva && !g.ordenId) {   // los pedidos del administrador ya avisan con su propia ventana de "pedido nuevo"
+    if (nueva && !g.ordenId) {
       const aviso = g.punto ? `Brothers te asignó un punto de ${g.punto}` : "Brothers te ha indicado la ubicación de " + (g.nombre || "un negocio");
       Voz.hablar(aviso, { forzar: true });
       navigator.vibrate && navigator.vibrate([300, 150, 300]);
@@ -1289,18 +1201,17 @@ function aplicarGuia(g, nueva) {
     return;
   }
   const v = (g.token && viajes[g.token]) || (orden.length === 1 ? viajes[orden[0]] : null) || (orden.length ? viajes[seleccionado] : null);
-  if (v) fijarDestino(v, g.lat, g.lng);   // el pedido toma esa ubicación como destino (el cliente también la ve)
-  if (!v) irALugar({ nombre: "Cliente (Brothers)", lat: g.lat, lng: g.lng, icono: "🏠" }, !!nueva);   // sin pedido: ruta por calles hasta el cliente
+  if (v) fijarDestino(v, g.lat, g.lng);
+  if (!v) irALugar({ nombre: "Cliente (Brothers)", lat: g.lat, lng: g.lng, icono: "🏠" }, !!nueva);
   pintarGuia(); dibujarRuta();
   if (!nueva) return;
-  Voz.hablar(Voz.FRASES.guiaAdmin, { forzar: true });   // “Brothers te ha indicado la ubicación del cliente”
+  Voz.hablar(Voz.FRASES.guiaAdmin, { forzar: true });
   navigator.vibrate && navigator.vibrate([300, 150, 300]);
   notificarTexto("Brothers", "Te indicó la ubicación del cliente", "Guía", { equipo: "guia" });
   irA("mapa");
   if (v) seleccionar(v.token, true); else { seguirme = false; setTimeout(() => encuadrar(false), 200); }
 }
 
-/* ---------- Negocios del mapa, buscador y navegación a un lugar ---------- */
 function pintarLugares() {
   if (!mapa) return;
   Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
@@ -1317,7 +1228,6 @@ function pintarLugares() {
     } else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(Lugares.iconoMapa(l)); m._clave = clave; } }
   });
 }
-/* Ver / ocultar los marcadores de negocios en el mapa (se recuerda en este aparato) */
 let verNegociosRep = localStorage.getItem("verNegociosRep") !== "0";
 function aplicarNegociosRep() {
   const b = $("btnVerNegociosRep");
@@ -1334,7 +1244,6 @@ $("btnVerNegociosRep").onclick = () => {
 };
 aplicarNegociosRep();
 
-/* Minimizar / mostrar la hoja de pedidos para ver más mapa */
 let hojaOculta = false;
 function aplicarHoja() {
   const h = $("hojaPedidos"), b = $("barraHoja"); if (!h || !b) return;
@@ -1378,7 +1287,7 @@ function irALugar(l, enfocar) {
   if (!l) return;
   lugarDestino = { nombre: l.nombre, lat: l.lat, lng: l.lng, icono: l.icono || "📍", producto: l.producto || "", etiqueta: !!l.etiqueta, clase: l.clase || "retiro" }; rutaLugar = null;
   $("resBusqRep").classList.add("oculto"); $("busqRep").blur();
-  if (enfocar && vistaActual !== "mapa") irA("mapa");   // al restaurar una guía vieja no se cambia de pantalla
+  if (enfocar && vistaActual !== "mapa") irA("mapa");
   initMapa(); pintarLugarDestino();
   if (enfocar) { seguirme = false; mapa.flyTo([l.lat, l.lng], 16); }
   pedirRutaLugar(true); actualizarBanner();
@@ -1387,7 +1296,6 @@ function pintarLugarDestino() {
   if (!mapa) return;
   if (!lugarDestino) { if (marcaLugar) { mapa.removeLayer(marcaLugar); marcaLugar = null; } return; }
   const p = [lugarDestino.lat, lugarDestino.lng];
-  /* Pedido del administrador: el pin lleva el nombre del negocio y lo que hay que retirar */
   const ic = lugarDestino.etiqueta ? Ordenes.pinEtiqueta(lugarDestino.clase, lugarDestino.icono, lugarDestino.nombre, lugarDestino.producto) : Lugares.iconoMapa(lugarDestino, true);
   if (!marcaLugar) marcaLugar = L.marker(p, { icon: ic, zIndexOffset: 900 }).addTo(mapa); else { marcaLugar.setLatLng(p); marcaLugar.setIcon(ic); }
 }
@@ -1411,7 +1319,7 @@ async function pedirRutaLugar(forzar) {
     rutaLugar.rutaFallo = false;
     Object.assign(rutaLugar, { rutaPts: r.pts, rutaPasos: r.pasos, rutaDur: r.dur, rutaDist: r.dist, rutaIdx: Math.min(1, r.pasos.length - 1) });
     Ruta.flechas(r.pts, flechasLugar, "#B45309");
-  } catch (_) {   // sin ruta aún: avisa y reintenta cada ~3 s
+  } catch (_) {
     if (rutaLugar) { rutaLugar.rutaFallo = true; rutaLugar.rutaEn = ahora - 12000; rutaLugar.rutaOrigen = { lat: 0, lng: 0 }; }
     if (!pedirRutaLugar._t) pedirRutaLugar._t = setTimeout(() => { pedirRutaLugar._t = null; if (lugarDestino) pedirRutaLugar(true); }, 3000);
   }
@@ -1421,10 +1329,9 @@ function dibujarRutaLugar() {
   if (!capaLugar) return;
   if (!lugarDestino || !ultimaPos) return capaLugar.setLatLngs([]);
   const aqui = [ultimaPos.lat, ultimaPos.lng];
-  capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...rutaLugar.rutaPts] : []);   // nunca línea recta
+  capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...rutaLugar.rutaPts] : []);
   capaLugar.setStyle({ opacity: rutaLugar && rutaLugar.rutaPts ? .9 : .5 });
 }
-/* Aviso de ruta: próximo giro, calle y distancia (calles de un solo sentido ya vienen resueltas en la ruta) */
 function actualizarBanner() {
   const b = $("bannerRuta"); if (!b) return;
   const n = lugarDestino ? rutaLugar : viajes[seleccionado];
@@ -1432,7 +1339,6 @@ function actualizarBanner() {
   if (!lugarDestino && !(n && n.destino)) { b.classList.add("oculto"); return; }
   b.classList.remove("oculto");
   const cerrar = lugarDestino ? '<button id="brX" type="button" aria-label="Quitar destino">✕</button>' : "";
-  /* Solo distancia, tiempo y destino: ya no se muestra el cartel de "gira a la izquierda…" */
   let txt;
   if (!n || !n.rutaPasos || !ultimaPos) txt = escHtml(!ultimaPos ? `Esperando tu ubicación para trazar la ruta a ${titulo}…` : n && n.rutaFallo ? "No se pudo calcular la ruta por calles. Reintentando…" : `Calculando ruta a ${titulo}…`);
   else txt = `<b>${formatoDist(n.rutaDist)}</b> · ≈ ${Math.max(1, Math.round(n.rutaDur / 60))} min · ${escHtml(titulo)}`;
@@ -1440,7 +1346,6 @@ function actualizarBanner() {
   const x = $("brX"); if (x) x.onclick = quitarLugarDestino;
 }
 
-/* ---------- Lista de pedidos (hoja inferior del mapa) ---------- */
 function renderLista() { renderListaBase(); aplicarHoja(); }
 function renderListaBase() {
   const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html() + htmlPedidoChat();
@@ -1490,14 +1395,14 @@ function refrescarTextos() {
     const bd = $("bd-" + t); bd.textContent = v.noLeidos; bd.classList.toggle("oculto", !v.noLeidos);
     $("usarcli-" + t).classList.toggle("oculto", !(v.destManual && v.cliPos));
     const sb = $("subbd-" + t); if (sb) sb.textContent = v.sub && v.sub.items && v.sub.items.length ? "(" + v.sub.items.length + ")" : "";
-    const pe = $("prio-" + t);   // etiqueta de prioridad + total con la propina sumada
+    const pe = $("prio-" + t);
     if (pe) {
       if (v.prioridad) {
         pe.innerHTML = '<span class="chip alerta">⚡ PRIORIDAD</span> +' + money2(PRIORIDAD_EXTRA) + " en concepto de propina por prioridad";
         pe.classList.remove("oculto");
       } else { pe.classList.add("oculto"); pe.innerHTML = ""; }
     }
-    const ce = $("cobro-" + t);   // total a cobrar al cliente
+    const ce = $("cobro-" + t);
     if (ce) {
       const c = totalCobrar(v);
       if (c) {
@@ -1509,11 +1414,11 @@ function refrescarTextos() {
   });
   actualizarNav();
 }
-setInterval(() => { if (orden.length) refrescarTextos(); PedidoRep.pintarCliente(); }, 15000);   // el estado "en vivo" caduca solo
+setInterval(() => { if (orden.length) refrescarTextos(); PedidoRep.pintarCliente(); }, 15000);
 
 $("hojaPedidos").onclick = (e) => {
-  if (PedidoRep.alClick(e)) return;       // chat con el cliente del pedido asignado por el administrador
-  if (OrdenAdminRep.alClick(e)) return;   // tarjeta del pedido asignado por el administrador
+  if (PedidoRep.alClick(e)) return;
+  if (OrdenAdminRep.alClick(e)) return;
   const card = e.target.closest(".pedido-card"); if (!card) return;
   const v = viajes[card.dataset.token]; if (!v) return;
   const b = e.target.closest("button[data-acc]");
@@ -1529,7 +1434,7 @@ $("hojaPedidos").onclick = (e) => {
 };
 
 /* ============================================================
-   APK: plugins nativos, permisos y notificaciones de mensajes
+   APK: plugins y notificaciones
    ============================================================ */
 const esNativo = () => { const C = window.Capacitor; return !!(C && ((C.isNativePlatform && C.isNativePlatform()) || (C.getPlatform && C.getPlatform() !== "web"))); };
 function plug(nombre) {
@@ -1539,13 +1444,6 @@ function plug(nombre) {
   return (C.Plugins && C.Plugins[nombre]) || (C.registerPlugin && C.registerPlugin(nombre)) || null;
 }
 let notifLista = false, esperandoPermisos = null;
-
-/* ============================================================
-   FASE 2 · IDs de notificaciones locales (para poder cancelarlas)
-   - Cada notificación se guarda bajo una clave: sol:{id} · tok:{id} · eq · guia
-   - cancelarNotif(extra) llama a LocalNotifications.cancel y removeDeliveredNotifications
-   - Se llama al tocar la notificación, al entrar al chat o al aceptar una solicitud.
-   ============================================================ */
 const CLAVE_NOTIF_IDS = "brothersNotifIds";
 let notifIds = {};
 try { notifIds = JSON.parse(localStorage.getItem(CLAVE_NOTIF_IDS) || "{}"); } catch (_) {}
@@ -1571,7 +1469,6 @@ function cancelarNotif(extra) {
   try { ln.removeDeliveredNotifications && ln.removeDeliveredNotifications({ notifications: [{ id }] }).catch(() => {}); } catch (_) {}
 }
 
-/* Ventana inicial que explica los permisos (ubicación todo el tiempo, notificaciones) y luego los pide */
 function permisosInicio() {
   if (!esNativo()) return Promise.resolve();
   return (async () => {
@@ -1597,7 +1494,7 @@ async function prepararNotificaciones(pedir) {
   const ln = plug("LocalNotifications");
   if (!ln) return;
   try {
-    if (pedir) await ln.requestPermissions();   // ventana de Android: "¿Permitir notificaciones?"
+    if (pedir) await ln.requestPermissions();
     await ln.createChannel({ id: "mensajes", name: "Mensajes de clientes", description: "Avisos cuando un cliente te escribe", importance: 5, visibility: 1, vibration: true, lights: true });
     await ln.registerActionTypes({ types: [{ id: "MENSAJE", actions: [
       { id: "responder", title: "Responder", input: true, inputButtonTitle: "Enviar", inputPlaceholder: "Escribe tu respuesta" },
@@ -1607,8 +1504,6 @@ async function prepararNotificaciones(pedir) {
   } catch (e) { console.warn("Notificaciones:", e); }
 }
 
-/* ---------- Push (FCM): llega aunque la app esté cerrada o en otra app ---------- */
-// ⚠️ Pásalo a false si la app se cierra sola al abrir: significa que falta android/app/google-services.json (ver los pasos de la guía).
 const PUSH_HABILITADO = true;
 let pushActivo = false, abrirPendiente = null;
 async function registrarPush() {
@@ -1617,22 +1512,21 @@ async function registrarPush() {
   if (!PN || !uidActual) return;
   try {
     let p = await PN.checkPermissions();
-    if (p.receive !== "granted") p = await PN.requestPermissions();   // ventana de Android 13+: "¿Permitir notificaciones?"
+    if (p.receive !== "granted") p = await PN.requestPermissions();
     if (p.receive !== "granted") return;
-    // Canales: "pedidos" (pedidos y guías de Brothers) y "mensajes" (chat). Importancia 5 = aparece como ventana emergente con sonido.
     await PN.createChannel({ id: "mensajes", name: "Mensajes", description: "Avisos cuando Brothers o un cliente te escribe", importance: 5, visibility: 1, vibration: true, lights: true });
     await PN.createChannel({ id: "pedidos", name: "Pedidos nuevos", description: "Pedidos y guías que te asigna Brothers", importance: 5, visibility: 1, vibration: true, lights: true });
     await PN.removeAllListeners();
-    PN.addListener("registration", (t) => {   // se dispara al registrar y cada vez que Google renueva el token
-      pushActivo = true;   // con push activo, los avisos de Brothers no se duplican con la notificación local
+    PN.addListener("registration", (t) => {
+      pushActivo = true;
       const u = uidActual; if (!u) return;
       db.ref().update({ [`repartidores/${u}/fcmToken`]: t.value, [`repartidores/${u}/fcmTs`]: TS }).catch((e) => console.warn("fcmToken:", e.message));
     });
     PN.addListener("registrationError", (e) => console.warn("Push:", e));
-    PN.addListener("pushNotificationActionPerformed", (ev) => {   // tocó la notificación
+    PN.addListener("pushNotificationActionPerformed", (ev) => {
       const d = (ev.notification && ev.notification.data) || {};
       if (d.tipo === "mensaje") return abrirChatAdmin();
-      if (d.tipo === "pedido" || d.tipo === "guia") return irA("mapa");   // el pedido o la guía ya están cargados en vivo
+      if (d.tipo === "pedido" || d.tipo === "guia") return irA("mapa");
       const tk = d.token;
       if (!tk) return;
       if (viajes[tk]) { irA("mapa"); abrirChat(viajes[tk]); }
@@ -1643,11 +1537,10 @@ async function registrarPush() {
   } catch (e) { console.warn("Push:", e); }
 }
 
-/* Notificación tipo WhatsApp: título + texto; se puede responder desde la propia notificación */
 function notificarTexto(titulo, cuerpo, resumen, extra) {
   const ln = plug("LocalNotifications");
-  if (!ln || !document.hidden) return;   // con la app a la vista basta la voz y la burbuja
-  if (pushActivo && extra && extra.equipo) return;   // los avisos de Brothers ya llegan por push: evita la notificación doble
+  if (!ln || !document.hidden) return;
+  if (pushActivo && extra && extra.equipo) return;
   const id = Math.floor(Math.random() * 2000000000);
   const clave = claveNotif(extra);
   if (clave) { notifIds[clave] = id; guardarNotifIds(); }
@@ -1657,15 +1550,14 @@ function notificarTexto(titulo, cuerpo, resumen, extra) {
   }] }).catch(() => {});
 }
 function notificarMensaje(v, m) {
-   // (los mensajes de clientes no viajan por push: siempre se avisa con la notificación local)
   notificarTexto(v.cliente ? "Cliente · " + v.cliente : "Cliente · Pedido " + etiquetaWA(v), m.texto ? m.texto : "📷 Te envió una foto", "Pedido " + etiquetaWA(v), { token: v.token });
 }
 function alAccionNotificacion(ev) {
   const extra = (ev && ev.notification && ev.notification.extra) || {};
-  cancelarNotif(extra);   /* FASE 2: al tocar la notificación, la quitamos de la barra */
+  cancelarNotif(extra);
   const texto = ev.inputValue && ev.inputValue.trim();
-  if (extra.solicitud) { irA(ChatsEntrantes.activos() ? "chats" : "mapa"); ChatsEntrantes.vistaPrevia(extra.solicitud); return; }   // solicitud o mensaje de un chat de cliente
-  if (extra.equipo) {   // aviso de Brothers (mensaje o guía)
+  if (extra.solicitud) { irA(ChatsEntrantes.activos() ? "chats" : "mapa"); ChatsEntrantes.vistaPrevia(extra.solicitud); return; }
+  if (extra.equipo) {
     if (ev.actionId === "responder" && texto) {
       Chat.enviarA(uidActual, "repartidor", { pedido: "Equipo", nombreRepartidor: usuario }, texto.slice(0, 600), null, RUTA_EQUIPO).catch(() => {});
       return;
@@ -1673,29 +1565,25 @@ function alAccionNotificacion(ev) {
     if (extra.equipo === "guia") { irA("mapa"); return; }
     return abrirChatAdmin();
   }
-  if (!viajes[extra.token] && PedidoRep.esMio(extra.token)) {   // pedido asignado por el administrador
+  if (!viajes[extra.token] && PedidoRep.esMio(extra.token)) {
     if (ev.actionId === "responder" && texto) return PedidoRep.responderRapido(texto);
     irA("mapa"); PedidoRep.abrirChat(); return;
   }
   const v = viajes[extra.token]; if (!v) return;
   if (ev.actionId === "responder" && texto) {
     Chat.enviarA(extra.token, "repartidor", { pedido: v.pedido, nombreRepartidor: usuario }, texto.slice(0, 600), null).catch(() => {});
-    return;   // respondido sin abrir la app
+    return;
   }
-  irA("mapa"); abrirChat(v);   // tocar la notificación o "Abrir chat"
+  irA("mapa"); abrirChat(v);
 }
 
-/* ============================================================
-   Funciones nativas del APK: burbuja flotante, batería, ubicaciones compartidas
-   ============================================================ */
 const nativo = () => plug("Nativo");
 let esperandoAjustes = false, nativoListo = false, alElegirCb = null;
-
 async function iniciarNativo(forzarModal) {
   const n = nativo(); if (!n) return;
-  if (!nativoListo) { nativoListo = true; n.addListener("entrante", alEntrante); }   // lo compartido/tocado en la burbuja llega aquí
+  if (!nativoListo) { nativoListo = true; n.addListener("entrante", alEntrante); }
   let e; try { e = await n.estado(); } catch (_) { return; }
-  if (e.permiso) n.activar({ activo: true }).catch(() => {});   // burbuja activa mientras haya sesión
+  if (e.permiso) n.activar({ activo: true }).catch(() => {});
   const falta = !e.permiso || !e.bateria;
   const hace3dias = Date.now() - Number(localStorage.getItem("nativoPreguntado") || 0) > 3 * 86400000;
   if (falta && (forzarModal || hace3dias)) {
@@ -1710,7 +1598,6 @@ $("btnBurbujaBateria").onclick = () => { esperandoAjustes = true; nativo().pedir
 $("btnBurbujaCerrar").onclick = () => $("modalBurbuja").classList.add("oculto");
 function apagarNativo() { const n = nativo(); if (n) n.activar({ activo: false }).catch(() => {}); }
 
-/* Lista para elegir un pedido (chat, destino…) */
 function elegirPedido(titulo, cb, etiqueta, extra) {
   $("elegirTitulo").textContent = titulo; alElegirCb = cb;
   $("elegirLista").innerHTML = orden.map((t, i) => `<button class="oscuro" data-t="${t}" type="button">${i + 1}. ${etiqueta || ""}${escHtml(nombreDe(viajes[t]))} · ${escHtml(etiquetaWA(viajes[t]))}</button>`).join("") + (extra || "");
@@ -1731,7 +1618,6 @@ function alEntrante(ev) {
   if (ev.accion) return accionBurbuja(ev.accion);
   if (ev.texto) recibirUbicacion(String(ev.texto));
 }
-/* Menú de la burbuja: Chat al cliente · Nueva factura · Ver ubicación */
 function accionBurbuja(a) {
   if (a === "factura") return irA("factura");
   if (a === "ubicacion") {
@@ -1740,7 +1626,7 @@ function accionBurbuja(a) {
     return;
   }
   if (a === "chat") {
-    const adm = PedidoRep.info();   // pedido asignado por el administrador
+    const adm = PedidoRep.info();
     if (!orden.length && !adm) { irA("factura"); return alert("No tienes clientes en ruta para chatear."); }
     if (!orden.length) { irA("mapa"); return PedidoRep.abrirChat(); }
     if (orden.length === 1 && !adm) { irA("mapa"); return abrirChat(viajes[orden[0]]); }
@@ -1748,15 +1634,14 @@ function accionBurbuja(a) {
     elegirPedido("¿Con qué cliente quieres chatear?", (v) => { irA("mapa"); if (v && v.admin) PedidoRep.abrirChat(); else abrirChat(v); }, "", extraBtn);
   }
 }
-/* Ubicación compartida desde WhatsApp / Google Maps / Waze / geo: → ruta tipo Waze */
 async function recibirUbicacion(texto) {
   let c = Buscar.coords(texto), nombre = "Ubicación compartida";
   const l1 = texto.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).find((x) => !/^(https?:|geo:)/i.test(x) && !Buscar.coords(x));
   if (l1 && l1.length <= 60) nombre = l1;
   if (!c) {
     const m = texto.match(/https?:\/\/[^\s]+/i), n = nativo();
-    if (m && n) {   // enlaces cortos (maps.app.goo.gl): se siguen hasta el enlace final para sacar las coordenadas
-      try { const r = await n.resolverEnlace({ url: m[0] }); c = Buscar.coords(r.url) || (r.coords && Buscar.coords(r.coords)); } catch (_) { /* sin red */ }
+    if (m && n) {
+      try { const r = await n.resolverEnlace({ url: m[0] }); c = Buscar.coords(r.url) || (r.coords && Buscar.coords(r.coords)); } catch (_) {}
     }
   }
   if (!c) return alert("No encontré una ubicación en lo que compartiste. Comparte un enlace de Google Maps, Waze, geo: o las coordenadas.\n\nNota: la ubicación EN TIEMPO REAL de WhatsApp solo se ve dentro de WhatsApp; usa “Contactarme al cliente” para que el cliente comparta la suya con tu app.");
@@ -1765,21 +1650,16 @@ async function recibirUbicacion(texto) {
   elegirPedido("📍 " + nombre + "\n¿Qué hacemos con esta ubicación?", (v, modo) => {
     if (modo === "ir" || !v) return irALugar(lugar, true);
     irA("mapa"); seleccionar(v.token, false);
-    fijarDestino(v, c.lat, c.lng);   // pasa a ser el destino de ese pedido (el cliente también lo ve)
+    fijarDestino(v, c.lat, c.lng);
     seguirme = false; encuadrar(true);
   }, "Destino de ", '<button class="primario" data-t="__ir" type="button">🧭 Solo ir ahora (ruta)</button>');
 }
 
-/* ============================================================
-   GPS permanente (turno)
-   ============================================================ */
 const plugin = () => plug("BackgroundGeolocation");
-
 async function iniciarGPS() {
   if (watchId !== null || bgId !== null) return;
   bgPlugin = plugin();
   if (bgPlugin) {
-    // APK: servicio en primer plano → sigue enviando con la app minimizada o la pantalla apagada
     bgId = await bgPlugin.addWatcher(
       { backgroundTitle: "Brother’s Deliverys · ubicación en tiempo real", backgroundMessage: "Se está registrando tu trayecto. Toca para volver a la app.",
         requestPermissions: true, stale: false, distanceFilter: 5 },
@@ -1791,7 +1671,6 @@ async function iniciarGPS() {
         if (loc) procesarPosicion({ latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy, heading: loc.bearing, speed: loc.speed });
       });
   } else {
-    // Navegador: solo mientras la pantalla esté activa
     if (!("geolocation" in navigator)) return setEstado("Este dispositivo no tiene GPS.", "error");
     Pantalla.pedir();
     watchId = navigator.geolocation.watchPosition(
@@ -1799,7 +1678,6 @@ async function iniciarGPS() {
       (err) => setEstado(err.code === 1 ? "Permiso de ubicación denegado. Actívalo en Ajustes." : "Error GPS: " + err.message, "error"),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
   }
-  // Latido: si estás quieto, el administrador sigue viéndote "en línea"
   latido = setInterval(() => {
     if (ultimaPos && uidActual) db.ref("ubicaciones/" + uidActual).update({ ts: TS, enLinea: true }).catch(() => {});
   }, 30000);
@@ -1812,57 +1690,49 @@ function detenerGPS() {
 }
 document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState !== "visible") return;
-  if (esperandoAjustes) { esperandoAjustes = false; iniciarNativo(true); }   // volvió de los ajustes de Android: se revisa de nuevo
-  if (uidActual) Pantalla.pedir();   // volvió a la app: se reactiva el bloqueo de pantalla
-  if (mapa) { mapa.invalidateSize(); pintarYo(); dibujarRuta(); }   // muestra el trayecto recorrido en segundo plano
+  if (esperandoAjustes) { esperandoAjustes = false; iniciarNativo(true); }
+  if (uidActual) Pantalla.pedir();
+  if (mapa) { mapa.invalidateSize(); pintarYo(); dibujarRuta(); }
 });
 
 function procesarPosicion(c) {
   const lat = c.latitude, lng = c.longitude, precision = Math.round(c.accuracy || 0);
   const primera = !ultimaPos;
   ultimaPos = { lat, lng };
-
-  // El mapa se mueve con cada lectura (sin esperar al envío a la nube) → el repartidor se ve a sí mismo en tiempo real
   if (orden.length) {
     const ult = rastro[rastro.length - 1];
     if (!ult || distanciaM(ult[0], ult[1], lat, lng) > 4) { rastro.push([lat, lng]); if (rastro.length > 800) rastro.shift(); guardarRastro(); }
   }
-  Camara.registrar(lat, lng);   // rumbo con las dos últimas coordenadas
+  Camara.registrar(lat, lng);
   pintarYo();
   if (mapa && vistaActual === "mapa") {
-    if (seguirme) Camara.actualizar(primera);   // zoom por proximidad + rotación + repartidor en el tercio inferior
+    if (seguirme) Camara.actualizar(primera);
     dibujarRuta(); dibujarRutaLugar(); actualizarBanner();
   }
-
   const ahora = Date.now();
   if (ahora - ultimaEscritura < INTERVALO_MS) return;
   ultimaEscritura = ahora;
-
-  // 1) Ubicación permanente → mapa del administrador (aunque no haya pedidos)
   db.ref("ubicaciones/" + uidActual).set({
     lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed),
     ts: TS, enLinea: true, enViaje: orden.length > 0, conPedido: (() => { try { return ChatsEntrantes.activos() > 0; } catch (_) { return false; } })(), usuario
   }).catch(() => {});
-  try { ChatsEntrantes.publicarGps({ lat, lng }); } catch (_) {}   // los clientes con chat atendido ven al repartidor en vivo
-
-  // 2) Cada pedido en ruta → su cliente (posición, distancia, aviso de cercanía)
+  try { ChatsEntrantes.publicarGps({ lat, lng }); } catch (_) {}
   const base = { lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed), ts: TS };
   orden.forEach((t) => evaluarViaje(viajes[t], base));
-  OrdenAdminRep.publicar(base);   // si hay un pedido del admin, el cliente también te sigue
+  OrdenAdminRep.publicar(base);
   if (seleccionado) pedirRuta(viajes[seleccionado]);
   if (lugarDestino) pedirRutaLugar();
   refrescarTextos();
   setEstado(`Compartiendo ubicación · ±${precision} m` + (orden.length ? ` · ${orden.length} pedido${orden.length > 1 ? "s" : ""} en ruta` : "") + (bgPlugin ? " · segundo plano activo" : " · solo con pantalla activa (usa el APK)"), "ok");
 }
 
-/* ---------- "Contactarme al cliente": el negocio avisa al cliente con un enlace que abre el chat ---------- */
 function enviarContacto(v) {
-  const enlace = enlaceDe(v.token, { chat: "1" });   // abre el chat directamente en la página del cliente
+  const enlace = enlaceDe(v.token, { chat: "1" });
   abrirWhatsApp(
     `📞 *SOLICITUD DE CONTACTO*\n🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · Cliente: " + v.cliente : ""}\n\n` +
     `💬 El repartidor desea contactarse con usted, por favor presione el enlace para responderle:\n${enlace}`);
 }
-function nuevoContacto() {   // crea el MISMO enlace de seguimiento que crea la factura, sin hacer la factura todavía
+function nuevoContacto() {
   let nombre = ($("customerName").value || "").trim();
   if (!nombre) nombre = (prompt("Nombre del cliente (para identificarlo):") || "").trim();
   if (!nombre) return;
@@ -1888,37 +1758,34 @@ $("contactoLista").onclick = (e) => {
 };
 $("btnContactoCancelar").onclick = () => $("modalContacto").classList.add("oculto");
 
-/* ---------- WhatsApp: siempre al chat del negocio (el repartidor no contacta al cliente fuera de la app) ---------- */
 const NEGOCIO_WA = "50586265619";
 function abrirWhatsApp(msg) {
   const url = `https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(msg)}`;
-  if (typeof window.abrirEnlaceExterno === "function") window.abrirEnlaceExterno(url);   // Safari de iPhone: misma pestaña (sin pestaña en blanco)
+  if (typeof window.abrirEnlaceExterno === "function") window.abrirEnlaceExterno(url);
   else window.open(url, "_system");
 }
 const mensajeSeguimiento = (v) =>
   `🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n\n` + leyendaEnlace(enlaceDe(v.token));
 
-/* ---------- Entregar / cancelar un pedido ---------- */
 async function cerrarViaje(token, estadoFinal) {
   const v = viajes[token]; if (!v) return;
   const quien = nombreDe(v);
   if (!confirm(estadoFinal === "entregado" ? `¿Confirmar la entrega a ${quien}?` : `¿Cancelar el pedido de ${quien}?`)) return;
-  v.cerrando = true;   // para que no avise "Brothers lo marcó" cuando lo cierra el propio repartidor
+  v.cerrando = true;
   try {
     await db.ref("pedidos/" + token).update({
       estado: estadoFinal, lat: null, lng: null, rumbo: null, velocidad: null, precision: null,
       destLat: null, destLng: null, distancia: null, cerca: null, cliente: null, fin: TS
     });
   } catch (e) { v.cerrando = false; return alert("No se pudo cerrar en la nube: " + e.message); }
-  // La guía de Brothers se borra cuando entrega ESTANDO en el lugar que se le marcó (≤ 250 m); si cancela ese pedido, también
   const g = guiaCliente();
   if (g && (!g.token || g.token === token)) {
     const enElLugar = ultimaPos && distanciaM(ultimaPos.lat, ultimaPos.lng, g.lat, g.lng) <= 250;
     if ((estadoFinal === "entregado" && enElLugar) || (estadoFinal === "cancelado" && g.token === token)) db.ref("guias/" + uidActual).remove().catch(() => {});
   }
-  quitarViaje(token);          // el GPS del turno sigue activo
-  irA("factura");              // vuelve a la factura…
-  if (estadoFinal === "entregado") mostrarEntregado(quien);   // …con la ventana para moverse entre pantallas
+  quitarViaje(token);
+  irA("factura");
+  if (estadoFinal === "entregado") mostrarEntregado(quien);
 }
 function mostrarEntregado(quien) {
   const n = orden.length;
@@ -1931,12 +1798,10 @@ function mostrarEntregado(quien) {
 $("btnOtraFactura").onclick = () => { $("modalEntregado").classList.add("oculto"); irA("factura"); };
 $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); irA("mapa"); };
 
-
-/* ---------- Botón / gesto atrás: cierra de a una capa, sin cerrar la app ---------- */
 Atras.iniciar([
   () => Chat.cerrarCapa(),
   () => { for (const id of ["modalNuevoPedido", "modalSub", "modalFacturaVivo", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
-  () => {   // ventanas de la factura
+  () => {
     if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
     if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
     if ($("customAlertModal").classList.contains("show")) { closeCustomAlert(); return true; }
@@ -1944,31 +1809,26 @@ Atras.iniciar([
     return false;
   },
   () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
-  () => { if (!$("resBusqRep").classList.contains("oculto") || document.activeElement === $("busqRep")) { cerrarBusquedaRep(); return true; } return false; },   // atrás sale del buscador y deja ver el mapa completo
+  () => { if (!$("resBusqRep").classList.contains("oculto") || document.activeElement === $("busqRep")) { cerrarBusquedaRep(); return true; } return false; },
   () => { if (marcando) { marcando = false; $("btnMarcarDestino").classList.remove("activo"); $("avisoMarcar").classList.add("oculto"); return true; } return false; },
-  () => { if ($("invoiceContainer").style.display === "none") { hideStats(); return true; } return false; },   // pantalla de estadísticas
+  () => { if ($("invoiceContainer").style.display === "none") { hideStats(); return true; } return false; },
   () => { if (vistaActual === "mapa" && uidActual) { irA("factura"); return true; } return false; }
 ]);
 
-
-/* ---------- Pedido asignado por el administrador (ordenes-repartidor.js) ---------- */
-/* Pedido NUEVO asignado por el administrador: ventana con todos los detalles + voz + vibración + notificación */
 function nuevoPedidoAsignado(id, o) {
   Pantalla.pedir();
-  PedidoRep.seguir(id);   // desde ya se escucha el pedido: al aceptarlo aparece "Crear Factura" en el mapa
+  PedidoRep.seguir(id);
   const total = Ordenes.totalDelivery(o), sig = Ordenes.siguienteRetiro(o);
   $("nuevoPedidoCuerpo").innerHTML = OrdenAdminRep.detallesHtml(o);
   $("modalNuevoPedido").classList.remove("oculto");
-  hojaOculta = false; aplicarHoja();   // un pedido nuevo siempre se ve
+  hojaOculta = false; aplicarHoja();
   Voz.hablar("Tienes un nuevo pedido" + (total ? ". Delivery " + total + " córdobas" : ""), { forzar: true });
   navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]);
-  /* FASE 2: token: id permite cancelar esta notificación al abrir el chat con el cliente */
   notificarTexto("🛵 Nuevo pedido " + etiquetaPedido(o.codigo, "app"), `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia", token: id });
 }
 $("btnNuevoVer").onclick = () => {
   $("modalNuevoPedido").classList.add("oculto");
   irA("mapa");
-  /* FASE 2: si el usuario abrió el detalle, también limpiamos la notificación del pedido nuevo */
   if (PedidoRep.id()) cancelarNotif({ token: PedidoRep.id() });
 };
 $("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
@@ -1977,54 +1837,39 @@ $("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder(
 OrdenAdminRep.init({
   db, usuario: () => usuario, uid: () => uidActual,
   alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
-  alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))   // el cliente priorizó un pedido asignado por el administrador
+  alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))
 });
 
-
 /* ============================================================
-   NUEVOS CHATS (clientes de cliente-app.html)
-   - Escucha solicitudes_entrantes en tiempo real.
-   - Solicitud nueva (o devuelta al grupo): suena "Hay una solicitud de pedido" (voz.js), aparece un
-     ícono "Solicitud de pedido" en el mapa y, al tocarlo, se abre una VISTA PREVIA (qué desea y de dónde)
-     antes de pulsar "Atender".
-   - "Atender": el repartidor se asigna el chat con una TRANSACCIÓN sobre repartidorUid; solo el primero
-     lo consigue y los demás dejan de verlo. Pasa a "con pedido", transmite su GPS en vivo al cliente
-     (solicitudes_entrantes/{id}/repartidorGps), puede enviar fotos y ve al cliente en el mapa.
-   - Conversación con el cliente + Facturar (factura.js) + Extras (subfactura.js: mandados extra al total).
-   - FASE 2 · "📍 He llegado" (manual) y llegada automática por proximidad (≤200 m): ambos escriben
-     llegadaTs, llegadaPor, llegadaLat, llegadaLng → cliente-app.js dispara Voz.clienteRepartidorCerca.
-   - "Entregado": el chat desaparece de esta pantalla y queda el registro de la factura (local, por fecha y
-     orden de entrega) con botón para eliminarla.
-   - "Cancelar": pide el motivo. "Cliente lo decidió" cierra el pedido; "Pasar a otro repartidor" lo devuelve al
-     grupo (estado "nuevo", sin repartidor) CONSERVANDO el historial del chat.
-   Esquema: solicitudes_entrantes/{id} { clienteId, nombre, estado: nuevo|atendido|entregado|cancelado,
-              pedido{quiere,origen,modo,destino}, clienteGps, repartidorUid, repartidorNombre, repartidorGps,
-              omitidoPor{uid:true}, facturaFinal, subfactura, motivoCancelacion, entregadoTs, ultimoMensaje, ts,
-              llegadaTs, llegadaPor: "gps"|"manual", llegadaLat, llegadaLng }
-            solicitudes_entrantes/{id}/mensajes/{pushId} { de, tipo: "texto"|"factura"|"foto", texto | factura, ts }
-            solicitudes_fotos/{id}/{pushId} = data URL JPEG en Base64 (la foto va aparte para no cargar la lista)
+   CHATS ENTRANTES
    ============================================================ */
 const ChatsEntrantes = (() => {
   const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos";
-  const MAX_FOTO = 300000;            // caracteres del data URL (las reglas aceptan < 400 000)
+  const RAIZ_CLIENTES = "clientes";
+  const MAX_FOTO = 300000;
   const CLAVE_REG = "brothersFacturasEntregadas", CLAVE_FAC = "brothersFacChat_";
-  const RADIO_LLEGADA_M = 200;        /* FASE 2: misma distancia que RADIO_AVISO_M del cliente-app.js */
+  const RADIO_LLEGADA_M = 200;
+  const TYPING_MS = 1500, TYPING_CADUCA = 4000;
+  const COLOR_TICK_ENVIADO = "#8696A0", COLOR_TICK_LEIDO = "#25D366";
   let consulta = null, lista = {}, abiertoId = null, consultaMsgs = null, previoId = null;
   const vistos = new Set();
   let ultDia = null;
-  let cargada = false;                // la primera lectura no avisa de lo que ya estaba
+  let cargada = false;
   let ultimoConPedido = null;
-  const avisadas = new Set();         // solicitudes libres ya anunciadas (si vuelven al grupo, suenan otra vez)
-  const tsPrevio = {};                // id → último ts visto (detecta mensajes nuevos del cliente)
-  const sinLeer = {};                 // id → mensajes del cliente sin leer
-  const marcasSol = {}, marcasCli = {};   // id → marcador en el mapa
+  const avisadas = new Set();
+  const tsPrevio = {};
+  const sinLeer = {};
+  const marcasSol = {}, marcasCli = {};
+  /* FASE 4 · estado del chat abierto: leídos, typing, última dirección */
+  let lect = {}, typing = {}, ultimaDirCliente = null, refUltimaDir = null, refLeidos = null, refTyping = null;
+  let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
 
   const termino = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
-  const omitida = (d) => !!(d && d.omitidoPor && uidActual && d.omitidoPor[uidActual]);   // yo la pasé: no me vuelve a sonar
+  const omitida = (d) => !!(d && d.omitidoPor && uidActual && d.omitidoPor[uidActual]);
   const libre = (d) => !!d && typeof d === "object" && !d.repartidorUid && !termino(d) && !omitida(d);
   const mio = (d) => !!d && typeof d === "object" && !!uidActual && d.repartidorUid === uidActual && !termino(d);
   const sinLeerTotal = () => Object.keys(sinLeer).reduce((t, k) => t + (mio(lista[k]) ? sinLeer[k] : 0), 0);
-  const pendientes = () => Object.keys(lista).filter((k) => libre(lista[k])).length + sinLeerTotal();   // insignia de la pestaña
+  const pendientes = () => Object.keys(lista).filter((k) => libre(lista[k])).length + sinLeerTotal();
   const activos = () => Object.keys(lista).filter((k) => mio(lista[k])).length;
 
   function el(tag, clase, texto) {
@@ -2049,8 +1894,6 @@ const ChatsEntrantes = (() => {
     e.textContent = msg || "";
     e.classList.toggle("oculto", !msg);
   }
-
-  /* Punto del cliente en el mapa: su GPS en vivo o, si no, el pin/GPS con el que hizo el pedido */
   function puntoDe(d) {
     const g = d && d.clienteGps;
     if (g && okLL(g.lat, g.lng)) return { lat: g.lat, lng: g.lng };
@@ -2065,7 +1908,6 @@ const ChatsEntrantes = (() => {
     return x.texto ? cortar(x.texto, 200) : "Dirección sin texto";
   }
 
-  /* ---------- Aviso breve (toca para abrir) ---------- */
   let toastTimer = null, toastAccion = null;
   function toast(ico, titulo, texto, accion, ms) {
     $("solToastIco").textContent = ico;
@@ -2082,15 +1924,14 @@ const ChatsEntrantes = (() => {
     if (a) a();
   });
 
-  /* ---------- Lista en tiempo real ---------- */
   function iniciar() {
-    detener(true);          // no se toca la factura en curso: solo se reinicia la escucha
+    detener(true);
     cargada = false;
     consulta = db.ref(RAIZ).limitToLast(60);
     consulta.on("value", (s) => {
       lista = s.val() || {};
       revisarCambios();
-      if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();   // el chat ya no es mío (entregado, cancelado, pasado o eliminado)
+      if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();
       if (previoId) refrescarPrevia();
       pintarLista();
       pintarMapa();
@@ -2101,7 +1942,6 @@ const ChatsEntrantes = (() => {
       pintarLista(e && e.code === "PERMISSION_DENIED" ? "Faltan permisos en Firebase para leer los chats (reglas)." : "No se pudieron cargar los chats.");
     });
   }
-
   function detener(conservarFactura) {
     if (consulta) { consulta.off(); consulta = null; }
     cerrarConversacion();
@@ -2113,8 +1953,6 @@ const ChatsEntrantes = (() => {
     $("chipConPedido").classList.add("oculto");
     if (!conservarFactura) { try { Factura.salirModoChat(true); } catch (_) {} }
   }
-
-  /* Qué cambió desde la última lectura: solicitudes nuevas y mensajes del cliente */
   function revisarCambios() {
     Object.keys(lista).forEach((id) => {
       if (libre(lista[id])) {
@@ -2130,14 +1968,12 @@ const ChatsEntrantes = (() => {
     });
     cargada = true;
   }
-
   function anunciarSolicitud(id, d) {
     const p = d.pedido || {};
-    try { Voz.solicitud(); } catch (_) {}   // "Hay una solicitud de pedido" (+ vibración)
+    try { Voz.solicitud(); } catch (_) {}
     toast("📥", "Solicitud de pedido", cortar(p.quiere || d.nombre || "Un cliente quiere hacer un pedido", 80), () => { irA("mapa"); vistaPrevia(id); }, 9000);
     notificarTexto("📥 Solicitud de pedido", cortar(p.quiere || "Un cliente quiere hacer un pedido", 120), "Nueva solicitud", { solicitud: id });
   }
-
   function mensajeDelCliente(id, d) {
     const visible = abiertoId === id && vistaActual === "chats" && !document.hidden;
     if (visible) return;
@@ -2147,7 +1983,6 @@ const ChatsEntrantes = (() => {
     toast("💬", nombre, cortar(d.ultimoMensaje || "Te escribió", 90), () => { irA("chats"); abrir(id); }, 7000);
     notificarTexto("Cliente · " + nombre, cortar(d.ultimoMensaje || "Te escribió", 120), "Nuevos chats", { solicitud: id });
   }
-
   function filaChat(id, d, esMio) {
     const f = el("div", "cn-item" + (esMio ? "" : " nuevo"));
     const nombre = String(d.nombre || "Cliente").slice(0, 40), p = d.pedido || {};
@@ -2163,11 +1998,10 @@ const ChatsEntrantes = (() => {
     f.appendChild(dat);
     const b = el("button", esMio ? "oscuro" : "cn-ver", esMio ? "Abrir" : "Ver");
     b.type = "button";
-    b.addEventListener("click", () => (esMio ? abrir(id) : vistaPrevia(id)));   // una solicitud siempre se ve antes de atenderla
+    b.addEventListener("click", () => (esMio ? abrir(id) : vistaPrevia(id)));
     f.appendChild(b);
     return f;
   }
-
   function pintarLista(error) {
     const nuevos = $("cnNuevos"), mios = $("cnMios");
     nuevos.textContent = ""; mios.textContent = "";
@@ -2181,8 +2015,6 @@ const ChatsEntrantes = (() => {
     mios_.forEach((k) => mios.appendChild(filaChat(k, lista[k], true)));
     pintarRegistro();
   }
-
-  /* ---------- Con pedido + GPS en vivo hacia el cliente ---------- */
   function marcarConPedido() {
     const on = activos() > 0;
     $("chipConPedido").classList.toggle("oculto", !on);
@@ -2191,30 +2023,22 @@ const ChatsEntrantes = (() => {
       db.ref("ubicaciones/" + uidActual).update({ conPedido: on }).catch(() => {});
     }
   }
-
-  /* Lo llama procesarPosicion (máx. 1 vez cada 4 s) y "Atender" (posición inmediata).
-     FASE 2: además, si aún no se marcó llegada y estamos a ≤200 m del cliente, escribe llegadaTs (una sola vez). */
   function publicarGps(p) {
     if (!p || !okLL(p.lat, p.lng) || !uidActual) return;
     Object.keys(lista).forEach((id) => {
       if (!mio(lista[id])) return;
       const d = lista[id];
       const cambios = { repartidorGps: { lat: p.lat, lng: p.lng, ts: TS } };
-      /* FASE 2 · llegada automática por proximidad (una sola vez por pedido) */
       if (!d.llegadaTs) {
         const punto = puntoDe(d);
         if (punto && distanciaM(p.lat, p.lng, punto.lat, punto.lng) <= RADIO_LLEGADA_M) {
-          cambios.llegadaTs = TS;
-          cambios.llegadaPor = "gps";
-          cambios.llegadaLat = p.lat;
-          cambios.llegadaLng = p.lng;
+          cambios.llegadaTs = TS; cambios.llegadaPor = "gps";
+          cambios.llegadaLat = p.lat; cambios.llegadaLng = p.lng;
         }
       }
       db.ref(RAIZ + "/" + id).update(cambios).catch(() => {});
     });
   }
-
-  /* ---------- Mapa: ícono de solicitud y ubicación del cliente ---------- */
   function marca(coleccion, id, p, html, tam, alTocar) {
     if (!p) { if (coleccion[id]) { mapa.removeLayer(coleccion[id]); delete coleccion[id]; } return; }
     const ll = [p.lat, p.lng];
@@ -2223,9 +2047,8 @@ const ChatsEntrantes = (() => {
       if (alTocar) coleccion[id].on("click", alTocar);
     } else coleccion[id].setLatLng(ll);
   }
-
   function pintarMapa() {
-    if (typeof mapa === "undefined" || !mapa) return;   // el mapa se crea al abrir esa pestaña: irA("mapa") vuelve a llamar aquí
+    if (typeof mapa === "undefined" || !mapa) return;
     Object.keys(lista).forEach((id) => {
       const d = lista[id];
       marca(marcasSol, id, libre(d) ? puntoDe(d) : null, '<div class="sol-pin"><span>📥</span>Solicitud de pedido</div>', [190, 44], () => vistaPrevia(id));
@@ -2233,8 +2056,6 @@ const ChatsEntrantes = (() => {
     });
     [marcasSol, marcasCli].forEach((c) => Object.keys(c).forEach((id) => { if (!lista[id]) { mapa.removeLayer(c[id]); delete c[id]; } }));
   }
-
-  /* ---------- Vista previa de la solicitud (antes de atender) ---------- */
   function vistaPrevia(id) {
     const d = lista[id];
     if (mio(d)) { irA("chats"); return abrir(id); }
@@ -2245,7 +2066,6 @@ const ChatsEntrantes = (() => {
     $("spAtender").disabled = false;
     $("modalSolicitud").classList.remove("oculto");
   }
-
   function pintarPrevia(d) {
     const p = d.pedido || {}, c = $("spCuerpo");
     c.textContent = "";
@@ -2254,7 +2074,6 @@ const ChatsEntrantes = (() => {
     fila("🛍️ Qué desea", p.quiere ? cortar(p.quiere, 200) : "No lo indicó (chat anterior)");
     fila("📍 De dónde lo desea", p.origen ? cortar(p.origen, 120) : "No lo indicó");
     fila(p.modo === "envia" ? "🎁 Lo envía a otra persona · entrega en" : "🙋 Lo recibe el cliente · ubicación", textoDestino(d));
-    // Si otro repartidor lo devolvió al grupo, el historial sigue ahí: se muestran los últimos mensajes
     const h = $("spChat"), ms = d.mensajes && typeof d.mensajes === "object" ? Object.keys(d.mensajes).sort().slice(-4).map((k) => d.mensajes[k]) : [];
     h.textContent = "";
     ms.forEach((m) => {
@@ -2265,7 +2084,6 @@ const ChatsEntrantes = (() => {
     if (ms.length) h.insertBefore(el("small", "", "Historial del chat"), h.firstChild);
     h.classList.toggle("oculto", !ms.length);
   }
-
   function refrescarPrevia() {
     const d = lista[previoId];
     if (mio(d)) return cerrarPrevia();
@@ -2275,7 +2093,6 @@ const ChatsEntrantes = (() => {
       $("spAtender").disabled = true;
     } else pintarPrevia(d);
   }
-
   function cerrarPrevia() {
     previoId = null;
     $("modalSolicitud").classList.add("oculto");
@@ -2283,11 +2100,10 @@ const ChatsEntrantes = (() => {
   $("spCerrar").addEventListener("click", cerrarPrevia);
   $("spAtender").addEventListener("click", () => { if (previoId) atender(previoId, $("spAtender")); });
 
-  /* ---------- Atender: reclamar el chat (solo el primero lo logra) ---------- */
   async function atender(id, btn) {
     if (!uidActual || !usuario) return;
     btn.disabled = true;
-    cancelarNotif({ solicitud: id });   /* FASE 2: al atender, limpiamos la notificación pendiente */
+    cancelarNotif({ solicitud: id });
     try {
       const r = await db.ref(RAIZ + "/" + id + "/repartidorUid").transaction((cur) => (cur === null ? uidActual : undefined));
       if (!r.committed || r.snapshot.val() !== uidActual) {
@@ -2298,8 +2114,8 @@ const ChatsEntrantes = (() => {
       await db.ref(RAIZ + "/" + id).update({ estado: "atendido", repartidorNombre: usuario, atendidoTs: TS });
       if (!mio(lista[id])) lista[id] = Object.assign({}, lista[id], { repartidorUid: uidActual, estado: "atendido", repartidorNombre: usuario });
       cerrarPrevia();
-      marcarConPedido();      // pasa a "con pedido"
-      publicarGps(ultimaPos); // el cliente ya ve dónde estás
+      marcarConPedido();
+      publicarGps(ultimaPos);
       pintarMapa();
       irA("chats");
       abrir(id);
@@ -2313,13 +2129,12 @@ const ChatsEntrantes = (() => {
   function abrir(id) {
     const d = lista[id];
     if (!mio(d)) return;
-    cancelarNotif({ solicitud: id });   /* FASE 2: al entrar al chat, se limpia la notificación pendiente */
+    cancelarNotif({ solicitud: id });
     cerrarConversacion();
     abiertoId = id;
     sinLeer[id] = 0;
     actualizarNav();
     aviso("");
-    /* FASE 2 · estado del botón "He llegado" */
     const btnLleg = $("cnLlegado");
     if (btnLleg) {
       if (d.llegadaTs) { btnLleg.textContent = "📍 Llegada marcada"; btnLleg.classList.add("llegado"); btnLleg.disabled = true; }
@@ -2332,7 +2147,7 @@ const ChatsEntrantes = (() => {
     $("cnConv").classList.remove("oculto");
     $("cnMsgs").textContent = "";
     vistos.clear(); ultDia = null;
-    if (d.estado !== "atendido") {   // por si la reserva se hizo pero no se alcanzó a marcar como atendido
+    if (d.estado !== "atendido") {
       db.ref(RAIZ + "/" + id).update({ estado: "atendido", repartidorNombre: usuario, atendidoTs: TS }).catch(() => {});
     }
     consultaMsgs = db.ref(RAIZ + "/" + id + "/mensajes").limitToLast(300);
@@ -2342,17 +2157,26 @@ const ChatsEntrantes = (() => {
       const m = s.val();
       if (m && typeof m === "object") pintarMensaje(m, s.key);
     }, (e) => aviso("No se pudieron leer los mensajes: " + (e.code || e.message)));
+    /* FASE 4 · leídos, typing y última dirección */
+    leerLeidos(id);
+    leerTyping(id);
+    leerUltimaDirCliente(d);
+    marcarLeidoPropio(id);
+    pintarTyping();
   }
-
   function cerrarConversacion() {
     if (consultaMsgs) { consultaMsgs.off(); consultaMsgs = null; }
+    if (refLeidos) { refLeidos.off(); refLeidos = null; }
+    if (refTyping) { refTyping.off(); refTyping = null; }
+    if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
+    apagarTypingPropio();
     abiertoId = null;
+    lect = {}; typing = {}; ultimaDirCliente = null;
     $("cnConv").classList.add("oculto");
     $("cnLista").classList.remove("oculto");
+    $("cnUltimaDir").classList.add("oculto");
   }
-
   const alFinal = () => { const c = $("cnMsgs"); c.scrollTop = c.scrollHeight; };
-
   function cargarFoto(id, clave, img, listo) {
     db.ref(RAIZ_FOTOS + "/" + id + "/" + clave).once("value").then((s) => {
       const v = s.val();
@@ -2360,7 +2184,6 @@ const ChatsEntrantes = (() => {
       else img.alt = "Foto no disponible";
     }).catch(() => { img.alt = "No se pudo cargar la foto"; });
   }
-
   function pintarMensaje(m, clave) {
     const c = $("cnMsgs"), ts = Number(m.ts) || Date.now(), yo = m.de === "repartidor";
     const pegado = c.scrollHeight - c.scrollTop - c.clientHeight < 80 || yo;
@@ -2379,18 +2202,129 @@ const ChatsEntrantes = (() => {
     } else {
       b.appendChild(el("p", "", String(m.texto || "")));
     }
-    b.appendChild(el("span", "cn-h", horaDe(ts)));
+    const h = el("span", "cn-h", horaDe(ts));
+    /* FASE 4 · palomitas solo en mis mensajes (los del repartidor) */
+    if (yo) {
+      const tick = document.createElement("span");
+      tick.className = "cn-tick"; tick.dataset.ts = ts; tick.textContent = "✓";
+      tick.style.color = COLOR_TICK_ENVIADO;
+      h.appendChild(document.createTextNode(" "));
+      h.appendChild(tick);
+    }
+    b.appendChild(h);
     c.appendChild(b);
+    actualizarTicksChat();
     if (pegado) alFinal();
+    if (!yo) marcarLeidoPropio(abiertoId);
   }
-
+  function actualizarTicksChat() {
+    $("cnMsgs").querySelectorAll(".cn-tick").forEach((t) => {
+      const ts = +t.dataset.ts || 0;
+      const leido = ts > 0 && (Number(lect.cliente) || 0) >= ts;
+      t.textContent = leido ? "✓✓" : "✓";
+      t.classList.toggle("leido", leido);
+      t.style.color = leido ? COLOR_TICK_LEIDO : COLOR_TICK_ENVIADO;
+      t.title = leido ? "Leído" : "Enviado";
+    });
+  }
+  /* FASE 4 · lectura del cliente */
+  let tmLeidoPropio = null, tUltLeidoPropio = 0;
+  function marcarLeidoPropio(id) {
+    if (!id || !uidActual || document.visibilityState !== "visible") return;
+    clearTimeout(tmLeidoPropio);
+    const espera = 1500 - (Date.now() - tUltLeidoPropio);
+    if (espera > 0) { tmLeidoPropio = setTimeout(() => marcarLeidoPropio(id), espera + 50); return; }
+    tUltLeidoPropio = Date.now();
+    db.ref(RAIZ + "/" + id + "/leidos/repartidor").set(TS).catch(() => {});
+  }
+  function leerLeidos(id) {
+    if (refLeidos) { refLeidos.off(); refLeidos = null; }
+    refLeidos = db.ref(RAIZ + "/" + id + "/leidos");
+    refLeidos.on("value", (s) => {
+      const v = s.val() || {};
+      lect = { cliente: Number(v.cliente) || 0, repartidor: Number(v.repartidor) || 0 };
+      actualizarTicksChat();
+    }, () => {});
+  }
+  /* FASE 4 · typing */
+  function marcarTypingPropio() {
+    if (!abiertoId || !uidActual) return;
+    const ahora = Date.now();
+    if (ahora - tUltTyping < TYPING_MS) {
+      clearTimeout(tmEscribiendo);
+      tmEscribiendo = setTimeout(marcarTypingPropio, TYPING_MS);
+      return;
+    }
+    tUltTyping = ahora;
+    db.ref(RAIZ + "/" + abiertoId + "/typing/repartidor").set(TS).catch(() => {});
+    clearTimeout(tmEscribiendo);
+    tmEscribiendo = setTimeout(marcarTypingPropio, TYPING_MS);
+  }
+  function apagarTypingPropio() {
+    clearTimeout(tmEscribiendo);
+    if (abiertoId) db.ref(RAIZ + "/" + abiertoId + "/typing/repartidor").remove().catch(() => {});
+    tUltTyping = 0;
+  }
+  function leerTyping(id) {
+    if (refTyping) { refTyping.off(); refTyping = null; }
+    refTyping = db.ref(RAIZ + "/" + id + "/typing");
+    refTyping.on("value", (s) => {
+      typing = s.val() || {};
+      pintarTyping();
+      clearTimeout(tmTypingRefresh);
+      const ahora = Date.now();
+      const cad = Object.entries(typing)
+        .filter(([rol]) => rol !== "repartidor")
+        .map(([, ts]) => Number(ts) + TYPING_CADUCA - ahora)
+        .filter((x) => x > 0);
+      if (cad.length) tmTypingRefresh = setTimeout(pintarTyping, Math.min(...cad) + 50);
+    }, () => {});
+  }
+  function pintarTyping() {
+    const sub = $("cnSub");
+    if (!sub) return;
+    const ahora = Date.now();
+    const cliTs = Number(typing.cliente) || 0;
+    if (cliTs > 0 && ahora - cliTs < TYPING_CADUCA) {
+      sub.textContent = "Cliente está escribiendo…";
+      sub.classList.add("escribiendo");
+    } else {
+      sub.textContent = "Cliente";
+      sub.classList.remove("escribiendo");
+    }
+  }
+  /* FASE 4 · última dirección del cliente */
+  function leerUltimaDirCliente(d) {
+    if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
+    ultimaDirCliente = null;
+    $("cnUltimaDir").classList.add("oculto");
+    if (!d || !d.clienteId) return;
+    refUltimaDir = db.ref(RAIZ_CLIENTES + "/" + d.clienteId + "/ultimaDireccion");
+    refUltimaDir.on("value", (s) => {
+      const u = s.val();
+      if (!u || typeof u !== "object") { $("cnUltimaDir").classList.add("oculto"); return; }
+      /* Solo mostramos pin o direccion (gps depende de dónde esté el cliente ahora) */
+      if (u.tipo !== "pin" && u.tipo !== "direccion") { $("cnUltimaDir").classList.add("oculto"); return; }
+      let donde = "";
+      if (u.tipo === "direccion") donde = String(u.texto || "");
+      else if (okLL(Number(u.lat), Number(u.lng))) donde = `Pin del mapa (${Number(u.lat).toFixed(5)}, ${Number(u.lng).toFixed(5)})`;
+      if (!donde) { $("cnUltimaDir").classList.add("oculto"); return; }
+      let hace = "";
+      if (u.ts) {
+        const secs = Math.max(0, Math.round((Date.now() - Number(u.ts)) / 1000));
+        hace = secs < 60 ? "hace unos segundos" : secs < 3600 ? "hace " + Math.round(secs / 60) + " min" : secs < 86400 ? "hace " + Math.round(secs / 3600) + " h" : "hace " + Math.round(secs / 86400) + " días";
+      }
+      $("cnUltimaDirTxt").innerHTML = "📮 <b>Última dirección del cliente:</b> " + escHtml(donde) + (hace ? " (" + escHtml(hace) + ")" : "");
+      $("cnUltimaDir").classList.remove("oculto");
+      ultimaDirCliente = { tipo: u.tipo, texto: donde };
+    }, () => {});
+  }
   function filaF(etiqueta, valor, clase) {
     const f = el("div", "cn-ffil" + (clase ? " " + clase : ""));
     f.appendChild(el("span", "", etiqueta));
     f.appendChild(el("b", "", valor));
     return f;
   }
-
   function tarjetaFactura(f) {
     const caja = document.createElement("div");
     const cab = el("div", "cn-fcab");
@@ -2420,13 +2354,12 @@ const ChatsEntrantes = (() => {
     caja.appendChild(cue);
     return caja;
   }
-
-  /* ---------- Enviar texto ---------- */
   $("cnForm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const inp = $("cnInput"), texto = inp.value.trim().slice(0, 600);
     if (!texto || !abiertoId || !mio(lista[abiertoId])) return;
     inp.value = ""; aviso("");
+    apagarTypingPropio();
     const id = abiertoId, clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
     cambios["mensajes/" + clave] = { de: "repartidor", tipo: "texto", texto, ts: TS };
     cambios["ultimoMensaje"] = texto.slice(0, 80);
@@ -2436,10 +2369,8 @@ const ChatsEntrantes = (() => {
     catch (e) { inp.value = texto; aviso("No se pudo enviar: " + (e.code || e.message)); }
     inp.focus();
   });
-
+  $("cnInput").addEventListener("input", () => { if (abiertoId) marcarTypingPropio(); });
   $("cnVolver").addEventListener("click", cerrarConversacion);
-
-  /* ---------- Fotos (cámara o galería) → JPEG comprimido en Base64 ---------- */
   function comprimirImagen(archivo) {
     return new Promise((ok, fallo) => {
       if (!archivo || !/^image\//.test(archivo.type)) return fallo(new Error("tipo"));
@@ -2462,7 +2393,6 @@ const ChatsEntrantes = (() => {
       img.src = url;
     });
   }
-
   $("cnFoto").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("cnInFoto").click(); });
   $("cnInFoto").addEventListener("change", async () => {
     const archivo = $("cnInFoto").files && $("cnInFoto").files[0], id = abiertoId;
@@ -2481,8 +2411,6 @@ const ChatsEntrantes = (() => {
     try { await db.ref().update(cambios); }
     catch (e) { aviso("No se pudo enviar la foto: " + (e.code || e.message)); }
   });
-
-  /* ---------- Ubicación del cliente ---------- */
   $("cnUbicacion").addEventListener("click", () => {
     const d = abiertoId && lista[abiertoId];
     if (!mio(d)) return;
@@ -2491,8 +2419,6 @@ const ChatsEntrantes = (() => {
     irA("mapa");
     setTimeout(() => { try { mapa.setView([p.lat, p.lng], 17); } catch (_) {} }, 250);
   });
-
-  /* ---------- Factura que se guardó para este chat (base + total acumulado con extras) ---------- */
   function leerFacLocal(id) {
     try { const o = JSON.parse(localStorage.getItem(CLAVE_FAC + id) || "null"); return o && o.actual ? o : null; } catch (_) { return null; }
   }
@@ -2504,16 +2430,12 @@ const ChatsEntrantes = (() => {
     try { Factura.descartarChat(id); } catch (_) {}
     delete sinLeer[id];
   }
-
-  /* ---------- Facturar desde el chat ---------- */
   $("cnFacturar").addEventListener("click", () => {
     const d = abiertoId && lista[abiertoId];
     if (!mio(d)) return;
     Factura.prepararChat({ solicitudId: abiertoId, cliente: d.nombre || "" });
     irA("factura");
   });
-
-  /* La factura generada llega a la conversación del cliente como una tarjeta */
   async function enviarFactura(f) {
     const id = f && f.chatId;
     if (!id) throw new Error("Falta el chat de destino.");
@@ -2529,13 +2451,11 @@ const ChatsEntrantes = (() => {
     cambios["ultimoMensaje"] = "🧾 Factura · " + dinero(f.totalFinal);
     cambios["ultimoDe"] = "repartidor";
     cambios["ts"] = TS;
-    cambios["facturaFinal"] = fac;     // lo que ve el administrador (se actualiza si luego se agregan extras)
-    cambios["subfactura"] = null;      // una factura nueva reinicia los mandados extra anteriores
+    cambios["facturaFinal"] = fac;
+    cambios["subfactura"] = null;
     await db.ref(RAIZ + "/" + id).update(cambios);
     guardarFacLocal(id, fac, fac);
   }
-
-  /* ---------- Mandados extra: sub-factura que se suma al total ---------- */
   $("cnExtras").addEventListener("click", () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
@@ -2545,8 +2465,6 @@ const ChatsEntrantes = (() => {
       { db, usuario: () => usuario, rutaSub: RAIZ + "/" + id + "/subfactura", alCambiar: () => {}, enviarChat: (c, sub) => enviarExtras(id, d, base, c, sub) }
     );
   });
-
-  /* Manda al cliente la factura ACTUALIZADA (original + adiciones + envíos) como tarjeta nueva en el chat */
   async function enviarExtras(id, d, base, c, sub) {
     if (!mio(lista[id])) throw new Error("Este chat ya no está asignado a ti.");
     const b = base || { productos: [], subtotal: 0, delivery: 0, mandadoExtra: 0, prioridad: 0, deposito: false, total: 0, totalFinal: 0, cliente: d.nombre || "",
@@ -2569,15 +2487,10 @@ const ChatsEntrantes = (() => {
     await db.ref(RAIZ + "/" + id).update(cambios);
     guardarFacLocal(id, b, cumul);
   }
-
-  /* ---------- Registro local de facturas entregadas (por fecha y orden de entrega) ---------- */
   function leerRegistro() {
     try { const a = JSON.parse(localStorage.getItem(CLAVE_REG) || "[]"); return Array.isArray(a) ? a.filter((x) => x && typeof x === "object") : []; } catch (_) { return []; }
   }
-  function escribirRegistro(a) {
-    try { localStorage.setItem(CLAVE_REG, JSON.stringify(a.slice(-300))); } catch (_) {}
-  }
-
+  function escribirRegistro(a) { try { localStorage.setItem(CLAVE_REG, JSON.stringify(a.slice(-300))); } catch (_) {} }
   function registrarEntrega(id, d, reg) {
     const a = leerRegistro();
     if (a.some((x) => x.id === id)) return;
@@ -2592,17 +2505,15 @@ const ChatsEntrantes = (() => {
       totalFinal: act ? Number(act.totalFinal) || 0 : 0
     });
     escribirRegistro(a);
-    // Historial en la nube, por fecha: sobrevive aunque el administrador borre el chat (facturas_historial/{YYYY-MM-DD}/{id})
     const r = a[a.length - 1], t = new Date(ahora);
-    if (t.getHours() < 8) t.setDate(t.getDate() - 1);   // el día de trabajo cambia a las 8:00, igual que las estadísticas
+    if (t.getHours() < 8) t.setDate(t.getDate() - 1);
     const iso = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
     db.ref("facturas_historial/" + iso + "/" + id).set(JSON.parse(JSON.stringify({
       repartidorUid: uidActual, repartidorNombre: cortar(usuario, 60), cliente: r.cliente, pedido: cortar(r.pedido, 30),
       productos: r.productos.map((p) => ({ nombre: cortar(p.nombre, 80), precio: Number(p.precio) || 0 })),
       subtotal: r.subtotal, delivery: r.delivery, extras: r.extras, totalFinal: r.totalFinal, orden: r.orden, sinFactura: r.sinFactura, ts: TS
-    }))).catch(() => { /* sin conexión o sin permiso: queda el registro local */ });
+    }))).catch(() => {});
   }
-
   function pintarRegistro() {
     const caja = $("cnRegistro");
     caja.textContent = "";
@@ -2616,7 +2527,6 @@ const ChatsEntrantes = (() => {
       grupo.forEach((x) => caja.appendChild(tarjetaRegistro(x)));
     });
   }
-
   function tarjetaRegistro(x) {
     const t = el("div", "cn-reg"), cab = el("div", "cn-reg-cab");
     cab.appendChild(el("span", "cn-reg-num", "#" + (x.orden || "?")));
@@ -2650,12 +2560,11 @@ const ChatsEntrantes = (() => {
     t.appendChild(bt);
     return t;
   }
-
-  /* ---------- FASE 2 · Botón "📍 He llegado" (marca llegadaTs manual) ---------- */
+  /* "He llegado" */
   $("cnLlegado").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
-    if (d.llegadaTs) return;   // ya marcado
+    if (d.llegadaTs) return;
     const btn = $("cnLlegado");
     btn.disabled = true;
     try {
@@ -2666,13 +2575,19 @@ const ChatsEntrantes = (() => {
       btn.classList.add("llegado");
       aviso("Llegada marcada ✓ El cliente ya recibió el aviso de cercanía.");
       setTimeout(() => aviso(""), 4000);
-    } catch (e) {
-      btn.disabled = false;
-      aviso("No se pudo marcar la llegada: " + (e.code || e.message));
-    }
+    } catch (e) { btn.disabled = false; aviso("No se pudo marcar la llegada: " + (e.code || e.message)); }
   });
-
-  /* ---------- Entregado ---------- */
+  /* FASE 4 · Botón "Sugerir al cliente" con la última dirección */
+  $("cnSugerirDir").addEventListener("click", async () => {
+    const id = abiertoId, d = id && lista[id];
+    if (!mio(d)) return;
+    if (!ultimaDirCliente) return aviso("No hay una dirección anterior del cliente.");
+    const txt = "📮 Hola " + (d.nombre ? String(d.nombre).split(/\s+/)[0] : "") + ", ¿recibe en " + ultimaDirCliente.texto + " de nuevo? Si sí, confirme por favor.";
+    const inp = $("cnInput");
+    inp.value = txt;
+    inp.focus();
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   $("cnEntregado").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
@@ -2680,63 +2595,44 @@ const ChatsEntrantes = (() => {
     if (!confirm(reg ? "¿Confirmas que entregaste el pedido de " + nombre + "? El chat se cerrará y quedará solo su factura." : "No enviaste factura a " + nombre + ". ¿Marcar como entregado de todos modos?")) return;
     const btn = $("cnEntregado");
     btn.disabled = true;
-    try {
-      await db.ref(RAIZ + "/" + id).update({ estado: "entregado", entregadoTs: TS, repartidorGps: null });
-    } catch (e) {
-      btn.disabled = false;
-      return aviso("No se pudo confirmar la entrega: " + (e.code || e.message));
-    }
+    try { await db.ref(RAIZ + "/" + id).update({ estado: "entregado", entregadoTs: TS, repartidorGps: null }); }
+    catch (e) { btn.disabled = false; return aviso("No se pudo confirmar la entrega: " + (e.code || e.message)); }
     btn.disabled = false;
     registrarEntrega(id, d, reg);
     limpiarLocal(id);
     cerrarConversacion();
-    delete lista[id].repartidorUid;   // (el listener lo confirma enseguida; así la pantalla cambia al instante)
+    delete lista[id].repartidorUid;
     lista[id].estado = "entregado";
     marcarConPedido(); pintarLista(); pintarMapa(); actualizarNav();
     toast("✅", "Entrega registrada", "La factura de " + nombre + " quedó guardada.", null, 4500);
   });
-
-  /* ---------- Cancelar: se pide el motivo ---------- */
   $("cnCancelar").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("modalCancelar").classList.remove("oculto"); });
   $("cancVolver").addEventListener("click", () => $("modalCancelar").classList.add("oculto"));
   $("cancCliente").addEventListener("click", () => resolverCancelacion("cliente"));
   $("cancPasar").addEventListener("click", () => resolverCancelacion("pasar"));
-
   async function resolverCancelacion(tipo) {
     const id = abiertoId, d = id && lista[id];
     $("modalCancelar").classList.add("oculto");
     if (!mio(d)) return;
     const cambios = tipo === "pasar"
-      // Vuelve al grupo: sin repartidor y en "nuevo". El historial de mensajes NO se toca.
       ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, reasignadoTs: TS, ts: TS }
       : { estado: "cancelado", motivoCancelacion: "cliente", canceladoTs: TS, repartidorGps: null };
-    if (tipo === "pasar") cambios["omitidoPor/" + uidActual] = true;   // a mí no me vuelve a sonar
-    try {
-      await db.ref(RAIZ + "/" + id).update(cambios);
-    } catch (e) {
-      return aviso("No se pudo " + (tipo === "pasar" ? "pasar el pedido" : "cancelar") + ": " + (e.code || e.message));
-    }
+    if (tipo === "pasar") cambios["omitidoPor/" + uidActual] = true;
+    try { await db.ref(RAIZ + "/" + id).update(cambios); }
+    catch (e) { return aviso("No se pudo " + (tipo === "pasar" ? "pasar el pedido" : "cancelar") + ": " + (e.code || e.message)); }
     limpiarLocal(id);
     cerrarConversacion();
     toast(tipo === "pasar" ? "🔁" : "🚫", tipo === "pasar" ? "Pedido devuelto al grupo" : "Pedido cancelado", tipo === "pasar" ? "Otro repartidor lo recibirá." : "El cliente fue avisado.", null, 4500);
   }
-
   function alMostrar() {
     pintarLista();
     if (abiertoId) setTimeout(alFinal, 30);
   }
-
   Factura.alEnviarChat = (f) => enviarFactura(f);
-  Factura.alTerminarChat = () => irA("chats");   // factura enviada: de vuelta a la conversación
-
+  Factura.alTerminarChat = () => irA("chats");
   return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia };
 })();
-/* ============================================================
-   FASE 2 · Fix del teclado táctil
-   El alto visible (--vvh) sigue a window.visualViewport. El CSS (body.rep)
-   lo usa para que el compositor del chat y los campos de dirección no queden
-   debajo del teclado virtual.
-   ============================================================ */
+
 function ajustarViewportRep() {
   const vv = window.visualViewport;
   if (!vv) return;
