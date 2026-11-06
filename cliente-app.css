@@ -3,8 +3,6 @@
    Reutiliza las variables de style.css (--celeste, --tinta, --linea…).
    Todo va bajo body.wa-cliente para no chocar con los estilos globales
    de button / input / label de style.css.
-   FASE 4: palomitas verdes ✓✓, "escribiendo…", botón de cambiar nombre,
-   banner de última dirección.
    ============================================================ */
 body.wa-cliente {
   --burbuja-yo: #D3EEFC;
@@ -123,7 +121,7 @@ body.wa-cliente {
 .wa-cliente .wa-msg p { white-space: pre-wrap; font-size: 15px; }
 .wa-cliente .wa-hora { display: block; text-align: right; margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--texto2); }
 
-/* FASE 4 · Palomitas ✓ / ✓✓ dentro de la hora */
+/* Palomitas ✓ / ✓✓ dentro de la hora */
 .wa-cliente .wa-hora .wa-tick { margin-left: 4px; font-weight: 800; letter-spacing: -2px; color: var(--tick-enviado); }
 .wa-cliente .wa-hora .wa-tick.leido { color: var(--tick-leido); }
 
@@ -183,17 +181,42 @@ body.wa-cliente {
   border-bottom: 1px solid var(--linea); background: var(--celeste-suave);
 }
 .wa-cliente .wa-panel-mapa.oculto { display: none !important; }
-.wa-cliente #mapaSeguir { position: absolute; inset: 0; }
+.wa-cliente #mapaSeguir { position: absolute; inset: 0; z-index: 1; }
 .wa-cliente .wa-estado-mapa {
   position: absolute; z-index: 900; left: 10px; right: 10px; bottom: 10px; padding: 8px 12px; border-radius: 12px;
   background: #fff; border: 1px solid var(--linea); font-size: 13px; font-weight: 700; text-align: center;
 }
 .wa-cliente .wa-estado-mapa.oculto { display: none !important; }
-.wa-cliente .wa-pin {
-  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 20px;
-  background: #fff; border: 3px solid var(--celeste); box-shadow: 0 2px 8px rgba(0,0,0,.35);
+
+/* NUEVO: Pin minimalista circular verde/blanco tipo WhatsApp */
+.wa-cliente .pin-discreto {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3.5px solid var(--c, #25D366);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+  position: relative;
 }
-.wa-cliente .wa-pin-cli { border-color: var(--rojo); }
+.wa-cliente .pin-discreto::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c, #25D366);
+  transform: translate(-50%, -50%);
+}
+.wa-cliente .pin-discreto.pulso {
+  animation: pin-latido 1.5s infinite;
+}
+@keyframes pin-latido {
+  0% { box-shadow: 0 0 0 0 rgba(37,211,102, 0.6), 0 3px 8px rgba(0,0,0,0.35); }
+  70% { box-shadow: 0 0 0 12px rgba(37,211,102, 0), 0 3px 8px rgba(0,0,0,0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(37,211,102, 0), 0 3px 8px rgba(0,0,0,0.35); }
+}
 
 /* ---------- Modales (inicial y cierre) ---------- */
 .wa-cliente .wa-modal {
@@ -231,7 +254,7 @@ body.wa-cliente {
 .wa-cliente .wa-acciones #btnAtras.oculto + #btnSiguiente { grid-column: 1 / -1; }
 .wa-cliente .wa-acciones #btnSiguiente.oculto { display: none !important; }
 
-/* FASE 4 · Banner de última dirección guardada */
+/* Banner de última dirección guardada */
 .wa-cliente .wa-ultima-dir {
   display: grid; gap: 10px; padding: 12px 14px; border: 2px solid var(--celeste-prof); border-radius: 14px;
   background: var(--celeste-suave); color: var(--tinta);
@@ -257,7 +280,7 @@ body.wa-cliente {
 .wa-cliente .wa-estrella:disabled { opacity: 1; cursor: default; }
 .wa-cliente .wa-btn-grande { height: 64px; font-size: 18px; border-radius: 18px; letter-spacing: .03em; margin-top: 6px; }
 
-/* FASE 4 · Modal de cambio de nombre */
+/* Modal de cambio de nombre */
 .wa-cliente .wa-nombre-caja {
   width: 100%; max-width: 380px; background: #fff; border-radius: 20px; padding: 22px 20px 18px;
   display: grid; gap: 12px;
