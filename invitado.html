@@ -41,6 +41,11 @@
     .info-ruta .ir-txt b { display: block; font-size: 15px; line-height: 1.25; font-weight: 800; }
     .info-ruta .ir-txt b + span { display: block; font-size: 12px; opacity: .85; font-weight: 600; }
 
+    /* ---- FASE 1 · mapa de vista previa en la entrada ---- */
+    #mapaEntrada { width: 100%; height: 220px; border-radius: 14px; overflow: hidden; border: 1.5px solid var(--linea, #E1E6EB); background: #f2f4f6; position: relative; isolation: isolate; }
+    #infoEntrada { margin: -4px 0 4px; font-size: 12.5px; font-weight: 700; color: #0B4A6B; display: none; padding: 8px 12px; border-radius: 10px; background: #E8F6FE; border: 1px solid #CFE3F5; }
+    #infoEntrada.oculto { display: none !important; }
+
     /* ============================================================
        FASE 2 · RESPONSIVIDAD (tablet, laptop, desktop)
        ============================================================ */
@@ -52,6 +57,7 @@
       .pd-inv-panel .pd-precio b { font-size: 44px; }
       .pd-inv-panel .acciones-fila button { height: 54px; font-size: 15px; }
       .pd-inv-panel .pd-chat form button { height: 56px; font-size: 15px; }
+      #mapaEntrada { height: 260px; }
     }
     @media (min-width: 900px) {
       body.pd-invitado { background: #cfdae2; }
@@ -65,6 +71,7 @@
       .pd-inv-panel .acciones-fila button { height: 58px; font-size: 16px; }
       .pd-msgs { max-height: 26vh; }
       .info-ruta { font-size: 14px; padding: 10px 14px; }
+      #mapaEntrada { height: 300px; }
     }
     @media (min-width: 1200px) {
       body.pd-invitado { background: #c8d4dd; }
@@ -74,11 +81,13 @@
       .pd-inv-panel .pd-precio b { font-size: 54px; }
       .pd-inv-panel .acciones-fila button { height: 60px; font-size: 17px; }
       .pd-msgs { max-height: 24vh; }
+      #mapaEntrada { height: 340px; }
     }
     @media (max-height: 500px) and (orientation: landscape) {
       .pd-inv-mapa { min-height: 48vh; }
       .pd-inv-panel { max-height: 44vh; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); gap: 8px; }
       .pd-inv-panel .pd-precio b { font-size: 30px; }
+      #mapaEntrada { height: 180px; }
     }
   </style>
 </head>
@@ -92,10 +101,13 @@
   <!-- Cargando / enlace inválido -->
   <main id="vCarga" class="pd-inv-entrada"><div class="estado" id="msgCarga">Abriendo tu pedido…</div></main>
 
-  <!-- 1) Entrada: solo el nombre -->
+  <!-- 1) Entrada: solo el nombre + vista previa de la ruta -->
   <main id="vEntrada" class="pd-inv-entrada oculto">
     <div class="hero"><div class="gran-icono" data-rider></div><h1>¡Hola! Hay un pedido disponible</h1><p>Revísalo. Si lo aceptas, escribe tu nombre: el enlace quedará bloqueado para los demás.</p></div>
     <div class="tarjeta-rep"><div class="pd-inv-datos" id="resumenEntrada"></div></div>
+    <!-- FASE 1 · mini-mapa con la ruta sugerida antes de aceptar -->
+    <div id="mapaEntrada" aria-label="Vista previa de la ruta hacia el primer retiro"></div>
+    <div id="infoEntrada"></div>
     <label>Tu nombre <input id="inNombre" maxlength="24" autocomplete="given-name" placeholder="Ej. Carlos"></label>
     <div id="msgEntrada" class="estado error oculto"></div>
     <button id="btnEntrar" class="primario pd-aceptar" type="button">✅ Aceptar pedido</button>
