@@ -308,6 +308,21 @@
             ".validate": "newData.isNumber() && newData.val() >= 0"
           }
         },
+        "subfactura": {
+          ".validate": "!newData.exists() || (newData.hasChildren(['subtotal','ts']) && newData.child('subtotal').isNumber() && newData.child('subtotal').val() >= 0 && newData.child('ts').isNumber())",
+          "etiqueta": {
+            ".validate": "newData.isString() && newData.val().length <= 60"
+          },
+          "subtotal": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "envioExtra": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          }
+        },
         "extras": {
           "$extraId": {
             ".validate": "newData.hasChildren(['monto','ts'])",
@@ -338,7 +353,7 @@
         ".read": true,
         "$id": {
           ".write": "!data.exists() && root.child('pedidos').child($token).child('estado').val() === 'en_ruta'",
-          ".validate": "newData.hasChildren(['de', 'ts']) && (newData.child('de').val() === 'cliente' || newData.child('de').val() === 'repartidor') && (!newData.hasChild('texto') || newData.child('texto').val().length <= 600)"
+          ".validate": "newData.hasChildren(['de', 'ts']) && (newData.child('de').val() === 'cliente' || newData.child('de').val() === 'repartidor' || newData.child('de').val() === 'sistema') && (!newData.hasChild('texto') || newData.child('texto').val().length <= 600)"
         }
       }
     },
@@ -754,12 +769,34 @@
           }
         },
         "facturaFinal": {
-          ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
-          ".validate": "newData.hasChildren(['productos', 'totalFinal']) && newData.child('totalFinal').isNumber()"
+          ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['total','totalFinal']) && newData.child('total').isNumber() && newData.child('total').val() >= 0 && newData.child('totalFinal').isNumber() && newData.child('totalFinal').val() >= 0)",
+          "productos": {},
+          "subtotal": {},
+          "delivery": {},
+          "mandadoExtra": {},
+          "prioridad": {},
+          "deposito": {},
+          "total": {},
+          "totalFinal": {},
+          "pedido": {},
+          "cliente": {}
         },
         "subfactura": {
-          ".write": "auth != null && (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido')",
-          ".validate": "newData.hasChildren(['ts'])"
+          ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['subtotal','ts']) && newData.child('subtotal').isNumber() && newData.child('subtotal').val() >= 0 && newData.child('ts').isNumber())",
+          "etiqueta": {
+            ".validate": "newData.isString() && newData.val().length <= 60"
+          },
+          "subtotal": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "envioExtra": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          }
         },
         "ultimoMensaje": {
           ".write": "auth != null && ((auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido' && newData.isString()) || (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido'))",
