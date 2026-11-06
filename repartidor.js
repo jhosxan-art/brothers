@@ -1,10 +1,9 @@
 /* ============================================================
-   MÓDULO REPARTIDOR
-   FASE 1 · vista previa de ruta pre-aceptación + limpieza UI + separación cámara/galería.
-   FASE 2 · "Iniciar Entrega" (cámara navegación + zoom dinámico).
-   FASE 3 · "Mandado Extra" como botón en la cabecera del chat (junto a "Factura").
-            La tarjeta de factura en el chat desglosa productos / delivery base /
-            mandado extra / prioridad / gran total.
+   MÓDULO REPARTIDOR — FASE 1 + FASE 2 integradas
+   FASE 1: renombres ("Pedidos", "Mapa", "Crear Factura"), sin botón Atrás,
+           navegación por popstate, chat limpio, Iniciar Entrega → Mapa.
+   FASE 2: botón "📢 Avisar llegué" + "Entregado" en tarjetas del Mapa,
+           filtro de "facturas internas" para pedidos WhatsApp (esChat).
    ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
@@ -629,12 +628,15 @@ function guardarViajes() {
     localStorage.setItem("viajesActivos", JSON.stringify(otros.concat(mios)));
   } catch (_) {}
 }
+
+/* FASE 2 · crearViaje detecta si el pedido proviene del pool de WhatsApp (solicitudId) */
 function crearViaje(info) {
   const v = {
     token: info.token, tel: info.tel || "", pedido: info.pedido || "", cliente: info.cliente || "",
     destManual: !!info.destManual, sinFactura: !!info.sinFactura, cerrando: false, refEstado: null, destino: null, cliPos: null, cerca: false, dist: null,
     marca: null, marcaCli: null, refCli: null, refChat: null, noLeidos: 0, chatListo: false, factura: null, sub: null, extras: null, refExtra: [],
-    rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null, rutaIdx: 0
+    rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null, rutaIdx: 0,
+    esChat: !!info.esChat
   };
   viajes[v.token] = v;
   Pantalla.pedir();
@@ -644,6 +646,10 @@ function crearViaje(info) {
   escucharEstado(v);
   escucharSubfactura(v);
   try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
+  // Detección asíncrona: si el pedido viene del pool de WhatsApp (solicitudes_entrantes), marcar esChat
+  db.ref("pedidos/" + v.token + "/solicitudId").once("value").then((s) => {
+    if (s.exists()) { v.esChat = true; refrescarTextos(); }
+  }).catch(() => {});
   return v;
 }
 
@@ -1412,22 +1418,30 @@ function actualizarBanner() {
 }
 
 function renderLista() { renderListaBase(); aplicarHoja(); }
+
+/* ============================================================
+   FASE 2 · renderListaBase:
+   - Añade el botón "📢 Avisar llegué" junto a "Entregado".
+   - Oculta los detalles de factura interna (#cobro, #prio) para pedidos esChat.
+   ============================================================ */
 function renderListaBase() {
   const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html() + htmlPedidoChat();
   if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Haz una factura y envíala por WhatsApp para iniciar el seguimiento.</p>'); return; }
   cont.innerHTML = delAdmin + '<p class="ayuda">Toca un pedido para verlo en el mapa. Entrégalos en el orden que prefieras.</p>' + orden.map((t, i) => {
     const v = viajes[t];
-    return `<div class="pedido-card${t === seleccionado ? " sel" : ""}" data-token="${t}">
+    const esChat = !!v.esChat;
+    const chipChat = esChat ? ' <span class="chip gris chat-tag">💬 chat</span>' : "";
+    return `<div class="pedido-card${t === seleccionado ? " sel" : ""}${esChat ? " es-chat" : ""}" data-token="${t}">
       <div class="pc-top">
         <span class="pc-num">${i + 1}</span>
-        <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small>Pedido ${escHtml(etiquetaWA(v))}</small><small class="pc-sub" id="sub-${t}"></small></div>
+        <div class="pc-datos"><strong>${escHtml(nombreDe(v))}${chipChat}</strong><small>Pedido ${escHtml(etiquetaWA(v))}</small><small class="pc-sub" id="sub-${t}"></small></div>
         <span class="chip" id="chip-${t}"></span>
       </div>
-      <div class="pc-cobro oculto" id="cobro-${t}"></div>
-      <div class="pc-prio oculto" id="prio-${t}" style="margin:6px 0;padding:7px 10px;border-radius:10px;background:#FFF4E5;border:1.5px solid #F59E0B;color:#7c3a00;font-size:13px;font-weight:600;line-height:1.35"></div>
-      <div class="pc-botones">
+      ${esChat ? "" : `<div class="pc-cobro oculto" id="cobro-${t}"></div><div class="pc-prio oculto" id="prio-${t}" style="margin:6px 0;padding:7px 10px;border-radius:10px;background:#FFF4E5;border:1.5px solid #F59E0B;color:#7c3a00;font-size:13px;font-weight:600;line-height:1.35"></div>`}
+      <div class="pc-botones pc-botones-3">
         <button class="boton-chat" data-acc="chat" type="button">💬 Chat <span class="badge oculto" id="bd-${t}">0</span></button>
-        <button class="oscuro" data-acc="entregado" type="button">✓ Entregado</button>
+        <button class="oscuro" data-acc="avisar" type="button" aria-label="Avisar al cliente que llegué">📢 Avisar</button>
+        <button class="primario" data-acc="entregado" type="button">✓ Entregado</button>
       </div>
       <div class="pc-mas">
         <button class="mini pri" data-acc="factura" type="button">🧾 Factura</button>
@@ -1440,6 +1454,28 @@ function renderListaBase() {
   }).join("");
   refrescarTextos();
 }
+
+/* FASE 2 · Avisar al cliente que el repartidor llegó (manual) */
+function avisarLlegada(v) {
+  if (!v) return;
+  const upd = { cerca: true, cercaTs: TS };
+  if (v.destino) { upd.destLat = v.destino.lat; upd.destLng = v.destino.lng; }
+  db.ref("pedidos/" + v.token).update(upd)
+    .then(() => {
+      setEstado("📢 Cliente avisado: repartidor llegando al destino", "ok");
+      Voz.hablar("Aviso enviado al cliente", { forzar: true });
+      navigator.vibrate && navigator.vibrate([200, 100, 200]);
+    })
+    .catch((e) => setEstado("No se pudo avisar: " + e.message, "error"));
+  // Si el pedido proviene del pool de WhatsApp, también se actualiza la solicitud para que la app del cliente lo detecte.
+  db.ref("pedidos/" + v.token + "/solicitudId").once("value").then((s) => {
+    if (s.exists()) {
+      const sid = s.val();
+      db.ref("solicitudes_entrantes/" + sid).update({ llegadaTs: TS, llegadaPor: "manual" }).catch(() => {});
+    }
+  }).catch(() => {});
+}
+
 function textoSub(v) {
   const p = [];
   if (v.sinFactura) p.push("enlace de contacto (aún sin factura)");
@@ -1457,8 +1493,8 @@ function refrescarTextos() {
     const chip = $("chip-" + t);
     chip.textContent = v.cerca ? "Cerca" : v.sinFactura ? "Sin factura" : esVivo(v) ? "En vivo" : "En ruta";
     chip.className = "chip " + (v.cerca ? "alerta" : "vivo");
-    const bd = $("bd-" + t); bd.textContent = v.noLeidos; bd.classList.toggle("oculto", !v.noLeidos);
-    $("usarcli-" + t).classList.toggle("oculto", !(v.destManual && v.cliPos));
+    const bd = $("bd-" + t); if (bd) { bd.textContent = v.noLeidos; bd.classList.toggle("oculto", !v.noLeidos); }
+    const uc = $("usarcli-" + t); if (uc) uc.classList.toggle("oculto", !(v.destManual && v.cliPos));
     const sb = $("subbd-" + t); if (sb) sb.textContent = v.sub && v.sub.items && v.sub.items.length ? "(" + v.sub.items.length + ")" : "";
     const pe = $("prio-" + t);
     if (pe) {
@@ -1490,6 +1526,7 @@ $("hojaPedidos").onclick = (e) => {
   if (!b) return seleccionar(v.token, true);
   const acc = b.dataset.acc;
   if (acc === "chat") abrirChat(v);
+  else if (acc === "avisar") avisarLlegada(v);
   else if (acc === "entregado") cerrarViaje(v.token, "entregado");
   else if (acc === "cancelar") cerrarViaje(v.token, "cancelado");
   else if (acc === "sub") SubFactura.abrir(v, ctxSub);
@@ -1929,7 +1966,7 @@ OrdenAdminRep.init({
 });
 
 /* ============================================================
-   CHATS ENTRANTES
+   CHATS ENTRANTES (pool de WhatsApp)
    ============================================================ */
 const ChatsEntrantes = (() => {
   const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos";
@@ -1989,12 +2026,12 @@ const ChatsEntrantes = (() => {
     const x = d && d.pedido && d.pedido.destino;
     return x && okLL(x.lat, x.lng) ? { lat: x.lat, lng: x.lng } : null;
   }
+  // FASE 1 · ya no mostramos coordenadas numéricas: solo texto de "ubicación en vivo"
   function textoDestino(d) {
     const x = d && d.pedido && d.pedido.destino;
     if (!x) return "Sin datos de ubicación";
-    if (x.tipo === "gps") return "Ubicación en vivo del cliente";
-    if (x.tipo === "pin") return "Ubicación en vivo del cliente";
-    return x.texto ? cortar(x.texto, 200) : "Dirección sin texto";
+    if (x.tipo === "gps" || x.tipo === "pin") return "Ubicación en vivo del cliente";
+    return x.texto ? cortar(x.texto, 200) : "Ubicación en vivo del cliente";
   }
 
   let toastTimer = null, toastAccion = null;
@@ -2285,7 +2322,6 @@ const ChatsEntrantes = (() => {
     } finally { btn.disabled = false; }
   }
 
-  /* ---------- Conversación ---------- */
   function abrir(id) {
     const d = lista[id];
     if (!mio(d)) return;
@@ -2552,7 +2588,7 @@ const ChatsEntrantes = (() => {
     inp.focus();
   });
   $("cnInput").addEventListener("input", () => { if (abiertoId) marcarTypingPropio(); });
-  $("cnVolver") && $("cnVolver").addEventListener("click", cerrarConversacion);
+  if ($("cnVolver")) $("cnVolver").addEventListener("click", cerrarConversacion);
   function comprimirImagen(archivo) {
     return new Promise((ok, fallo) => {
       if (!archivo || !/^image\//.test(archivo.type)) return fallo(new Error("tipo"));
@@ -2730,9 +2766,9 @@ const ChatsEntrantes = (() => {
     const d = lista[id];
     if (!d) return;
     if (!viajes[id]) {
-      crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true });
+      crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true, esChat: true });
       try { guardarViajes(); sincronizarContactos(); } catch (_) {}
-    }
+    } else { viajes[id].esChat = true; }
     cerrarConversacion();
     irA("mapa");
     seleccionar(id, false);
@@ -2762,7 +2798,7 @@ const ChatsEntrantes = (() => {
     await db.ref(RAIZ + "/" + id).update(cambios);
     guardarFacLocal(id, fac, fac);
   }
-  $("cnEntregado") && $("cnEntregado").addEventListener("click", async () => {
+  if ($("cnEntregado")) $("cnEntregado").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
     const reg = leerFacLocal(id), nombre = cortar(d.nombre || "el cliente", 40);
