@@ -46,6 +46,30 @@
     #infoEntrada { margin: -4px 0 4px; font-size: 12.5px; font-weight: 700; color: #0B4A6B; display: none; padding: 8px 12px; border-radius: 10px; background: #E8F6FE; border: 1px solid #CFE3F5; }
     #infoEntrada.oculto { display: none !important; }
 
+    /* ---- FASE 2 · Botón "Iniciar Entrega" prominente ---- */
+    .pd-iniciar {
+      margin: 4px 0 8px;
+      height: 54px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #25D366 0%, #1E9B5A 100%);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: .02em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 6px 16px rgba(37, 211, 102, .35);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .pd-iniciar:active { transform: scale(.98); }
+    .pd-iniciar:focus-visible { outline: 3px solid #1E9B5A; outline-offset: 2px; }
+    .pd-iniciar .pd-iniciar-ico { font-size: 22px; line-height: 1; }
+
     /* ============================================================
        FASE 2 · RESPONSIVIDAD (tablet, laptop, desktop)
        ============================================================ */
@@ -136,6 +160,11 @@
           <button id="btnNavegar" class="mini" type="button">🧭 Abrir navegación</button>
         </div>
       </div>
+      <!-- FASE 2 · Botón "Iniciar Entrega" prominente, ARRIBA de Retirado/Entregado -->
+      <button id="btnIniciarEntrega" class="pd-iniciar" type="button" aria-label="Iniciar entrega en modo navegación">
+        <span class="pd-iniciar-ico" aria-hidden="true">🛵</span>
+        <span>Iniciar Entrega</span>
+      </button>
       <div class="acciones-fila">
         <button id="btnRetirado" class="oscuro" type="button">📦 Retirado</button>
         <button id="btnEntregado" class="primario" type="button" disabled>✅ Entregado</button>
