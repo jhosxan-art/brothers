@@ -16,7 +16,16 @@
          - Botón "📮 Sugerir al cliente" envía un mensaje preformateado al chat.
      · Ícono del pedido en el mapa más discreto (pin de 24 px con etiqueta al costado).
      · Al abrir el mapa, fitBounds de todos los pedidos activos (más zona visible).
-     ============================================================ */
+
+   FASE 2 (seguimiento de rutas) · ajustes aplicados:
+     · Camara con dos modos: "fitbounds" (por defecto) y "navegacion".
+       El botón 🧭 alterna entre ambos. El botón ⛶ fuerza fitBounds de todos los pedidos.
+     · Al atender un chat o aceptar un pedido admin → ir al mapa, seleccionar el destino,
+       calcular ruta OSRM y activar fitBounds dinámico.
+     · Estado OCUPADO unificado: ubicaciones/{uid} mantiene enViaje y conPedido en true
+       con cualquier viaje activo (factura, chat o pedido admin).
+     · marcarConPedido ahora considera los tres orígenes (viajes, chats y pedidos admin).
+   ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
   if (m) { m.textContent = "Error en la página: " + e.message + ". Puede que falten archivos por subir a GitHub."; m.className = "estado error"; }
@@ -213,10 +222,14 @@ function irA(vista) {
     try { ChatsEntrantes.pintarMapa(); } catch (_) {}
     setTimeout(() => {
       mapa.invalidateSize();
-      if (seguirme && ultimaPos) Camara.actualizar(true);
-      else encuadrar();
-      // FASE 4 · al abrir el mapa, centrar en todos los pedidos activos
-      encuadrarTodosPedidos();
+      // FASE 2: si hay seguimiento activo y un viaje seleccionado, fitBounds dinámico;
+      // si no, mostrar todos los pedidos (vista general).
+      if (seguirme && ultimaPos && seleccionado && viajes[seleccionado] && viajes[seleccionado].destino) {
+        Camara.actualizar(true);
+      } else {
+        encuadrar();
+        encuadrarTodosPedidos();
+      }
     }, 60);
   }
 }
@@ -319,7 +332,7 @@ $("btnSalir").onclick = async () => {
   detenerGPS(); apagarNativo();
   try { await db.ref(`repartidores/${uidActual}/fcmToken`).remove(); } catch (_) {}
   try {
-    await db.ref("ubicaciones/" + uidActual).update({ enLinea: false, enViaje: false, ts: TS });
+    await db.ref("ubicaciones/" + uidActual).update({ enLinea: false, enViaje: false, conPedido: false, ts: TS });
     db.ref("ubicaciones/" + uidActual).onDisconnect().cancel();
   } catch (_) {}
   await auth.signOut();
@@ -330,7 +343,7 @@ $("btnSalir").onclick = async () => {
    ============================================================ */
 function initMapa() {
   if (mapa) return;
-  mapa = L.map("mapaRuta", Object.assign({}, GestosMapa.opciones, Camara.opcionesMapa())).setView([-12.0464, -77.0428], 14);
+  mapa = L.map("mapaRuta", Object.assign({}, GestosMapa.opciones, Camara.opcionesMapa())).setView([12.5700, -87.1311], 14);
   L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);
   GestosMapa.aplicar(mapa);
   mapa.on("click movestart", cerrarBusquedaRep);
@@ -365,11 +378,21 @@ function initMapa() {
 }
 let seguirme = true;
 
+/* ============================================================
+   CÁMARA DEL REPARTIDOR — FASE 2
+   Dos modos:
+     - "fitbounds" (por defecto): mantiene a la vez al motorizado y al cliente.
+       Solo re-encuadra si alguno se sale del viewport actual (no "sacude" el mapa).
+     - "navegacion": cámara invertida tipo GPS con la moto en el tercio inferior y
+       el mapa rotado hacia donde avanza. Se activa con el botón 🧭.
+   El botón ⛶ fuerza "fitbounds" de todos los pedidos activos.
+   ============================================================ */
 const Camara = (() => {
   const SIGNO_ROTACION = 1;
   const MIN_PASO_M = 4;
   const MIN_MS = 900;
   let prev = null, suave = 0, tieneRumbo = false, ult = 0, ultGesto = 0;
+  let modo = "fitbounds";   // "fitbounds" | "navegacion"
   const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
   const rotable = () => !!(mapa && typeof mapa.setBearing === "function");
   const gesto = () => { ultGesto = Date.now(); };
@@ -409,18 +432,52 @@ const Camara = (() => {
     try { mapa.getContainer().style.setProperty("--escala-rep", String(escalaPara(mapa.getZoom()))); } catch (_) {}
   }
   function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) e.classList.add("rep-yo"); }
+
   function refrescarBoton() {
     const b = $("btnSeguir"); if (!b) return;
-    b.classList.toggle("on", !!seguirme);
-    b.setAttribute("aria-pressed", String(!!seguirme));
+    const nav = modo === "navegacion";
+    b.classList.toggle("on", !!seguirme && nav);
+    b.setAttribute("aria-pressed", String(!!seguirme && nav));
+    b.setAttribute("aria-label", nav ? "Cambiar a vista con ambos visibles" : "Seguir mi moto (cámara de navegación)");
   }
+  function setModo(m) {
+    modo = m === "navegacion" ? "navegacion" : "fitbounds";
+    refrescarBoton();
+  }
+  function getModo() { return modo; }
+
+  // Actualiza la vista. En modo "fitbounds" solo re-encuadra si algún punto se sale del viewport.
   function actualizar(forzar) {
     if (!mapa || !ultimaPos || !seguirme || vistaActual !== "mapa") return;
     if (marcando || document.activeElement === $("busqRep") || !$("resBusqRep").classList.contains("oculto")) return;
     const ahora = Date.now();
     if (!forzar && ahora - ult < MIN_MS) return;
     ult = ahora;
-    const d = destino(), dist = d ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
+    const d = destino();
+
+    if (modo === "fitbounds") {
+      const pts = [[ultimaPos.lat, ultimaPos.lng]];
+      if (d && Number.isFinite(d.lat) && Number.isFinite(d.lng)) pts.push([d.lat, d.lng]);
+
+      if (pts.length === 2) {
+        // Solo re-encuadrar si alguno se sale del viewport (evita "sacudir" el mapa en cada tick)
+        if (!forzar) {
+          const v = mapa.getBounds();
+          const in1 = v.contains(pts[0]);
+          const in2 = v.contains(pts[1]);
+          if (in1 && in2) { refrescarBoton(); return; }
+        }
+        mapa.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 17, animate: !forzar, duration: 0.8 });
+      } else if (pts.length === 1) {
+        mapa.setView(pts[0], Math.max(mapa.getZoom(), 15), { animate: !forzar, duration: 0.8 });
+      }
+      aplicarEscala();
+      refrescarBoton();
+      return;
+    }
+
+    // modo === "navegacion": cámara invertida tipo GPS
+    const dist = d && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
     const z = zoomPara(dist), ang = rotable() && tieneRumbo ? suave : 0;
     const k = mapa.getSize().y / 6;
     const t = rad(ang), pr = mapa.project([ultimaPos.lat, ultimaPos.lng], z);
@@ -434,7 +491,7 @@ const Camara = (() => {
     if (rotable()) { try { mapa.setBearing(0); } catch (_) {} }
     setTimeout(refrescarBoton, 0);
   }
-  return { opcionesMapa, registrar, actualizar, norte, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom };
+  return { opcionesMapa, registrar, actualizar, norte, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
 })();
 
 function pintarYo(rumbo) {
@@ -479,9 +536,10 @@ function pintarCliente(v) {
   } else if (v.marcaCli) { mapa.removeLayer(v.marcaCli); v.marcaCli = null; }
 }
 
+// Encuadre forzado (para el botón ⛶ y para el primer encuadre)
 function encuadrar(soloSeleccionado) {
   if (!mapa) return;
-  Camara.norte();
+  if (Camara.getModo() !== "navegacion") { try { mapa.setBearing(0); } catch (_) {} }
   const pts = [];
   if (ultimaPos) pts.push([ultimaPos.lat, ultimaPos.lng]);
   const lista = soloSeleccionado && seleccionado ? [seleccionado] : orden;
@@ -509,10 +567,17 @@ function encuadrarTodosPedidos() {
     mapa.setView(pts[0], 16);
   }
 }
-$("btnVerTodo").onclick = () => { seguirme = false; encuadrar(false); };
+$("btnVerTodo").onclick = () => { seguirme = false; Camara.setModo("fitbounds"); encuadrar(false); Camara.refrescarBoton(); };
 $("btnSeguir").onclick = () => {
   if (!ultimaPos) return setEstado("Esperando tu ubicación para seguirte…", "error");
-  seguirme = true; Camara.refrescarBoton();
+  if (Camara.getModo() === "navegacion") {
+    Camara.setModo("fitbounds");
+    setEstado("🧭 Vista: ambos visibles (moto + cliente)", "ok");
+  } else {
+    Camara.setModo("navegacion");
+    setEstado("🧭 Vista: navegación (cámara girada)", "ok");
+  }
+  seguirme = true;
   Camara.actualizar(true);
 };
 Camara.refrescarBoton();
@@ -560,7 +625,13 @@ function seleccionar(token, enfocar) {
   renderLista();
   dibujarRuta();
   pedirRuta(viajes[token], true);
-  if (enfocar) { seguirme = false; encuadrar(true); }
+  if (enfocar) {
+    // FASE 2: activar fitBounds dinámico al enfocar un pedido
+    seguirme = true;
+    Camara.setModo("fitbounds");
+    Camara.refrescarBoton();
+    Camara.actualizar(true);
+  }
 }
 $("btnMarcarDestino").onclick = () => {
   if (!seleccionado) return alert("No hay un pedido seleccionado.");
@@ -607,6 +678,8 @@ function crearViaje(info) {
   escucharChat(v);
   escucharEstado(v);
   escucharSubfactura(v);
+  // FASE 2: actualizar chip de OCUPADO y estado en Firebase
+  try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
   return v;
 }
 
@@ -709,7 +782,7 @@ Factura.alEnviar = (f) => {
     db.ref("pedidos/" + f.token).update({ pedido: f.pedido, sinFactura: null, factura: ex.factura, detalle: detalleDeFactura(f, ex.prioridad === true) }).catch(() => {});
     guardarViajes(); sincronizarContactos(); renderLista();
     seleccionado = f.token; irA("mapa"); seleccionar(f.token, false);
-    setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
+    setTimeout(() => { seguirme = true; Camara.setModo("fitbounds"); Camara.refrescarBoton(); Camara.actualizar(true); }, 400);
     return;
   }
   if (orden.length === 0) rastro = [];
@@ -726,7 +799,7 @@ Factura.alEnviar = (f) => {
   sincronizarContactos();
   irA("mapa");
   seleccionar(v.token, false);
-  setTimeout(() => { seguirme = false; encuadrar(true); }, 400);
+  setTimeout(() => { seguirme = true; Camara.setModo("fitbounds"); Camara.refrescarBoton(); Camara.actualizar(true); }, 400);
 };
 
 function pulsarMarca(m) {
@@ -1029,6 +1102,11 @@ function reanudarViajes() {
     seleccionado = orden[0]; renderLista();
     if (abrirPendiente && viajes[abrirPendiente]) { const v0 = viajes[abrirPendiente]; abrirPendiente = null; irA("mapa"); abrirChat(v0); }
     try { const r = JSON.parse(localStorage.getItem("rastroViaje") || "null"); if (r && r.uid === uidActual && Array.isArray(r.pts)) rastro = r.pts; } catch (_) {}
+    // FASE 2: si al reanudar hay viajes activos, activar el fitBounds dinámico al abrir el mapa
+    seguirme = true;
+    Camara.setModo("fitbounds");
+    Camara.refrescarBoton();
+    setTimeout(() => Camara.actualizar(true), 800);
   }
   actualizarNav();
 }
@@ -1057,6 +1135,8 @@ function quitarViaje(token) {
   guardarViajes(); sincronizarContactos();
   orden.forEach((t) => pintarCliente(viajes[t]));
   renderLista(); dibujarRuta(); actualizarNav();
+  // FASE 2: actualizar chip de OCUPADO
+  try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
   if (!orden.length && vistaActual === "mapa") irA("factura");
 }
 
@@ -1712,9 +1792,11 @@ function procesarPosicion(c) {
   const ahora = Date.now();
   if (ahora - ultimaEscritura < INTERVALO_MS) return;
   ultimaEscritura = ahora;
+  // FASE 2: estado OCUPADO unificado (viajes en curso o pedido admin activo)
+  const ocupado = orden.length > 0 || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo());
   db.ref("ubicaciones/" + uidActual).set({
     lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed),
-    ts: TS, enLinea: true, enViaje: orden.length > 0, conPedido: (() => { try { return ChatsEntrantes.activos() > 0; } catch (_) { return false; } })(), usuario
+    ts: TS, enLinea: true, enViaje: ocupado, conPedido: ocupado, usuario
   }).catch(() => {});
   try { ChatsEntrantes.publicarGps({ lat, lng }); } catch (_) {}
   const base = { lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed), ts: TS };
@@ -1832,7 +1914,27 @@ $("btnNuevoVer").onclick = () => {
   if (PedidoRep.id()) cancelarNotif({ token: PedidoRep.id() });
 };
 $("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
-$("btnNuevoAceptar").onclick = async () => { if (await OrdenAdminRep.responder("aceptado")) { $("modalNuevoPedido").classList.add("oculto"); irA("mapa"); } };
+/* FASE 2: al aceptar un pedido admin → ir al mapa, activar fitBounds y calcular ruta */
+$("btnNuevoAceptar").onclick = async () => {
+  if (!(await OrdenAdminRep.responder("aceptado"))) return;
+  $("modalNuevoPedido").classList.add("oculto");
+  try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
+  seguirme = true;
+  Camara.setModo("fitbounds");
+  Camara.refrescarBoton();
+  irA("mapa");
+  setTimeout(() => {
+    // Si el pedido admin tiene su cliente visible, forzar la cámara para ver ambos
+    Camara.actualizar(true);
+    const cliPed = PedidoRep.posCliente();
+    if (cliPed) {
+      const pts = [];
+      if (ultimaPos) pts.push([ultimaPos.lat, ultimaPos.lng]);
+      pts.push([cliPed.lat, cliPed.lng]);
+      if (pts.length === 2 && mapa) mapa.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 17 });
+    }
+  }, 500);
+};
 $("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado")) $("modalNuevoPedido").classList.add("oculto"); };
 OrdenAdminRep.init({
   db, usuario: () => usuario, uid: () => uidActual,
@@ -1860,7 +1962,6 @@ const ChatsEntrantes = (() => {
   const tsPrevio = {};
   const sinLeer = {};
   const marcasSol = {}, marcasCli = {};
-  /* FASE 4 · estado del chat abierto: leídos, typing, última dirección */
   let lect = {}, typing = {}, ultimaDirCliente = null, refUltimaDir = null, refLeidos = null, refTyping = null;
   let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
 
@@ -2015,12 +2116,15 @@ const ChatsEntrantes = (() => {
     mios_.forEach((k) => mios.appendChild(filaChat(k, lista[k], true)));
     pintarRegistro();
   }
+  // FASE 2: estado OCUPADO unificado (viajes en curso o pedido admin activo o chats atendidos)
   function marcarConPedido() {
-    const on = activos() > 0;
-    $("chipConPedido").classList.toggle("oculto", !on);
+    const on = orden.length > 0
+            || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo())
+            || activos() > 0;
+    const chip = $("chipConPedido"); if (chip) chip.classList.toggle("oculto", !on);
     if (uidActual && on !== ultimoConPedido) {
       ultimoConPedido = on;
-      db.ref("ubicaciones/" + uidActual).update({ conPedido: on }).catch(() => {});
+      db.ref("ubicaciones/" + uidActual).update({ conPedido: on, enViaje: on }).catch(() => {});
     }
   }
   function publicarGps(p) {
@@ -2119,6 +2223,13 @@ const ChatsEntrantes = (() => {
       pintarMapa();
       irA("chats");
       abrir(id);
+      // FASE 2: ir al mapa y calcular ruta al cliente
+      if (viajes[id]) {
+        setTimeout(() => {
+          irA("mapa");
+          seleccionar(id, true);
+        }, 350);
+      }
     } catch (e) {
       $("spAviso").textContent = "No se pudo atender el chat: " + (e.code || e.message);
       $("spAviso").classList.remove("oculto");
@@ -2157,7 +2268,6 @@ const ChatsEntrantes = (() => {
       const m = s.val();
       if (m && typeof m === "object") pintarMensaje(m, s.key);
     }, (e) => aviso("No se pudieron leer los mensajes: " + (e.code || e.message)));
-    /* FASE 4 · leídos, typing y última dirección */
     leerLeidos(id);
     leerTyping(id);
     leerUltimaDirCliente(d);
@@ -2203,7 +2313,6 @@ const ChatsEntrantes = (() => {
       b.appendChild(el("p", "", String(m.texto || "")));
     }
     const h = el("span", "cn-h", horaDe(ts));
-    /* FASE 4 · palomitas solo en mis mensajes (los del repartidor) */
     if (yo) {
       const tick = document.createElement("span");
       tick.className = "cn-tick"; tick.dataset.ts = ts; tick.textContent = "✓";
@@ -2227,7 +2336,6 @@ const ChatsEntrantes = (() => {
       t.title = leido ? "Leído" : "Enviado";
     });
   }
-  /* FASE 4 · lectura del cliente */
   let tmLeidoPropio = null, tUltLeidoPropio = 0;
   function marcarLeidoPropio(id) {
     if (!id || !uidActual || document.visibilityState !== "visible") return;
@@ -2246,7 +2354,6 @@ const ChatsEntrantes = (() => {
       actualizarTicksChat();
     }, () => {});
   }
-  /* FASE 4 · typing */
   function marcarTypingPropio() {
     if (!abiertoId || !uidActual) return;
     const ahora = Date.now();
@@ -2293,7 +2400,6 @@ const ChatsEntrantes = (() => {
       sub.classList.remove("escribiendo");
     }
   }
-  /* FASE 4 · última dirección del cliente */
   function leerUltimaDirCliente(d) {
     if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
     ultimaDirCliente = null;
@@ -2303,7 +2409,6 @@ const ChatsEntrantes = (() => {
     refUltimaDir.on("value", (s) => {
       const u = s.val();
       if (!u || typeof u !== "object") { $("cnUltimaDir").classList.add("oculto"); return; }
-      /* Solo mostramos pin o direccion (gps depende de dónde esté el cliente ahora) */
       if (u.tipo !== "pin" && u.tipo !== "direccion") { $("cnUltimaDir").classList.add("oculto"); return; }
       let donde = "";
       if (u.tipo === "direccion") donde = String(u.texto || "");
@@ -2560,7 +2665,6 @@ const ChatsEntrantes = (() => {
     t.appendChild(bt);
     return t;
   }
-  /* "He llegado" */
   $("cnLlegado").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
@@ -2577,7 +2681,6 @@ const ChatsEntrantes = (() => {
       setTimeout(() => aviso(""), 4000);
     } catch (e) { btn.disabled = false; aviso("No se pudo marcar la llegada: " + (e.code || e.message)); }
   });
-  /* FASE 4 · Botón "Sugerir al cliente" con la última dirección */
   $("cnSugerirDir").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
@@ -2622,6 +2725,7 @@ const ChatsEntrantes = (() => {
     catch (e) { return aviso("No se pudo " + (tipo === "pasar" ? "pasar el pedido" : "cancelar") + ": " + (e.code || e.message)); }
     limpiarLocal(id);
     cerrarConversacion();
+    marcarConPedido();
     toast(tipo === "pasar" ? "🔁" : "🚫", tipo === "pasar" ? "Pedido devuelto al grupo" : "Pedido cancelado", tipo === "pasar" ? "Otro repartidor lo recibirá." : "El cliente fue avisado.", null, 4500);
   }
   function alMostrar() {
@@ -2630,7 +2734,7 @@ const ChatsEntrantes = (() => {
   }
   Factura.alEnviarChat = (f) => enviarFactura(f);
   Factura.alTerminarChat = () => irA("chats");
-  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia };
+  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido };
 })();
 
 function ajustarViewportRep() {
