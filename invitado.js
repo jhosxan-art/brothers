@@ -2,6 +2,16 @@
    REPARTIDOR INVITADO (Función 2)
    Abre con invitado.html?t=TOKEN → pide solo el nombre → mapa de ruta + chat con el cliente
    + botones Retirado / Entregado. Todo en tiempo real con ordenes/{token}.
+
+   FASE 2 (seguimiento de rutas) · ajustes aplicados:
+     - Dos modos de cámara: "fitbounds" (por defecto, mantiene al motorizado y al destino
+       visibles a la vez) y "navegacion" (centra la moto con zoom cercano). Los botones
+       🧭 y ⛶ alternan entre ellos.
+     - Al recibir la primera posición GPS se fuerza el cálculo de ruta y el encuadre.
+     - En cada posición nueva se aplica fitBounds dinámico si alguno se sale del viewport
+       (evita "sacudir" el mapa en cada tick).
+     - El mapa ya no "salta" al primer encuadre: se ajusta una sola vez al tener los
+       dos puntos (motorizado + destino) listos.
    ============================================================ */
 (() => {
   const O = Ordenes, esc = O.esc, TS = O.TS, $ = (id) => document.getElementById(id);
@@ -10,19 +20,20 @@
   const uid = O.uidInvitado(t);
   const claveLocal = "invitado_" + t;
 
-  let pedido = null, refPedido = null;   // pedidos/{t}: prioridad y mandados extra que suma el cliente
+  let pedido = null, refPedido = null;
   let orden = null, nombre = "", mapa = null, marcaYo = null, pinsRetiro = [], pinEntrega = null, pinGuia = null, linea = null;
   let pos = null, ultEscritura = 0, watchId = null, wakeLock = null, refOrden = null, refChat = null, refVigia = null, refChatAdm = null, aceptando = false;
-  const RA = { chats: "chatsInvitado", resumen: "chatsInvitadoResumen", leido: "leidosInvitado" };   // chat con el administrador
+  const RA = { chats: "chatsInvitado", resumen: "chatsInvitadoResumen", leido: "leidosInvitado" };
   let chatAdmAbierto = false, sinLeerAdm = 0;
-  let flechasCapa = null, ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: 0 }, yaEncuadrado = false, chatAbierto = false, sinLeer = 0, terminado = false;
+  let flechasCapa = null, ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: 0 };
+  let yaEncuadrado = false, chatAbierto = false, sinLeer = 0, terminado = false;
+  let modoSeguir = "fitbounds";   // "fitbounds" | "navegacion"
   const vista = (id) => ["vCarga", "vEntrada", "vApp", "vFin", "vTomado"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
   const msgCarga = (m) => { $("msgCarga").textContent = m; $("msgCarga").className = "estado error"; };
 
   /* ---------- Arranque ---------- */
   const esMio = (o, guardado) => { const a = (o && o.asignacion) || {}; return a.authUid ? a.authUid === auth.currentUser.uid : !!guardado && a.nombre === guardado; };
   const tomadoPor = (o) => (o && o.asignacion && o.asignacion.nombre && ["asignado", "retirado"].includes(o.estado)) ? o.asignacion.nombre : null;
-  /* Pantalla exclusiva de enlace ya tomado: nada más se muestra */
   function tomado(nom) {
     terminado = true;
     [refVigia, refOrden, refChat, refChatAdm].forEach((r) => { if (r) r.off(); });
@@ -46,14 +57,13 @@
     } catch (e) { return msgCarga("No se pudo abrir el pedido: " + e.message); }
     const guardado = localStorage.getItem(claveLocal);
     const otro = tomadoPor(orden);
-    if (otro && !esMio(orden, guardado)) return tomado(otro);           // enlace ya tomado por otro repartidor
+    if (otro && !esMio(orden, guardado)) return tomado(otro);
     if (["entregado", "cancelado"].includes(orden.estado)) return final(orden.estado);
-    if (otro) return entrar(orden.asignacion.nombre, true);              // yo ya lo había aceptado: retomar
-    // Sigue pendiente: se puede ver, pero NO se asigna nada hasta pulsar "Aceptar"
+    if (otro) return entrar(orden.asignacion.nombre, true);
     $("resumenEntrada").innerHTML = resumenHtml(orden);
     $("inNombre").value = guardado || "";
     vista("vEntrada");
-    refVigia = db.ref("ordenes/" + t);   // si otro lo acepta mientras lo miro, se bloquea al instante
+    refVigia = db.ref("ordenes/" + t);
     refVigia.on("value", (s2) => {
       if (aceptando || terminado || !s2.exists()) return;
       const o2 = s2.val(), n = tomadoPor(o2);
@@ -72,7 +82,6 @@
     entrar(n, false);
   };
 
-  /* Aceptar = reclamar el pedido con una TRANSACCIÓN: solo el primero en llegar lo consigue */
   async function entrar(n, reanudar) {
     nombre = n; aceptando = true;
     $("btnEntrar").disabled = true; $("msgEntrada").classList.add("oculto");
@@ -81,7 +90,7 @@
       let res;
       try {
         res = await db.ref(`ordenes/${t}/asignacion`).transaction((cur) => {
-          if (cur && cur.nombre && cur.authUid !== miUid) return;   // ya lo tomó otro: se aborta
+          if (cur && cur.nombre && cur.authUid !== miUid) return;
           return { tipo: "invitado", nombre: n, authUid: miUid, unido: TS };
         }, undefined, false);
       } catch (e) { aceptando = false; $("btnEntrar").disabled = false; vista("vEntrada"); $("msgEntrada").textContent = "No se pudo aceptar: " + e.message; $("msgEntrada").classList.remove("oculto"); return; }
@@ -107,10 +116,10 @@
     db.ref("ubicaciones/" + uid).onDisconnect().update({ enLinea: false, enViaje: false, ts: TS });
     $("subTitulo").textContent = "Invitado · " + n;
     vista("vApp"); iniciarMapa(); escucharOrden(); escucharChat(); escucharChatAdm(); iniciarGPS();
+    aplicarModo();
     iniciarSolicitudes();
   }
 
-  /* Nuevos Chats (solicitudes_entrantes): mismo módulo que el repartidor registrado (factura.js) */
   function iniciarSolicitudes() {
     if (typeof Solicitudes === "undefined") return;
     $("btnNuevosChats").classList.remove("oculto");
@@ -118,7 +127,7 @@
       db, tipo: "invitado",
       uid: () => uid, nombre: () => nombre || "Invitado", repartidorUid: () => uid,
       boton: "btnNuevosChats", badge: "badgeNuevosChats",
-      codigo: () => "",   // vacío → factura.js genera un código BD#### propio
+      codigo: () => "",
       instantanea: (f) => f,
       alNueva: () => {},
       alFacturada: () => {}
@@ -151,17 +160,17 @@
       <span>${d.etiqueta === "Entrega" ? "🏠" : "📦"} Ahora: <b>${esc(d.etiqueta)}</b> — ${esc(d.texto || "sin dirección")}${d.producto ? " · <b>" + esc(d.producto) + "</b>" : ""}</span>
       ${O.paradas(orden).length > 1 ? "<small>Retiros del pedido:</small>" + listaParadas(orden) : ""}
       ${orden.paquete ? `<span>📝 ${esc(orden.paquete)}</span>` : ""}`;
-    $("precioGrande").innerHTML = O.cobroHtml(orden, pedido);   // TOTAL A COBRAR = delivery + pagado en restaurante (+ prioridad y extras)
+    $("precioGrande").innerHTML = O.cobroHtml(orden, pedido);
     $("chipEstado").textContent = txt; $("chipEstado").className = "chip " + cls;
     const sig = O.siguienteRetiro(orden);
     $("btnRetirado").disabled = !sig;
     $("btnRetirado").textContent = sig ? `📦 Retirado${O.paradas(orden).length > 1 ? " (" + (sig.i + 1) + "/" + O.paradas(orden).length + ")" : ""}` : "📦 Todo retirado";
     $("btnEntregado").disabled = !!sig;
     pintarPuntos(); calcularRuta(true);
+    if (modoSeguir === "fitbounds") setTimeout(encuadrarDinamico, 200);
   }
 
   /* ---------- Botones de estado ---------- */
-  /* Ventana "valor pagado al restaurante": devuelve el monto (0 o más) o null si cancela */
   const pedirPago = (sig) => new Promise((resolve) => {
     const m = $("modalPago"), inp = $("pagoMonto"), msg = $("pagoMsg");
     $("pagoDetalle").textContent = [sig.p.producto, sig.p.texto].filter(Boolean).join(" · ") || "Este retiro";
@@ -180,11 +189,11 @@
     const sig = O.siguienteRetiro(orden);
     if (estado === "retirado" && !sig) return;
     let monto = null;
-    if (estado === "retirado") { monto = await pedirPago(sig); if (monto === null) return; }   // primero cuánto pagó en el restaurante
+    if (estado === "retirado") { monto = await pedirPago(sig); if (monto === null) return; }
     else if (!confirm("¿Confirmas que el paquete fue ENTREGADO?")) return;
     try {
       if (estado === "retirado") await O.marcarRetiro(db, t, orden, sig.i, monto); else await O.marcar(db, t, estado, orden);
-      await db.ref(`ordenes/${t}/guia`).remove().catch(() => {});   // el punto rápido del admin ya cumplió su función
+      await db.ref(`ordenes/${t}/guia`).remove().catch(() => {});
       if (estado === "entregado") {
         await db.ref("pedidos/" + t).update({ estado: "entregado", fin: TS, lat: null, lng: null, rumbo: null, velocidad: null, precision: null, destLat: null, destLng: null, distancia: null, cerca: null });
         await db.ref("ubicaciones/" + uid).remove().catch(() => {});
@@ -192,7 +201,6 @@
       }
     } catch (e) { alert("No se pudo actualizar el estado: " + e.message); }
   }
-  /* Minimizar / ver los detalles (el precio y los botones siempre quedan a la vista) */
   $("btnMinPanel").onclick = () => {
     const min = $("panelInv").classList.toggle("min");
     $("detallesPanel").classList.toggle("oculto", min);
@@ -223,7 +231,7 @@
 
   /* ---------- Mapa y ruta ---------- */
   function iniciarMapa() {
-    mapa = L.map("mapaInv", { zoomControl: false }).setView([-12.0464, -77.0428], 14);
+    mapa = L.map("mapaInv", { zoomControl: false }).setView([12.5700, -87.1311], 14);
     L.control.zoom({ position: "bottomright" }).addTo(mapa);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
     linea = L.polyline([], { color: "#0A86C9", weight: 7, opacity: .9, lineCap: "round" }).addTo(mapa);
@@ -239,7 +247,6 @@
     };
     const ps = O.paradas(orden);
     while (pinsRetiro.length > ps.length) { const x = pinsRetiro.pop(); if (x) mapa.removeLayer(x); }
-    /* Sobre cada local de retiro: nombre del negocio + lo que hay que retirar (al retirarlo queda solo el ✅) */
     ps.forEach((p, k) => {
       const num = ps.length > 1 ? String(k + 1) : "📦";
       pinsRetiro[k] = poner(pinsRetiro[k], p, p.retirado ? O.pinIcono("retiro", "✅") : O.pinEtiqueta("retiro", num, p.texto || "Retiro", p.producto));
@@ -248,6 +255,7 @@
     pinGuia = poner(pinGuia, orden.guia, O.pinIcono(orden.guia && orden.guia.punto === "entrega" ? "entrega" : "retiro", "📍"));
     if (!yaEncuadrado) encuadrar();
   }
+  // Encuadre forzado (primer encuadre o al pulsar ⛶)
   function encuadrar() {
     if (!mapa) return;
     const pts = [];
@@ -256,39 +264,75 @@
     if (pts.length > 1) { mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 17 }); yaEncuadrado = true; }
     else if (pts.length === 1) { mapa.setView(pts[0], 16); yaEncuadrado = !!pos; }
   }
-  /* Ruta SOLO por calles (respeta sentidos). Mientras llega no se dibuja nada: jamás una línea recta. */
+  // FASE 2: encuadre dinámico: solo re-encuadra si alguno se sale del viewport
+  function encuadrarDinamico() {
+    if (!mapa || !pos || modoSeguir !== "fitbounds") return;
+    const d = orden && destinoActual();
+    const pts = [[pos.lat, pos.lng]];
+    if (d && O.valido(d)) pts.push([d.lat, d.lng]);
+    if (pts.length === 2) {
+      const v = mapa.getBounds();
+      const in1 = v.contains(pts[0]);
+      const in2 = v.contains(pts[1]);
+      if (in1 && in2) return;
+      mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 17, animate: true, duration: 0.6 });
+    } else if (pts.length === 1) {
+      mapa.setView(pts[0], Math.max(mapa.getZoom(), 15));
+    }
+  }
+  // FASE 2: centrar en la moto (modo navegación)
+  function centrarMoto() {
+    if (!mapa || !pos) return;
+    mapa.setView([pos.lat, pos.lng], 17, { animate: true, duration: 0.5 });
+  }
+  function aplicarModo() {
+    $("btnSeguir").classList.toggle("on", modoSeguir === "navegacion");
+    $("btnSeguir").setAttribute("aria-pressed", String(modoSeguir === "navegacion"));
+  }
+  $("btnSeguir").onclick = () => {
+    modoSeguir = "navegacion";
+    aplicarModo();
+    centrarMoto();
+  };
+  $("btnVerTodo").onclick = () => {
+    modoSeguir = "fitbounds";
+    aplicarModo();
+    encuadrar();
+  };
+  aplicarModo();
+
+  /* Ruta SOLO por calles. Mientras llega no se dibuja nada: jamás una línea recta. */
   async function calcularRuta(forzar) {
     const d = orden && destinoActual();
     if (!d || !O.valido(d)) { limpiarRuta(); return banner(null, "Este punto no tiene ubicación exacta. Usa 🧭 Abrir navegación."); }
     if (!pos) return banner(null, "Esperando tu ubicación para trazar la ruta…");
     const cambioDest = !ruta.dest || O.distM(ruta.dest, d) > 20, movido = !ruta.origen || O.distM(ruta.origen, pos) > 60;
-    if (cambioDest && ruta.pts) limpiarRuta();   // destino nuevo: se quita la ruta vieja
+    if (cambioDest && ruta.pts) limpiarRuta();
     if (!forzar && !cambioDest && !movido) return avanzarBanner();
     if (Date.now() - ruta.en < (cambioDest ? 800 : 15000)) return avanzarBanner();
     ruta.en = Date.now();
     if (!ruta.pts) banner(null, `Calculando ruta por calles hasta ${d.etiqueta}…`);
     const r = await O.rutaCalles({ lat: pos.lat, lng: pos.lng }, { lat: d.lat, lng: d.lng });
-    if (!r) { ruta.en = Date.now() - 12000; return banner(null, "No se pudo calcular la ruta por calles. Reintentando…"); }   // reintenta en ~3 s
+    if (!r) { ruta.en = Date.now() - 12000; return banner(null, "No se pudo calcular la ruta por calles. Reintentando…"); }
     Object.assign(ruta, { pts: r.pts, pasos: r.pasos, idx: Math.min(1, r.pasos.length - 1), dist: r.dist, dur: r.dur, origen: { lat: pos.lat, lng: pos.lng }, dest: { lat: d.lat, lng: d.lng }, en: Date.now() });
     linea.setLatLngs([[pos.lat, pos.lng], ...r.pts]); O.flechas(r.pts, flechasCapa, "#0A86C9");
     avanzarBanner();
   }
   function limpiarRuta() { ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: ruta.en }; linea.setLatLngs([]); flechasCapa.clearLayers(); }
   const fmtDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m");
-  /* Aviso corto de la ruta: distancia, tiempo y destino. Ya no se muestra el cartel de "gira a la izquierda…". */
   function banner(paso, aviso) {
     const b = $("bannerRuta"); b.classList.remove("oculto");
     if (!paso) { b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt">${esc(aviso)}</span>`; return; }
     b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt"><b>${fmtDist(ruta.dist)}</b> · ≈ ${Math.max(1, Math.round(ruta.dur / 60))} min · ${esc(destinoActual().etiqueta)}</span>`;
   }
-  function avanzarBanner() {   // pasa al siguiente giro cuando ya estás encima del anterior
+  function avanzarBanner() {
     if (!ruta.pasos || !pos) return;
     while (ruta.idx < ruta.pasos.length - 1 && O.distM(pos, ruta.pasos[ruta.idx].loc) < 30) ruta.idx++;
     banner(ruta.pasos[ruta.idx]);
     if (ruta.pts) linea.setLatLngs([[pos.lat, pos.lng], ...ruta.pts]);
   }
 
-  /* ---------- GPS: se comparte con el admin (mapa) y el cliente (seguimiento) ---------- */
+  /* ---------- GPS ---------- */
   async function iniciarGPS() {
     if (!("geolocation" in navigator)) return ($("estadoGps").textContent = "Este dispositivo no tiene GPS.");
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (_) {}
@@ -302,11 +346,19 @@
     pos = { lat: c.latitude, lng: c.longitude };
     if (!marcaYo) marcaYo = L.marker([pos.lat, pos.lng], { icon: (typeof iconoRepartidorNombre === "function" ? iconoRepartidorNombre(nombre) : O.pinIcono("", "🛵")), zIndexOffset: 1000 }).addTo(mapa);
     else marcaYo.setLatLng([pos.lat, pos.lng]);
-    if (primera) { yaEncuadrado = false; encuadrar(); }
-    calcularRuta(false);
+    if (primera) {
+      // FASE 2: en la primera posición forzar ruta y encuadre
+      yaEncuadrado = false;
+      encuadrar();
+      calcularRuta(true);
+    } else {
+      calcularRuta(false);
+      if (modoSeguir === "fitbounds") encuadrarDinamico();
+      else if (modoSeguir === "navegacion") centrarMoto();
+    }
     const ahora = Date.now(); if (ahora - ultEscritura < 4000 || terminado) return; ultEscritura = ahora;
     const base = { lat: pos.lat, lng: pos.lng, precision: Math.round(c.accuracy || 0), rumbo: Number.isFinite(c.heading) ? c.heading : null, velocidad: Number.isFinite(c.speed) ? c.speed : null, ts: TS };
-    db.ref("ubicaciones/" + uid).set(Object.assign({ enLinea: true, enViaje: true, usuario: nombre + " (invitado)" }, base)).catch(() => {});
+    db.ref("ubicaciones/" + uid).set(Object.assign({ enLinea: true, enViaje: true, conPedido: true, usuario: nombre + " (invitado)" }, base)).catch(() => {});
     const ped = Object.assign({}, base), ent = orden && orden.entrega;
     if (O.valido(ent)) {
       ped.destLat = ent.lat; ped.destLng = ent.lng;
@@ -330,7 +382,7 @@
       const m = s.val(); if (!m) return; burbuja(m);
       if (cargado && m.de === "cliente") {
         navigator.vibrate && navigator.vibrate(200);
-        O.hablar("Mensaje del cliente: " + (m.texto || "te envió una foto"));   // en voz alta
+        O.hablar("Mensaje del cliente: " + (m.texto || "te envió una foto"));
         if (!chatAbierto) { sinLeer++; $("chatBadge").textContent = sinLeer; $("chatBadge").classList.remove("oculto"); }
       }
     });
@@ -350,7 +402,7 @@
     } catch (err) { alert("No se pudo enviar: " + err.message); $("chatTexto").value = texto; }
   };
 
-  /* ---------- Chat con el administrador (chatsInvitado/{token}) ---------- */
+  /* ---------- Chat con el administrador ---------- */
   function burbujaAdm(m) {
     const d = document.createElement("div");
     d.className = "pd-msg" + (m.de === "repartidor" ? " yo" : ""); d.textContent = m.texto || (m.foto ? "📷 Foto" : "");
@@ -389,11 +441,7 @@
     } catch (err) { alert("No se pudo enviar: " + err.message); $("chatAdmTexto").value = texto; }
   };
 
-  /* ============================================================
-     FASE 2 · Fix del teclado táctil
-     El alto visible (--vvh) sigue a window.visualViewport. invitado.html
-     lo usa en body.pd-invitado para que los chats no queden debajo del teclado.
-     ============================================================ */
+  /* ---------- Fix del teclado táctil ---------- */
   function ajustarViewportInv() {
     const vv = window.visualViewport;
     if (!vv) return;
