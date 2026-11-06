@@ -2,12 +2,24 @@
   "rules": {
     ".read": false,
     ".write": false,
+
     "admins": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": false
       }
     },
+
+    "admin_tokens": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$token": {
+          ".validate": "newData.hasChildren(['token','ts']) && newData.child('token').isString() && newData.child('token').val().length >= 20 && newData.child('token').val().length <= 4096 && newData.child('ts').isNumber()"
+        }
+      }
+    },
+
     "repartidores": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -17,6 +29,10 @@
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 24"
         },
+        "telefono": {
+          ".write": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
+          ".validate": "newData.isString() && newData.val().length >= 10 && newData.val().length <= 15 && newData.val().matches(/^[0-9]+$/)"
+        },
         "fcmToken": {
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.isString() && newData.val().length >= 20 && newData.val().length <= 4096"
@@ -24,9 +40,22 @@
         "fcmTs": {
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.isNumber()"
+        },
+        "email": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "nombre": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
+        "creado": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isNumber()"
         }
       }
     },
+
     "repartidorFotos": {
       "$uid": {
         ".read": true,
@@ -34,6 +63,7 @@
         ".validate": "newData.isString() && newData.val().beginsWith('data:image/') && newData.val().length < 400000"
       }
     },
+
     "clientes": {
       "$clienteId": {
         ".read": "auth != null",
@@ -48,34 +78,259 @@
         }
       }
     },
+
     "ubicaciones": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && ((auth.uid === $uid && root.child('repartidores').child($uid).exists()) || (root.child('admins').child(auth.uid).exists()) || (auth.token.firebase.sign_in_provider === 'anonymous' && $uid.beginsWith('inv_') && root.child('ordenes').child($uid.replace('inv_', '')).exists() && root.child('ordenes').child($uid.replace('inv_', '')).child('expulsado').val() !== true))",
+        "lat": {
+          ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+        },
+        "lng": {
+          ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+        },
+        "precision": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+        },
+        "rumbo": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 360"
+        },
+        "velocidad": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 200"
+        },
+        "ts": {
+          ".validate": "newData.isNumber()"
+        },
+        "enLinea": {
+          ".validate": "newData.isBoolean()"
+        },
+        "enViaje": {
+          ".validate": "newData.isBoolean()"
+        },
         "conPedido": {
           ".validate": "newData.isBoolean()"
+        },
+        "usuario": {
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
+        "$otro": {
+          ".validate": false
         }
       }
     },
+
     "pedidos": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
-      ".indexOn": [
-        "estado"
-      ],
+      ".indexOn": ["estado"],
       "$token": {
         ".read": true,
-        ".write": "(auth != null && root.child('admins').child(auth.uid).exists()) || (auth != null && root.child('repartidores').child(auth.uid).exists() && (!data.exists() || data.child('repartidorUid').val() === auth.uid)) || (auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('ordenes').child($token).exists() && newData.child('repartidorUid').val() === 'inv_' + $token && (!data.exists() || data.child('repartidorUid').val() === 'inv_' + $token))",
+        ".write": "auth != null && ((root.child('admins').child(auth.uid).exists()) || (root.child('repartidores').child(auth.uid).exists() && (!data.exists() || data.child('repartidorUid').val() === auth.uid)) || (auth.token.firebase.sign_in_provider === 'anonymous' && root.child('ordenes').child($token).exists() && newData.child('repartidorUid').val() === 'inv_' + $token && (!data.exists() || data.child('repartidorUid').val() === 'inv_' + $token)))",
         "estado": {
           ".validate": "newData.isString() && (newData.val() === 'en_ruta' || newData.val() === 'entregado' || newData.val() === 'cancelado')"
         },
+        "lat": {
+          ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+        },
+        "lng": {
+          ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+        },
+        "precision": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+        },
+        "rumbo": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 360"
+        },
+        "velocidad": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 200"
+        },
+        "ts": {
+          ".validate": "newData.isNumber()"
+        },
+        "destLat": {
+          ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+        },
+        "destLng": {
+          ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+        },
+        "distancia": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000000"
+        },
+        "cerca": {
+          ".validate": "newData.isBoolean()"
+        },
+        "cercaTs": {
+          ".validate": "newData.isNumber()"
+        },
+        "pedido": {
+          ".validate": "newData.isString() && newData.val().length <= 30"
+        },
+        "repartidorUid": {
+          ".validate": "newData.isString() && newData.val().length <= 80"
+        },
+        "repartidorNombre": {
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
+        "clienteNombre": {
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
+        "inicio": {
+          ".validate": "newData.isNumber()"
+        },
+        "fin": {
+          ".validate": "newData.isNumber()"
+        },
+        "sinFactura": {
+          ".validate": "newData.isBoolean()"
+        },
+        "invitado": {
+          ".validate": "newData.isBoolean()"
+        },
+        "adminOrden": {
+          ".validate": "newData.isBoolean()"
+        },
+        "entregadoPor": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "forzadoPorAdmin": {
+          ".validate": "newData.isBoolean()"
+        },
+        "forzadoTs": {
+          ".validate": "newData.isNumber()"
+        },
+        "motivoForzado": {
+          ".validate": "newData.isString() && newData.val().length <= 300"
+        },
+        "motivoCancelacion": {
+          ".validate": "newData.isString() && newData.val().length <= 40"
+        },
+        "solicitudId": {
+          ".validate": "newData.isString() && newData.val().length <= 80"
+        },
+        "origen": {
+          ".validate": "newData.isString() && newData.val().length <= 20"
+        },
         "cliente": {
           ".write": "data.parent().child('estado').val() === 'en_ruta'",
-          ".validate": "newData.hasChildren(['lat', 'lng', 'ts'])"
+          ".validate": "newData.hasChildren(['lat', 'lng', 'ts']) && newData.child('lat').isNumber() && newData.child('lat').val() >= -90 && newData.child('lat').val() <= 90 && newData.child('lng').isNumber() && newData.child('lng').val() >= -180 && newData.child('lng').val() <= 180 && newData.child('ts').isNumber()",
+          "lat": {},
+          "lng": {},
+          "ts": {},
+          "precision": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "manual": {
+            ".validate": "newData.isBoolean()"
+          },
+          "$otro": {
+            ".validate": false
+          }
+        },
+        "prioridad": {
+          ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('pedidos').child($token).child('estado').val() === 'en_ruta' && (!data.exists() || data.val() === true)",
+          ".validate": "newData.isBoolean()"
+        },
+        "prioridadMonto": {
+          ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('pedidos').child($token).child('estado').val() === 'en_ruta' && !data.exists()",
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000"
+        },
+        "prioridadTs": {
+          ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('pedidos').child($token).child('estado').val() === 'en_ruta' && !data.exists()",
+          ".validate": "newData.isNumber()"
+        },
+        "calificacion": {
+          ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('pedidos').child($token).child('estado').val() === 'entregado' && !data.exists()",
+          ".validate": "newData.hasChildren(['estrellas', 'ts'])",
+          "estrellas": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 5"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "comentario": {
+            ".validate": "newData.isString() && newData.val().length <= 300"
+          },
+          "$otro": {
+            ".validate": false
+          }
+        },
+        "aviso": {
+          ".validate": "newData.hasChildren(['texto','ts'])",
+          "texto": {
+            ".validate": "newData.isString() && newData.val().length <= 300"
+          },
+          "tipo": {
+            ".validate": "newData.isString() && newData.val().length <= 20"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "id": {
+            ".validate": "newData.isString() && newData.val().length <= 20"
+          },
+          "$otro": {
+            ".validate": false
+          }
+        },
+        "detalle": {
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('repartidores').child(auth.uid).exists() && data.parent().child('repartidorUid').val() === auth.uid) || (auth.token.firebase.sign_in_provider === 'anonymous' && data.parent().child('estado').val() === 'en_ruta'))",
+          "subtotal": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "delivery": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "deliveryBase": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "totalBase": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "prioridad": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000"
+          },
+          "total": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "mandadoExtra": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          }
+        },
+        "factura": {
+          "subtotal": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "delivery": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+          "total": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          }
+        },
+        "extras": {
+          "$extraId": {
+            ".validate": "newData.hasChildren(['monto','ts'])",
+            "monto": {
+              ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 100000"
+            },
+            "ts": {
+              ".validate": "newData.isNumber()"
+            },
+            "por": {
+              ".validate": "newData.isString() && newData.val().length <= 60"
+            },
+            "nota": {
+              ".validate": "newData.isString() && newData.val().length <= 100"
+            },
+            "$otro": {
+              ".validate": false
+            }
+          }
         }
       }
     },
+
     "chats": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -87,17 +342,17 @@
         }
       }
     },
+
     "chatsResumen": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-      ".indexOn": [
-        "ts"
-      ],
+      ".indexOn": ["ts"],
       "$token": {
         ".write": "root.child('pedidos').child($token).child('estado').val() === 'en_ruta'",
         ".validate": "newData.hasChildren(['ts', 'ultimoDe'])"
       }
     },
+
     "fotos": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -109,6 +364,7 @@
         }
       }
     },
+
     "guias": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$uid": {
@@ -117,12 +373,11 @@
         ".validate": "newData.hasChildren(['ts'])"
       }
     },
+
     "ordenes": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-      ".indexOn": [
-        "creado"
-      ],
+      ".indexOn": ["creado"],
       "$token": {
         ".read": "auth != null && (data.child('asignacion').child('uid').val() === auth.uid || (auth.token.firebase.sign_in_provider === 'anonymous' && data.child('asignacion').child('tipo').val() === 'invitado'))",
         "estado": {
@@ -161,8 +416,16 @@
           ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
           ".validate": "newData.isString() && newData.val().length <= 300"
         },
+        "expulsado": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isBoolean()"
+        },
         "guia": {
           ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('ordenes').child($token).child('asignacion').child('tipo').val() === 'invitado' && root.child('ordenes').child($token).child('asignacion').child('authUid').val() === auth.uid"
+        },
+        "guiaAdmin": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.hasChildren(['lat','lng','ts']) && newData.child('lat').isNumber() && newData.child('lng').isNumber() && newData.child('ts').isNumber()"
         },
         "asignacion": {
           ".write": "(auth != null && root.child('admins').child(auth.uid).exists()) || (auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && data.child('tipo').val() === 'invitado' && (!data.child('nombre').exists() || data.child('authUid').val() === auth.uid) && newData.child('tipo').val() === 'invitado' && newData.child('authUid').val() === auth.uid && newData.child('nombre').isString() && newData.child('nombre').val().length >= 2 && newData.child('nombre').val().length <= 24)",
@@ -182,6 +445,7 @@
         }
       }
     },
+
     "lugares": {
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -189,6 +453,7 @@
         ".validate": "newData.hasChildren(['nombre', 'lat', 'lng'])"
       }
     },
+
     "estadisticas": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -198,6 +463,7 @@
         }
       }
     },
+
     "chatsEquipo": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -209,6 +475,7 @@
         }
       }
     },
+
     "chatsEquipoResumen": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -217,6 +484,7 @@
         ".write": "auth != null && auth.uid === $uid"
       }
     },
+
     "fotosEquipo": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -228,6 +496,7 @@
         }
       }
     },
+
     "leidos": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -239,6 +508,7 @@
         }
       }
     },
+
     "leidosEquipo": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -250,6 +520,7 @@
         }
       }
     },
+
     "chatsInvitado": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -261,17 +532,17 @@
         }
       }
     },
+
     "chatsInvitadoResumen": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-      ".indexOn": [
-        "ts"
-      ],
+      ".indexOn": ["ts"],
       "$token": {
         ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('ordenes').child($token).child('asignacion').child('tipo').val() === 'invitado' && root.child('ordenes').child($token).child('asignacion').child('authUid').val() === auth.uid",
         ".validate": "newData.hasChildren(['ts', 'ultimoDe'])"
       }
     },
+
     "fotosInvitado": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -283,6 +554,7 @@
         }
       }
     },
+
     "leidosInvitado": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -294,28 +566,26 @@
         }
       }
     },
+
     "alertasPolicia": {
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
-      ".indexOn": [
-        "ts"
-      ],
+      ".indexOn": ["ts"],
       "$id": {
         ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
         ".validate": "newData.hasChildren(['lat', 'lng', 'ts', 'uid']) && newData.child('lat').isNumber() && newData.child('lat').val() >= -90 && newData.child('lat').val() <= 90 && newData.child('lng').isNumber() && newData.child('lng').val() >= -180 && newData.child('lng').val() <= 180 && newData.child('uid').isString() && (data.exists() || newData.child('uid').val() === auth.uid)"
       }
     },
+
     "calificaciones": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-      ".indexOn": [
-        "ts",
-        "repartidorUid"
-      ],
+      ".indexOn": ["ts", "repartidorUid"],
       "$token": {
         ".write": "!data.exists() && root.child('pedidos').child($token).child('estado').val() === 'entregado'",
         ".validate": "newData.hasChildren(['estrellas', 'ts']) && newData.child('estrellas').isNumber() && newData.child('estrellas').val() >= 1 && newData.child('estrellas').val() <= 5 && newData.child('ts').val() === now && (!newData.hasChild('comentario') || (newData.child('comentario').isString() && newData.child('comentario').val().length <= 300)) && (!newData.hasChild('repartidorUid') || newData.child('repartidorUid').isString()) && (!newData.hasChild('repartidorNombre') || newData.child('repartidorNombre').isString())"
       }
     },
+
     "solicitudes_entrantes": {
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       "$solicitudId": {
@@ -530,6 +800,7 @@
         }
       }
     },
+
     "configuracion": {
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -549,6 +820,7 @@
         }
       }
     },
+
     "solicitudes_fotos": {
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       "$solicitudId": {
@@ -560,6 +832,7 @@
         }
       }
     },
+
     "facturas_historial": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$dia": {
@@ -572,7 +845,13 @@
           "repartidorNombre": { ".validate": "newData.isString() && newData.val().length <= 60" },
           "cliente": { ".validate": "newData.isString() && newData.val().length <= 60" },
           "pedido": { ".validate": "newData.isString() && newData.val().length <= 30" },
-          "productos": { "$i": { "nombre": { ".validate": "newData.isString() && newData.val().length <= 80" }, "precio": { ".validate": "newData.isNumber()" }, "$otro": { ".validate": false } } },
+          "productos": {
+            "$i": {
+              "nombre": { ".validate": "newData.isString() && newData.val().length <= 80" },
+              "precio": { ".validate": "newData.isNumber()" },
+              "$otro": { ".validate": false }
+            }
+          },
           "subtotal": { ".validate": "newData.isNumber()" },
           "delivery": { ".validate": "newData.isNumber()" },
           "extras": { ".validate": "newData.isNumber()" },
