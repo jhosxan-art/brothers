@@ -352,13 +352,6 @@
       mapa.setView(pts[0], Math.max(mapa.getZoom(), 15));
     }
   }
-  /* FASE 2 · centrarMoto() con ZOOM DINÁMICO por distancia al destino.
-     Antes era fijo en 17. Ahora:
-       - Distancia 0m → zoom 19 (máximo, ves hasta el número de la casa).
-       - Distancia 500m → zoom ≈ 16.7
-       - Distancia 2km → zoom ≈ 15
-       - Distancia ≥5km → zoom 14.5 (mínimo, ves todo el trayecto).
-     La fórmula es la misma que usa el repartidor registrado (Camara.zoomPara). */
   function centrarMoto() {
     if (!mapa || !pos) return;
     const d = orden && destinoActual();
@@ -387,10 +380,6 @@
   };
   aplicarModo();
 
-  /* FASE 2 · Botón "Iniciar Entrega" del invitado:
-     1. Activa el modo navegación (cámara centrada sobre la moto).
-     2. Aplica zoom dinámico por distancia.
-     3. Recalcula y redibuja la ruta al destino actual. */
   $("btnIniciarEntrega").onclick = () => {
     modoSeguir = "navegacion";
     aplicarModo();
@@ -400,7 +389,6 @@
     $("estadoGps").className = "estado chip-gps ok";
   };
 
-  /* Ruta SOLO por calles. Mientras llega no se dibuja nada: jamás una línea recta. */
   async function calcularRuta(forzar) {
     const d = orden && destinoActual();
     if (!d || !O.valido(d)) { limpiarRuta(); return banner(null, "Este punto no tiene ubicación exacta. Usa 🧭 Abrir navegación."); }
