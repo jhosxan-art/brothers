@@ -7,8 +7,12 @@
      centro del mapa en Chinandega, watcher de repartidorFotos para avatares en vivo.
    FASE 3 v2: ruta de fotos renombrada a repartidorFotos, permiso de Web Notifications
      solicitado junto al de voz.
+   FASE 4 · ajustes aplicados
+     · Ícono del pedido en el mapa del admin más discreto (24 px con etiqueta al costado).
+     · Al abrir la pestaña "Mapa en vivo", fitBounds de todos los pedidos activos.
+     · Palomitas verdes ✓✓ en el Modo Espectador (via ordenes-admin.js).
+     · Línea "📮 Última dirección del cliente" en el visor (via ordenes-admin.js).
    ============================================================ */
-/* Si algo falla al cargar (p. ej. faltan archivos por subir), el motivo aparece escrito bajo el formulario */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
   if (m) { m.textContent = "Error en la página: " + e.message + ". Puede que falten archivos por subir a GitHub."; m.className = "estado error"; }
@@ -16,33 +20,31 @@ window.addEventListener("error", (e) => {
 const auth = APP.auth();
 const db = APP.database();
 const $ = (id) => document.getElementById(id);
-const esc = escHtml;   // iconos.js
+const esc = escHtml;
 
-const SIN_SENAL_MS = 120000;  // sin posición nueva en 2 min → "Sin señal"
-const ubic = {};              // uid → última ubicación del repartidor
-const marcadores = {};        // uid → marcador del mapa
-const activos = {};           // token → pedido en ruta
-let registrados = {};         // uid → { email, nombre, usuario } (o true en cuentas antiguas)
-let resumenes = {};           // token → resumen del chat
+const SIN_SENAL_MS = 120000;
+const ubic = {};
+const marcadores = {};
+const activos = {};
+let registrados = {};
+let resumenes = {};
 let mapa = null, refUbic = null, consultaActivos = null, consultaChats = null;
 let ajusteProgramado = false, secundaria = null;
-// Guiar a los repartidores y chat de equipo (administrador ↔ repartidor)
 const RUTA_EQ = { chats: "chatsEquipo", resumen: "chatsEquipoResumen", fotos: "fotosEquipo" };
-const guias = {};             // uid → { lat, lng, token } guía que Brothers marcó para ese repartidor
-const guiaCapas = {};         // uid → { pin, linea } en el mapa
-let focoUid = null;           // repartidor cuyo recorrido muestra el cartel de giros
-let selUid = null;            // repartidor elegido para guiarlo
+const guias = {};
+const guiaCapas = {};
+let focoUid = null;
+let selUid = null;
 let resEquipo = {}, sinLeerEq = {}, chatEqAbierto = null;
 let refGuias = null, refEq = null;
-let modoSel = false;          // selección múltiple de chats
-let ocultos = new Set(); try { ocultos = new Set(JSON.parse(localStorage.getItem("repOcultos") || "[]")); } catch (_) {}   // repartidores que no se dibujan en el mapa
+let modoSel = false;
+let ocultos = new Set(); try { ocultos = new Set(JSON.parse(localStorage.getItem("repOcultos") || "[]")); } catch (_) {}
 const guardarOcultos = () => { try { localStorage.setItem("repOcultos", JSON.stringify([...ocultos])); } catch (_) {} };
-let lugares = {}, refLugares = null;   // negocios agregados al mapa
+let lugares = {}, refLugares = null;
 const lugarMarks = {};
 let modoNegocio = false, marcaBusq = null, datosBusq = null, resultadosBusq = [];
 const selChats = new Set();
 
-/* ---------- Utilidades ---------- */
 function setMsg(id, texto, tipo = "") {
   const el = $(id);
   if (!el) return;
@@ -86,7 +88,6 @@ const ETIQUETA = {
   desconectado: ["Desconectado", "gris"], sinDatos: ["Sin datos", "gris"]
 };
 
-/* ---------- Vistas y pestañas ---------- */
 function mostrar(vista) {
   $("splash").classList.add("oculto");
   $("loginMain").classList.toggle("oculto", vista !== "login");
@@ -98,11 +99,40 @@ document.querySelectorAll(".tabs button").forEach((b) => {
   b.onclick = () => {
     document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("activa", x === b));
     PANELES.forEach((id) => $(id).classList.toggle("oculto", id !== b.dataset.tab));
-    if (b.dataset.tab === "panelMapa") setTimeout(() => mapa.invalidateSize(), 50);
+    if (b.dataset.tab === "panelMapa") {
+      setTimeout(() => {
+        mapa.invalidateSize();
+        /* FASE 4 · al abrir "Mapa en vivo", encuadrar todos los pedidos activos */
+        encuadrarTodosActivos();
+      }, 60);
+    }
   };
 });
 
-/* ---------- Sesión (solo administradores) ---------- */
+/* FASE 4 · Encuadra el mapa del admin para que se vean todos los pedidos activos.
+   Se llama al pulsar la pestaña "Mapa en vivo" y una vez al iniciar sesión. */
+let encuadrePedidosHecho = false;
+function encuadrarTodosActivos() {
+  if (!mapa) return;
+  const pts = [];
+  Object.entries(activos).forEach(([, d]) => {
+    if (!d || d.estado !== "en_ruta") return;
+    if (typeof d.destLat === "number" && typeof d.destLng === "number") pts.push([d.destLat, d.destLng]);
+    else if (d.cliente && typeof d.cliente.lat === "number" && typeof d.cliente.lng === "number") pts.push([d.cliente.lat, d.cliente.lng]);
+  });
+  Object.keys(ubic).forEach((uid) => {
+    const u = ubic[uid]; if (!u || typeof u.lat !== "number") return;
+    if (viajeDe(uid)) pts.push([u.lat, u.lng]);
+  });
+  if (pts.length >= 2) {
+    mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
+    encuadrePedidosHecho = true;
+  } else if (pts.length === 1) {
+    mapa.setView(pts[0], 15);
+    encuadrePedidosHecho = true;
+  }
+}
+
 $("btnLogin").onclick = () => {
   setMsg("msgLogin", "");
   try {
@@ -110,8 +140,8 @@ $("btnLogin").onclick = () => {
         .catch((e) => setMsg("msgLogin", errorAuth(e), "error"));
   } catch (e) { setMsg("msgLogin", "Error: " + e.message, "error"); }
 };
-try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}   // la sesión se recuerda en este aparato
-setTimeout(() => $("splash").classList.add("oculto"), 8000);   // por si algo tarda: nunca se queda cargando
+try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}
+setTimeout(() => $("splash").classList.add("oculto"), 8000);
 auth.onAuthStateChanged(async (user) => {
   if (!user) { detener(); $("clave").value = ""; return mostrar("login"); }
   try {
@@ -119,23 +149,17 @@ auth.onAuthStateChanged(async (user) => {
     if (!esAdmin) { setMsg("msgLogin", "Esta cuenta no tiene permisos de administrador.", "error"); return auth.signOut(); }
   } catch (e) {
     if (e && e.code === "PERMISSION_DENIED") { setMsg("msgLogin", "No se pudo verificar el permiso. ¿Publicaste las reglas nuevas?", "error"); return auth.signOut(); }
-    // sin internet u otro fallo pasajero: se conserva la sesión y se entra igual (las reglas protegen los datos)
   }
   mostrar("app");
   initMapa();
   iniciarMonitoreo();
-  registrarPushAdmin(user.uid);   // APK: permisos de notificaciones + token FCM en admin_tokens
+  registrarPushAdmin(user.uid);
   Policia.iniciar({ db, mapa: () => mapa, uid: () => auth.currentUser && auth.currentUser.uid, nombre: () => "Brothers (admin)", rol: "admin", pos: () => null });
+  /* FASE 4 · primera vez: encuadre de todos los pedidos activos cuando terminen de llegar los snapshots */
+  setTimeout(() => { if (!encuadrePedidosHecho) encuadrarTodosActivos(); }, 1500);
 });
 $("btnSalir").onclick = async () => { if (!confirm("¿Cerrar sesión?")) return; await quitarPushAdmin(); auth.signOut(); };
 
-/* ---------- APK Admin: notificaciones push (FCM) ----------
-   Al iniciar sesión (solo dentro de la APK) se piden los permisos nativos de notificaciones y el token FCM
-   de este celular se guarda en  admin_tokens/{uid}/{clave-del-aparato} = { token, ts, plataforma }.
-   El Worker de Cloudflare lee ese nodo para avisarte cuando:
-     · un repartidor escribe en un chat, y
-     · un cliente abre por primera vez su enlace de rastreo.
-   En el navegador normal no hace nada (las push nativas solo existen en la APK). */
 const adminEsNativo = () => { const C = window.Capacitor; return !!(C && ((C.isNativePlatform && C.isNativePlatform()) || (C.getPlatform && C.getPlatform() !== "web"))); };
 function adminPlug(nombre) {
   const C = window.Capacitor;
@@ -144,7 +168,7 @@ function adminPlug(nombre) {
   return (C.Plugins && C.Plugins[nombre]) || (C.registerPlugin && C.registerPlugin(nombre)) || null;
 }
 let adminPushUid = null, adminPushClave = null;
-const claveDeToken = (t) => String(t || "").replace(/[.#$\[\]\/]/g, "_").slice(-40);   // clave válida en Firebase y única por aparato
+const claveDeToken = (t) => String(t || "").replace(/[.#$\[\]\/]/g, "_").slice(-40);
 function irAPestana(id) { const b = document.querySelector('.tabs button[data-tab="' + id + '"]'); if (b) b.click(); }
 async function registrarPushAdmin(uid) {
   const PN = adminPlug("PushNotifications");
@@ -152,23 +176,22 @@ async function registrarPushAdmin(uid) {
   adminPushUid = uid;
   try {
     let p = await PN.checkPermissions();
-    if (p.receive !== "granted") p = await PN.requestPermissions();   // ventana de Android 13+: "¿Permitir notificaciones?"
+    if (p.receive !== "granted") p = await PN.requestPermissions();
     if (p.receive !== "granted") { toast("Activa las notificaciones de la app en Ajustes para recibir los avisos de tus repartidores."); return; }
-    // Canal "admin": importancia 5 = ventana emergente con sonido (mismo nombre que usa el Worker y el AndroidManifest)
     await PN.createChannel({ id: "admin", name: "Avisos de Brothers", description: "Mensajes de repartidores y clientes que abren su enlace", importance: 5, visibility: 1, vibration: true, lights: true });
     await PN.removeAllListeners();
-    PN.addListener("registration", (t) => {   // se dispara al registrar y cada vez que Google renueva el token
+    PN.addListener("registration", (t) => {
       const u = adminPushUid; if (!u || !t || !t.value) return;
       adminPushClave = claveDeToken(t.value);
       db.ref("admin_tokens/" + u + "/" + adminPushClave).set({ token: t.value, ts: firebase.database.ServerValue.TIMESTAMP, plataforma: "android" })
         .catch((e) => console.warn("admin_tokens:", e.message));
     });
     PN.addListener("registrationError", (e) => console.warn("Push admin:", e));
-    PN.addListener("pushNotificationReceived", (n) => {   // llegó con la app abierta: el chat ya se avisa por voz con su propio listener
+    PN.addListener("pushNotificationReceived", (n) => {
       const d = (n && n.data) || {};
       if (d.tipo === "cliente_abrio") { try { Voz.hablar("El cliente " + (d.pedido ? "del pedido " + d.pedido + " " : "") + "abrió su enlace", { forzar: true }); } catch (_) {} }
     });
-    PN.addListener("pushNotificationActionPerformed", (ev) => {   // tocó la notificación
+    PN.addListener("pushNotificationActionPerformed", (ev) => {
       const d = (ev && ev.notification && ev.notification.data) || {};
       if (d.tipo === "chat_repartidor") {
         irAPestana("panelChats");
@@ -178,13 +201,11 @@ async function registrarPushAdmin(uid) {
     await PN.register();
   } catch (e) { console.warn("Push admin:", e); }
 }
-async function quitarPushAdmin() {   // al cerrar sesión: este celular deja de recibir avisos del administrador
+async function quitarPushAdmin() {
   try { if (adminPushUid && adminPushClave) await db.ref("admin_tokens/" + adminPushUid + "/" + adminPushClave).remove(); } catch (_) {}
   adminPushUid = null; adminPushClave = null;
 }
 
-/* ---------- Teléfono (WhatsApp) del repartidor ---------- */
-/* Solo números con código de país. Si escribes 8 dígitos (número de Nicaragua) se le antepone 505. Devuelve "" si no es válido. */
 function normalizarTelefono(t) {
   let d = String(t == null ? "" : t).replace(/\D+/g, "");
   if (d.indexOf("00") === 0) d = d.slice(2);
@@ -192,10 +213,8 @@ function normalizarTelefono(t) {
   return d.length >= 10 && d.length <= 15 ? d : "";
 }
 
-/* ---------- Mapa ---------- */
 function initMapa() {
   if (!mapa) {
-    /* FASE 3: mapa centrado en Chinandega, Nicaragua */
     mapa = L.map("mapaAdmin", GestosMapa.opciones).setView([12.5700, -87.1311], 13);
     L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);
     GestosMapa.aplicar(mapa);
@@ -260,7 +279,6 @@ function pintarMarcador(uid) {
   pintarBannerAdmin();
 }
 
-/* ---------- Herramientas: negocios visibles, tamaño de iconos ---------- */
 let verNegocios = localStorage.getItem("verNegocios") !== "0";
 let escalaRep = parseFloat(localStorage.getItem("escalaRep")) || 1;
 function aplicarHerramientas() {
@@ -274,7 +292,6 @@ const cambiarEscala = (d) => { escalaRep = Math.max(.5, Math.min(2, +(escalaRep 
 $("btnIconoMas").onclick = () => cambiarEscala(.2);
 $("btnIconoMenos").onclick = () => cambiarEscala(-.2);
 
-/* ---------- Ventanitas del mapa: repartidor y cliente ---------- */
 function popupRep(uid) {
   const est = estadoDe(uid), [texto, clase] = ETIQUETA[est], n = sinLeerEq[uid] || 0;
   if (typeof PedidosAdmin !== "undefined" && Ordenes.esInvitadoUid(uid)) {
@@ -302,6 +319,21 @@ function popupRep(uid) {
     </div>
     ${viajesDe(uid).map((x) => `<button class="mini" data-pa="entregarped" data-token="${esc(x.token)}" type="button">✓ Marcar entregado: ${esc(x.d.pedido || "—")}</button>`).join("")}</div>`;
 }
+
+/* FASE 4 · Ícono del pedido en el mapa del admin: pin discreto (24 px) con etiqueta al costado */
+function iconoClienteAdmin(uid, token, d) {
+  const col = colorUid(uid || token);
+  const vivo = d && d.cliente && !d.cliente.manual && d.cliente.ts && Date.now() - d.cliente.ts < 60000;
+  const nombre = (d && d.pedido) ? String(d.pedido) : "";
+  return L.divIcon({
+    className: "",
+    html: `<div class="pin-cli-admin${vivo ? " vivo" : ""}${d && d.cliente && d.cliente.manual ? " manual" : ""}" style="--pin-cli-c:${col}"></div>` +
+          `<span class="etq-cli-admin"><b>${esc(nombre || "Pedido")}</b>${d && d.repartidorNombre ? " · " + esc(cortar(d.repartidorNombre, 14)) : ""}</span>`,
+    iconSize: [24, 24], iconAnchor: [12, 12]
+  });
+}
+const cortar = (s, n) => String(s == null ? "" : s).slice(0, n);
+
 function popupCliente(token) {
   const d = activos[token] || {}, c = d.cliente || {}, uid = d.repartidorUid;
   const vivo = !c.manual && c.ts && Date.now() - c.ts < 60000;
@@ -348,7 +380,6 @@ function iniciarPopups() {
   });
 }
 
-/* ---------- Marcar un pedido como entregado (si el repartidor lo olvidó) ---------- */
 async function marcarEntregado(token) {
   const d = activos[token]; if (!d) return toast("Ese pedido ya no está en ruta.");
   const quien = nombreUid(d.repartidorUid);
@@ -364,7 +395,6 @@ async function marcarEntregado(token) {
   } catch (e) { toast("No se pudo marcar: " + e.message); }
 }
 
-/* ---------- Facturas del día ---------- */
 let refStats = null, facturasHoy = 0;
 function cargarStats() {
   if (refStats) refStats.off();
@@ -383,7 +413,6 @@ function pintarStats(d, dia) {
 }
 $("diaStats").onchange = cargarStats;
 
-/* ---------- Buscador del mapa ---------- */
 $("formBusq").onsubmit = async (e) => {
   e.preventDefault();
   const q = $("busq").value.trim(); if (!q) return;
@@ -419,7 +448,6 @@ function popupBusq(r) {
     </div></div>`;
 }
 
-/* ---------- Negocios en el mapa (icono + nombre + ubicación precisa) ---------- */
 function terminarModoNegocio() { modoNegocio = false; $("btnNegocio").classList.remove("activo"); if (mapa) mapa.getContainer().classList.remove("modo-guia", "modo-registro"); }
 $("btnNegocio").onclick = () => {
   if (modoNegocio) { terminarModoNegocio(); return toast("Cancelado."); }
@@ -499,8 +527,8 @@ $("listaNegocios").onclick = (e) => {
   }
 };
 
-/* ---------- Clientes en el mapa (cuando abren el enlace o marcan su ubicación) ---------- */
-const clientesM = {};   // token → { pin, linea }
+/* FASE 4 · Clientes en el mapa del admin con ícono discreto (24 px) */
+const clientesM = {};
 function pintarClientes() {
   if (!mapa) return;
   const vistos = new Set();
@@ -508,35 +536,24 @@ function pintarClientes() {
     const c = d.cliente;
     if (!c || typeof c.lat !== "number" || ocultos.has(d.repartidorUid)) return;
     vistos.add(token);
-    const uid = d.repartidorUid, col = colorUid(uid || token), nom = nombreUid(uid);
-    const vivo = !c.manual && c.ts && Date.now() - c.ts < 60000;
-    const clave = [nom, d.pedido, col, vivo, !!c.manual].join("|");
-    const icono = () => L.divIcon({
-      className: "",
-      html: `<div class="pin-cliente${vivo ? " vivo" : ""}${c.manual ? " manual" : ""}" style="--c:${col}"><b>👤</b></div>` +
-            `<span class="etq-cli">Cliente · ${esc(d.pedido || "")}<small>Lo lleva ${esc(nom)}</small></span>`,
-      iconSize: [34, 34], iconAnchor: [17, 17]
-    });
+    const uid = d.repartidorUid, clave = [uid, d.pedido, c.lat, c.lng, !!c.manual].join("|");
     let m = clientesM[token];
     if (!m) {
       m = clientesM[token] = {
-        pin: L.marker([c.lat, c.lng], { icon: icono(), zIndexOffset: 200 }).addTo(mapa),
-        linea: L.polyline([], { color: col, weight: 2, opacity: .55, dashArray: "2 8" }).addTo(mapa), clave
+        pin: L.marker([c.lat, c.lng], { icon: iconoClienteAdmin(uid, token, d), zIndexOffset: 200 }).addTo(mapa),
+        clave
       };
       m.pin.bindPopup(() => popupCliente(token), { offset: [0, -14], minWidth: 220 });
     } else {
       m.pin.setLatLng([c.lat, c.lng]);
-      if (m.clave !== clave) { m.pin.setIcon(icono()); m.clave = clave; }
+      if (m.clave !== clave) { m.pin.setIcon(iconoClienteAdmin(uid, token, d)); m.clave = clave; }
     }
-    const u = ubic[uid];
-    m.linea.setLatLngs([]);
   });
   Object.keys(clientesM).forEach((t) => {
-    if (!vistos.has(t)) { mapa.removeLayer(clientesM[t].pin); mapa.removeLayer(clientesM[t].linea); delete clientesM[t]; }
+    if (!vistos.has(t)) { mapa.removeLayer(clientesM[t].pin); delete clientesM[t]; }
   });
 }
 
-/* ---------- Guiar repartidores (cada uno con su propia guía) ---------- */
 const PALETA = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2", "#DB2777", "#65A30D"];
 function colorUid(uid) { let h = 0; for (const c of uid) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETA[h % PALETA.length]; }
 function toast(t) {
@@ -632,7 +649,6 @@ $("btnGuiaCancelar").onclick = () => { selUid = null; pintarSeleccion(); pintarL
 $("btnGuiaQuitar").onclick = () => { if (selUid) db.ref("guias/" + selUid).remove().then(() => toast("Guía quitada.")).catch((e) => toast(e.message)); };
 $("btnGuiaChat").onclick = () => { if (selUid) abrirChatRep(selUid); };
 
-/* ---------- Chat del administrador con un repartidor ---------- */
 function abrirChatRep(uid) {
   chatEqAbierto = uid; sinLeerEq[uid] = 0; pintarLista(); pintarChats();
   Chat.iniciar({
@@ -646,7 +662,6 @@ function abrirChatRep(uid) {
 }
 function quitarMarcador(uid) { if (marcadores[uid]) { mapa.removeLayer(marcadores[uid]); delete marcadores[uid]; } }
 
-/* ---------- Monitoreo en tiempo real ---------- */
 function iniciarMonitoreo() {
   detener();
   const fallo = () => setMsg("msgEquipo", "Sin permiso para leer datos. Revisa las reglas y tu registro en 'admins'.", "error");
@@ -693,7 +708,6 @@ function iniciarMonitoreo() {
 
   db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); if (refStats) cargarStats(); }, fallo);
 
-  /* FASE 3 · Fotos de perfil: actualiza los avatares del equipo en vivo (ruta repartidorFotos) */
   db.ref("repartidorFotos").on("value", (s) => {
     fotosCache = s.val() || {};
     aplicarFotosAvatares();
@@ -732,16 +746,16 @@ function detener() {
   [guias, sinLeerEq].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
   resEquipo = {}; selUid = null; selChats.clear(); modoSel = false;
   db.ref("repartidores").off();
-  db.ref("repartidorFotos").off();   /* FASE 3: corta el watcher de fotos al cerrar sesión */
+  db.ref("repartidorFotos").off();
   Object.keys(marcadores).forEach(quitarMarcador);
-  Object.keys(clientesM).forEach((t) => { mapa.removeLayer(clientesM[t].pin); mapa.removeLayer(clientesM[t].linea); delete clientesM[t]; });
+  Object.keys(clientesM).forEach((t) => { mapa.removeLayer(clientesM[t].pin); delete clientesM[t]; });
   [ubic, activos].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
   registrados = {}; resumenes = {}; ajusteProgramado = false;
+  encuadrePedidosHecho = false;
 }
 function refrescar() { Object.keys(ubic).forEach(pintarMarcador); pintarClientes(); pintarLista(); pintarEquipo(); if (selUid) pintarSeleccion(); }
 setInterval(() => { if (!$("vistaApp").classList.contains("oculto")) refrescar(); }, 15000);
 
-/* ---------- Lista del mapa: todos los repartidores ---------- */
 function descripcion(uid, est) {
   const u = ubic[uid] || {}, v = viajeDe(uid);
   if (est === "enRuta") {
@@ -763,7 +777,6 @@ function pintarLista() {
   $("btnOcultar").querySelector("small").textContent = ocultos.size ? ocultos.size + " ocultos" : "Repartidores";
 }
 
-/* ---------- Chats: equipo + clientes, selección múltiple, envío y borrado por fecha ---------- */
 const RUTA_CL = { chats: "chats", resumen: "chatsResumen", fotos: "fotos" };
 const fechaCorta = (ts) => (ts ? new Date(ts).toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
 function conversaciones() {
@@ -814,7 +827,6 @@ $("listaChats").onclick = (e) => {
   Chat.abrir();
 };
 
-/* Ventana de diálogo del administrador */
 function modal(html) { $("modalCaja").innerHTML = html; $("modalAdmin").classList.remove("oculto"); }
 const cerrarModal = () => $("modalAdmin").classList.add("oculto");
 const rutaDe = (k) => (k.startsWith("eq:") ? { r: RUTA_EQ, id: k.slice(3) } : { r: RUTA_CL, id: k.slice(3) });
@@ -895,7 +907,6 @@ $("btnSelBorrar").onclick = () => {
   };
 };
 
-/* ---------- Equipo: agregar y quitar repartidores ---------- */
 function pintarEquipo() {
   const ids = Object.keys(registrados);
   const invitados = typeof PedidosAdmin !== "undefined" ? PedidosAdmin.htmlInvitados() : "";
@@ -978,12 +989,9 @@ $("btnAgregar").onclick = async () => {
   }
 };
 
-
-/* ---------- Botón / gesto atrás ---------- */
 Atras.iniciar([
   () => Chat.cerrarCapa(),
   () => (typeof PedidosAdmin !== "undefined" && PedidosAdmin.cerrarMapaForm()),
-  /* FASE 3: modal de foto */
   () => { const m = $("modalFoto"); if (m && !m.classList.contains("oculto")) { m.classList.add("oculto"); fotoUid = null; return true; } return false; },
   () => { if (!$("modalAdmin").classList.contains("oculto")) { cerrarModal(); return true; } return false; },
   () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
@@ -994,8 +1002,6 @@ Atras.iniciar([
   () => { const t = document.querySelector('.tabs button[data-tab="panelMapa"]'); if ($("vistaApp").classList.contains("oculto") || t.classList.contains("activa")) return false; t.click(); return true; }
 ]);
 
-
-/* ---------- Ocultar repartidores del mapa ---------- */
 function abrirOcultar() {
   const uids = [...new Set([...Object.keys(registrados), ...Object.keys(ubic)])].sort((x, y) => nombreUid(x).localeCompare(nombreUid(y)));
   modal(`<h2>👁 Repartidores en el mapa</h2>
@@ -1016,8 +1022,6 @@ function abrirOcultar() {
 }
 $("btnOcultar").onclick = abrirOcultar;
 
-
-/* ---------- Voz: nombre del cliente y permiso de audio del navegador ---------- */
 function nombreCliente(token, r) {
   const f = activos[token] && activos[token].factura;
   const n = (f && (f.cliente || f.nombre)) || (typeof PedidosAdmin !== "undefined" && PedidosAdmin.clienteDe(token)) || "";
@@ -1026,13 +1030,11 @@ function nombreCliente(token, r) {
 function revisarVoz() { const a = $("avisoVoz"); if (a) a.classList.toggle("oculto", Voz.lista()); }
 $("btnActivarVoz").onclick = () => {
   Voz.activar(); Voz.hablar(Voz.FRASES.prueba, { forzar: true }); revisarVoz();
-  /* FASE 3 v2 · pedir permiso de notificaciones del navegador (Web Notifications API) */
   try { if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission().catch(() => {}); } catch (_) {}
 };
 const timerVoz = setInterval(() => { revisarVoz(); if (Voz.lista()) clearInterval(timerVoz); }, 1000);
 revisarVoz();
 
-/* ---------- Calificaciones de los clientes (calificaciones/{token}) ---------- */
 let refCalif = null, calif = {};
 function cargarCalif() {
   if (refCalif) refCalif.off();
@@ -1071,14 +1073,7 @@ function pintarCalif() {
     </details>`).join("");
 }
 
-/* ============================================================
-   FASE 3 v2 · Fotos de perfil del repartidor (registrado e invitado)
-   - Se guardan en repartidorFotos/{uid} (lectura pública, escritura solo admins)
-   - Compresión cliente-side a JPEG ≤ 300 KB
-   - Modal abierto desde el botón 📷 en la tarjeta del equipo
-   ============================================================ */
 let fotoUid = null, fotoNom = "", fotosCache = {};
-
 function abrirFotoPerfil(uid, nombre) {
   if (!uid) return;
   fotoUid = uid; fotoNom = nombre || "";
