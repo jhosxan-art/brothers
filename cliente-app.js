@@ -18,8 +18,10 @@
         clienteGps {lat, lng, prec, ts}     (el cliente lo actualiza en vivo si modo "recibe")
         repartidorGps {lat, lng, ts}        (lo escribe el repartidor al atender)
         valoracion {estrellas, ts}          (el cliente, una vez "entregado")
+        llegadaTs                           (el repartidor, al marcar "He llegado"; la Fase 2 lo escribe → voz del cliente)
         repartidorUid, repartidorNombre (los escribe el repartidor al pulsar "Atender"),
         ultimoMensaje, ultimoDe
+     repartidorFotos/{repartidorUid}  (data URL JPEG de la foto del repartidor; la sube el admin; lectura pública)
      solicitudes_entrantes/{solicitudId}/mensajes/{pushId}
         de ("cliente" | "repartidor"), tipo ("texto" | "factura" | "foto"), ts,
         texto            (tipo "texto")
@@ -35,7 +37,9 @@
   const MAX_TEXTO = 600;
   const RAIZ_FOTOS = "solicitudes_fotos";
   const MAX_FOTO = 300000;           // caracteres del data URL (las reglas aceptan < 400 000)
-  const CENTRO_MAPA = [-12.0464, -77.0428];
+  const RAIZ_PERFIL = "repartidorFotos";   // FASE 3 v2 · la foto del repartidor se lee desde repartidorFotos
+  const CENTRO_MAPA = [12.5700, -87.1311];   // Chinandega, Nicaragua
+  const RADIO_CERCA_M = 200;                 // a menos de esto, la voz avisa "tu repartidor está cerca"
 
   const $ = (id) => document.getElementById(id);
   const db = APP.database();
@@ -51,6 +55,9 @@
   let valorada = false;         // ya se guardó la valoración de este pedido
   let pedidoActual = null;      // lectura de solicitud.pedido
   let posCliente = null;        // última posición GPS propia {lat, lng}
+  let mensajesListos = false;   // true cuando ya se cargó el historial: solo los mensajes posteriores suenan
+  let avisadoCerca = false;     // la voz "está cerca" se dice una sola vez por pedido
+  let fotoRepUid = null;        // repartidor cuya foto se muestra en la cabecera
 
   /* ---------- Utilidades ---------- */
   const vista = (id) => ["vCarga", "vNombre", "vPedido", "vChat"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
@@ -161,7 +168,7 @@
       vista("vNombre");
       return;
     }
-    $("msgCarga").className = "wa-estado";
+    $("msgCarga").className = "wa-splash-msg";
     $("msgCarga").textContent = "Abriendo tu chat…";
     vista("vCarga");
 
@@ -210,6 +217,8 @@
     $("mensajes").textContent = "";
     ultimoDe = null; ultimoDia = null; vistos.clear();
     primerSnapshot = true; asignado = false; pedidoActual = null; posCliente = null;
+    mensajesListos = false; avisadoCerca = false;
+    pintarAvatar(null, "");
     limpiarMapa();
   }
 
@@ -229,7 +238,7 @@
 
       const ahoraAsignado = d.estado === "atendido" && typeof d.repartidorUid === "string" && d.repartidorUid.length > 0;
       const nombreRep = typeof d.repartidorNombre === "string" ? d.repartidorNombre.slice(0, 40) : "";
-      pintarEstado(ahoraAsignado, nombreRep);
+      pintarEstado(ahoraAsignado, nombreRep, d.repartidorUid);
       pintarResumen();
       iniciarGps();
       if (ahoraAsignado && !asignado) setMapaVisible(true);
@@ -239,17 +248,42 @@
       }
       if (ahoraAsignado && !asignado && !primerSnapshot) {
         avisoSistema((nombreRep || "Un repartidor") + " atendió tu chat.");
+        if (window.Voz) Voz.clientePedidoAceptado();            // "Un repartidor ha aceptado tu pedido"
       }
+      if (!ahoraAsignado) avisadoCerca = false;                  // si lo reasignan, vuelve a poder avisar
       asignado = ahoraAsignado;
+      if (ahoraAsignado && d.llegadaTs) avisarCerca();           // el repartidor marcó "He llegado"
       primerSnapshot = false;
     }, (e) => mostrarError("Se perdió la conexión con tu chat: " + (e.code || e.message)));
   }
 
-  function pintarEstado(conRepartidor, nombreRep) {
+  /* Foto del repartidor en la cabecera: repartidorFotos/{repartidorUid}; si no hay foto, queda su inicial */
+  function pintarAvatar(uid, nombre) {
+    const img = $("avatarFoto"), letra = $("avatarLetra");
+    letra.textContent = uid ? (nombre || "R").charAt(0).toUpperCase() : "B";
+    if (!uid) {
+      fotoRepUid = null;
+      img.classList.add("oculto"); img.removeAttribute("src"); img.alt = "";
+      letra.classList.remove("oculto");
+      return;
+    }
+    if (fotoRepUid === uid) return;
+    fotoRepUid = uid;
+    img.classList.add("oculto"); letra.classList.remove("oculto");
+    db.ref(RAIZ_PERFIL + "/" + uid).once("value").then((s) => {
+      const f = s.val();
+      if (fotoRepUid !== uid || typeof f !== "string" || f.indexOf("data:image/") !== 0) return;
+      img.alt = "Foto de " + (nombre || "tu repartidor");
+      img.src = f;
+      img.classList.remove("oculto"); letra.classList.add("oculto");
+    }).catch(() => { /* sin foto o sin permiso: se queda la inicial */ });
+  }
+
+  function pintarEstado(conRepartidor, nombreRep, uidRep) {
     $("avisoEspera").classList.toggle("oculto", conRepartidor);
     $("tituloChat").textContent = conRepartidor ? (nombreRep || "Tu repartidor") : "Brother’s Deliverys";
     $("subChat").textContent = conRepartidor ? "Te está atendiendo" : "Buscando repartidor…";
-    $("avatarRep").textContent = conRepartidor ? (nombreRep || "R").charAt(0).toUpperCase() : "B";
+    pintarAvatar(conRepartidor && typeof uidRep === "string" ? uidRep : null, nombreRep);
     const inp = $("inMensaje");
     inp.disabled = !conRepartidor;
     $("btnEnviar").disabled = !conRepartidor;
@@ -270,7 +304,11 @@
       const m = s.val();
       if (!m || typeof m !== "object") return;
       pintarMensaje(m, s.key);
+      if (mensajesListos && m.de === "repartidor" && window.Voz) Voz.clienteMensajeNuevo();   // "Tienes un nuevo mensaje del repartidor"
     }, (e) => mostrarError("No se pudieron leer los mensajes: " + (e.code || e.message)));
+    // Firebase entrega todo el historial (child_added) antes de este "value": desde aquí en adelante son mensajes nuevos.
+    mensajesListos = false;
+    refMensajes.limitToLast(300).once("value").then(() => { mensajesListos = true; }).catch(() => { mensajesListos = true; });
   }
 
   function pegadoAlFinal() {
@@ -432,10 +470,9 @@
 
   function pedirDetalles() {
     paso = 1; modo = null; tipoEnvio = "pin"; pin = null; gpsListo = null;
-    ["inQuiere", "inOrigen", "inDir", "inDirGps"].forEach((id) => { $(id).value = ""; });
+    ["inQuiere", "inOrigen", "inDir"].forEach((id) => { $(id).value = ""; });
     $("estadoGps").classList.add("oculto");
-    $("boxDirGps").classList.add("oculto");
-    $("btnGps").textContent = "📍 Compartir mi ubicación";
+    $("btnGps").textContent = "📍 Activar mi ubicación";
     $("ayudaPin").textContent = "Toca el mapa para colocar el pin. Puedes arrastrarlo.";
     if (marcaPin && mapaPin) { mapaPin.removeLayer(marcaPin); marcaPin = null; }
     setTipoEnvio("pin");
@@ -460,6 +497,7 @@
     $("btnSiguiente").textContent = paso === 3 ? "Enviar pedido" : "Siguiente";
     errorPedido("");
     if (clave === "3e") iniciarMapaPin();
+    if (clave === "3r" && !gpsListo) pedirGps();     // "Yo recibo": se intenta detectar el GPS de inmediato
   }
 
   document.querySelectorAll("#formPedido .wa-opcion").forEach((b) => b.addEventListener("click", () => {
@@ -470,29 +508,34 @@
 
   $("btnAtras").addEventListener("click", () => { if (paso > 1) { paso -= 1; mostrarPaso(); } });
 
-  /* Recibe yo: permiso de GPS */
-  $("btnGps").addEventListener("click", () => {
+  /* Recibe yo: el GPS en tiempo real es obligatorio (sin él no se puede enviar el pedido) */
+  let buscandoGps = false;
+  function pedirGps() {
+    if (buscandoGps) return;
     const est = $("estadoGps");
     est.className = "wa-estado";
     est.textContent = "Buscando tu ubicación…";
     if (!navigator.geolocation) return falloGps(0);
+    buscandoGps = true;
     navigator.geolocation.getCurrentPosition((pos) => {
+      buscandoGps = false;
       gpsListo = { lat: redondear(pos.coords.latitude), lng: redondear(pos.coords.longitude) };
+      est.className = "wa-estado";
       est.textContent = "✅ Ubicación lista. Se compartirá en vivo con tu repartidor.";
-      $("boxDirGps").classList.add("oculto");
       $("btnGps").textContent = "📍 Actualizar mi ubicación";
       errorPedido("");
-    }, (e) => falloGps(e && e.code), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
-  });
+    }, (e) => { buscandoGps = false; falloGps(e && e.code); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  }
+  $("btnGps").addEventListener("click", pedirGps);
 
   function falloGps(codigo) {
     gpsListo = null;
     const est = $("estadoGps");
     est.className = "wa-estado error";
     est.textContent = codigo === 1
-      ? "Sin permiso de ubicación. Actívalo en tu navegador o escribe tu dirección."
-      : "No pudimos obtener tu ubicación. Inténtalo de nuevo o escribe tu dirección.";
-    $("boxDirGps").classList.remove("oculto");
+      ? "Tu ubicación está bloqueada. Permite la ubicación para este sitio en los ajustes de tu navegador y toca el botón de nuevo."
+      : "No pudimos obtener tu ubicación. Enciende el GPS de tu celular y toca el botón de nuevo.";
+    $("btnGps").textContent = "📍 Reintentar ubicación";
   }
 
   /* Envío a alguien más: pin en el mapa o dirección exacta */
@@ -545,10 +588,8 @@
 
     let destino = null;
     if (modo === "recibe") {
-      const dir = limpiarNombre($("inDirGps").value);
-      if (gpsListo) destino = { tipo: "gps", lat: gpsListo.lat, lng: gpsListo.lng };
-      else if (dir.length >= 5) destino = { tipo: "direccion", texto: dir };
-      else return errorPedido("Comparte tu ubicación o escribe tu dirección.");
+      if (!gpsListo) return errorPedido("Para recibir tu pedido necesitamos tu ubicación en tiempo real. Actívala para continuar.");
+      destino = { tipo: "gps", lat: gpsListo.lat, lng: gpsListo.lng };
     } else if (tipoEnvio === "pin") {
       if (!pin) return errorPedido("Toca el mapa para colocar el pin del lugar de entrega.");
       destino = { tipo: "pin", lat: pin.lat, lng: pin.lng };
@@ -622,7 +663,22 @@
       const g = s.val();
       posRep = g && okLL(g.lat, g.lng) ? { lat: g.lat, lng: g.lng } : null;
       actualizarMapa();
+      revisarCercania();
     }, () => { /* sin permiso o sin datos: el mapa muestra "esperando" */ });
+  }
+
+  /* Voz "Tu repartidor está cerca de tu destino": una sola vez, a menos de 200 m (o cuando él marca llegada) */
+  function avisarCerca() {
+    if (avisadoCerca || cerrado) return;
+    avisadoCerca = true;
+    avisoSistema("Tu repartidor está cerca de tu destino.");
+    if (window.Voz) Voz.clienteRepartidorCerca();
+  }
+
+  function revisarCercania() {
+    if (!asignado || avisadoCerca || !posRep) return;
+    const c = puntoCliente();
+    if (c && distanciaM(posRep, c) <= RADIO_CERCA_M) avisarCerca();
   }
 
   function setMapaVisible(v) {
@@ -672,6 +728,25 @@
     marcaCli = null; marcaRep = null; posRep = null; encuadrado = false;
     setMapaVisible(false);
   }
+
+  /* ---------- Cancelar mientras nadie ha tomado el pedido ---------- */
+  $("btnCancelar").addEventListener("click", async () => {
+    if (!refSolicitud || asignado || cerrado) return;
+    if (!confirm("¿Cancelar tu solicitud? Dejaremos de buscar repartidor.")) return;
+    const btn = $("btnCancelar");
+    btn.disabled = true;
+    mostrarError("");
+    try {
+      const s = await refSolicitud.once("value");
+      const d = s.val() || {};
+      if (d.repartidorUid) { btn.disabled = false; return mostrarError("Un repartidor acaba de tomar tu pedido. Ya no se puede cancelar desde aquí."); }
+      await refSolicitud.update({ estado: "cancelado", canceladoPor: "cliente", ts: firebase.database.ServerValue.TIMESTAMP });
+      // el listener de la solicitud muestra el cierre ("Pedido cancelado") con PEDIR NUEVAMENTE
+    } catch (e) {
+      btn.disabled = false;
+      mostrarError("No se pudo cancelar: " + (e.code || e.message));
+    }
+  });
 
   /* ---------- Resumen del pedido en el aviso de búsqueda ---------- */
   function pintarResumen() {
@@ -798,6 +873,7 @@
   $("btnNuevo").addEventListener("click", () => {
     detenerTodo();
     cerrado = false; valorada = false;
+    $("btnCancelar").disabled = false;
     $("vCierre").classList.add("oculto");
     $("vChat").classList.remove("cerrado");
     // Nueva solicitud (id nuevo): el pedido anterior queda intacto para el historial del panel.
@@ -805,6 +881,33 @@
     guardarPerfil(perfil);
     abrirChat();
   });
+
+  /* ============================================================
+     Teclado táctil: el alto de la pantalla sigue a window.visualViewport.
+     Las variables --vvh / --vvt las usan el body y los modales (cliente-app.css),
+     así el compositor del chat y los campos de dirección quedan sobre el teclado.
+     ============================================================ */
+  function ajustarViewport() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const raiz = document.documentElement.style;
+    const pegado = pegadoAlFinal();
+    raiz.setProperty("--vvh", Math.round(vv.height) + "px");
+    raiz.setProperty("--vvt", Math.round(vv.offsetTop) + "px");
+    const activo = document.activeElement;
+    if (activo && (activo.tagName === "INPUT" || activo.tagName === "TEXTAREA")) {
+      setTimeout(() => {
+        activo.scrollIntoView({ block: "nearest" });
+        if (pegado && !$("vChat").classList.contains("oculto")) alFinal();
+      }, 60);
+    }
+    window.scrollTo(0, 0);   // iOS desplaza la página al abrir el teclado: se deja en su sitio
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", ajustarViewport);
+    window.visualViewport.addEventListener("scroll", ajustarViewport);
+    ajustarViewport();
+  }
 
   arrancar();
 })();
