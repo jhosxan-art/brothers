@@ -8,23 +8,14 @@
       y entregarlos en el orden que quiera. Entre pantallas se mueve con la barra inferior.
    4) El cliente comparte su ubicación al abrir el enlace; aquí se ve en tiempo real.
 
-   FASE 4 · ajustes aplicados
-     · Palomitas ✓/✓✓ verdes en el chat del repartidor (ChatsEntrantes).
-     · Indicador "escribiendo…" del cliente en la cabecera del chat.
-     · Última dirección del cliente (clientes/{clienteId}/ultimaDireccion):
-         - Se muestra en un banner arriba del chat.
-         - Botón "📮 Sugerir al cliente" envía un mensaje preformateado al chat.
-     · Ícono del pedido en el mapa más discreto (pin de 24 px con etiqueta al costado).
-     · Al abrir el mapa, fitBounds de todos los pedidos activos (más zona visible).
-
-   FASE 2 (seguimiento de rutas) · ajustes aplicados:
-     · Camara con dos modos: "fitbounds" (por defecto) y "navegacion".
-       El botón 🧭 alterna entre ambos. El botón ⛶ fuerza fitBounds de todos los pedidos.
-     · Al atender un chat o aceptar un pedido admin → ir al mapa, seleccionar el destino,
-       calcular ruta OSRM y activar fitBounds dinámico.
-     · Estado OCUPADO unificado: ubicaciones/{uid} mantiene enViaje y conPedido en true
-       con cualquier viaje activo (factura, chat o pedido admin).
-     · marcarConPedido ahora considera los tres orígenes (viajes, chats y pedidos admin).
+   FASE 2 · mejoras aplicadas:
+     · Banner turn-by-turn: actualizarBanner() usa Ordenes.textoPaso() con el paso actual
+       de la ruta OSRM y avanza rutaIdx a medida que el motorizado se acerca a la maniobra.
+     · fitBounds dinámico reforzado: Camara.actualizar(true) se llama al atender chat/pedido,
+       al reanudar viajes y en cada posición GPS nueva.
+     · Estado OCUPADO: se actualizan ubicaciones/{uid}.conPedido=true y enViaje=true al crear
+       cualquier viaje (factura/chat/pedido admin) y se muestran en el chip de la cabecera.
+     · Responsividad: ver estilos inline de repartidor.html (media queries 700/900/1200).
    ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
@@ -222,8 +213,6 @@ function irA(vista) {
     try { ChatsEntrantes.pintarMapa(); } catch (_) {}
     setTimeout(() => {
       mapa.invalidateSize();
-      // FASE 2: si hay seguimiento activo y un viaje seleccionado, fitBounds dinámico;
-      // si no, mostrar todos los pedidos (vista general).
       if (seguirme && ultimaPos && seleccionado && viajes[seleccionado] && viajes[seleccionado].destino) {
         Camara.actualizar(true);
       } else {
@@ -382,17 +371,14 @@ let seguirme = true;
    CÁMARA DEL REPARTIDOR — FASE 2
    Dos modos:
      - "fitbounds" (por defecto): mantiene a la vez al motorizado y al cliente.
-       Solo re-encuadra si alguno se sale del viewport actual (no "sacude" el mapa).
-     - "navegacion": cámara invertida tipo GPS con la moto en el tercio inferior y
-       el mapa rotado hacia donde avanza. Se activa con el botón 🧭.
-   El botón ⛶ fuerza "fitbounds" de todos los pedidos activos.
+     - "navegacion": cámara invertida tipo GPS con la moto en el tercio inferior.
    ============================================================ */
 const Camara = (() => {
   const SIGNO_ROTACION = 1;
   const MIN_PASO_M = 4;
   const MIN_MS = 900;
   let prev = null, suave = 0, tieneRumbo = false, ult = 0, ultGesto = 0;
-  let modo = "fitbounds";   // "fitbounds" | "navegacion"
+  let modo = "fitbounds";
   const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
   const rotable = () => !!(mapa && typeof mapa.setBearing === "function");
   const gesto = () => { ultGesto = Date.now(); };
@@ -446,7 +432,6 @@ const Camara = (() => {
   }
   function getModo() { return modo; }
 
-  // Actualiza la vista. En modo "fitbounds" solo re-encuadra si algún punto se sale del viewport.
   function actualizar(forzar) {
     if (!mapa || !ultimaPos || !seguirme || vistaActual !== "mapa") return;
     if (marcando || document.activeElement === $("busqRep") || !$("resBusqRep").classList.contains("oculto")) return;
@@ -458,9 +443,7 @@ const Camara = (() => {
     if (modo === "fitbounds") {
       const pts = [[ultimaPos.lat, ultimaPos.lng]];
       if (d && Number.isFinite(d.lat) && Number.isFinite(d.lng)) pts.push([d.lat, d.lng]);
-
       if (pts.length === 2) {
-        // Solo re-encuadrar si alguno se sale del viewport (evita "sacudir" el mapa en cada tick)
         if (!forzar) {
           const v = mapa.getBounds();
           const in1 = v.contains(pts[0]);
@@ -476,7 +459,6 @@ const Camara = (() => {
       return;
     }
 
-    // modo === "navegacion": cámara invertida tipo GPS
     const dist = d && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
     const z = zoomPara(dist), ang = rotable() && tieneRumbo ? suave : 0;
     const k = mapa.getSize().y / 6;
@@ -506,7 +488,6 @@ function pintarYo(rumbo) {
   if (rastro.length) estelaProp.setLatLngs(rastro);
 }
 
-/* FASE 4 · Ícono discreto del pedido (24 px) con etiqueta al costado */
 function iconoCliente(n, nombre, sel, vivo) {
   const color = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2"][(Number(n) - 1 + 6) % 6];
   return L.divIcon({
@@ -536,7 +517,6 @@ function pintarCliente(v) {
   } else if (v.marcaCli) { mapa.removeLayer(v.marcaCli); v.marcaCli = null; }
 }
 
-// Encuadre forzado (para el botón ⛶ y para el primer encuadre)
 function encuadrar(soloSeleccionado) {
   if (!mapa) return;
   if (Camara.getModo() !== "navegacion") { try { mapa.setBearing(0); } catch (_) {} }
@@ -549,7 +529,6 @@ function encuadrar(soloSeleccionado) {
   if (pts.length > 1) mapa.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 17 });
   else if (pts.length === 1) mapa.setView(pts[0], 16);
 }
-/* FASE 4 · Centra en TODOS los pedidos activos (para que se vean todos en el mapa) */
 function encuadrarTodosPedidos() {
   if (!mapa) return;
   const pts = [];
@@ -595,7 +574,7 @@ async function pedirRuta(v, forzar) {
     const r = await Ordenes.rutaCalles(o, d);
     if (!r) throw new Error("sin ruta");
     v.rutaFallo = false;
-    v.rutaPts = r.pts; v.rutaDur = r.dur; v.rutaDist = r.dist; v.rutaPasos = r.pasos; v.rutaIdx = Math.min(1, r.pasos.length - 1);
+    v.rutaPts = r.pts; v.rutaDur = r.dur; v.rutaDist = r.dist; v.rutaPasos = r.pasos; v.rutaIdx = 0;
     v.rutaOrigen = o; v.rutaDest = d;
   } catch (_) {
     v.rutaFallo = true; v.rutaEn = Date.now() - 12000;
@@ -626,7 +605,6 @@ function seleccionar(token, enfocar) {
   dibujarRuta();
   pedirRuta(viajes[token], true);
   if (enfocar) {
-    // FASE 2: activar fitBounds dinámico al enfocar un pedido
     seguirme = true;
     Camara.setModo("fitbounds");
     Camara.refrescarBoton();
@@ -646,12 +624,12 @@ function fijarDestinoManual(lat, lng) {
   fijarDestino(v, lat, lng);
 }
 function fijarDestino(v, lat, lng) {
-  v.destManual = true; v.destino = { lat, lng }; v.cerca = false; v.rutaPts = null; v.rutaDest = null;
+  v.destManual = true; v.destino = { lat, lng }; v.cerca = false; v.rutaPts = null; v.rutaDest = null; v.rutaIdx = 0;
   db.ref("pedidos/" + v.token).update({ destLat: lat, destLng: lng, cerca: false, distancia: null });
   guardarViajes(); pintarCliente(v); dibujarRuta(); pedirRuta(v, true); evaluarViaje(v); refrescarTextos();
 }
 function usarUbicacionCliente(v) {
-  v.destManual = false; v.cerca = false; v.rutaPts = null; v.rutaDest = null;
+  v.destManual = false; v.cerca = false; v.rutaPts = null; v.rutaDest = null; v.rutaIdx = 0;
   if (v.cliPos) v.destino = { lat: v.cliPos.lat, lng: v.cliPos.lng };
   else { v.destino = null; db.ref("pedidos/" + v.token).update({ destLat: null, destLng: null, cerca: null, distancia: null }); }
   guardarViajes(); pintarCliente(v); dibujarRuta(); pedirRuta(v, true); evaluarViaje(v); refrescarTextos();
@@ -669,7 +647,7 @@ function crearViaje(info) {
     token: info.token, tel: info.tel || "", pedido: info.pedido || "", cliente: info.cliente || "",
     destManual: !!info.destManual, sinFactura: !!info.sinFactura, cerrando: false, refEstado: null, destino: null, cliPos: null, cerca: false, dist: null,
     marca: null, marcaCli: null, refCli: null, refChat: null, noLeidos: 0, chatListo: false, factura: null, sub: null, extras: null, refExtra: [],
-    rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null
+    rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null, rutaIdx: 0
   };
   viajes[v.token] = v;
   Pantalla.pedir();
@@ -678,7 +656,6 @@ function crearViaje(info) {
   escucharChat(v);
   escucharEstado(v);
   escucharSubfactura(v);
-  // FASE 2: actualizar chip de OCUPADO y estado en Firebase
   try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
   return v;
 }
@@ -834,6 +811,7 @@ const PedidoRep = (() => {
       datos = d; prio = d.prioridad === true;
       pintarBoton(); alCambiarPrioridad(); pintarCliente();
       renderLista();
+      try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
       if (abrirPendiente === nuevo) { abrirPendiente = null; irA("mapa"); abrirChatPedido(); }
     });
     escuchar(db.ref("pedidos/" + nuevo + "/cliente"), (s) => aplicarCliente(s.val()));
@@ -1102,12 +1080,12 @@ function reanudarViajes() {
     seleccionado = orden[0]; renderLista();
     if (abrirPendiente && viajes[abrirPendiente]) { const v0 = viajes[abrirPendiente]; abrirPendiente = null; irA("mapa"); abrirChat(v0); }
     try { const r = JSON.parse(localStorage.getItem("rastroViaje") || "null"); if (r && r.uid === uidActual && Array.isArray(r.pts)) rastro = r.pts; } catch (_) {}
-    // FASE 2: si al reanudar hay viajes activos, activar el fitBounds dinámico al abrir el mapa
     seguirme = true;
     Camara.setModo("fitbounds");
     Camara.refrescarBoton();
     setTimeout(() => Camara.actualizar(true), 800);
   }
+  try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
   actualizarNav();
 }
 
@@ -1135,7 +1113,6 @@ function quitarViaje(token) {
   guardarViajes(); sincronizarContactos();
   orden.forEach((t) => pintarCliente(viajes[t]));
   renderLista(); dibujarRuta(); actualizarNav();
-  // FASE 2: actualizar chip de OCUPADO
   try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
   if (!orden.length && vistaActual === "mapa") irA("factura");
 }
@@ -1397,7 +1374,7 @@ async function pedirRutaLugar(forzar) {
     if (lugarDestino !== destino) return;
     if (!r) throw new Error("sin ruta");
     rutaLugar.rutaFallo = false;
-    Object.assign(rutaLugar, { rutaPts: r.pts, rutaPasos: r.pasos, rutaDur: r.dur, rutaDist: r.dist, rutaIdx: Math.min(1, r.pasos.length - 1) });
+    Object.assign(rutaLugar, { rutaPts: r.pts, rutaPasos: r.pasos, rutaDur: r.dur, rutaDist: r.dist, rutaIdx: 0 });
     Ruta.flechas(r.pts, flechasLugar, "#B45309");
   } catch (_) {
     if (rutaLugar) { rutaLugar.rutaFallo = true; rutaLugar.rutaEn = ahora - 12000; rutaLugar.rutaOrigen = { lat: 0, lng: 0 }; }
@@ -1412,6 +1389,13 @@ function dibujarRutaLugar() {
   capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...rutaLugar.rutaPts] : []);
   capaLugar.setStyle({ opacity: rutaLugar && rutaLugar.rutaPts ? .9 : .5 });
 }
+
+/* ============================================================
+   FASE 2 · BANNER TURN-BY-TURN
+   Muestra el ícono del próximo giro + texto (calle), con ETA y distancia.
+   El paso actual (rutaIdx) se avanza en procesarPosicion() a medida que el
+   motorizado se acerca a la maniobra.
+   ============================================================ */
 function actualizarBanner() {
   const b = $("bannerRuta"); if (!b) return;
   const n = lugarDestino ? rutaLugar : viajes[seleccionado];
@@ -1419,10 +1403,28 @@ function actualizarBanner() {
   if (!lugarDestino && !(n && n.destino)) { b.classList.add("oculto"); return; }
   b.classList.remove("oculto");
   const cerrar = lugarDestino ? '<button id="brX" type="button" aria-label="Quitar destino">✕</button>' : "";
-  let txt;
-  if (!n || !n.rutaPasos || !ultimaPos) txt = escHtml(!ultimaPos ? `Esperando tu ubicación para trazar la ruta a ${titulo}…` : n && n.rutaFallo ? "No se pudo calcular la ruta por calles. Reintentando…" : `Calculando ruta a ${titulo}…`);
-  else txt = `<b>${formatoDist(n.rutaDist)}</b> · ≈ ${Math.max(1, Math.round(n.rutaDur / 60))} min · ${escHtml(titulo)}`;
-  b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt">${txt}</span>${cerrar}`;
+  let ico = "🧭", txt = "";
+
+  if (!ultimaPos) {
+    txt = escHtml(`Esperando tu ubicación para trazar la ruta…`);
+  } else if (!n || n.rutaFallo) {
+    txt = escHtml("No se pudo calcular la ruta por calles. Reintentando…");
+  } else if (!n.rutaPasos || !n.rutaPasos.length) {
+    txt = escHtml(`Calculando ruta a ${titulo}…`);
+  } else {
+    // Avance del paso actual (idempotente: se puede llamar varias veces)
+    let idx = Math.max(0, Math.min(n.rutaIdx || 0, n.rutaPasos.length - 1));
+    while (idx < n.rutaPasos.length - 1 && n.rutaPasos[idx] && n.rutaPasos[idx].loc &&
+           distanciaM(ultimaPos.lat, ultimaPos.lng, n.rutaPasos[idx].loc.lat, n.rutaPasos[idx].loc.lng) < 30) idx++;
+    n.rutaIdx = idx;
+    const paso = n.rutaPasos[idx];
+    const info = paso ? Ordenes.textoPaso(paso) : ["🧭", ""];
+    ico = info[0] || "🧭";
+    const dist = formatoDist(n.rutaDist || 0);
+    const min = Math.max(1, Math.round((n.rutaDur || 0) / 60));
+    txt = `<b>${escHtml(info[1] || "")}</b><span>${escHtml(dist)} · ≈ ${min} min · ${escHtml(titulo)}</span>`;
+  }
+  b.innerHTML = `<span class="ir-ic">${ico}</span><span class="ir-txt">${txt}</span>${cerrar}`;
   const x = $("brX"); if (x) x.onclick = quitarLugarDestino;
 }
 
@@ -1792,7 +1794,6 @@ function procesarPosicion(c) {
   const ahora = Date.now();
   if (ahora - ultimaEscritura < INTERVALO_MS) return;
   ultimaEscritura = ahora;
-  // FASE 2: estado OCUPADO unificado (viajes en curso o pedido admin activo)
   const ocupado = orden.length > 0 || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo());
   db.ref("ubicaciones/" + uidActual).set({
     lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed),
@@ -1907,6 +1908,7 @@ function nuevoPedidoAsignado(id, o) {
   Voz.hablar("Tienes un nuevo pedido" + (total ? ". Delivery " + total + " córdobas" : ""), { forzar: true });
   navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]);
   notificarTexto("🛵 Nuevo pedido " + etiquetaPedido(o.codigo, "app"), `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia", token: id });
+  try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
 }
 $("btnNuevoVer").onclick = () => {
   $("modalNuevoPedido").classList.add("oculto");
@@ -1914,7 +1916,6 @@ $("btnNuevoVer").onclick = () => {
   if (PedidoRep.id()) cancelarNotif({ token: PedidoRep.id() });
 };
 $("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
-/* FASE 2: al aceptar un pedido admin → ir al mapa, activar fitBounds y calcular ruta */
 $("btnNuevoAceptar").onclick = async () => {
   if (!(await OrdenAdminRep.responder("aceptado"))) return;
   $("modalNuevoPedido").classList.add("oculto");
@@ -1924,7 +1925,6 @@ $("btnNuevoAceptar").onclick = async () => {
   Camara.refrescarBoton();
   irA("mapa");
   setTimeout(() => {
-    // Si el pedido admin tiene su cliente visible, forzar la cámara para ver ambos
     Camara.actualizar(true);
     const cliPed = PedidoRep.posCliente();
     if (cliPed) {
@@ -1938,7 +1938,8 @@ $("btnNuevoAceptar").onclick = async () => {
 $("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado")) $("modalNuevoPedido").classList.add("oculto"); };
 OrdenAdminRep.init({
   db, usuario: () => usuario, uid: () => uidActual,
-  alCambiar: () => renderLista(), alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
+  alCambiar: () => { renderLista(); try { ChatsEntrantes.marcarConPedido(); } catch (_) {} },
+  alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
   alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))
 });
 
@@ -2116,12 +2117,15 @@ const ChatsEntrantes = (() => {
     mios_.forEach((k) => mios.appendChild(filaChat(k, lista[k], true)));
     pintarRegistro();
   }
-  // FASE 2: estado OCUPADO unificado (viajes en curso o pedido admin activo o chats atendidos)
   function marcarConPedido() {
     const on = orden.length > 0
             || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo())
             || activos() > 0;
-    const chip = $("chipConPedido"); if (chip) chip.classList.toggle("oculto", !on);
+    const chip = $("chipConPedido");
+    if (chip) {
+      chip.classList.toggle("oculto", !on);
+      chip.textContent = on ? "🛵 OCUPADO · CON PEDIDO" : "";
+    }
     if (uidActual && on !== ultimoConPedido) {
       ultimoConPedido = on;
       db.ref("ubicaciones/" + uidActual).update({ conPedido: on, enViaje: on }).catch(() => {});
@@ -2223,7 +2227,6 @@ const ChatsEntrantes = (() => {
       pintarMapa();
       irA("chats");
       abrir(id);
-      // FASE 2: ir al mapa y calcular ruta al cliente
       if (viajes[id]) {
         setTimeout(() => {
           irA("mapa");
