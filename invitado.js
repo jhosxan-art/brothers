@@ -1,18 +1,7 @@
 /* ============================================================
-   REPARTIDOR INVITADO (Función 2)
-   Abre con invitado.html?t=TOKEN → pide solo el nombre → mapa de ruta + chat con el cliente
-   + botones Retirado / Entregado. Todo en tiempo real con ordenes/{token}.
-
-   FASE 1 · cambios aplicados:
-     · Vista previa en vEntrada con mini-mapa (ruta sugerida al primer retiro).
-
-   FASE 2 · cambios aplicados:
-     · Botón "Iniciar Entrega" (#btnIniciarEntrega) entre el panel de detalles y los
-       botones Retirado/Entregado. Al pulsarlo:
-         1. Activa la cámara de navegación centrada sobre el motorizado.
-         2. Aplica ZOOM DINÁMICO según la distancia al destino (más cerca → más zoom).
-         3. Recalcula y redibuja la ruta al cliente.
-     · centrarMoto() ahora usa zoom dinámico basado en la distancia (antes fijo en 17).
+   REPARTIDOR INVITADO — FASE 1 + FASE 2 integradas
+   FASE 1: navegación limpia + "Iniciar Entrega" abre el Mapa con ruta activa.
+   FASE 2: botón "📢 Avisar llegué" junto a "Entregado".
    ============================================================ */
 (() => {
   const O = Ordenes, esc = O.esc, TS = O.TS, $ = (id) => document.getElementById(id);
@@ -30,7 +19,6 @@
   let yaEncuadrado = false, chatAbierto = false, sinLeer = 0, terminado = false;
   let modoSeguir = "fitbounds";
 
-  /* FASE 1 · mapa de vista previa en vEntrada */
   let mapaEntrada = null, capaEntrada = null;
 
   const vista = (id) => ["vCarga", "vEntrada", "vApp", "vFin", "vTomado"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
@@ -44,13 +32,12 @@
     }
   }
 
-  /* ---------- Arranque ---------- */
   const esMio = (o, guardado) => { const a = (o && o.asignacion) || {}; return a.authUid ? a.authUid === auth.currentUser.uid : !!guardado && a.nombre === guardado; };
   const tomadoPor = (o) => (o && o.asignacion && o.asignacion.nombre && ["asignado", "retirado"].includes(o.estado)) ? o.asignacion.nombre : null;
   function tomado(nom) {
     terminado = true;
     [refVigia, refOrden, refChat, refChatAdm].forEach((r) => { if (r) r.off(); });
-    try { Solicitudes.detener(); } catch (_) {}
+    try { if (typeof Solicitudes !== "undefined") Solicitudes.detener(); } catch (_) {}
     mostrarOcupado(false);
     $("btnNuevosChats").classList.add("oculto");
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
@@ -98,7 +85,6 @@
     entrar(n, false);
   };
 
-  /* FASE 1 · vista previa de la ruta antes de aceptar */
   function destruirMapaEntrada() {
     if (mapaEntrada) { try { mapaEntrada.remove(); } catch (_) {} }
     mapaEntrada = null; capaEntrada = null;
@@ -189,24 +175,8 @@
     $("subTitulo").textContent = "Invitado · " + n;
     vista("vApp"); iniciarMapa(); escucharOrden(); escucharChat(); escucharChatAdm(); iniciarGPS();
     aplicarModo();
-    iniciarSolicitudes();
   }
 
-  function iniciarSolicitudes() {
-    if (typeof Solicitudes === "undefined") return;
-    $("btnNuevosChats").classList.remove("oculto");
-    Solicitudes.init({
-      db, tipo: "invitado",
-      uid: () => uid, nombre: () => nombre || "Invitado", repartidorUid: () => uid,
-      boton: "btnNuevosChats", badge: "badgeNuevosChats",
-      codigo: () => "",
-      instantanea: (f) => f,
-      alNueva: () => {},
-      alFacturada: () => {}
-    });
-  }
-
-  /* ---------- Pedido en vivo ---------- */
   function escucharOrden() {
     refPedido = db.ref("pedidos/" + t);
     refPedido.on("value", (s) => { pedido = s.val(); if (orden && !terminado) $("precioGrande").innerHTML = O.cobroHtml(orden, pedido); }, () => {});
@@ -242,7 +212,6 @@
     if (modoSeguir === "fitbounds") setTimeout(encuadrarDinamico, 200);
   }
 
-  /* ---------- Botones de estado ---------- */
   const pedirPago = (sig) => new Promise((resolve) => {
     const m = $("modalPago"), inp = $("pagoMonto"), msg = $("pagoMsg");
     $("pagoDetalle").textContent = [sig.p.producto, sig.p.texto].filter(Boolean).join(" · ") || "Este retiro";
@@ -282,6 +251,19 @@
   };
   $("btnRetirado").onclick = () => cambiar("retirado");
   $("btnEntregado").onclick = () => cambiar("entregado");
+
+  /* FASE 2 · Avisar llegué (invitado) */
+  $("btnAvisarLlegada").onclick = () => {
+    db.ref("pedidos/" + t).update({ cerca: true, cercaTs: TS, destLat: orden && orden.entrega ? orden.entrega.lat : null, destLng: orden && orden.entrega ? orden.entrega.lng : null })
+      .then(() => {
+        $("estadoGps").textContent = "📢 Cliente avisado: repartidor llegando";
+        $("estadoGps").className = "estado chip-gps ok";
+        O.hablar("Aviso enviado al cliente");
+        navigator.vibrate && navigator.vibrate([200, 100, 200]);
+      })
+      .catch(() => { $("estadoGps").textContent = "No se pudo enviar el aviso al cliente"; });
+  };
+
   $("btnNavegar").onclick = () => {
     const d = destinoActual();
     const url = O.valido(d) ? `https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.texto || "")}`;
@@ -291,7 +273,6 @@
   function final(estado) {
     terminado = true;
     mostrarOcupado(false);
-    try { Solicitudes.detener(); } catch (_) {}
     if (refOrden) refOrden.off(); if (refPedido) refPedido.off(); if (refChat) refChat.off(); if (refChatAdm) refChatAdm.off();
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     try { wakeLock && wakeLock.release(); } catch (_) {}
@@ -303,7 +284,6 @@
     vista("vFin");
   }
 
-  /* ---------- Mapa y ruta ---------- */
   function iniciarMapa() {
     mapa = L.map("mapaInv", { zoomControl: false }).setView([12.5700, -87.1311], 14);
     L.control.zoom({ position: "bottomright" }).addTo(mapa);
@@ -368,23 +348,12 @@
     $("btnSeguir").classList.toggle("on", modoSeguir === "navegacion");
     $("btnSeguir").setAttribute("aria-pressed", String(modoSeguir === "navegacion"));
   }
-  $("btnSeguir").onclick = () => {
-    modoSeguir = "navegacion";
-    aplicarModo();
-    centrarMoto();
-  };
-  $("btnVerTodo").onclick = () => {
-    modoSeguir = "fitbounds";
-    aplicarModo();
-    encuadrar();
-  };
+  $("btnSeguir").onclick = () => { modoSeguir = "navegacion"; aplicarModo(); centrarMoto(); };
+  $("btnVerTodo").onclick = () => { modoSeguir = "fitbounds"; aplicarModo(); encuadrar(); };
   aplicarModo();
 
   $("btnIniciarEntrega").onclick = () => {
-    modoSeguir = "navegacion";
-    aplicarModo();
-    centrarMoto();
-    calcularRuta(true);
+    modoSeguir = "navegacion"; aplicarModo(); centrarMoto(); calcularRuta(true);
     $("estadoGps").textContent = "🛵 Navegación activa · siguiendo tu posición";
     $("estadoGps").className = "estado chip-gps ok";
   };
@@ -425,7 +394,6 @@
     if (ruta.pts) linea.setLatLngs([[pos.lat, pos.lng], ...ruta.pts]);
   }
 
-  /* ---------- GPS ---------- */
   async function iniciarGPS() {
     if (!("geolocation" in navigator)) return ($("estadoGps").textContent = "Este dispositivo no tiene GPS.");
     try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (_) {}
@@ -461,7 +429,6 @@
     if (!terminado) $("estadoGps").textContent = $("estadoGps").textContent.includes("·") ? $("estadoGps").textContent : `Compartiendo ubicación · ±${base.precision} m`;
   }
 
-  /* ---------- Chat en vivo con el cliente ---------- */
   function burbuja(m) {
     const d = document.createElement("div");
     d.className = "pd-msg" + (m.de === "repartidor" ? " yo" : ""); d.textContent = m.texto || (m.foto ? "📷 Foto" : "");
@@ -494,7 +461,6 @@
     } catch (err) { alert("No se pudo enviar: " + err.message); $("chatTexto").value = texto; }
   };
 
-  /* ---------- Chat con el administrador ---------- */
   function burbujaAdm(m) {
     const d = document.createElement("div");
     d.className = "pd-msg" + (m.de === "repartidor" ? " yo" : ""); d.textContent = m.texto || (m.foto ? "📷 Foto" : "");
@@ -533,7 +499,6 @@
     } catch (err) { alert("No se pudo enviar: " + err.message); $("chatAdmTexto").value = texto; }
   };
 
-  /* ---------- Fix del teclado táctil ---------- */
   function ajustarViewportInv() {
     const vv = window.visualViewport;
     if (!vv) return;
