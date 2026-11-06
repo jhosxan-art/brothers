@@ -5,6 +5,13 @@
    - Resumen en   chatsResumen/{token}    (lista del administrador)
    Las reglas dejan leer/escribir solo mientras el pedido está "en_ruta";
    el administrador puede leer siempre (archivo permanente).
+
+   AJUSTES (Fase 4):
+   - Palomitas ✓ (enviado, gris) y ✓✓ (leído, verde #25D366).
+   - Indicador "escribiendo…" en el subtítulo, con debounce 1500 ms y caducidad 4 s.
+   - Al escribir en el input se actualiza leidos/{token}/typing/{rol} = ts.
+   - Al llegar un snapshot con typing fresco del otro rol, se muestra "escribiendo…".
+   - Al enviar un mensaje se borra el typing propio para no dejarlo colgado.
    ============================================================ */
 const Chat = (() => {
   // Rutas en la base de datos. El chat administrador ↔ repartidor usa otras (opciones.ruta)
@@ -12,9 +19,16 @@ const Chat = (() => {
   let R = RUTA_CLIENTE;
   const db = APP.database();   // misma sesión que la página que lo usa
   const TS = firebase.database.ServerValue.TIMESTAMP;
+  const COLOR_LEIDO = "#25D366";   // verde WhatsApp cuando el mensaje fue leído
+  const COLOR_ENVIADO = "#8696A0"; // gris cuando solo fue enviado
+  const TYPING_MS = 1500;          // debounce del "escribiendo…"
+  const TYPING_CADUCA = 4000;      // el "escribiendo…" se apaga a los 4 s sin nuevos latidos
+
   let token = null, yo = null, soloLectura = false, ctx = {}, opciones = {};
   let ref = null, el = null, abierto = false, cargando = true, audio = null;
   let refLeido = null, lect = {}, tLeido = 0, tmLeido = null;   // confirmación de lectura: lect = { cliente: ts, repartidor: ts, admin: ts }
+  let refTyping = null, typingOtro = 0, tmTyping = null, tUltTyping = 0, tmEscribiendo = null;
+  let subtituloBase = "";
   const q = (id) => el.querySelector("#" + id);
 
   // El sonido y la voz viven en voz.js (se desbloquean con el primer toque)
@@ -49,6 +63,7 @@ const Chat = (() => {
       const t = q("chatTexto").value.trim();
       if (!t) return;
       q("chatTexto").value = "";
+      apagarTypingPropio();
       enviar(t, null).catch((err) => aviso("No se pudo enviar: " + err.message));
     };
     q("chatCamara").onclick = abrirCamara;
@@ -58,6 +73,11 @@ const Chat = (() => {
       try { aviso("Enviando foto…"); await enviar("", await comprimir(f)); aviso(""); }
       catch (err) { aviso("No se pudo enviar la foto: " + err.message); }
     };
+    // Aviso de "escribiendo…" mientras el usuario teclea
+    q("chatTexto").addEventListener("input", () => {
+      if (soloLectura || !refTyping) return;
+      marcarTypingPropio();
+    });
   }
   /* ---------- Cámara propia (sin abrir otra app) ---------- */
   let cam = null, camStream = null, camFrente = false, camFoto = null;
@@ -133,7 +153,9 @@ const Chat = (() => {
   function aviso(t) { const e = q("chatEstado"); e.textContent = t || ""; e.classList.toggle("oculto", !t); }
   function titular() {
     q("chatTitulo").textContent = opciones.titulo ? opciones.titulo(ctx) : "Chat";
-    q("chatSub").textContent = opciones.subtitulo ? opciones.subtitulo(ctx) : "";
+    subtituloBase = opciones.subtitulo ? opciones.subtitulo(ctx) : "";
+    q("chatSub").textContent = subtituloBase;
+    pintarTyping();
   }
 
   // Foto → JPEG de máx. 900 px (≈ 60–150 KB) para guardarla en la base de datos
@@ -181,7 +203,7 @@ const Chat = (() => {
     return r;
   });
 
-  /* ---------- Confirmación de lectura: ✓ enviado · ✓✓ leído (cuando el otro abrió el chat) ---------- */
+  /* ---------- Confirmación de lectura: ✓ enviado · ✓✓ leído (verde WhatsApp) ---------- */
   const lectorDe = (m) => (m.de === "cliente" || m.de === "admin" ? "repartidor" : (R.leido === "leidosEquipo" ? "admin" : "cliente"));
   function actualizarTicks() {
     if (!el) return;
@@ -189,6 +211,7 @@ const Chat = (() => {
       const ts = +t.dataset.ts || 0, leido = ts > 0 && (+lect[t.dataset.lector] || 0) >= ts;
       t.textContent = leido ? "✓✓" : "✓";
       t.classList.toggle("leido", leido);
+      t.style.color = leido ? COLOR_LEIDO : COLOR_ENVIADO;
       t.title = leido ? "Leído" : "Enviado";
     });
   }
@@ -201,6 +224,55 @@ const Chat = (() => {
     db.ref(`${R.leido}/${token}/${yo}`).set(TS).catch(() => {});
   }
   document.addEventListener("visibilitychange", () => { if (abierto) marcarLeido(); });
+
+  /* ---------- Indicador "escribiendo…" ---------- */
+  function marcarTypingPropio() {
+    if (soloLectura || !refTyping) return;
+    const ahora = Date.now();
+    if (ahora - tUltTyping < TYPING_MS) {   // reprograma el siguiente latido
+      clearTimeout(tmEscribiendo);
+      tmEscribiendo = setTimeout(marcarTypingPropio, TYPING_MS);
+      return;
+    }
+    tUltTyping = ahora;
+    refTyping.child(yo || "cliente").set(TS).catch(() => {});
+    clearTimeout(tmEscribiendo);
+    tmEscribiendo = setTimeout(marcarTypingPropio, TYPING_MS);
+  }
+  function apagarTypingPropio() {
+    clearTimeout(tmEscribiendo);
+    if (refTyping) refTyping.child(yo || "cliente").remove().catch(() => {});
+    tUltTyping = 0;
+  }
+  function pintarTyping() {
+    if (!el) return;
+    const ahora = Date.now();
+    const otros = Object.entries(typingOtro || {}).filter(([rol, ts]) => rol !== yo && Number(ts) > ahora - TYPING_CADUCA);
+    const sub = q("chatSub");
+    if (otros.length) {
+      const nombres = otros.map(([rol]) => rol === "cliente" ? "Cliente" : rol === "repartidor" ? (ctx.nombreRepartidor || "Repartidor") : "Brothers");
+      sub.textContent = nombres.join(" y ") + (otros.length > 1 ? " están escribiendo…" : " está escribiendo…");
+      sub.classList.add("escribiendo");
+    } else {
+      sub.textContent = subtituloBase;
+      sub.classList.remove("escribiendo");
+    }
+  }
+  function escucharTyping() {
+    if (refTyping) { refTyping.off(); refTyping = null; }
+    if (!token) return;
+    // Mismo nodo para los tres chats (chats/leidosEquipo/chatsEquipo): se reutiliza leidos/{token}/typing/{rol}
+    refTyping = db.ref(`${R.leido}/${token}/typing`);
+    refTyping.on("value", (s) => {
+      typingOtro = s.val() || {};
+      pintarTyping();
+      clearTimeout(tmTyping);
+      // Programa un repintado para cuando caduque el último typing visto
+      const ahora = Date.now();
+      const caducidades = Object.values(typingOtro).map((ts) => Number(ts) + TYPING_CADUCA - ahora).filter((x) => x > 0);
+      if (caducidades.length) tmTyping = setTimeout(pintarTyping, Math.min(...caducidades) + 50);
+    }, () => {});
+  }
 
   function pintar(id, m) {
     const lista = q("chatLista");
@@ -232,6 +304,7 @@ const Chat = (() => {
     if (propia || soloLectura) {   // palomitas en los mensajes que yo envié (el administrador las ve en todos)
       const k = document.createElement("span");
       k.className = "ticks"; k.dataset.ts = m.ts || 0; k.dataset.lector = lectorDe(m); k.textContent = "✓";
+      k.style.color = COLOR_ENVIADO;
       h.appendChild(k);
     }
     b.appendChild(h);
@@ -277,6 +350,8 @@ const Chat = (() => {
     ref = db.ref(`${R.chats}/${token}`);
     refLeido = db.ref(`${R.leido}/${token}`);
     refLeido.on("value", (s) => { lect = s.val() || {}; actualizarTicks(); }, () => {});
+    // Se ignora el nodo typing dentro de leidos: el listener real es refTyping
+    escucharTyping();
     ref.on("child_added", (s) => {
       const m = s.val(); pintar(s.key, m);
       actualizarTicks();
@@ -305,6 +380,7 @@ const Chat = (() => {
   }
   function cerrar() {
     abierto = false; if (el) el.classList.add("oculto");
+    apagarTypingPropio();
     if (opciones.alCerrar) opciones.alCerrar();
     if (soloLectura) detener();
   }
@@ -312,7 +388,8 @@ const Chat = (() => {
   function detener() {
     if (ref) { ref.off(); ref = null; }
     if (refLeido) { refLeido.off(); refLeido = null; }
-    lect = {}; clearTimeout(tmLeido);
+    if (refTyping) { refTyping.off(); refTyping = null; }
+    lect = {}; typingOtro = {}; clearTimeout(tmLeido); clearTimeout(tmTyping); clearTimeout(tmEscribiendo);
     pararCamara(); if (cam) cam.classList.add("oculto");
     abierto = false; sinLeer = 0;
     if (el) { el.classList.add("oculto"); q("chatLista").innerHTML = ""; q("chatTexto").value = ""; }
@@ -325,5 +402,5 @@ const Chat = (() => {
     if (abierto) { cerrar(); return true; }
     return false;
   }
-  return { iniciar, abrir, cerrar, detener, setContexto, pitido, enviarA, cerrarCapa };
+  return { iniciar, abrir, cerrar, detener, setContexto, pitido, enviarA, cerrarCapa, COLOR_LEIDO, COLOR_ENVIADO };
 })();
