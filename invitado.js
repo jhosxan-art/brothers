@@ -3,14 +3,11 @@
    Abre con invitado.html?t=TOKEN → pide solo el nombre → mapa de ruta + chat con el cliente
    + botones Retirado / Entregado. Todo en tiempo real con ordenes/{token}.
 
-   FASE 2 · mejoras aplicadas:
-     - Banner turn-by-turn: avanzarBanner() usa Ordenes.textoPaso() del paso actual y
-       avanza ruta.idx a medida que el invitado se acerca a la maniobra.
-     - fitBounds dinámico reforzado: en la primera posición fuerza encuadrar() y en
-       cada tick llama encuadrarDinamico() solo si algún punto se sale del viewport.
-     - Estado OCUPADO: chip visible en la cabecera (#chipOcupado) y en ubicaciones/{uid}
-       (conPedido/enViaje ya se publican en alPosicion).
-     - Responsividad: ver estilos inline de invitado.html (media queries 700/900/1200).
+   FASE 1 · cambios aplicados:
+     · Vista previa en vEntrada: se dibuja un mini-mapa con los puntos de retiro
+       y entrega. Si el dispositivo concede GPS, se traza automáticamente la ruta
+       al primer retiro y se muestra la distancia (km/m) en #infoEntrada.
+     · El mapa de vista previa se destruye al entrar al flujo de trabajo (vApp).
    ============================================================ */
 (() => {
   const O = Ordenes, esc = O.esc, TS = O.TS, $ = (id) => document.getElementById(id);
@@ -27,6 +24,10 @@
   let flechasCapa = null, ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: 0 };
   let yaEncuadrado = false, chatAbierto = false, sinLeer = 0, terminado = false;
   let modoSeguir = "fitbounds";
+
+  /* FASE 1 · mapa de vista previa en vEntrada */
+  let mapaEntrada = null, capaEntrada = null;
+
   const vista = (id) => ["vCarga", "vEntrada", "vApp", "vFin", "vTomado"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
   const msgCarga = (m) => { $("msgCarga").textContent = m; $("msgCarga").className = "estado error"; };
 
@@ -49,6 +50,7 @@
     $("btnNuevosChats").classList.add("oculto");
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     $("txtTomado").textContent = `Este pedido ya fue tomado por ${nom}, muchas gracias.`;
+    destruirMapaEntrada();
     vista("vTomado");
   }
   async function arrancar() {
@@ -71,6 +73,8 @@
     $("resumenEntrada").innerHTML = resumenHtml(orden);
     $("inNombre").value = guardado || "";
     vista("vEntrada");
+    /* FASE 1 · mini-mapa de vista previa con ruta sugerida (best-effort GPS) */
+    setTimeout(iniciarMapaEntrada, 60);
     refVigia = db.ref("ordenes/" + t);
     refVigia.on("value", (s2) => {
       if (aceptando || terminado || !s2.exists()) return;
@@ -89,6 +93,62 @@
     if (n.length < 2) { $("msgEntrada").textContent = "Escribe tu nombre (mínimo 2 letras)."; $("msgEntrada").classList.remove("oculto"); return; }
     entrar(n, false);
   };
+
+  /* FASE 1 · vista previa de la ruta antes de aceptar */
+  function destruirMapaEntrada() {
+    if (mapaEntrada) { try { mapaEntrada.remove(); } catch (_) {} }
+    mapaEntrada = null; capaEntrada = null;
+  }
+  function iniciarMapaEntrada() {
+    if (mapaEntrada) return;
+    const cont = $("mapaEntrada");
+    if (!cont || typeof L === "undefined" || !orden) return;
+    try {
+      mapaEntrada = L.map("mapaEntrada", { zoomControl: false, attributionControl: false }).setView([12.5700, -87.1311], 13);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(mapaEntrada);
+      capaEntrada = L.layerGroup().addTo(mapaEntrada);
+    } catch (e) { console.warn("[vEntrada] map:", e); return; }
+
+    const ps = O.paradas(orden), puntos = [];
+    ps.forEach((p, k) => {
+      if (O.valido(p)) {
+        L.marker([p.lat, p.lng], { icon: O.pinEtiqueta("retiro", ps.length > 1 ? String(k + 1) : "📦", p.texto || "Retiro", p.producto) }).addTo(capaEntrada);
+        puntos.push([p.lat, p.lng]);
+      }
+    });
+    if (O.valido(orden.entrega)) {
+      L.marker([orden.entrega.lat, orden.entrega.lng], { icon: O.pinIcono("entrega", "🏠") }).addTo(capaEntrada);
+      puntos.push([orden.entrega.lat, orden.entrega.lng]);
+    }
+    if (puntos.length === 1) mapaEntrada.setView(puntos[0], 15);
+    else if (puntos.length > 1) mapaEntrada.fitBounds(L.latLngBounds(puntos), { padding: [30, 30], maxZoom: 16 });
+
+    setTimeout(() => { try { mapaEntrada && mapaEntrada.invalidateSize(); } catch (_) {} }, 100);
+
+    /* Best-effort: si el usuario ya dio permiso de ubicación, trazamos la ruta
+       al primer retiro (o a la entrega si no hay retiro con coordenadas). */
+    const info = $("infoEntrada");
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition((gpsPos) => {
+        if (!mapaEntrada || terminado) return;
+        const c = gpsPos.coords, yo = { lat: c.latitude, lng: c.longitude };
+        try { L.marker([yo.lat, yo.lng], { icon: O.pinIcono("", "🛵") }).addTo(capaEntrada); } catch (_) {}
+        const destino = ps.find((p) => O.valido(p)) || orden.entrega;
+        if (!destino || !O.valido(destino)) return;
+        if (info) { info.style.display = "block"; info.classList.remove("oculto"); info.textContent = "⏳ Calculando ruta hasta el retiro…"; }
+        O.rutaCalles(yo, destino).then((r) => {
+          if (!r || !mapaEntrada) { if (info) info.textContent = "No se pudo calcular la ruta por calles."; return; }
+          try { L.polyline([[yo.lat, yo.lng], ...r.pts], { color: "#0A86C9", weight: 5, opacity: .85, lineCap: "round" }).addTo(capaEntrada); } catch (_) {}
+          const dist = r.dist >= 1000 ? (r.dist / 1000).toFixed(1) + " km" : Math.round(r.dist) + " m";
+          const min = Math.max(1, Math.round((r.dur || 0) / 60));
+          if (info) info.innerHTML = "📍 <b>" + dist + "</b> · ≈ " + min + " min hasta el primer retiro";
+          try { mapaEntrada.fitBounds([[yo.lat, yo.lng], [destino.lat, destino.lng]], { padding: [30, 30], maxZoom: 16 }); } catch (_) {}
+        }).catch(() => { if (info) info.textContent = "No se pudo calcular la ruta por calles."; });
+      }, () => {
+        if (info) { info.style.display = "block"; info.classList.remove("oculto"); info.textContent = "Permite la ubicación para ver la ruta hasta el retiro."; }
+      }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
+    }
+  }
 
   async function entrar(n, reanudar) {
     nombre = n; aceptando = true;
@@ -121,6 +181,8 @@
     try { await db.ref().update(upd); }
     catch (e) { aceptando = false; $("btnEntrar").disabled = false; vista("vEntrada"); $("msgEntrada").textContent = "Aceptaste, pero no se pudo iniciar: " + e.message; $("msgEntrada").classList.remove("oculto"); return; }
     aceptando = false;
+    /* FASE 1 · liberar el mapa de vista previa al pasar al flujo de trabajo */
+    destruirMapaEntrada();
     mostrarOcupado(true);
     db.ref("ubicaciones/" + uid).onDisconnect().update({ enLinea: false, enViaje: false, conPedido: false, ts: TS });
     $("subTitulo").textContent = "Invitado · " + n;
@@ -233,6 +295,7 @@
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     try { wakeLock && wakeLock.release(); } catch (_) {}
     db.ref("ubicaciones/" + uid).onDisconnect().cancel();
+    destruirMapaEntrada();
     $("finTitulo").textContent = estado === "entregado" ? "¡Entrega confirmada!" : "Pedido cancelado";
     $("finTxt").textContent = estado === "entregado" ? "Gracias por tu ayuda. Ya puedes cerrar esta página." : "El administrador canceló este pedido. Ya puedes cerrar esta página.";
     localStorage.removeItem(claveLocal);
@@ -328,7 +391,6 @@
   function limpiarRuta() { ruta = { pts: null, pasos: null, idx: 0, dist: 0, dur: 0, origen: null, dest: null, en: ruta.en }; linea.setLatLngs([]); flechasCapa.clearLayers(); }
   const fmtDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m");
 
-  /* FASE 2 · banner turn-by-turn: usa el paso actual de la ruta + ETA + destino */
   function banner(paso, aviso) {
     const b = $("bannerRuta"); b.classList.remove("oculto");
     if (!paso && aviso) { b.innerHTML = `<span class="ir-ic">🧭</span><span class="ir-txt">${esc(aviso)}</span>`; return; }
