@@ -3,7 +3,8 @@
    Reutiliza las variables de style.css (--celeste, --tinta, --linea…).
    Todo va bajo body.wa-cliente para no chocar con los estilos globales
    de button / input / label de style.css.
-   FASE 1: responsive total + escalado de pin por zoom + mapa más alto en desktop.
+   FASE 4 · compositor con soporte para 1 o 2 íconos (cámara + galería)
+   + responsive universal (≤380px, ≥768px, landscape, prefers-reduced-motion).
    ============================================================ */
 body.wa-cliente {
   --burbuja-yo: #D3EEFC;
@@ -30,7 +31,7 @@ body.wa-cliente {
 .wa-cliente .wa-form-nombre { width: 100%; display: grid; gap: 10px; margin-top: 10px; text-align: left; }
 .wa-cliente .wa-form-nombre label { font-size: 13px; font-weight: 700; }
 
-/* ---------- Splash inicial "Abriendo tu chat…" ---------- */
+/* ---------- Splash inicial ---------- */
 .wa-cliente #vCarga.wa-centro { background: #F0F2F5; }
 .wa-cliente .wa-splash { display: grid; justify-items: center; text-align: center; width: 100%; max-width: 320px; }
 .wa-cliente .wa-splash-icono { position: relative; width: 132px; height: 132px; display: grid; place-items: center; margin-bottom: 28px; }
@@ -189,7 +190,7 @@ body.wa-cliente {
 }
 .wa-cliente .wa-estado-mapa.oculto { display: none !important; }
 
-/* Banner con distancia, tiempo y calle actual (Fase 1) */
+/* Banner con distancia, tiempo y calle actual */
 .wa-cliente .wa-ruta-info {
   position: absolute; z-index: 901; left: 10px; right: 10px; top: 10px;
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
@@ -202,11 +203,7 @@ body.wa-cliente {
 .wa-cliente .wa-ruta-info .ri-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wa-cliente .wa-ruta-info .ri-txt b { color: #7FD3FF; font-weight: 800; }
 
-/* ============================================================
-   FASE 1 · Pin minimalista escalable con el zoom
-   El tamaño se controla con --pin-scale (lo actualiza cliente-app.js en zoomend).
-   Base = 26px. Escala típica entre 0.75 (lejos) y 1.3 (cerca).
-   ============================================================ */
+/* Pin minimalista blanco+color tipo WhatsApp */
 .wa-cliente .pin-discreto {
   width: 26px;
   height: 26px;
@@ -231,7 +228,6 @@ body.wa-cliente {
   background: var(--c, #25D366);
   transform: translate(-50%, -50%);
 }
-/* Repartidor: pulso suave verde para indicar que se está moviendo */
 .wa-cliente .pin-discreto.pulso { animation: pin-latido 1.5s infinite; }
 @keyframes pin-latido {
   0% { box-shadow: 0 0 0 0 rgba(37,211,102, 0.6), 0 3px 8px rgba(0,0,0,0.35); }
@@ -323,17 +319,15 @@ body.wa-cliente {
 .wa-cliente .wa-nombre-acc { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
 .wa-cliente .wa-nombre-acc button { height: 46px; }
 
-/* Pedido terminado: el chat queda en blanco y solo se ve el modal de cierre */
+/* Pedido terminado */
 .wa-cliente .wa-chat.cerrado .wa-compositor,
 .wa-cliente .wa-chat.cerrado .wa-aviso,
 .wa-cliente .wa-chat.cerrado .wa-panel-mapa,
 .wa-cliente .wa-chat.cerrado .wa-btn-barra { display: none !important; }
 
 /* ============================================================
-   FASE 1 · Breakpoints responsive (tablet, laptop, desktop)
+   Breakpoints responsive (tablet, laptop, desktop)
    ============================================================ */
-
-/* Tablet (>= 700px): fondo diferenciado, chat con sombra, mapa un poco más alto */
 @media (min-width: 700px) {
   body.wa-cliente { background: #d9e4ea; }
   .wa-cliente .wa-chat { max-width: 640px; box-shadow: 0 0 0 1px var(--linea); border-radius: 0; }
@@ -341,8 +335,6 @@ body.wa-cliente {
   .wa-cliente .wa-hoja { max-width: 640px; }
   .wa-cliente .wa-bienvenida { max-width: 420px; }
 }
-
-/* Laptop (>= 900px): mapa más alto + tipografías ligeramente mayores + modal más ancho */
 @media (min-width: 900px) {
   .wa-cliente .wa-chat { max-width: 720px; border-radius: 0; }
   .wa-cliente .wa-panel-mapa { height: min(46dvh, 480px); }
@@ -358,8 +350,6 @@ body.wa-cliente {
   .wa-cliente .wa-pin-mapa { height: 300px; }
   .wa-cliente .wa-ruta-info { font-size: 13.5px; padding: 10px 14px; }
 }
-
-/* Desktop (>= 1200px): tarjetas centradas tipo tablet + sidebar de chat más ancha */
 @media (min-width: 1200px) {
   body.wa-cliente { background: #cfdae2; }
   .wa-cliente .wa-chat { max-width: 820px; box-shadow: 0 10px 40px rgba(14,20,27,.18); border-radius: 12px; margin: 20px auto; }
@@ -375,8 +365,6 @@ body.wa-cliente {
   .wa-cliente .wa-cierre { max-width: 440px; padding: 32px 26px 24px; }
   .wa-cliente .wa-nombre-caja { max-width: 440px; }
 }
-
-/* Landscape móvil: reduce el mapa y el splash para que quepa todo */
 @media (max-height: 500px) and (orientation: landscape) {
   .wa-cliente .wa-panel-mapa { height: 42vh; }
   .wa-cliente .wa-splash-icono { width: 90px; height: 90px; margin-bottom: 14px; }
@@ -387,8 +375,37 @@ body.wa-cliente {
   .wa-cliente .wa-pregunta { font-size: 19px; }
   .wa-cliente .wa-hoja { max-height: 96vh; }
 }
-
-/* Ajuste cuando el teclado virtual está abierto (mobile) */
 @media (max-width: 699px) {
   .wa-cliente .wa-chat:not(.cerrado) .wa-mensajes { padding-bottom: 4px; }
+}
+
+/* ============================================================
+   FASE 4 · COMPOSITOR CON 2 ÍCONOS (cámara + galería)
+   + responsive universal
+   ============================================================ */
+
+/* El compositor puede tener 1 o 2 íconos (cámara y galería) */
+.wa-cliente .wa-compositor .wa-foto { min-height: 44px; transition: transform .12s ease, background-color .12s ease; }
+.wa-cliente .wa-compositor .wa-foto + .wa-foto { margin-left: 2px; }
+.wa-cliente .wa-compositor .wa-foto:active { transform: scale(.92); }
+.wa-cliente .wa-compositor .wa-foto:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
+.wa-cliente .wa-compositor .wa-enviar { transition: transform .12s ease, background-color .12s ease; }
+.wa-cliente .wa-compositor .wa-enviar:active { transform: scale(.94); }
+
+@media (max-width: 380px) {
+  .wa-cliente .wa-compositor { gap: 4px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); }
+  .wa-cliente .wa-compositor .wa-foto { width: 42px; height: 42px; min-width: 42px; font-size: 18px; }
+  .wa-cliente .wa-compositor .wa-enviar { width: 42px; height: 42px; }
+  .wa-cliente .wa-compositor input { height: 42px; padding: 0 12px; font-size: 15px; }
+}
+@media (min-width: 768px) {
+  .wa-cliente .wa-compositor .wa-foto { width: 50px; height: 50px; min-width: 50px; }
+  .wa-cliente .wa-compositor .wa-enviar { width: 50px; height: 50px; }
+  .wa-cliente .wa-compositor input { height: 50px; border-radius: 25px; font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wa-cliente .wa-compositor .wa-foto,
+  .wa-cliente .wa-compositor .wa-enviar { transition: none !important; }
+  .wa-cliente .wa-compositor .wa-foto:active,
+  .wa-cliente .wa-compositor .wa-enviar:active { transform: none !important; }
 }
