@@ -27,7 +27,7 @@
         }
       }
     },
-    "fotosPerfil": {
+    "repartidorFotos": {
       "$uid": {
         ".read": true,
         ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
@@ -130,6 +130,22 @@
         },
         "entregadoTs": {
           ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('ordenes').child($token).child('asignacion').child('uid').val() === auth.uid || (auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('ordenes').child($token).child('asignacion').child('tipo').val() === 'invitado' && root.child('ordenes').child($token).child('asignacion').child('authUid').val() === auth.uid))"
+        },
+        "canceladoTs": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isNumber()"
+        },
+        "forzadoPorAdmin": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isBoolean()"
+        },
+        "forzadoTs": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isNumber()"
+        },
+        "motivoForzado": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isString() && newData.val().length <= 300"
         },
         "guia": {
           ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && root.child('ordenes').child($token).child('asignacion').child('tipo').val() === 'invitado' && root.child('ordenes').child($token).child('asignacion').child('authUid').val() === auth.uid"
@@ -302,7 +318,7 @@
         },
         "estado": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()) || (auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').exists() && newData.val() === 'cancelado'))",
-          ".validate": "newData.isString() && (newData.val() === data.val() || (newData.val() === 'nuevo' && (!data.exists() || data.val() === 'atendido')) || (newData.val() === 'atendido' && data.val() === 'nuevo') || (newData.val() === 'cancelado' && data.val() === 'nuevo') || ((newData.val() === 'entregado' || newData.val() === 'cancelado') && data.val() === 'atendido'))"
+          ".validate": "newData.isString() && (newData.val() === data.val() || (newData.val() === 'nuevo' && (!data.exists() || data.val() === 'atendido')) || (newData.val() === 'atendido' && data.val() === 'nuevo') || (newData.val() === 'cancelado' && data.val() === 'nuevo') || ((newData.val() === 'entregado' || newData.val() === 'cancelado') && data.val() === 'atendido') || (root.child('admins').child(auth.uid).exists() && (newData.val() === 'entregado' || newData.val() === 'cancelado')))"
         },
         "repartidorUid": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && ((!data.exists() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo') || data.val() === auth.uid)) || (root.child('admins').child(auth.uid).exists()))",
@@ -355,6 +371,10 @@
         "forzadoTs": {
           ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
           ".validate": "newData.isNumber()"
+        },
+        "motivoForzado": {
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+          ".validate": "newData.isString() && newData.val().length <= 300"
         },
         "motivoCancelacion": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido') || (root.child('admins').child(auth.uid).exists()))",
