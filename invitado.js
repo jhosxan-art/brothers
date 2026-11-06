@@ -4,10 +4,15 @@
    + botones Retirado / Entregado. Todo en tiempo real con ordenes/{token}.
 
    FASE 1 · cambios aplicados:
-     · Vista previa en vEntrada: se dibuja un mini-mapa con los puntos de retiro
-       y entrega. Si el dispositivo concede GPS, se traza automáticamente la ruta
-       al primer retiro y se muestra la distancia (km/m) en #infoEntrada.
-     · El mapa de vista previa se destruye al entrar al flujo de trabajo (vApp).
+     · Vista previa en vEntrada con mini-mapa (ruta sugerida al primer retiro).
+
+   FASE 2 · cambios aplicados:
+     · Botón "Iniciar Entrega" (#btnIniciarEntrega) entre el panel de detalles y los
+       botones Retirado/Entregado. Al pulsarlo:
+         1. Activa la cámara de navegación centrada sobre el motorizado.
+         2. Aplica ZOOM DINÁMICO según la distancia al destino (más cerca → más zoom).
+         3. Recalcula y redibuja la ruta al cliente.
+     · centrarMoto() ahora usa zoom dinámico basado en la distancia (antes fijo en 17).
    ============================================================ */
 (() => {
   const O = Ordenes, esc = O.esc, TS = O.TS, $ = (id) => document.getElementById(id);
@@ -73,7 +78,6 @@
     $("resumenEntrada").innerHTML = resumenHtml(orden);
     $("inNombre").value = guardado || "";
     vista("vEntrada");
-    /* FASE 1 · mini-mapa de vista previa con ruta sugerida (best-effort GPS) */
     setTimeout(iniciarMapaEntrada, 60);
     refVigia = db.ref("ordenes/" + t);
     refVigia.on("value", (s2) => {
@@ -125,8 +129,6 @@
 
     setTimeout(() => { try { mapaEntrada && mapaEntrada.invalidateSize(); } catch (_) {} }, 100);
 
-    /* Best-effort: si el usuario ya dio permiso de ubicación, trazamos la ruta
-       al primer retiro (o a la entrega si no hay retiro con coordenadas). */
     const info = $("infoEntrada");
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition((gpsPos) => {
@@ -181,7 +183,6 @@
     try { await db.ref().update(upd); }
     catch (e) { aceptando = false; $("btnEntrar").disabled = false; vista("vEntrada"); $("msgEntrada").textContent = "Aceptaste, pero no se pudo iniciar: " + e.message; $("msgEntrada").classList.remove("oculto"); return; }
     aceptando = false;
-    /* FASE 1 · liberar el mapa de vista previa al pasar al flujo de trabajo */
     destruirMapaEntrada();
     mostrarOcupado(true);
     db.ref("ubicaciones/" + uid).onDisconnect().update({ enLinea: false, enViaje: false, conPedido: false, ts: TS });
@@ -351,9 +352,24 @@
       mapa.setView(pts[0], Math.max(mapa.getZoom(), 15));
     }
   }
+  /* FASE 2 · centrarMoto() con ZOOM DINÁMICO por distancia al destino.
+     Antes era fijo en 17. Ahora:
+       - Distancia 0m → zoom 19 (máximo, ves hasta el número de la casa).
+       - Distancia 500m → zoom ≈ 16.7
+       - Distancia 2km → zoom ≈ 15
+       - Distancia ≥5km → zoom 14.5 (mínimo, ves todo el trayecto).
+     La fórmula es la misma que usa el repartidor registrado (Camara.zoomPara). */
   function centrarMoto() {
     if (!mapa || !pos) return;
-    mapa.setView([pos.lat, pos.lng], 17, { animate: true, duration: 0.5 });
+    const d = orden && destinoActual();
+    const dist = d && O.valido(d) ? O.distM(pos, d) : null;
+    let z = 17;
+    if (dist != null) {
+      const clamped = Math.max(80, dist);
+      const zz = 19 - Math.log2(clamped / 80) * 0.75;
+      z = Math.round(Math.min(19, Math.max(14.5, zz)) * 4) / 4;
+    }
+    mapa.setView([pos.lat, pos.lng], z, { animate: true, duration: 0.5 });
   }
   function aplicarModo() {
     $("btnSeguir").classList.toggle("on", modoSeguir === "navegacion");
@@ -370,6 +386,19 @@
     encuadrar();
   };
   aplicarModo();
+
+  /* FASE 2 · Botón "Iniciar Entrega" del invitado:
+     1. Activa el modo navegación (cámara centrada sobre la moto).
+     2. Aplica zoom dinámico por distancia.
+     3. Recalcula y redibuja la ruta al destino actual. */
+  $("btnIniciarEntrega").onclick = () => {
+    modoSeguir = "navegacion";
+    aplicarModo();
+    centrarMoto();
+    calcularRuta(true);
+    $("estadoGps").textContent = "🛵 Navegación activa · siguiendo tu posición";
+    $("estadoGps").className = "estado chip-gps ok";
+  };
 
   /* Ruta SOLO por calles. Mientras llega no se dibuja nada: jamás una línea recta. */
   async function calcularRuta(forzar) {
