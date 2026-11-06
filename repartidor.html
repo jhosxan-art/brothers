@@ -120,6 +120,32 @@
     #vistaChats .cn-reg .cn-ffil { font-size: 13px; }
     #vistaChats .cn-reg button.cn-borrar { width: auto; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; justify-self: end; }
 
+    /* ---- FASE 2 · Botón "Iniciar Entrega" prominente (arriba de He llegado/Entregado/Cancelar) ---- */
+    #vistaChats .cn-iniciar {
+      flex: none;
+      margin: 8px 10px 0;
+      height: 52px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #25D366 0%, #1E9B5A 100%);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: .02em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 6px 16px rgba(37, 211, 102, .35);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #vistaChats .cn-iniciar:active { transform: scale(.98); }
+    #vistaChats .cn-iniciar:focus-visible { outline: 3px solid #1E9B5A; outline-offset: 2px; }
+    #vistaChats .cn-iniciar .cn-iniciar-ico { font-size: 20px; line-height: 1; }
+    @media (min-width: 700px) { #vistaChats .cn-iniciar { height: 56px; font-size: 16px; } }
+
     /* ---- FASE 2 · chip OCUPADO visible con pulso ---- */
     .chip-con-pedido { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: #25D366; color: #0E141B; font-size: 11px; font-weight: 800; vertical-align: middle; animation: pulsoChipOcupado 1.6s ease-in-out infinite; }
     .chip-con-pedido.oculto { display: none !important; }
@@ -376,15 +402,18 @@
       <div class="cn-cab">
         <button id="cnVolver" type="button" aria-label="Volver a la lista de chats">←</button>
         <div><strong id="cnNombre">Cliente</strong><small id="cnSub">Cliente</small></div>
-        <!-- FASE 1 · ícono 📍 (cnUbicacion) eliminado. Se mantiene el ➕ para añadir mandados (se quitará en Fase 3). -->
         <button id="cnExtras" class="cn-ico" type="button" aria-label="Agregar mandados extra al total">➕</button>
         <button id="cnFacturar" class="primario" type="button">🧾 Facturar</button>
       </div>
       <div id="cnResumen" class="cn-resumen"></div>
       <div id="cnUltimaDir" class="cn-ultima-dir oculto">
         <div class="cn-ultima-dir-txt" id="cnUltimaDirTxt"></div>
-        <!-- FASE 1 · botón "Sugerir al cliente" eliminado. -->
       </div>
+      <!-- FASE 2 · Botón "Iniciar Entrega" prominente, ARRIBA de He llegado / Entregado / Cancelar -->
+      <button id="cnIniciarEntrega" class="cn-iniciar" type="button" aria-label="Iniciar entrega en modo navegación">
+        <span class="cn-iniciar-ico" aria-hidden="true">🛵</span>
+        <span>Iniciar Entrega</span>
+      </button>
       <div class="cn-acciones">
         <button id="cnLlegado" class="oscuro" type="button">📍 He llegado</button>
         <button id="cnEntregado" class="primario" type="button">✅ Entregado</button>
