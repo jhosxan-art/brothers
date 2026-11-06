@@ -6,6 +6,7 @@
    - Si cierras la página o bloqueas el celular, el navegador NO deja sonar nada
      (para eso hacen falta notificaciones push; ver README).
    Cambia las frases aquí, en un solo lugar.
+   FASE 3 v2: se agrega solicitudAdmin() con frase propia para el panel del administrador.
    ============================================================ */
 const Voz = (() => {
   const FRASES = {
@@ -18,7 +19,13 @@ const Voz = (() => {
     prioridadCliente: (id) => "El cliente de la factura " + String(id == null || id === "" ? "sin número" : id).split("").join(" ") + " quiere priorizar su pedido",
     prueba: "Alertas de voz activadas",
     // Llega una solicitud nueva desde cliente-app.html (o una que otro repartidor pasó al grupo)
-    solicitudPedido: "Hay una solicitud de pedido"
+    solicitudPedido: "Hay una solicitud de pedido",
+    // FASE 3 · aviso en el panel del administrador
+    solicitudAdmin: "Nueva solicitud de cliente pendiente",
+    // Celular del cliente (cliente-app.html)
+    clientePedidoAceptado: "Un repartidor ha aceptado tu pedido",
+    clienteMensajeNuevo: "Tienes un nuevo mensaje del repartidor",
+    clienteRepartidorCerca: "Tu repartidor está cerca de tu destino"
   };
   const soporta = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
   let desbloqueada = false, audio = null, vozEs = null, gen = 0, pendiente = null;   // gen: cancela repeticiones pendientes
@@ -126,5 +133,20 @@ const Voz = (() => {
     hablar(FRASES.solicitudPedido, { forzar: true, repetir: 2, pausaMs: 2000 });
   };
 
-  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad, solicitud };
+  /* FASE 3 v2 · Aviso de solicitud nueva en el panel del administrador (frase propia, sin repetir) */
+  const solicitudAdmin = () => {
+    try { if (navigator.vibrate) navigator.vibrate([300, 150, 300]); } catch (_) {}
+    hablar(FRASES.solicitudAdmin, { forzar: true });
+  };
+
+  /* Alertas del cliente. Se dicen una vez; la de cercanía se repite para que se oiga con el celular en el bolsillo */
+  const clientePedidoAceptado = () => hablar(FRASES.clientePedidoAceptado, { forzar: true });
+  const clienteMensajeNuevo = () => hablar(FRASES.clienteMensajeNuevo);
+  const clienteRepartidorCerca = () => {
+    try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (_) {}
+    hablar(FRASES.clienteRepartidorCerca, { forzar: true, repetir: 2, pausaMs: 2500 });
+  };
+
+  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad, solicitud, solicitudAdmin,
+           clientePedidoAceptado, clienteMensajeNuevo, clienteRepartidorCerca };
 })();
