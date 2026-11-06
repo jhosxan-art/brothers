@@ -1,32 +1,10 @@
 /* ============================================================
    MÓDULO REPARTIDOR
-   Flujo:
-   1) Al entrar sale la FACTURA (factura.js).
-   2) "Enviar factura por WhatsApp" → la factura sale con el enlace de seguimiento,
-      se crea el pedido en la nube y la app pasa al MAPA con el seguimiento activo.
-   3) Cada nueva factura agrega otro pedido (otro token): el repartidor puede llevar varios
-      y entregarlos en el orden que quiera. Entre pantallas se mueve con la barra inferior.
-   4) El cliente comparte su ubicación al abrir el enlace; aquí se ve en tiempo real.
-
-   FASE 1 · cambios aplicados:
-     · Vista previa de ruta pre-aceptación: en ChatsEntrantes, para cada solicitud pendiente
-       se dibuja automáticamente la polyline roja punteada desde la posición actual del
-       motorizado y se muestra la distancia (km/m) sobre el pin 📥.
-     · Eliminados el ícono 📍 (#cnUbicacion) y el botón "Sugerir al cliente"
-       (#cnSugerirDir) de la interfaz del chat.
-     · Cámara (📷) y Galería (🖼️) separadas:
-         - #cnFoto    → #cnInFoto    con capture="environment"
-         - #cnGaleria → #cnInGaleria sin capture
-       Ambas llaman a subirFotoChat(archivo) que centraliza la compresión y subida.
-
-   FASE 2 · cambios aplicados:
-     · Botón "Iniciar Entrega" (#cnIniciarEntrega) en la vista de chat, justo ARRIBA
-       de "He llegado / Entregado / Cancelar". Al pulsarlo:
-         1. Crea el viaje si no existe (fallback defensivo).
-         2. Salta al mapa principal (irA("mapa") + seleccionar).
-         3. Activa la cámara de navegación (Camara.setModo("navegacion")) que sigue
-            al motorizado con la moto en el tercio inferior y aplica ZOOM DINÁMICO
-            según la distancia al destino.
+   FASE 1 · vista previa de ruta pre-aceptación + limpieza UI + separación cámara/galería.
+   FASE 2 · "Iniciar Entrega" (cámara navegación + zoom dinámico).
+   FASE 3 · "Mandado Extra" como botón en la cabecera del chat (junto a "Factura").
+            La tarjeta de factura en el chat desglosa productos / delivery base /
+            mandado extra / prioridad / gran total.
    ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
@@ -381,10 +359,6 @@ let seguirme = true;
 
 /* ============================================================
    CÁMARA DEL REPARTIDOR
-   Dos modos:
-     - "fitbounds" (por defecto): mantiene a la vez al motorizado y al cliente.
-     - "navegacion": cámara invertida tipo GPS con la moto en el tercio inferior
-       y ZOOM DINÁMICO según la distancia al destino (más cerca → más zoom).
    ============================================================ */
 const Camara = (() => {
   const SIGNO_ROTACION = 1;
@@ -1471,7 +1445,7 @@ function textoSub(v) {
   if (v.sinFactura) p.push("enlace de contacto (aún sin factura)");
   p.push(v.destino ? (v.dist != null ? "a " + formatoDist(v.dist) : "calculando…") : "sin destino");
   if (v.rutaDur) p.push("≈ " + Math.max(1, Math.round(v.rutaDur / 60)) + " min");
-  if (v.sub && v.sub.items && v.sub.items.length) p.push("🧾 " + SubFactura.ETIQUETA + ": gran total " + SubFactura.money(SubFactura.calcular(v.factura, v.sub).gran));
+  if (v.sub && v.sub.items && v.sub.items.length) p.push("➕ Mandado extra: gran total " + SubFactura.money(SubFactura.calcular(v.factura, v.sub).gran));
   p.push(v.destManual ? "destino marcado por ti" : !v.cliPos ? "el cliente aún no comparte ubicación" : v.cliPos.manual ? "ubicación marcada por el cliente" : esVivo(v) ? "cliente en vivo" : "cliente sin señal");
   return p.join(" · ");
 }
@@ -1976,7 +1950,6 @@ const ChatsEntrantes = (() => {
   let lect = {}, typing = {}, ultimaDirCliente = null, refUltimaDir = null, refLeidos = null, refTyping = null;
   let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
 
-  /* FASE 1 · rutas de vista previa de cada solicitud pendiente */
   const rutasPend = {};
 
   const termino = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
@@ -2180,7 +2153,6 @@ const ChatsEntrantes = (() => {
     pintarRutasPendientes();
   }
 
-  /* FASE 1 · Vista previa de ruta para cada solicitud pendiente */
   function pintarRutasPendientes() {
     if (typeof mapa === "undefined" || !mapa) return;
     if (typeof Ordenes === "undefined" || typeof Ordenes.rutaCalles !== "function") return;
@@ -2476,7 +2448,6 @@ const ChatsEntrantes = (() => {
       sub.classList.remove("escribiendo");
     }
   }
-  /* FASE 1 · solo se muestra la última dirección (informativo). Sin botón "Sugerir al cliente". */
   function leerUltimaDirCliente(d) {
     if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
     ultimaDirCliente = null;
@@ -2507,26 +2478,71 @@ const ChatsEntrantes = (() => {
     f.appendChild(el("b", "", valor));
     return f;
   }
+
+  /* FASE 3 · tarjeta de factura en el chat:
+     desglose transparente en secciones:
+       - Productos (normales)
+       - Delivery base
+       - Mandado Extra (productos con prefijo "➕" + envío extra)
+       - Prioridad (si aplica)
+       - GRAN TOTAL  */
   function tarjetaFactura(f) {
     const caja = document.createElement("div");
+    const prods = (Array.isArray(f.productos) ? f.productos : []).filter((p) => p && typeof p === "object");
+    const extras = prods.filter((p) => String(p.nombre || "").startsWith("➕"));
+    const normales = prods.filter((p) => !String(p.nombre || "").startsWith("➕"));
+    const tieneExtras = extras.length > 0 || Number(f.mandadoExtra) > 0;
+
     const cab = el("div", "cn-fcab");
     cab.appendChild(el("strong", "", "🏍️ Brother’s Delivery"));
-    cab.appendChild(el("span", "", "Factura"));
+    cab.appendChild(el("span", "", tieneExtras ? "Factura con mandado" : "Factura"));
     caja.appendChild(cab);
+
     const cue = el("div", "cn-fcue");
     if (f.cliente) cue.appendChild(el("div", "cn-fmeta", "Cliente: " + String(f.cliente)));
     if (f.deposito) cue.appendChild(el("div", "cn-fmeta", "Depósito: sí"));
-    const lis = el("div", "cn-flis");
-    (Array.isArray(f.productos) ? f.productos : []).forEach((p) => {
-      if (p && typeof p === "object") lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio)));
-    });
-    cue.appendChild(lis);
-    const tot = el("div", "cn-ftot");
-    tot.appendChild(filaF("Subtotal", dinero(f.subtotal)));
-    tot.appendChild(filaF(Number(f.mandadoExtra) > 0 ? "Delivery (con mandado extra)" : "Delivery", dinero(f.delivery)));
-    if (Number(f.prioridad) > 0) tot.appendChild(filaF("⚡ Prioridad", dinero(f.prioridad)));
-    tot.appendChild(filaF("Total", dinero(f.totalFinal != null ? f.totalFinal : f.total), "total"));
-    cue.appendChild(tot);
+
+    // Sección: Productos normales
+    if (normales.length) {
+      cue.appendChild(el("div", "cn-fsec", "📦 Productos"));
+      const lis = el("div", "cn-flis");
+      normales.forEach((p) => lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio))));
+      cue.appendChild(lis);
+      const subtotal = normales.reduce((t, p) => t + (Number(p.precio) || 0), 0);
+      cue.appendChild(filaF("Total productos", dinero(subtotal), "sub"));
+    }
+
+    // Sección: Delivery base
+    const mandadoEnvio = Number(f.mandadoExtra) || 0;
+    const deliveryTotal = Number(f.delivery) || 0;
+    const deliveryBase = Math.max(0, deliveryTotal - mandadoEnvio);
+    if (deliveryBase > 0) {
+      cue.appendChild(filaF("🛵 Delivery base", dinero(deliveryBase)));
+    }
+
+    // Sección: Mandado Extra (productos con "➕" + envío extra)
+    if (tieneExtras) {
+      cue.appendChild(el("div", "cn-fsec", "➕ Mandado Extra"));
+      if (extras.length) {
+        const lisEx = el("div", "cn-flis");
+        extras.forEach((p) => lisEx.appendChild(filaF(String(p.nombre).replace(/^➕\s*/, ""), dinero(p.precio))));
+        cue.appendChild(lisEx);
+        const subExtras = extras.reduce((t, p) => t + (Number(p.precio) || 0), 0);
+        cue.appendChild(filaF("Total mandado (productos)", dinero(subExtras), "sub"));
+      }
+      if (mandadoEnvio > 0) {
+        cue.appendChild(filaF("Envío extra del mandado", dinero(mandadoEnvio)));
+      }
+    }
+
+    // Prioridad
+    if (Number(f.prioridad) > 0) {
+      cue.appendChild(filaF("⚡ Prioridad", dinero(f.prioridad)));
+    }
+
+    // GRAN TOTAL
+    cue.appendChild(filaF("GRAN TOTAL", dinero(f.totalFinal != null ? f.totalFinal : f.total), "total"));
+
     if (f.pedido) {
       const cod = el("div", "cn-fcod");
       cod.appendChild(el("small", "", "Código de retiro"));
@@ -2575,7 +2591,6 @@ const ChatsEntrantes = (() => {
       img.src = url;
     });
   }
-  /* FASE 1 · lógica centralizada de subida: la comparten Cámara y Galería. */
   async function subirFotoChat(archivo) {
     const id = abiertoId;
     if (!archivo || !id || !mio(lista[id])) return;
@@ -2621,47 +2636,10 @@ const ChatsEntrantes = (() => {
     Factura.prepararChat({ solicitudId: abiertoId, cliente: d.nombre || "" });
     irA("factura");
   });
-  /* FASE 2 · Botón "Iniciar Entrega" en el chat.
-     Va al mapa principal, activa la cámara de navegación sobre el motorizado
-     (con zoom dinámico por distancia al cliente) y arranca el rastreo guiado. */
-  $("cnIniciarEntrega").addEventListener("click", () => {
-    const id = abiertoId;
-    if (!id) return;
-    const d = lista[id];
-    if (!d) return;
-    if (!viajes[id]) {
-      crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true });
-      try { guardarViajes(); sincronizarContactos(); } catch (_) {}
-    }
-    irA("mapa");
-    seleccionar(id, false);
-    seguirme = true;
-    Camara.setModo("navegacion");
-    Camara.refrescarBoton();
-    Camara.actualizar(true);
-    setEstado("🛵 Navegación activa · siguiendo tu posición", "ok");
-  });
-  async function enviarFactura(f) {
-    const id = f && f.chatId;
-    if (!id) throw new Error("Falta el chat de destino.");
-    const d = lista[id];
-    if (!mio(d)) throw new Error("Este chat ya no está asignado a ti.");
-    const fac = JSON.parse(JSON.stringify({
-      productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre), precio: Number(p.precio) || 0 })),
-      subtotal: f.subtotal, delivery: f.delivery, mandadoExtra: f.mandadoExtra || 0, prioridad: f.prioridad || 0,
-      deposito: !!f.deposito, total: f.total, totalFinal: f.totalFinal, pedido: f.pedido, cliente: f.cliente || d.nombre || ""
-    }));
-    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
-    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "factura", factura: fac, ts: TS };
-    cambios["ultimoMensaje"] = "🧾 Factura · " + dinero(f.totalFinal);
-    cambios["ultimoDe"] = "repartidor";
-    cambios["ts"] = TS;
-    cambios["facturaFinal"] = fac;
-    cambios["subfactura"] = null;
-    await db.ref(RAIZ + "/" + id).update(cambios);
-    guardarFacLocal(id, fac, fac);
-  }
-  $("cnExtras").addEventListener("click", () => {
+  /* FASE 3 · el antiguo botón ➕ (cnExtras) se reemplazó por un botón explícito
+     "Mandado Extra" (#cnMandado) junto al de "Factura". La lógica es la misma:
+     abre el formulario SubFactura para añadir tareas/compras adicionales. */
+  $("cnMandado").addEventListener("click", () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
     const reg = leerFacLocal(id), base = reg && reg.base;
@@ -2681,7 +2659,7 @@ const ChatsEntrantes = (() => {
       delivery: r2((Number(b.delivery) || 0) + c.envioExtra),
       mandadoExtra: r2((Number(b.mandadoExtra) || 0) + c.envioExtra),
       prioridad: 0, deposito: !!b.deposito, total: c.gran, totalFinal: c.gran, pedido: b.pedido,
-      cliente: cortar((b.cliente || d.nombre || "") + " · con mandados extra", 60)
+      cliente: cortar((b.cliente || d.nombre || "") + " · con mandado extra", 60)
     }));
     const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
     cambios["mensajes/" + clave] = { de: "repartidor", tipo: "factura", factura: cumul, ts: TS };
@@ -2750,7 +2728,7 @@ const ChatsEntrantes = (() => {
       const tot = el("div", "cn-ftot");
       tot.appendChild(filaF("Subtotal", dinero(x.subtotal)));
       tot.appendChild(filaF("Delivery", dinero(x.delivery)));
-      if (Number(x.extras) > 0) tot.appendChild(filaF("Incluye mandados extra", dinero(x.extras)));
+      if (Number(x.extras) > 0) tot.appendChild(filaF("Incluye mandado extra", dinero(x.extras)));
       tot.appendChild(filaF("Total", dinero(x.totalFinal), "total"));
       det.appendChild(tot);
       t.appendChild(det);
@@ -2781,6 +2759,43 @@ const ChatsEntrantes = (() => {
       setTimeout(() => aviso(""), 4000);
     } catch (e) { btn.disabled = false; aviso("No se pudo marcar la llegada: " + (e.code || e.message)); }
   });
+  $("cnIniciarEntrega").addEventListener("click", () => {
+    const id = abiertoId;
+    if (!id) return;
+    const d = lista[id];
+    if (!d) return;
+    if (!viajes[id]) {
+      crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true });
+      try { guardarViajes(); sincronizarContactos(); } catch (_) {}
+    }
+    irA("mapa");
+    seleccionar(id, false);
+    seguirme = true;
+    Camara.setModo("navegacion");
+    Camara.refrescarBoton();
+    Camara.actualizar(true);
+    setEstado("🛵 Navegación activa · siguiendo tu posición", "ok");
+  });
+  async function enviarFactura(f) {
+    const id = f && f.chatId;
+    if (!id) throw new Error("Falta el chat de destino.");
+    const d = lista[id];
+    if (!mio(d)) throw new Error("Este chat ya no está asignado a ti.");
+    const fac = JSON.parse(JSON.stringify({
+      productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre), precio: Number(p.precio) || 0 })),
+      subtotal: f.subtotal, delivery: f.delivery, mandadoExtra: f.mandadoExtra || 0, prioridad: f.prioridad || 0,
+      deposito: !!f.deposito, total: f.total, totalFinal: f.totalFinal, pedido: f.pedido, cliente: f.cliente || d.nombre || ""
+    }));
+    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
+    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "factura", factura: fac, ts: TS };
+    cambios["ultimoMensaje"] = "🧾 Factura · " + dinero(f.totalFinal);
+    cambios["ultimoDe"] = "repartidor";
+    cambios["ts"] = TS;
+    cambios["facturaFinal"] = fac;
+    cambios["subfactura"] = null;
+    await db.ref(RAIZ + "/" + id).update(cambios);
+    guardarFacLocal(id, fac, fac);
+  }
   $("cnEntregado").addEventListener("click", async () => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
