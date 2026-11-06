@@ -1,33 +1,33 @@
 /* ============================================================
    FACTURACIÓN — integrada en la app del repartidor
-   Basada en el sistema del ZIP (productos, delivery, mandado extra, depósito, estadísticas).
-   Cambios: sin PIN (ya hay login), campo de WhatsApp del cliente, enlace de seguimiento dentro
-   de la factura y gancho Factura.alEnviar(...) que usa repartidor.js para activar el seguimiento.
-   Va dentro de una función para no chocar con los nombres de repartidor.js.
-   FASE 2: modo "pedido asignado" (Factura.prepararPedido): el delivery lo fija el sistema, suma la prioridad
-   de C$ 10 si el cliente la aceptó y la factura se guarda en Firebase sin pasar por WhatsApp.
+   FASE 3 · El desglose visual separa explícitamente:
+     - Subtotal (productos)
+     - Delivery base
+     - ➕ Mandado Extra (si extraErrand > 0)
+     - ⚡ Prioridad (si el cliente la aceptó)
+     - TOTAL
+   El mensaje de WhatsApp ya separaba estos conceptos; solo se
+   ajustó la sección HTML del popup de la factura.
    ============================================================ */
 (function () {
 'use strict';
 window.Factura = {
     alEnviar: null, nombreRepartidor: '', contactos: [], nuevoCodigo: () => getUniqueCode(), refrescarContactos: () => refrescarContactos(),
-    /* Pedidos asignados por el administrador: los conecta repartidor.js */
-    alEnviarPedido: null,           // async (factura) → guarda la factura en Firebase para el cliente
-    alTerminarPedido: null,         // (factura) → se llama al cerrar la ventana de una factura ya enviada
-    prioridadExtra: () => 0,        // C$ de prioridad que aceptó el cliente (10 o 0)
+    alEnviarPedido: null,
+    alTerminarPedido: null,
+    prioridadExtra: () => 0,
     prepararPedido: (info) => prepararPedido(info),
     salirModoPedido: (forzar) => salirModoPedido(forzar),
     enModoPedido: () => !!pedidoSistema,
     recalcular: () => calculateTotal(),
-    /* Facturas desde un chat entrante: las conecta repartidor.js (ChatsEntrantes) */
-    alEnviarChat: null,             // async (factura) → publica la factura como tarjeta en el chat del cliente
-    alTerminarChat: null,           // (factura) → se llama al cerrar la ventana de una factura ya enviada al chat
+    alEnviarChat: null,
+    alTerminarChat: null,
     prepararChat: (info) => prepararChat(info),
     salirModoChat: (forzar) => salirModoChat(forzar),
     enModoChat: () => !!chatDestino,
     chatActual: () => (chatDestino ? chatDestino.solicitudId : ''),
-    descartarChat: (id) => descartarChat(id),      // el chat terminó (entregado/cancelado/pasado): se borra su borrador
-    diaNegocio: () => getBusinessDayString(),       // mismo "día de trabajo" de las estadísticas (cambia a las 8:00)
+    descartarChat: (id) => descartarChat(id),
+    diaNegocio: () => getBusinessDayString(),
     nuevoCodigoChat: () => getUniqueCode()
   };
 
@@ -36,10 +36,10 @@ window.Factura = {
   let extraErrand = 0;
   let depositPaid = false;
   let pendingDeleteIndex = -1;
-  let pedidoSistema = null;            // {id, codigo, cliente, delivery}: factura de un pedido aceptado (delivery fijado por el sistema)
-  let chatDestino = null;              // {solicitudId, cliente}: factura que se enviará a la conversación de un cliente
-  let enviandoPedido = false;          // candado anti doble envío (pedido o chat)
-  const facturasContadas = new Set();  // cada pedido cuenta una sola vez en las estadísticas aunque se reintente el envío
+  let pedidoSistema = null;
+  let chatDestino = null;
+  let enviandoPedido = false;
+  const facturasContadas = new Set();
 
   function showCustomAlert(message) {
       document.getElementById('customAlertMessage').textContent = message;
@@ -82,7 +82,6 @@ window.Factura = {
       return now.toDateString();
   }
 
-  /* Estadísticas del día. Ya no hay PIN: el repartidor entra con su cuenta. */
   function checkSessionAndLogin() {
       const currentBusinessDay = getBusinessDayString();
 
@@ -93,7 +92,6 @@ window.Factura = {
       } else {
           dailyStats = storedStats;
       }
-
   }
 
   let dailyStats = JSON.parse(localStorage.getItem('brothersDeliveryStats')) || {
@@ -110,11 +108,6 @@ window.Factura = {
       return Array.from(bytes, (b) => abc[b % abc.length]).join('');
   }
 
-  /* Abre un enlace fuera de la app (WhatsApp).
-     - APK (Capacitor): app/navegador externo con "_system".
-     - Safari de iPhone/iPad: window.open("_system") abre una pestaña EN BLANCO y deja la app en segundo plano, donde iOS la descarta y la reinicia.
-       Se navega en la misma pestaña: Safari entrega wa.me directo a WhatsApp y al volver la app sigue ahí.
-     - Otros navegadores: pestaña nueva; si el bloqueador de ventanas la impide, se navega en la misma pestaña. */
   function abrirEnlaceExterno(url) {
       const C = window.Capacitor, nativo = !!(C && ((C.isNativePlatform && C.isNativePlatform()) || (C.getPlatform && C.getPlatform() !== 'web')));
       const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -124,18 +117,16 @@ window.Factura = {
       if (!w && !nativo) window.location.href = url;
   }
 
-  /* Borrador de la factura: si iOS descarta la pestaña y la app se reinicia, lo que ya se había armado vuelve solo */
   const CLAVE_BORRADOR = 'brothersDeliveryBorrador';
   function guardarBorrador() {
       try {
-          if (chatDestino) return guardarBorradorChat();   // cada chat conserva SU factura en curso
-          if (pedidoSistema) return;   // la factura de un pedido asignado depende de ese pedido
+          if (chatDestino) return guardarBorradorChat();
+          if (pedidoSistema) return;
           const d = { products, extraErrand, cliente: document.getElementById('customerName').value, delivery: document.getElementById('deliveryPrice').value, ts: Date.now() };
           if (!products.length && !d.cliente.trim() && !String(d.delivery).trim()) localStorage.removeItem(CLAVE_BORRADOR);
           else localStorage.setItem(CLAVE_BORRADOR, JSON.stringify(d));
       } catch (_) {}
   }
-  /* Borradores por chat: si el repartidor cambia de pantalla, de chat o la app se reinicia, la factura de cada chat sigue ahí */
   const CLAVE_BORRADORES_CHAT = 'brothersDeliveryBorradoresChat';
   const VIDA_BORRADOR_MS = 12 * 3600 * 1000;
   function leerBorradoresChat() {
@@ -174,10 +165,9 @@ window.Factura = {
       } catch (_) {}
   }
 
-  /* Enlaces de contacto abiertos (los crea repartidor.js con "Contactarme al cliente") */
   function refrescarContactos() {
       const fila = document.getElementById('contactoFila'), sel = document.getElementById('contactoSel');
-      if (pedidoSistema || chatDestino) { fila.style.display = 'none'; return; }   // la factura de un pedido ya tiene su enlace
+      if (pedidoSistema || chatDestino) { fila.style.display = 'none'; return; }
       const cs = window.Factura.contactos || [], previo = sel.value;
       fila.style.display = cs.length ? '' : 'none';
       sel.innerHTML = '<option value="">🆕 Pedido nuevo (enlace nuevo)</option>' +
@@ -220,12 +210,10 @@ window.Factura = {
 
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-  /* Precio base del delivery: en un pedido asignado lo fija el sistema; si no, lo escribe el repartidor */
   function deliveryBase() {
       if (pedidoSistema) return Number(pedidoSistema.delivery) || 0;
       return parseFloat(document.getElementById('deliveryPrice').value) || 0;
   }
-  /* Cargo extra de prioridad (C$) que aceptó el cliente: solo aplica a la factura de un pedido asignado */
   function prioridadActual() {
       if (!pedidoSistema) return 0;
       const f = window.Factura.prioridadExtra;
@@ -265,22 +253,18 @@ window.Factura = {
   }
 
   function clearDepositInvoices() {
-      if (confirm('¿Seguro que deseas limpiar la lista de facturas “Por Cobrar”?')) {
+      if (confirm('¿Seguro que deseas limpiar la lista de facturas "Por Cobrar"?')) {
           depositInvoices = [];
           persistDepositInvoices();
           renderDepositInvoices();
-          showCustomAlert('Lista “Por Cobrar” limpiada.');
+          showCustomAlert('Lista "Por Cobrar" limpiada.');
       }
   }
 
   function checkAndResetStats() {
       const currentBusinessDay = getBusinessDayString();
       if (dailyStats.businessDay !== currentBusinessDay) {
-          dailyStats = {
-              totalOrders: 0,
-              totalEarnings: 0,
-              businessDay: currentBusinessDay
-          };
+          dailyStats = { totalOrders: 0, totalEarnings: 0, businessDay: currentBusinessDay };
           localStorage.setItem('brothersDeliveryStats', JSON.stringify(dailyStats));
           document.getElementById('ivaAmount').value = '0';
           checkSessionAndLogin();
@@ -310,7 +294,6 @@ window.Factura = {
   function calculateIVA() {
       const ivaAmount = parseFloat(document.getElementById('ivaAmount').value) || 0;
       const ivaResult = document.getElementById('ivaResult');
-      
       if (ivaAmount > 0) {
           const totalWithoutIVA = dailyStats.totalEarnings - ivaAmount;
           ivaResult.style.display = 'block';
@@ -322,11 +305,7 @@ window.Factura = {
 
   function resetStats() {
       if (confirm('¿Estás seguro de reiniciar todas las estadísticas? Esta acción no se puede deshacer.')) {
-          dailyStats = {
-              totalOrders: 0,
-              totalEarnings: 0,
-              businessDay: getBusinessDayString()
-          };
+          dailyStats = { totalOrders: 0, totalEarnings: 0, businessDay: getBusinessDayString() };
           localStorage.setItem('brothersDeliveryStats', JSON.stringify(dailyStats));
           document.getElementById('ivaAmount').value = '0';
           updateStatsDisplay();
@@ -338,15 +317,9 @@ window.Factura = {
       extraErrand = amount;
       const buttons = document.querySelectorAll('.extra-errand-btn');
       buttons.forEach(btn => btn.classList.remove('active'));
-      
-      if (amount === 0) {
-          buttons[0].classList.add('active');
-      } else if (amount === 10) {
-          buttons[1].classList.add('active');
-      } else if (amount === 20) {
-          buttons[2].classList.add('active');
-      }
-      
+      if (amount === 0) buttons[0].classList.add('active');
+      else if (amount === 10) buttons[1].classList.add('active');
+      else if (amount === 20) buttons[2].classList.add('active');
       calculateTotal();
   }
 
@@ -355,15 +328,8 @@ window.Factura = {
       const priceRaw = document.getElementById('currentProductPrice').value;
       const price = priceRaw === '' ? NaN : parseFloat(priceRaw);
 
-      if (!name) {
-          showCustomAlert('Por favor, ingresa el nombre del producto.');
-          return;
-      }
-
-      if (Number.isNaN(price) || price < 0) {
-          showCustomAlert('Por favor, ingresa un precio válido (puede ser 0).');
-          return;
-      }
+      if (!name) { showCustomAlert('Por favor, ingresa el nombre del producto.'); return; }
+      if (Number.isNaN(price) || price < 0) { showCustomAlert('Por favor, ingresa un precio válido (puede ser 0).'); return; }
 
       if (editingIndex >= 0) {
           products[editingIndex] = { name, price };
@@ -417,10 +383,7 @@ window.Factura = {
 
   function calculateTotal() {
       let subtotal = 0;
-      
-      products.forEach(product => {
-          subtotal += product.price;
-      });
+      products.forEach(product => { subtotal += product.price; });
 
       const deliveryPrice = deliveryBase();
       const totalDelivery = deliveryPrice + extraErrand;
@@ -440,10 +403,7 @@ window.Factura = {
   }
 
   function promptGenerateInvoice() {
-      if (products.length === 0) {
-          showCustomAlert('Por favor, agrega al menos un producto.');
-          return;
-      }
+      if (products.length === 0) { showCustomAlert('Por favor, agrega al menos un producto.'); return; }
       document.getElementById('depositPromptPopup').classList.add('show');
   }
 
@@ -453,37 +413,30 @@ window.Factura = {
       generateInvoice();
   }
 
-  let facturaActual = null;   // factura recién generada (aún sin enviar)
+  let facturaActual = null;
 
   function generateInvoice() {
       const customerName = document.getElementById('customerName').value.trim();
-      const enPedido = !!pedidoSistema;   // pedido aceptado: usa SU código y SU enlace (el cliente ya lo está siguiendo)
-      // Si ya se abrió un enlace de contacto con este cliente, la factura usa ESE mismo enlace y código
-      const enChat = !enPedido && !!chatDestino;   // factura que va a la conversación de un cliente
+      const enPedido = !!pedidoSistema;
+      const enChat = !enPedido && !!chatDestino;
       const contacto = (enPedido || enChat) ? null : (window.Factura.contactos || []).find((x) => x.token === document.getElementById('contactoSel').value);
       const pickupCode = enPedido ? pedidoSistema.codigo : (contacto ? contacto.pedido : getUniqueCode());
       const token = enPedido ? pedidoSistema.id : (contacto ? contacto.token : crearToken());
       const link = `${URL_RASTREO}?id=${token}`;
-      // Si el pedido nació con "Contactar con el cliente", el cliente YA recibió su enlace: la factura no vuelve a poner un enlace de seguimiento
-      // (así no parece un segundo pedido). El token es el mismo, el seguimiento sigue funcionando en ese enlace.
-      const sinEnlace = !!contacto || enChat;   // en un chat no hay enlace de seguimiento: el cliente ya está en la conversación
+      const sinEnlace = !!contacto || enChat;
 
       let invoiceHTML = '<div class="invoice-header-popup">🏍️ BROTHERS DELIVERY</div>';
       invoiceHTML += '<div class="invoice-divider"></div>';
 
-      if (customerName) {
-          invoiceHTML += `<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">👤 CLIENTE: ${escHtml(customerName)}</div>`;
-      }
-
+      if (customerName) invoiceHTML += `<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">👤 CLIENTE: ${escHtml(customerName)}</div>`;
       invoiceHTML += `<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">💳 DEPÓSITO: ${depositPaid ? 'SÍ' : 'NO'}</div>`;
-
       invoiceHTML += '<div class="invoice-divider"></div>';
       invoiceHTML += '<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">📦 PRODUCTOS</div>';
       invoiceHTML += '<table class="invoice-products-table">';
 
-      const SEP = '━━━━━━━━━━';   // línea del mensaje de WhatsApp (10 caracteres, como en el formato original)
+      const SEP = '━━━━━━━━━━';
       let invoiceText = '🏍️ *BROTHERS DELIVERY*\n';
-      if (customerName) invoiceText += `Cliente: ${customerName}\n`;   // el nombre del cliente va arriba del nombre del repartidor
+      if (customerName) invoiceText += `Cliente: ${customerName}\n`;
       if (window.Factura && window.Factura.nombreRepartidor) invoiceText += `Repartidor: ${window.Factura.nombreRepartidor}\n`;
       if (depositPaid) invoiceText += 'Depósito: SÍ\n';
       invoiceText += '\n*Productos*\n';
@@ -498,40 +451,41 @@ window.Factura = {
       const subtotal = r2(products.reduce((t, p) => t + p.price, 0));
       const deliveryPrice = deliveryBase();
       const totalDelivery = r2(deliveryPrice + extraErrand);
-      const prioridad = prioridadActual();            // 10 si el cliente aceptó la prioridad, si no 0
-      const totalBase = r2(subtotal + totalDelivery); // sin prioridad (el desglose del cliente suma la prioridad aparte)
+      const prioridad = prioridadActual();
+      const totalBase = r2(subtotal + totalDelivery);
       const grandTotal = r2(totalBase + prioridad);
 
       invoiceHTML += '<div class="invoice-divider"></div>';
       invoiceHTML += '<table class="invoice-totals-table">';
       invoiceHTML += `<tr><td>Subtotal:</td><td>C$ ${subtotal.toFixed(2)}</td></tr>`;
 
+      // FASE 3 · desglose separado del delivery base y del mandado extra
+      invoiceHTML += `<tr><td>Delivery base:</td><td>C$ ${deliveryPrice.toFixed(2)}</td></tr>`;
       if (extraErrand > 0) {
-          invoiceHTML += `<tr><td>Delivery (C$ ${deliveryPrice.toFixed(2)} + Mandado Extra C$ ${extraErrand.toFixed(2)}):</td><td>C$ ${totalDelivery.toFixed(2)}</td></tr>`;
-      } else {
-          invoiceHTML += `<tr><td>Delivery:</td><td>C$ ${totalDelivery.toFixed(2)}</td></tr>`;
+          invoiceHTML += `<tr><td>➕ Mandado Extra:</td><td>C$ ${extraErrand.toFixed(2)}</td></tr>`;
       }
-
-      if (prioridad > 0) invoiceHTML += `<tr><td>⚡ Prioridad:</td><td>C$ ${prioridad.toFixed(2)}</td></tr>`;
+      if (prioridad > 0) {
+          invoiceHTML += `<tr><td>⚡ Prioridad:</td><td>C$ ${prioridad.toFixed(2)}</td></tr>`;
+      }
       invoiceHTML += `<tr class="total-row"><td>TOTAL:</td><td>C$ ${grandTotal.toFixed(2)}</td></tr>`;
       invoiceHTML += '</table>';
       invoiceHTML += `<div style="text-align:center; font-weight:700; color:var(--red); margin-top:10px; font-size:1em;">CÓDIGO DE RETIRO: ${pickupCode}</div>`;
-      if (enChat) { /* sin bloque de seguimiento: la factura viaja dentro del chat */ }
+      if (enChat) { /* sin bloque de seguimiento */ }
       else if (sinEnlace) invoiceHTML += `<div class="invoice-track"><b>📍 Seguimiento en tiempo real</b>Usa el mismo enlace de seguimiento que ya te enviamos.</div>`;
       else invoiceHTML += `<div class="invoice-track"><b>📍 Seguimiento en tiempo real</b>Toca el enlace y verás la ubicación de tu paquete en tiempo real.<div class="lnk">${escHtml(link)}</div></div>`;
       invoiceHTML += '<div class="invoice-footer">¡Vuelve a pedir con nosotros cuando quieras! 🚀 Siempre listos para ayudarte 🙌</div>';
 
       invoiceText += `\n${SEP}\n`;
       invoiceText += `Productos: C$ ${subtotal.toFixed(2)}\n`;
-      invoiceText += `Delivery: C$ ${(extraErrand > 0 ? deliveryPrice : totalDelivery).toFixed(2)}\n`;
-      if (extraErrand > 0) invoiceText += `Mandado extra: C$ ${extraErrand.toFixed(2)}\n`;
+      invoiceText += `Delivery base: C$ ${deliveryPrice.toFixed(2)}\n`;
+      if (extraErrand > 0) invoiceText += `➕ Mandado Extra: C$ ${extraErrand.toFixed(2)}\n`;
       if (prioridad > 0) invoiceText += `⚡ Prioridad: C$ ${prioridad.toFixed(2)}\n`;
       invoiceText += `*TOTAL: C$ ${grandTotal.toFixed(2)}*\n`;
       invoiceText += `*CÓDIGO DE RETIRO: ${pickupCode}*\n`;
       invoiceText += `${SEP}\n\n`;
       if (enChat) {
           invoiceText += '¡Gracias por pedir con nosotros! 🙌';
-      } else if (sinEnlace) {   // el cliente ya recibió su enlace con "Contactar con el cliente": no se manda otro
+      } else if (sinEnlace) {
           invoiceText += '📍 *Importante:* siga compartiendo su ubicación en tiempo real en el mismo enlace de seguimiento que ya le enviamos, para que su repartidor lo encuentre y su pedido llegue más rápido.';
       } else {
           invoiceText += '📍 *Importante:* abra el enlace y comparta su ubicación en tiempo real para que su repartidor lo encuentre y su pedido llegue más rápido.\n';
@@ -542,13 +496,11 @@ window.Factura = {
 
       facturaActual = {
           token, pedido: pickupCode, cliente: customerName, tel: '', texto: invoiceText, total: totalBase, totalFinal: grandTotal, delivery: totalDelivery, link,
-          // Desglose que ve el cliente en su enlace de rastreo (repartidor.js lo guarda en pedidos/{token}/detalle)
           productos: products.map((p) => ({ nombre: String(p.name), precio: Number(p.price) || 0 })),
           subtotal: subtotal, deliveryBase: deliveryPrice, mandadoExtra: extraErrand,
           prioridad, deposito: depositPaid, deSistema: enPedido, deChat: enChat, chatId: enChat ? chatDestino.solicitudId : '', enlaceYaEnviado: sinEnlace, enviada: false
       };
 
-      // En un pedido asignado la factura cuenta una sola vez, aunque haya que reintentar el envío
       const yaContada = enPedido && facturasContadas.has(token);
       if (!yaContada) {
           if (enPedido) facturasContadas.add(token);
@@ -560,7 +512,6 @@ window.Factura = {
           if (depositPaid) {
               const now = new Date();
               const createdAt = now.toLocaleString('es-ES');
-
               depositInvoices.push({
                   id: `${now.getTime()}_${Math.random().toString(16).slice(2)}`,
                   createdAt,
@@ -573,24 +524,20 @@ window.Factura = {
                   totalDelivery,
                   grandTotal
               });
-
               persistDepositInvoices();
           }
       }
 
       document.getElementById('invoicePopup').classList.add('show');
       pintarPopupPedido(enPedido || enChat);
-      if (enPedido || enChat) enviarAPedido();   // envío silencioso: sin WhatsApp, directo a la app o al chat del cliente
+      if (enPedido || enChat) enviarAPedido();
   }
 
-  /* Botón principal: la factura (con el enlace de seguimiento) va SIEMPRE al chat de WhatsApp del negocio;
-     el repartidor no tiene contacto directo con el cliente fuera de la app.
-     Además activa el seguimiento: repartidor.js crea el pedido y lleva al repartidor al mapa. */
   const NEGOCIO_WA = '50586265619';
   function enviarFacturaWhatsApp() {
       if (!facturaActual) return;
       const f = facturaActual;
-      facturaActual = null;   // evita iniciar dos veces con un doble toque
+      facturaActual = null;
       const url = `https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(f.texto)}`;
       if (window.Factura && typeof window.Factura.alEnviar === 'function') window.Factura.alEnviar(f);
       abrirEnlaceExterno(url);
@@ -619,13 +566,12 @@ window.Factura = {
       }, 600);
   }
 
-  /* ---------- Factura de un pedido asignado: delivery del sistema + envío silencioso a la app del cliente ---------- */
   function prepararPedido(info) {
       if (!info || !info.id) return;
-      chatDestino = null;   // un pedido del sistema reemplaza cualquier factura de chat en curso
+      chatDestino = null;
       const mismo = !!pedidoSistema && pedidoSistema.id === String(info.id);
       pedidoSistema = { id: String(info.id), codigo: String(info.codigo || ''), cliente: String(info.cliente || ''), delivery: r2(info.delivery) };
-      if (!mismo) {   // si el repartidor vuelve al mismo pedido, conserva lo que ya había armado
+      if (!mismo) {
           products = []; editingIndex = -1; extraErrand = 0; depositPaid = false; facturaActual = null;
           document.getElementById('currentProductName').value = '';
           document.getElementById('currentProductPrice').value = '';
@@ -667,24 +613,23 @@ window.Factura = {
       pintarModoPedido();
   }
 
-  /* ---------- Factura desde un chat entrante: delivery manual, se envía a la conversación del cliente ---------- */
   function prepararChat(info) {
       if (!info || !info.solicitudId) return;
       const mismo = !!chatDestino && chatDestino.solicitudId === String(info.solicitudId);
-      if (chatDestino && !mismo) guardarBorradorChat();   // se deja guardada la factura del chat anterior antes de cambiar
+      if (chatDestino && !mismo) guardarBorradorChat();
       pedidoSistema = null;
       const id = String(info.solicitudId);
-      let previo = leerBorradoresChat()[id];              // se lee ANTES de limpiar: el reinicio de abajo lo borraría
+      let previo = leerBorradoresChat()[id];
       if (previo && Date.now() - (Number(previo.ts) || 0) > VIDA_BORRADOR_MS) previo = null;
       chatDestino = { solicitudId: id, cliente: String(info.cliente || '') };
-      if (!mismo) {   // si el repartidor vuelve al mismo chat, conserva lo que ya había armado
+      if (!mismo) {
           products = []; editingIndex = -1; extraErrand = 0; depositPaid = false; facturaActual = null;
           document.getElementById('currentProductName').value = '';
           document.getElementById('currentProductPrice').value = '';
           document.getElementById('deliveryPrice').value = '';
           document.getElementById('customerName').value = chatDestino.cliente;
           document.querySelector('.add-product-btn').textContent = '+';
-          if (previo) {   // este chat ya tenía una factura a medias: vuelve tal cual estaba
+          if (previo) {
               products = (Array.isArray(previo.products) ? previo.products : []).filter((p) => p && typeof p.name === 'string' && typeof p.price === 'number' && p.price >= 0)
                   .map((p) => ({ name: p.name, price: p.price }));
               depositPaid = !!previo.deposito;
@@ -701,7 +646,7 @@ window.Factura = {
   function salirModoChat(forzar) {
       if (!chatDestino) return;
       if (!forzar && products.length && !confirm('¿Salir de la factura de este chat? Se descartan los productos agregados.')) return;
-      if (!forzar) descartarBorradorChat(chatDestino.solicitudId);   // salida voluntaria: se borra; en un cierre de sesión se conserva
+      if (!forzar) descartarBorradorChat(chatDestino.solicitudId);
       chatDestino = null; facturaActual = null; enviandoPedido = false;
       document.getElementById('invoicePopup').classList.remove('show');
       resetForm();
@@ -761,8 +706,8 @@ window.Factura = {
       const f = facturaActual;
       document.getElementById('invoicePopup').classList.remove('show');
       if (f && f.deChat) {
-          if (!f.enviada) return;   // no llegó al chat: se conserva el formulario para reintentar
-          descartarBorradorChat(f.chatId);   // ya está en la conversación del cliente
+          if (!f.enviada) return;
+          descartarBorradorChat(f.chatId);
           facturaActual = null;
           chatDestino = null;
           resetForm();
@@ -771,8 +716,8 @@ window.Factura = {
           return;
       }
       if (f && f.deSistema) {
-          if (!f.enviada) return;   // no llegó al cliente: se conserva el formulario para volver a generar o reintentar
-          facturaActual = null;     // enviada: se sale del modo pedido y se vuelve al mapa
+          if (!f.enviada) return;
+          facturaActual = null;
           pedidoSistema = null;
           resetForm();
           pintarModoPedido();
@@ -794,24 +739,20 @@ window.Factura = {
       document.getElementById('customerName').value = '';
       depositPaid = false;
       refrescarContactos();
-      
+
       const buttons = document.querySelectorAll('.extra-errand-btn');
       buttons.forEach(btn => btn.classList.remove('active'));
-      
+
       renderProductList();
       calculateTotal();
   }
 
   document.getElementById('invoicePopup').addEventListener('click', function(e) {
-      if (e.target === this) {
-          closePopup();
-      }
+      if (e.target === this) closePopup();
   });
 
   document.getElementById('depositPromptPopup').addEventListener('click', function(e) {
-      if (e.target === this) {
-          this.classList.remove('show');
-      }
+      if (e.target === this) this.classList.remove('show');
   });
 
   restaurarBorrador();
