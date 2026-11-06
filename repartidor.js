@@ -18,6 +18,15 @@
          - #cnFoto    → #cnInFoto    con capture="environment"
          - #cnGaleria → #cnInGaleria sin capture
        Ambas llaman a subirFotoChat(archivo) que centraliza la compresión y subida.
+
+   FASE 2 · cambios aplicados:
+     · Botón "Iniciar Entrega" (#cnIniciarEntrega) en la vista de chat, justo ARRIBA
+       de "He llegado / Entregado / Cancelar". Al pulsarlo:
+         1. Crea el viaje si no existe (fallback defensivo).
+         2. Salta al mapa principal (irA("mapa") + seleccionar).
+         3. Activa la cámara de navegación (Camara.setModo("navegacion")) que sigue
+            al motorizado con la moto en el tercio inferior y aplica ZOOM DINÁMICO
+            según la distancia al destino.
    ============================================================ */
 window.addEventListener("error", (e) => {
   const m = document.getElementById("msgLogin");
@@ -366,7 +375,6 @@ function initMapa() {
   actualizarBanner();
   ["pointerdown", "touchstart", "wheel"].forEach((ev) => mapa.getContainer().addEventListener(ev, Camara.gesto, { passive: true, capture: true }));
   mapa.on("zoomstart", Camara.alZoom);
-  /* FASE 1 · pintar rutas de solicitudes pendientes al abrir el mapa */
   try { ChatsEntrantes.pintarRutasPendientes(); } catch (_) {}
 }
 let seguirme = true;
@@ -376,7 +384,7 @@ let seguirme = true;
    Dos modos:
      - "fitbounds" (por defecto): mantiene a la vez al motorizado y al cliente.
      - "navegacion": cámara invertida tipo GPS con la moto en el tercio inferior
-       y zoom dinámico según la distancia al destino.
+       y ZOOM DINÁMICO según la distancia al destino (más cerca → más zoom).
    ============================================================ */
 const Camara = (() => {
   const SIGNO_ROTACION = 1;
@@ -1801,7 +1809,6 @@ function procesarPosicion(c) {
     ts: TS, enLinea: true, enViaje: ocupado, conPedido: ocupado, usuario
   }).catch(() => {});
   try { ChatsEntrantes.publicarGps({ lat, lng }); } catch (_) {}
-  /* FASE 1 · recalcular rutas de solicitudes pendientes con la nueva posición */
   try { ChatsEntrantes.pintarRutasPendientes(); } catch (_) {}
   const base = { lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed), ts: TS };
   orden.forEach((t) => evaluarViaje(viajes[t], base));
@@ -1947,7 +1954,7 @@ OrdenAdminRep.init({
 });
 
 /* ============================================================
-   CHATS ENTRANTES  (FASE 1 · vista previa de ruta pre-aceptación)
+   CHATS ENTRANTES
    ============================================================ */
 const ChatsEntrantes = (() => {
   const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos";
@@ -1970,7 +1977,7 @@ const ChatsEntrantes = (() => {
   let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
 
   /* FASE 1 · rutas de vista previa de cada solicitud pendiente */
-  const rutasPend = {};   // id → { linea, ts, punto, pos, dist, calculando }
+  const rutasPend = {};
 
   const termino = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
   const omitida = (d) => !!(d && d.omitidoPor && uidActual && d.omitidoPor[uidActual]);
@@ -2173,11 +2180,7 @@ const ChatsEntrantes = (() => {
     pintarRutasPendientes();
   }
 
-  /* FASE 1 · Vista previa de ruta para cada solicitud pendiente:
-     - Polyline punteada roja desde la posición actual del motorizado
-       hasta el punto del cliente.
-     - Distancia (km/m) mostrada sobre el pin 📥.
-     - Reintenta cada 20s o cuando el motorizado se mueve ~25 m. */
+  /* FASE 1 · Vista previa de ruta para cada solicitud pendiente */
   function pintarRutasPendientes() {
     if (typeof mapa === "undefined" || !mapa) return;
     if (typeof Ordenes === "undefined" || typeof Ordenes.rutaCalles !== "function") return;
@@ -2617,6 +2620,26 @@ const ChatsEntrantes = (() => {
     if (!mio(d)) return;
     Factura.prepararChat({ solicitudId: abiertoId, cliente: d.nombre || "" });
     irA("factura");
+  });
+  /* FASE 2 · Botón "Iniciar Entrega" en el chat.
+     Va al mapa principal, activa la cámara de navegación sobre el motorizado
+     (con zoom dinámico por distancia al cliente) y arranca el rastreo guiado. */
+  $("cnIniciarEntrega").addEventListener("click", () => {
+    const id = abiertoId;
+    if (!id) return;
+    const d = lista[id];
+    if (!d) return;
+    if (!viajes[id]) {
+      crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true });
+      try { guardarViajes(); sincronizarContactos(); } catch (_) {}
+    }
+    irA("mapa");
+    seleccionar(id, false);
+    seguirme = true;
+    Camara.setModo("navegacion");
+    Camara.refrescarBoton();
+    Camara.actualizar(true);
+    setEstado("🛵 Navegación activa · siguiendo tu posición", "ok");
   });
   async function enviarFactura(f) {
     const id = f && f.chatId;
