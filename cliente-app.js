@@ -1,14 +1,19 @@
 /* ============================================================
-   CLIENTE — chat tipo WhatsApp (Fase 1)
+   CLIENTE — chat tipo WhatsApp + seguimiento en vivo (Fase 1)
    Flujo:
      1) Sesión anónima de Firebase.
      2) Lee el perfil de LocalStorage. Si no existe o está dañado → genera ID único y pide el nombre.
      3) Crea (o retoma) el chat en  solicitudes_entrantes/{solicitudId}.
      4) Antes de crear el chat, un modal pregunta qué desea, de dónde, quién recibe y dónde.
-     5) Escucha el chat en vivo. El cliente solo puede escribir cuando un repartidor lo atendió
-        (estado "atendido" + repartidorUid), y solo conversa con ese repartidor.
+     5) Escucha el chat en vivo. El cliente solo puede escribir cuando un repartidor lo atendió.
      6) Cuando el estado pasa a "entregado" (o "cancelado") el chat se vacía y queda un modal
-        para valorar (1–5 estrellas) y el botón PEDIR NUEVAMENTE (crea una solicitud nueva).
+        para valorar (1–5 estrellas) y el botón PEDIR NUEVAMENTE.
+
+   FASE 1 · Seguimiento del pedido en el mapa:
+     - Pin minimalista circular blanco+color tipo WhatsApp (verde = repartidor, azul = cliente).
+     - fitBounds inteligente que muestra repartidor y cliente simultáneamente sin "sacudir" el mapa.
+     - Ruta OSRM con flechas de dirección y banner "X km · Y min · calle actual".
+     - Fallback punteado si OSRM no responde (nunca se dibuja una ruta falsa).
    ============================================================ */
 (() => {
   "use strict";
@@ -26,6 +31,8 @@
   const TYPING_MS = 1500, TYPING_CADUCA = 4000;
   const COLOR_TICK_ENVIADO = "#8696A0";
   const COLOR_TICK_LEIDO = "#25D366";
+  const COLOR_PIN_REP = "#25D366";           // verde WhatsApp = repartidor (en movimiento)
+  const COLOR_PIN_CLI = "#2F6FED";           // azul = cliente / destino
 
   const $ = (id) => document.getElementById(id);
   const db = APP.database();
@@ -46,8 +53,8 @@
   let mensajesListos = false;
   let avisadoCerca = false;
   let fotoRepUid = null;
-  let lect = {};                    
-  let typingOtro = {};              
+  let lect = {};
+  let typingOtro = {};
   let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
 
   /* ---------- Utilidades ---------- */
@@ -172,7 +179,7 @@
 
   /* ---------- Crear o retomar el chat ---------- */
   async function abrirChat() {
-    if (!perfil || !idValido(perfil.id)) {          
+    if (!perfil || !idValido(perfil.id)) {
       perfil = null;
       try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { }
       vista("vNombre");
@@ -194,7 +201,7 @@
 
     try {
       const s = await refSolicitud.once("value");
-      if (!s.exists()) return pedirDetalles();      
+      if (!s.exists()) return pedirDetalles();
     } catch (e) {
       return errorCarga("No se pudo abrir tu chat: " + (e.code || e.message));
     }
@@ -259,7 +266,7 @@
       pintarEstado(ahoraAsignado, nombreRep, d.repartidorUid);
       pintarResumen();
       iniciarGps();
-      
+
       if (ahoraAsignado && !asignado) setMapaVisible(true);
       if (!ahoraAsignado && asignado) {
         setMapaVisible(false);
@@ -271,7 +278,7 @@
       }
       if (!ahoraAsignado) avisadoCerca = false;
       asignado = ahoraAsignado;
-      
+
       if (ahoraAsignado && d.llegadaTs) avisarCerca();
       primerSnapshot = false;
     }, (e) => mostrarError("Se perdió la conexión con tu chat: " + (e.code || e.message)));
@@ -789,18 +796,23 @@
   }
 
   /* ============================================================
-     MAPA DE SEGUIMIENTO (NUEVAS FUNCIONES FASE 1)
+     MAPA DE SEGUIMIENTO DEL PEDIDO (FASE 1)
+     - Pin minimalista blanco+color tipo WhatsApp (verde = repartidor, azul = cliente)
+     - fitBounds inteligente: muestra ambos sin sacudir el mapa
+     - Ruta OSRM con flechas + banner "X km · Y min · calle actual → siguiente"
      ============================================================ */
   let mapa = null, marcaRep = null, marcaCli = null, posRep = null, encuadrado = false;
-  let capaRuta = null, ultimaRutaFetch = 0, ultimaRutaPos = null;
+  let capaRuta = null, capaFlechas = null;
+  let ultimaRutaFetch = 0, ultimaRutaPos = null, rutaDist = null, rutaDur = null, rutaCalle = "";
+  let rutaInfoTimer = null;
 
-  // Icono minimalista tipo WhatsApp
-  function iconoPinDiscreto(color, pulso = false) {
+  // Pin minimalista tipo WhatsApp: círculo blanco con anillo de color y punto central
+  function iconoPinDiscreto(color, pulso = false, clase = "") {
     return L.divIcon({
       className: "",
-      html: `<div class="pin-discreto${pulso ? " pulso" : ""}" style="--c: ${color}"></div>`,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12]
+      html: `<div class="pin-discreto${pulso ? " pulso" : ""}${clase ? " " + clase : ""}" style="--c: ${color}"></div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
     });
   }
 
@@ -831,18 +843,18 @@
     $("panelMapa").classList.toggle("oculto", !abrir);
     $("btnMapa").setAttribute("aria-expanded", String(abrir));
     if (!abrir) return;
-    
+
     if (!mapa) {
       mapa = L.map("mapaSeguir", { zoomControl: false }).setView(CENTRO_MAPA, 14);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
-      
-      // Capa para la ruta (se dibuja debajo de los marcadores)
-      capaRuta = L.polyline([], { color: "#3B82F6", weight: 6, opacity: 0.8, lineCap: "round" }).addTo(mapa);
 
-      // Pausar auto-encuadre si el usuario mueve el mapa manualmente
+      capaRuta = L.polyline([], { color: "#3B82F6", weight: 6, opacity: 0.85, lineCap: "round" }).addTo(mapa);
+      capaFlechas = L.layerGroup().addTo(mapa);
+
+      // Pausar auto-encuadre si el usuario interactúa
       mapa.on("dragstart zoomstart", () => { mapa._lastUserMove = Date.now(); });
     }
-    
+
     setTimeout(() => { mapa.invalidateSize(); encuadrado = false; actualizarMapa(); }, 60);
   }
 
@@ -861,61 +873,115 @@
     return marca;
   }
 
-  function actualizarMapa() {
-    if (!mapa || $("panelMapa").classList.contains("oculto")) return;
-    
-    const c = puntoCliente();
-    // Cliente: pin rojo. Repartidor: pin verde con pulso.
-    marcaCli = ponerMarca(marcaCli, c, iconoPinDiscreto("#E5322D"));
-    marcaRep = ponerMarca(marcaRep, posRep, iconoPinDiscreto("#25D366", true));
-    
-    $("estadoMapa").classList.toggle("oculto", !!posRep);
+  function ajustarEncuadre(pts, forzar) {
+    if (!mapa || !pts || !pts.length) return;
+    const ahora = Date.now();
+    if (!forzar && mapa._lastUserMove && ahora - mapa._lastUserMove < 8000) return;
 
-    // 1) FIT BOUNDS: Ajustar automáticamente para ver a ambos
-    const pts = [c, posRep].filter(Boolean);
-    if (pts.length === 2) {
-      // Solo auto-encuadrar si el usuario no movió el mapa en los últimos 10 segundos
-      if (!mapa._lastUserMove || Date.now() - mapa._lastUserMove > 10000) {
-        mapa.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 17, animate: true, duration: 1.0 });
-      }
-    } else if (pts.length === 1 && !encuadrado) {
-      if (!mapa._lastUserMove || Date.now() - mapa._lastUserMove > 10000) {
-        mapa.setView(pts[0], 16);
-        encuadrado = true;
-      }
+    if (pts.length === 1) {
+      if (!forzar && encuadrado) return;
+      mapa.setView(pts[0], 16, { animate: true, duration: 0.6 });
+      encuadrado = true;
+      return;
     }
 
-    // 2) TRAZADO DE RUTA
+    // ¿Ya se ven ambos con margen? → no tocar el mapa
+    if (!forzar && encuadrado) {
+      const v = mapa.getBounds();
+      const b = L.latLngBounds(pts);
+      const ne = v.getNorthEast(), sw = v.getSouthWest();
+      const neD = b.getNorthEast(), swD = b.getSouthWest();
+      const padLat = (ne.lat - sw.lat) * 0.08;
+      const padLng = (ne.lng - sw.lng) * 0.08;
+      if (neD.lat < ne.lat - padLat && swD.lat > sw.lat + padLat &&
+          neD.lng < ne.lng - padLng && swD.lng > sw.lng + padLng) return;
+    }
+
+    mapa.fitBounds(L.latLngBounds(pts), {
+      padding: [50, 50],
+      maxZoom: 17,
+      animate: true,
+      duration: 0.8
+    });
+    encuadrado = true;
+  }
+
+  function actualizarMapa() {
+    if (!mapa || $("panelMapa").classList.contains("oculto")) return;
+
+    const c = puntoCliente();
+    marcaCli = ponerMarca(marcaCli, c, iconoPinDiscreto(COLOR_PIN_CLI, false, "cli"));
+    marcaRep = ponerMarca(marcaRep, posRep, iconoPinDiscreto(COLOR_PIN_REP, true, "rep"));
+
+    $("estadoMapa").classList.toggle("oculto", !!posRep);
+
+    ajustarEncuadre([c, posRep].filter(Boolean), false);
+
     if (c && posRep) {
       trazarRutaCliente(posRep, c);
     } else {
       if (capaRuta) capaRuta.setLatLngs([]);
+      if (capaFlechas) capaFlechas.clearLayers();
+      ocultarInfoRuta();
     }
   }
 
+  /* ---------- Ruta por calles con flechas e indicaciones (Fase 1) ---------- */
   async function trazarRutaCliente(rep, cli) {
     const ahora = Date.now();
-    // Throttle: No consultar OSRM más de 1 vez cada 10 segundos o si el repartidor se movió menos de 30 metros
     if (ultimaRutaPos && distanciaM(ultimaRutaPos, rep) < 30 && ahora - ultimaRutaFetch < 15000) return;
-    if (ahora - ultimaRutaFetch < 5000) return; // Límite duro de 5s
-
+    if (ahora - ultimaRutaFetch < 5000) return;
     ultimaRutaFetch = ahora;
     ultimaRutaPos = rep;
 
     try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${rep.lng},${rep.lat};${cli.lng},${cli.lat}?overview=full&geometries=geojson`;
-      const res = await fetch(url);
-      const json = await res.json();
-      
-      if (json.code === "Ok" && json.routes && json.routes[0]) {
-        const pts = json.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-        if (capaRuta) {
-          capaRuta.setLatLngs(pts);
-        }
+      // Ruta.pedir (buscador.js) → OSRM con steps=true (calles + distancias + maniobras)
+      if (typeof Ruta === "undefined" || typeof Ruta.pedir !== "function") throw new Error("módulo Ruta no disponible");
+      const r = await Ruta.pedir(rep, cli);
+      if (!r || !r.pts) throw new Error("sin ruta");
+      if (capaRuta) {
+        capaRuta.setStyle({ color: "#3B82F6", dashArray: null, opacity: 0.85 });
+        capaRuta.setLatLngs([[rep.lat, rep.lng], ...r.pts]);
       }
+      // Flechas sobre la ruta (mismo helper que usa el admin/repartidor)
+      if (capaFlechas && typeof Ruta.flechas === "function") {
+        Ruta.flechas(r.pts, capaFlechas, "#3B82F6");
+      }
+      rutaDist = r.dist;
+      rutaDur = r.dur;
+      rutaCalle = (typeof Ruta.calles === "function") ? Ruta.calles(r.pasos || []) : "";
+      pintarInfoRuta();
     } catch (e) {
-      console.warn("No se pudo trazar la ruta OSRM", e);
+      console.warn("Ruta OSRM:", e && e.message);
+      // Fallback: línea punteada gris (nunca una línea azul engañosa que parezca "ruta real")
+      if (capaRuta) {
+        capaRuta.setStyle({ color: "#94A3B8", dashArray: "6 10", opacity: 0.7 });
+        capaRuta.setLatLngs([[rep.lat, rep.lng], [cli.lat, cli.lng]]);
+      }
+      if (capaFlechas) capaFlechas.clearLayers();
+      rutaDist = null; rutaDur = null; rutaCalle = "";
+      ocultarInfoRuta();
     }
+  }
+
+  function pintarInfoRuta() {
+    const el = $("rutaInfo");
+    if (!el) return;
+    if (rutaDist == null || rutaDur == null) { el.classList.add("oculto"); return; }
+    const fmtDist = rutaDist >= 1000 ? (rutaDist / 1000).toFixed(1) + " km" : Math.round(rutaDist) + " m";
+    const min = Math.max(1, Math.round(rutaDur / 60));
+    const calles = rutaCalle ? " · " + rutaCalle : "";
+    el.innerHTML = '<span class="ri-ic">🚗</span><span class="ri-txt"><b>' + fmtDist + "</b> · " + min + " min" + calles + "</span>";
+    el.classList.remove("oculto");
+    clearTimeout(rutaInfoTimer);
+    rutaInfoTimer = setTimeout(ocultarInfoRuta, 8000);
+  }
+
+  function ocultarInfoRuta() {
+    const el = $("rutaInfo");
+    if (el) el.classList.add("oculto");
+    clearTimeout(rutaInfoTimer);
+    rutaInfoTimer = null;
   }
 
   function limpiarMapa() {
@@ -923,9 +989,13 @@
       if (marcaCli) mapa.removeLayer(marcaCli);
       if (marcaRep) mapa.removeLayer(marcaRep);
       if (capaRuta) mapa.removeLayer(capaRuta);
+      if (capaFlechas) mapa.removeLayer(capaFlechas);
     }
     marcaCli = null; marcaRep = null; posRep = null; encuadrado = false;
-    capaRuta = null; ultimaRutaFetch = 0; ultimaRutaPos = null;
+    capaRuta = null; capaFlechas = null;
+    ultimaRutaFetch = 0; ultimaRutaPos = null;
+    rutaDist = null; rutaDur = null; rutaCalle = "";
+    ocultarInfoRuta();
     setMapaVisible(false);
   }
 
