@@ -58,30 +58,36 @@
     #vistaChats .cn-msg-bloq { padding: 10px 12px; border-radius: 12px; background: #FFF4CC; color: #5A4A00; font-size: 13px; font-weight: 700; }
     #vistaChats .cn-conv { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     #vistaChats .cn-conv.oculto, #vistaChats .cn-lista.oculto { display: none !important; }
-    #vistaChats .cn-cab { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #fff; border-bottom: 1px solid #E1E6EB; }
+    #vistaChats .cn-cab { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #fff; border-bottom: 1px solid #E1E6EB; flex-wrap: nowrap; }
     #vistaChats .cn-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
-    #vistaChats .cn-cab strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #vistaChats .cn-cab strong { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #vistaChats .cn-cab small { font-size: 12px; font-weight: 600; color: #5B6672; }
     #vistaChats .cn-cab small.escribiendo { color: #1E9B5A; font-style: italic; opacity: 1; }
-    #vistaChats .cn-cab button { width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 14px; flex: none; }
+    #vistaChats .cn-cab button { width: auto; height: 40px; padding: 0 10px; border-radius: 12px; font-size: 12.5px; flex: none; font-weight: 800; }
+    #vistaChats .cn-cab #cnFacturar { background: #0E141B; border-color: #0E141B; color: #fff; }
+    #vistaChats .cn-cab #cnMandado { background: linear-gradient(135deg, #F59E0B, #D97706); border: 0; color: #fff; }
+    #vistaChats .cn-cab #cnMandado:active { transform: scale(.97); }
     #vistaChats .cn-msgs { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; display: flex; flex-direction: column; gap: 3px; }
     #vistaChats .cn-dia { align-self: center; margin: 8px 0 4px; padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; color: #5B6672; }
     #vistaChats .cn-b { max-width: 82%; padding: 7px 10px 5px; border-radius: 14px; background: #fff; align-self: flex-start; border-top-left-radius: 4px; overflow-wrap: anywhere; }
     #vistaChats .cn-b.yo { align-self: flex-end; background: #D3EEFC; border-top-left-radius: 14px; border-top-right-radius: 4px; }
     #vistaChats .cn-b p { margin: 0; white-space: pre-wrap; font-size: 15px; }
     #vistaChats .cn-h { display: block; text-align: right; margin-top: 2px; font-size: 11px; font-weight: 600; color: #5B6672; }
-    #vistaChats .cn-b.fac { width: min(88%, 340px); max-width: none; padding: 0; overflow: hidden; border: 1px solid #E1E6EB; }
+    #vistaChats .cn-b.fac { width: min(90%, 360px); max-width: none; padding: 0; overflow: hidden; border: 1px solid #E1E6EB; }
     #vistaChats .cn-fcab { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 10px 14px; background: #0E141B; color: #fff; }
     #vistaChats .cn-fcab strong { font-size: 14px; font-weight: 800; }
     #vistaChats .cn-fcab span { font-size: 12px; font-weight: 600; opacity: .8; }
-    #vistaChats .cn-fcue { padding: 12px 14px; display: grid; gap: 10px; }
+    #vistaChats .cn-fcue { padding: 12px 14px; display: grid; gap: 8px; }
     #vistaChats .cn-fmeta { font-size: 12.5px; font-weight: 600; color: #5B6672; }
     #vistaChats .cn-flis, #vistaChats .cn-ftot { display: grid; gap: 5px; }
-    #vistaChats .cn-ftot { padding-top: 10px; border-top: 1px dashed #E1E6EB; }
-    #vistaChats .cn-ffil { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+    #vistaChats .cn-ftot { padding-top: 8px; }
+    #vistaChats .cn-ffil { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; }
     #vistaChats .cn-ffil b { font-weight: 700; white-space: nowrap; }
-    #vistaChats .cn-ffil.total { font-size: 17px; font-weight: 800; padding-top: 6px; border-top: 2px solid #0E141B; }
-    #vistaChats .cn-fcod { text-align: center; padding: 10px; border-radius: 12px; background: #E8F6FE; font-weight: 800; }
+    #vistaChats .cn-ffil.sub { font-weight: 800; padding-top: 4px; border-top: 1px dashed #E1E6EB; }
+    #vistaChats .cn-ffil.total { font-size: 17px; font-weight: 800; padding-top: 8px; border-top: 2px solid #0E141B; margin-top: 4px; }
+    #vistaChats .cn-fsec { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #0b4a6b; padding: 6px 0 2px; border-bottom: 1px solid #E1E6EB; margin-top: 2px; }
+    #vistaChats .cn-fsec:first-child { margin-top: 0; }
+    #vistaChats .cn-fcod { text-align: center; padding: 10px; border-radius: 12px; background: #E8F6FE; font-weight: 800; margin-top: 4px; }
     #vistaChats .cn-fcod small { display: block; font-size: 12px; font-weight: 600; color: #5B6672; }
     #vistaChats .cn-fcod span { font-size: 22px; letter-spacing: 2px; }
     #vistaChats .cn-b.fac .cn-h { padding: 0 14px 8px; }
@@ -120,7 +126,7 @@
     #vistaChats .cn-reg .cn-ffil { font-size: 13px; }
     #vistaChats .cn-reg button.cn-borrar { width: auto; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; justify-self: end; }
 
-    /* ---- FASE 2 · Botón "Iniciar Entrega" prominente (arriba de He llegado/Entregado/Cancelar) ---- */
+    /* ---- FASE 2 · Botón "Iniciar Entrega" prominente ---- */
     #vistaChats .cn-iniciar {
       flex: none;
       margin: 8px 10px 0;
@@ -146,7 +152,7 @@
     #vistaChats .cn-iniciar .cn-iniciar-ico { font-size: 20px; line-height: 1; }
     @media (min-width: 700px) { #vistaChats .cn-iniciar { height: 56px; font-size: 16px; } }
 
-    /* ---- FASE 2 · chip OCUPADO visible con pulso ---- */
+    /* ---- FASE 2 · chip OCUPADO ---- */
     .chip-con-pedido { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: #25D366; color: #0E141B; font-size: 11px; font-weight: 800; vertical-align: middle; animation: pulsoChipOcupado 1.6s ease-in-out infinite; }
     .chip-con-pedido.oculto { display: none !important; }
     @keyframes pulsoChipOcupado {
@@ -186,15 +192,13 @@
     body.rep { height: var(--vvh, 100dvh); }
     body.rep > #vistaChats { min-height: 0; }
 
-    /* ---- FASE 2 · Banner turn-by-turn más legible ---- */
+    /* ---- FASE 2 · Banner turn-by-turn ---- */
     .banner-ruta .ir-txt b { display: block; font-size: 15.5px; line-height: 1.25; font-weight: 800; }
     .banner-ruta .ir-txt b + span { display: block; margin-top: 2px; font-size: 12px; opacity: .85; font-weight: 600; }
 
     /* ============================================================
        FASE 2 · RESPONSIVIDAD (tablet, laptop, desktop)
        ============================================================ */
-
-    /* Tablet (>= 700px) */
     @media (min-width: 700px) {
       body.rep { background: #dfe6ec; }
       body.rep > .barra-marca { padding: calc(16px + env(safe-area-inset-top)) 22px 16px; }
@@ -212,14 +216,13 @@
       #vistaChats .cn-dat strong { font-size: 16px; }
       #vistaChats .cn-b { font-size: 15.5px; max-width: 74%; }
       #vistaChats .cn-b p { font-size: 15.5px; }
+      #vistaChats .cn-cab button { padding: 0 14px; font-size: 13.5px; }
       .fx .invoice-container { max-width: 620px; padding: 16px; }
       .fx .fx-totales b { font-size: 16px; }
       .fx .fx-totales .gran b { font-size: 24px; }
       .fx .invoice-container .generate-btn { height: 58px; font-size: 18px; }
       .fx #savedProductsList { max-height: 34vh; }
     }
-
-    /* Laptop (>= 900px) */
     @media (min-width: 900px) {
       #vistaMapa .mapa-caja { min-height: 46dvh; }
       #vistaMapa .hoja-pedidos { max-height: 36dvh; }
@@ -238,8 +241,6 @@
       .fx .product-list-item { padding: 10px 14px 10px 16px; }
       .fx .product-list-item .name, .fx .product-list-item .price { font-size: 15px; }
     }
-
-    /* Desktop (>= 1200px) */
     @media (min-width: 1200px) {
       body.rep > #vistaFactura { max-width: 900px; margin: 0 auto; width: 100%; }
       .fx .invoice-container { max-width: 780px; padding: 24px; }
@@ -251,8 +252,6 @@
       #vistaChats .cn-lista, #vistaChats .cn-conv { max-width: 880px; }
       .banner-ruta { max-width: 900px; left: 50%; right: auto; transform: translateX(-50%); width: calc(100% - 40px); }
     }
-
-    /* Landscape móvil */
     @media (max-height: 500px) and (orientation: landscape) {
       #vistaMapa .mapa-caja { min-height: 56dvh; }
       #vistaMapa .hoja-pedidos { max-height: 40dvh; }
@@ -402,14 +401,13 @@
       <div class="cn-cab">
         <button id="cnVolver" type="button" aria-label="Volver a la lista de chats">←</button>
         <div><strong id="cnNombre">Cliente</strong><small id="cnSub">Cliente</small></div>
-        <button id="cnExtras" class="cn-ico" type="button" aria-label="Agregar mandados extra al total">➕</button>
-        <button id="cnFacturar" class="primario" type="button">🧾 Facturar</button>
+        <button id="cnFacturar" type="button">🧾 Factura</button>
+        <button id="cnMandado" type="button" aria-label="Agregar mandado extra al total">➕ Mandado Extra</button>
       </div>
       <div id="cnResumen" class="cn-resumen"></div>
       <div id="cnUltimaDir" class="cn-ultima-dir oculto">
         <div class="cn-ultima-dir-txt" id="cnUltimaDirTxt"></div>
       </div>
-      <!-- FASE 2 · Botón "Iniciar Entrega" prominente, ARRIBA de He llegado / Entregado / Cancelar -->
       <button id="cnIniciarEntrega" class="cn-iniciar" type="button" aria-label="Iniciar entrega en modo navegación">
         <span class="cn-iniciar-ico" aria-hidden="true">🛵</span>
         <span>Iniciar Entrega</span>
@@ -422,7 +420,6 @@
       <div id="cnMsgs" class="cn-msgs" role="log" aria-live="polite"></div>
       <div id="cnErr" class="cn-err oculto" role="alert"></div>
       <form id="cnForm" class="cn-comp" autocomplete="off">
-        <!-- FASE 1 · separación de cámara (📷) y galería (🖼️) -->
         <button id="cnFoto" class="cn-foto" type="button" aria-label="Tomar foto con la cámara">📷</button>
         <button id="cnGaleria" class="cn-foto" type="button" aria-label="Elegir foto de la galería">🖼️</button>
         <input id="cnInFoto" class="oculto" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
@@ -489,17 +486,17 @@
 
   <div id="modalSub" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja" style="text-align:left">
-      <h2>🧾 Sub-factura <span class="pd-etiqueta">Adiciones del cliente</span></h2>
+      <h2>➕ Mandado Extra <span class="pd-etiqueta">Compras o tareas adicionales</span></h2>
       <small id="subCab"></small>
       <div id="subSinFactura" class="ayuda oculto">Este pedido aún no tiene factura original: el total original se muestra en C$ 0.00.</div>
       <div class="pd-sub">
-        <h4>Agregar productos nuevos</h4>
-        <div class="fila-prod"><input id="subNombre" placeholder="Producto" autocomplete="off"><input id="subPrecio" type="number" inputmode="decimal" min="0" step="0.01" placeholder="C$"><button id="btnSubAgregar" class="primario" type="button" aria-label="Agregar">+</button></div>
+        <h4>Agregar tareas o compras adicionales</h4>
+        <div class="fila-prod"><input id="subNombre" placeholder="Tarea o producto" autocomplete="off"><input id="subPrecio" type="number" inputmode="decimal" min="0" step="0.01" placeholder="C$"><button id="btnSubAgregar" class="primario" type="button" aria-label="Agregar">+</button></div>
         <div id="subItems"></div>
-        <label>🛵 Envío extra por estas adiciones (C$) <input id="subEnvio" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></label>
+        <label>🛵 Costo extra del mandado (C$) <input id="subEnvio" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></label>
       </div>
       <div id="subDesglose"></div>
-      <button id="btnSubWa" class="whatsapp" type="button">Enviar sub-factura por WhatsApp</button>
+      <button id="btnSubWa" class="whatsapp" type="button">Enviar mandado extra</button>
       <button id="btnSubCerrar" class="oscuro" type="button">Listo</button>
     </div>
   </div>
