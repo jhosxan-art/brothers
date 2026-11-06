@@ -6,7 +6,7 @@
    - Si cierras la página o bloqueas el celular, el navegador NO deja sonar nada
      (para eso hacen falta notificaciones push; ver README).
    Cambia las frases aquí, en un solo lugar.
-   FASE 3 v2: se agrega solicitudAdmin() con frase propia para el panel del administrador.
+   FASE 3: se agrega solicitudAdmin() para el panel del administrador.
    ============================================================ */
 const Voz = (() => {
   const FRASES = {
@@ -133,7 +133,7 @@ const Voz = (() => {
     hablar(FRASES.solicitudPedido, { forzar: true, repetir: 2, pausaMs: 2000 });
   };
 
-  /* FASE 3 v2 · Aviso de solicitud nueva en el panel del administrador (frase propia, sin repetir) */
+  /* FASE 3 · Aviso de solicitud nueva en el panel del administrador (frase propia, sin repetir) */
   const solicitudAdmin = () => {
     try { if (navigator.vibrate) navigator.vibrate([300, 150, 300]); } catch (_) {}
     hablar(FRASES.solicitudAdmin, { forzar: true });
