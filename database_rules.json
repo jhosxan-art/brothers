@@ -461,6 +461,7 @@
     },
 
     "solicitudes_entrantes": {
+      ".indexOn": ["estado", "repartidorUid"],
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       "$solicitudId": {
         ".read": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/)",
@@ -533,7 +534,7 @@
         },
         "motivoCancelacion": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido') || (root.child('admins').child(auth.uid).exists()))",
-          ".validate": "newData.val() === 'cliente' || newData.val() === 'admin'"
+          ".validate": "newData.val() === 'cliente' || newData.val() === 'admin' || newData.val() === 'repartidor'"
         },
         "omitidoPor": {
           "$uid": {
