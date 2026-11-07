@@ -183,7 +183,6 @@ function mostrar(vista) {
   $("vistaUsuario").classList.toggle("oculto", vista !== "usuario");
   $("btnSalir").classList.toggle("oculto", vista === "login");
   $("btnChatAdmin").classList.toggle("oculto", vista !== "app");
-  $("btnFacturaVivo").classList.toggle("oculto", vista !== "app");
   if (vista !== "app") {
     ["vistaFactura", "vistaMapa", "vistaChats", "navApp"].forEach((id) => $(id).classList.add("oculto"));
   } else irA(vistaActual);
@@ -321,6 +320,8 @@ $("btnSalir").onclick = async () => {
 function initMapa() {
   if (mapa) return;
   mapa = L.map("mapaRuta", Object.assign({}, GestosMapa.opciones, Camara.opcionesMapa())).setView([12.5700, -87.1311], 14);
+  mapa.createPane("paneLugares").style.zIndex = 590;
+  mapa.createPane("paneYo").style.zIndex = 640;
   L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);
   GestosMapa.aplicar(mapa);
   mapa.on("click movestart", cerrarBusquedaRep);
@@ -427,14 +428,11 @@ const Camara = (() => {
     const d = destino();
 
     if (modo === "fitbounds") {
-      const pts = [[ultimaPos.lat, ultimaPos.lng]];
-      if (d && Number.isFinite(d.lat) && Number.isFinite(d.lng)) pts.push([d.lat, d.lng]);
-      if (pts.length === 2) {
+      const pts = puntosMulti(d);
+      if (pts.length >= 2) {
         if (!forzar) {
-          const v = mapa.getBounds();
-          const in1 = v.contains(pts[0]);
-          const in2 = v.contains(pts[1]);
-          if (in1 && in2) { refrescarBoton(); return; }
+          const vb = mapa.getBounds();
+          if (pts.every((q) => vb.contains(q))) { refrescarBoton(); return; }
         }
         mapa.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 17, animate: !forzar, duration: 0.8 });
       } else if (pts.length === 1) {
@@ -465,21 +463,22 @@ const Camara = (() => {
 function pintarYo(rumbo) {
   if (!mapa || !ultimaPos) return;
   const p = [ultimaPos.lat, ultimaPos.lng];
-  if (!marcaYo) { marcaYo = L.marker(p, { icon: iconoRepartidorNombre(usuario), zIndexOffset: 1000 }).addTo(mapa); nombreYoMarcado = usuario; }
+  if (!marcaYo) { marcaYo = L.marker(p, { icon: iconoRepartidorNombre(usuario), zIndexOffset: 1000, pane: "paneYo" }).addTo(mapa); nombreYoMarcado = usuario; }
   else {
     marcaYo.setLatLng(p);
     if (nombreYoMarcado !== usuario) { marcaYo.setIcon(iconoRepartidorNombre(usuario)); nombreYoMarcado = usuario; }
   }
   Camara.marcarIcono();
   if (rastro.length) estelaProp.setLatLngs(rastro);
+  dibujarOtras();
 }
 
 function iconoCliente(n, nombre, sel, vivo) {
   const color = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2"][(Number(n) - 1 + 6) % 6];
   return L.divIcon({
     className: "",
-    html: `<div class="pin-cli-min${sel ? " sel" : ""}${vivo ? " vivo" : ""}" style="--pin-cli-c:${color}"></div><span class="etq-cli-min"><b>${n}</b> · ${escHtml(nombre)}</span>`,
-    iconSize: [24, 24], iconAnchor: [12, 12]
+    html: `<div class="pin-cli-hit"><div class="pin-cli-min${sel ? " sel" : ""}${vivo ? " vivo" : ""}" style="--pin-cli-c:${color}"></div></div><span class="etq-cli-min"><b>${n}</b> · ${escHtml(nombre)}</span>`,
+    iconSize: [28, 28], iconAnchor: [14, 14]
   });
 }
 const iconoClienteDot = L.divIcon({ className: "", html: '<div class="marca-cliente"><span>Cliente</span></div>', iconSize: [26, 26], iconAnchor: [13, 13] });
@@ -510,27 +509,41 @@ function encuadrar(soloSeleccionado) {
   if (ultimaPos) pts.push([ultimaPos.lat, ultimaPos.lng]);
   const lista = soloSeleccionado && seleccionado ? [seleccionado] : orden;
   lista.forEach((t) => { const v = viajes[t]; if (v && v.destino) pts.push([v.destino.lat, v.destino.lng]); });
+  if (!(soloSeleccionado && seleccionado)) { try { ChatsEntrantes.puntos().forEach((p) => pts.push([p.lat, p.lng])); } catch (_) {} }
   if (guiaCliente() && !orden.length) pts.push([guiaActual.lat, guiaActual.lng]);
   const cliPed = PedidoRep.posCliente(); if (cliPed) pts.push([cliPed.lat, cliPed.lng]);
   if (pts.length > 1) mapa.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 17 });
   else if (pts.length === 1) mapa.setView(pts[0], 16);
 }
+function puntosMulti(extra) {
+  const pts = [];
+  const add = (p) => { if (p && Number.isFinite(p.lat) && Number.isFinite(p.lng)) pts.push([p.lat, p.lng]); };
+  if (ultimaPos) add(ultimaPos);
+  if (lugarDestino) { add(extra); return pts; }
+  orden.forEach((t) => { const v = viajes[t]; if (v) add(v.destino || v.cliPos); });
+  try { ChatsEntrantes.puntos().forEach(add); } catch (_) {}
+  try { add(PedidoRep.posCliente()); } catch (_) {}
+  add(extra);
+  return pts;
+}
 function encuadrarTodosPedidos() {
   if (!mapa) return;
-  const pts = [];
+  const pts = puntosMulti();
+  if (pts.length >= 2) mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 17 });
+  else if (pts.length === 1) mapa.setView(pts[0], 16);
+}
+const lineasOtras = {};
+function dibujarOtras() {
+  if (!mapa) return;
+  Object.keys(lineasOtras).forEach((t) => { if (!viajes[t]) { mapa.removeLayer(lineasOtras[t]); delete lineasOtras[t]; } });
   orden.forEach((t) => {
-    const v = viajes[t];
-    if (v && v.destino) pts.push([v.destino.lat, v.destino.lng]);
-    else if (v && v.cliPos) pts.push([v.cliPos.lat, v.cliPos.lng]);
+    const v = viajes[t]; if (!v) return;
+    if (t !== seleccionado && v.destino && ultimaPos) {
+      const pts = [[ultimaPos.lat, ultimaPos.lng], [v.destino.lat, v.destino.lng]];
+      if (!lineasOtras[t]) lineasOtras[t] = L.polyline(pts, { color: "#7B8794", weight: 3, opacity: .75, dashArray: "4 8", interactive: false }).addTo(mapa);
+      else lineasOtras[t].setLatLngs(pts);
+    } else if (lineasOtras[t]) { mapa.removeLayer(lineasOtras[t]); delete lineasOtras[t]; }
   });
-  const cliPed = PedidoRep.posCliente(); if (cliPed) pts.push([cliPed.lat, cliPed.lng]);
-  if (pts.length >= 2) {
-    seguirme = false; Camara.refrescarBoton();
-    mapa.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
-  } else if (pts.length === 1) {
-    seguirme = false; Camara.refrescarBoton();
-    mapa.setView(pts[0], 16);
-  }
 }
 $("btnVerTodo").onclick = () => { seguirme = false; Camara.setModo("fitbounds"); encuadrar(false); Camara.refrescarBoton(); };
 $("btnSeguir").onclick = () => {
@@ -580,6 +593,7 @@ function dibujarRuta() {
   capaRuta.setStyle({ opacity: v && v.rutaPts ? .9 : .5 });
   const clave = v && v.rutaPts ? v.token + v.rutaPts.length + (v.rutaDist || 0) : "";
   if (clave !== flechasClave) { flechasClave = clave; if (clave) Ruta.flechas(v.rutaPts, flechasOrden, "#0A86C9"); else flechasOrden.clearLayers(); }
+  dibujarOtras();
   pintarGuia();
 }
 
@@ -1033,7 +1047,7 @@ const FacturaVivo = (() => {
     navigator.vibrate && navigator.vibrate(80);
     aviso("Mandado extra de " + money2(monto) + " agregado ✓ El cliente ya lo ve.", "ok");
   }
-  $("btnFacturaVivo").onclick = () => abrir();
+  { const bfv = $("btnFacturaVivo"); if (bfv) bfv.onclick = () => abrir(); }
   $("btnFvCerrar").onclick = cerrar;
   $("btnFvAgregar").onclick = agregar;
   $("fvSel").onchange = (e) => { tokenSel = e.target.value; aviso(""); escuchar(); };
@@ -1108,6 +1122,7 @@ function quitarViaje(token) {
   renderLista(); dibujarRuta(); actualizarNav();
   try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
   if (!orden.length && vistaActual === "mapa") irA("factura");
+  else if (mapa && vistaActual === "mapa" && Camara.getModo() === "fitbounds") { seguirme = true; Camara.actualizar(true); }
 }
 
 function escucharCliente(v) {
@@ -1262,6 +1277,10 @@ function aplicarGuia(g, nueva) {
   if (v) seleccionar(v.token, true); else { seguirme = false; setTimeout(() => encuadrar(false), 200); }
 }
 
+function iconoLugarPlano(l, destacado) {
+  const ico = escHtml(Array.from(String((l && l.icono) || "📍")).slice(0, 2).join(""));
+  return L.divIcon({ className: "lg-plano-wrap", html: `<div class="lg-plano${destacado ? " dest" : ""}"><span class="lg-ic">${ico}</span><span class="lg-nom">${escHtml(String((l && l.nombre) || "").slice(0, 40))}</span></div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+}
 function pintarLugares() {
   if (!mapa) return;
   Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
@@ -1270,12 +1289,12 @@ function pintarLugares() {
     const clave = [l.nombre, l.icono].join("|");
     let m = lugarMarks[id];
     if (!m) {
-      m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: Lugares.iconoMapa(l), zIndexOffset: 100 });
+      m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: iconoLugarPlano(l), pane: "paneLugares" });
       if (verNegociosRep) m.addTo(mapa);
       m._clave = clave;
       m.bindPopup(() => `<div class="pop-rep"><strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong>${l.dir ? `<small>${escHtml(l.dir)}</small>` : ""}
         <div class="acciones-fila"><button class="mini pri" data-ir="${escHtml(id)}" type="button">🧭 Ir aquí</button></div></div>`, { offset: [0, -14], minWidth: 200 });
-    } else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(Lugares.iconoMapa(l)); m._clave = clave; } }
+    } else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(iconoLugarPlano(l)); m._clave = clave; } }
   });
 }
 let verNegociosRep = localStorage.getItem("verNegociosRep") !== "0";
@@ -1300,7 +1319,7 @@ function aplicarHoja() {
   h.classList.toggle("oculta", hojaOculta);
   b.setAttribute("aria-expanded", String(!hojaOculta));
   const n = orden.length + (OrdenAdminRep.activo() ? 1 : 0), res = OrdenAdminRep.resumen();
-  $("barraHojaTxt").textContent = hojaOculta ? "▴ " + (res || (n ? "Mostrar pedido" + (n > 1 ? "s" : "") : "Mostrar panel")) : "▾ Ocultar pedidos";
+  const vsel = viajes[seleccionado]; $("barraHojaTxt").textContent = hojaOculta ? "▴ " + (res || (n ? "Mostrar pedido" + (vsel ? " · " + String(nombreDe(vsel)).slice(0, 22) : "") : "Mostrar panel")) : "▾ Ocultar pedido";
   const c = $("barraHojaCnt"); c.textContent = n; c.classList.toggle("oculto", !n);
   if (mapa) setTimeout(() => mapa.invalidateSize(), 80);
 }
@@ -1346,7 +1365,7 @@ function pintarLugarDestino() {
   if (!mapa) return;
   if (!lugarDestino) { if (marcaLugar) { mapa.removeLayer(marcaLugar); marcaLugar = null; } return; }
   const p = [lugarDestino.lat, lugarDestino.lng];
-  const ic = lugarDestino.etiqueta ? Ordenes.pinEtiqueta(lugarDestino.clase, lugarDestino.icono, lugarDestino.nombre, lugarDestino.producto) : Lugares.iconoMapa(lugarDestino, true);
+  const ic = lugarDestino.etiqueta ? Ordenes.pinEtiqueta(lugarDestino.clase, lugarDestino.icono, lugarDestino.nombre, lugarDestino.producto) : iconoLugarPlano(lugarDestino, true);
   if (!marcaLugar) marcaLugar = L.marker(p, { icon: ic, zIndexOffset: 900 }).addTo(mapa); else { marcaLugar.setLatLng(p); marcaLugar.setIcon(ic); }
 }
 function quitarLugarDestino() {
@@ -1426,38 +1445,36 @@ function renderLista() { renderListaBase(); aplicarHoja(); }
    ============================================================ */
 function renderListaBase() {
   const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html() + htmlPedidoChat();
-  if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Haz una factura y envíala por WhatsApp para iniciar el seguimiento.</p>'); return; }
-  cont.innerHTML = delAdmin + '<p class="ayuda">Toca un pedido para verlo en el mapa. Entrégalos en el orden que prefieras.</p>' + orden.map((t, i) => {
-    const v = viajes[t];
-    const esChat = !!v.esChat;
-    const chipChat = esChat ? ' <span class="chip gris chat-tag">💬 chat</span>' : "";
-    return `<div class="pedido-card${t === seleccionado ? " sel" : ""}${esChat ? " es-chat" : ""}" data-token="${t}">
+  if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Toca un cliente en el mapa o inicia una entrega desde Pedidos.</p>'); return; }
+  const t = viajes[seleccionado] ? seleccionado : orden[0], v = viajes[t], i = orden.indexOf(t);
+  cont.innerHTML = delAdmin + `<div class="pedido-card sel${v.esChat ? " es-chat" : ""}" data-token="${t}">
       <div class="pc-top">
         <span class="pc-num">${i + 1}</span>
-        <div class="pc-datos"><strong>${escHtml(nombreDe(v))}${chipChat}</strong><small>Pedido ${escHtml(etiquetaWA(v))}</small><small class="pc-sub" id="sub-${t}"></small></div>
-        <span class="chip" id="chip-${t}"></span>
+        <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small class="pc-sub" id="sub-${t}"></small></div>
+        <div class="pc-total"><small>Factura</small><b id="tot-${t}">—</b></div>
       </div>
-      ${esChat ? "" : `<div class="pc-cobro oculto" id="cobro-${t}"></div><div class="pc-prio oculto" id="prio-${t}" style="margin:6px 0;padding:7px 10px;border-radius:10px;background:#FFF4E5;border:1.5px solid #F59E0B;color:#7c3a00;font-size:13px;font-weight:600;line-height:1.35"></div>`}
       <div class="pc-botones pc-botones-3">
         <button class="boton-chat" data-acc="chat" type="button">💬 Chat <span class="badge oculto" id="bd-${t}">0</span></button>
         <button class="oscuro" data-acc="avisar" type="button" aria-label="Avisar al cliente que llegué">📢 Avisar</button>
         <button class="primario" data-acc="entregado" type="button">✓ Entregado</button>
       </div>
-      <div class="pc-mas">
-        <button class="mini pri" data-acc="factura" type="button">🧾 Factura</button>
-        <button class="mini pri" data-acc="sub" type="button">➕ Productos <span id="subbd-${t}"></span></button>
-        <button class="mini" data-acc="wa" type="button">Reenviar al negocio</button>
-        <button class="mini oculto" data-acc="usarcli" id="usarcli-${t}" type="button">Usar ubic. del cliente</button>
-        <button class="mini peligro" data-acc="cancelar" type="button">Cancelar</button>
-      </div>
     </div>`;
-  }).join("");
   refrescarTextos();
 }
 
 /* FASE 2 · Avisar al cliente que el repartidor llegó (manual) */
 function avisarLlegada(v) {
   if (!v) return;
+  if (/^sol_/.test(v.token)) {
+    db.ref("solicitudes_entrantes/" + v.token).update({ llegadaTs: TS, llegadaPor: "manual" })
+      .then(() => {
+        setEstado("📢 Cliente avisado: repartidor llegando al destino", "ok");
+        Voz.hablar("Aviso enviado al cliente", { forzar: true });
+        navigator.vibrate && navigator.vibrate([200, 100, 200]);
+      })
+      .catch((e) => setEstado("No se pudo avisar: " + e.message, "error"));
+    return;
+  }
   const upd = { cerca: true, cercaTs: TS };
   if (v.destino) { upd.destLat = v.destino.lat; upd.destLng = v.destino.lng; }
   db.ref("pedidos/" + v.token).update(upd)
@@ -1488,11 +1505,20 @@ function textoSub(v) {
 function refrescarTextos() {
   orden.forEach((t) => {
     const v = viajes[t]; if (!v) return;
-    const sub = $("sub-" + t); if (!sub) return;
+    const sub = $("sub-" + t); if (!sub) { pintarCliente(v); return; }
     sub.textContent = textoSub(v);
     const chip = $("chip-" + t);
-    chip.textContent = v.cerca ? "Cerca" : v.sinFactura ? "Sin factura" : esVivo(v) ? "En vivo" : "En ruta";
-    chip.className = "chip " + (v.cerca ? "alerta" : "vivo");
+    if (chip) {
+      chip.textContent = v.cerca ? "Cerca" : v.sinFactura ? "Sin factura" : esVivo(v) ? "En vivo" : "En ruta";
+      chip.className = "chip " + (v.cerca ? "alerta" : "vivo");
+    }
+    const te = $("tot-" + t);
+    if (te) {
+      const cc = totalCobrar(v);
+      let tot = cc ? cc.total : null;
+      if (tot == null && v.esChat) { try { tot = ChatsEntrantes.totalFactura(t); } catch (_) {} }
+      te.textContent = tot != null ? money2(tot) : "Sin factura";
+    }
     const bd = $("bd-" + t); if (bd) { bd.textContent = v.noLeidos; bd.classList.toggle("oculto", !v.noLeidos); }
     const uc = $("usarcli-" + t); if (uc) uc.classList.toggle("oculto", !(v.destManual && v.cliPos));
     const sb = $("subbd-" + t); if (sb) sb.textContent = v.sub && v.sub.items && v.sub.items.length ? "(" + v.sub.items.length + ")" : "";
@@ -1525,7 +1551,7 @@ $("hojaPedidos").onclick = (e) => {
   const b = e.target.closest("button[data-acc]");
   if (!b) return seleccionar(v.token, true);
   const acc = b.dataset.acc;
-  if (acc === "chat") abrirChat(v);
+  if (acc === "chat") { if (!(ChatsEntrantes.abrirConv && ChatsEntrantes.abrirConv(v.token))) abrirChat(v); }
   else if (acc === "avisar") avisarLlegada(v);
   else if (acc === "entregado") cerrarViaje(v.token, "entregado");
   else if (acc === "cancelar") cerrarViaje(v.token, "cancelado");
@@ -1865,999 +1891,4 @@ $("btnContactoCancelar").onclick = () => $("modalContacto").classList.add("ocult
 const NEGOCIO_WA = "50586265619";
 function abrirWhatsApp(msg) {
   const url = `https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(msg)}`;
-  if (typeof window.abrirEnlaceExterno === "function") window.abrirEnlaceExterno(url);
-  else window.open(url, "_system");
-}
-const mensajeSeguimiento = (v) =>
-  `🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n\n` + leyendaEnlace(enlaceDe(v.token));
-
-async function cerrarViaje(token, estadoFinal) {
-  const v = viajes[token]; if (!v) return;
-  const quien = nombreDe(v);
-  if (!confirm(estadoFinal === "entregado" ? `¿Confirmar la entrega a ${quien}?` : `¿Cancelar el pedido de ${quien}?`)) return;
-  v.cerrando = true;
-  try {
-    await db.ref("pedidos/" + token).update({
-      estado: estadoFinal, lat: null, lng: null, rumbo: null, velocidad: null, precision: null,
-      destLat: null, destLng: null, distancia: null, cerca: null, cliente: null, fin: TS
-    });
-  } catch (e) { v.cerrando = false; return alert("No se pudo cerrar en la nube: " + e.message); }
-  const g = guiaCliente();
-  if (g && (!g.token || g.token === token)) {
-    const enElLugar = ultimaPos && distanciaM(ultimaPos.lat, ultimaPos.lng, g.lat, g.lng) <= 250;
-    if ((estadoFinal === "entregado" && enElLugar) || (estadoFinal === "cancelado" && g.token === token)) db.ref("guias/" + uidActual).remove().catch(() => {});
-  }
-  quitarViaje(token);
-  irA("factura");
-  if (estadoFinal === "entregado") mostrarEntregado(quien);
-}
-function mostrarEntregado(quien) {
-  const n = orden.length;
-  $("entregadoTxt").textContent = n
-    ? `Pedido de ${quien} entregado. Te ${n === 1 ? "queda 1 pedido" : "quedan " + n + " pedidos"} en ruta.`
-    : `Pedido de ${quien} entregado. No tienes más pedidos en ruta.`;
-  $("btnVerMapa").classList.toggle("oculto", !n);
-  $("modalEntregado").classList.remove("oculto");
-}
-$("btnOtraFactura").onclick = () => { $("modalEntregado").classList.add("oculto"); irA("factura"); };
-$("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); irA("mapa"); };
-
-Atras.iniciar([
-  () => Chat.cerrarCapa(),
-  () => { if (typeof ChatsEntrantes !== "undefined" && ChatsEntrantes.abierto && ChatsEntrantes.abierto()) { ChatsEntrantes.cerrarConversacion(); return true; } return false; },
-  () => { for (const id of ["modalNuevoPedido", "modalSub", "modalFacturaVivo", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
-  () => {
-    if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
-    if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
-    if ($("customAlertModal").classList.contains("show")) { closeCustomAlert(); return true; }
-    if ($("depositPromptPopup").classList.contains("show")) { $("depositPromptPopup").classList.remove("show"); return true; }
-    return false;
-  },
-  () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
-  () => { if (!$("resBusqRep").classList.contains("oculto") || document.activeElement === $("busqRep")) { cerrarBusquedaRep(); return true; } return false; },
-  () => { if (marcando) { marcando = false; $("btnMarcarDestino").classList.remove("activo"); $("avisoMarcar").classList.add("oculto"); return true; } return false; },
-  () => { if ($("invoiceContainer").style.display === "none") { hideStats(); return true; } return false; },
-  () => { if (vistaActual === "mapa" && uidActual) { irA("factura"); return true; } return false; }
-]);
-
-function nuevoPedidoAsignado(id, o) {
-  Pantalla.pedir();
-  PedidoRep.seguir(id);
-  const total = Ordenes.totalDelivery(o), sig = Ordenes.siguienteRetiro(o);
-  $("nuevoPedidoCuerpo").innerHTML = OrdenAdminRep.detallesHtml(o);
-  $("modalNuevoPedido").classList.remove("oculto");
-  hojaOculta = false; aplicarHoja();
-  Voz.hablar("Tienes un nuevo pedido" + (total ? ". Delivery " + total + " córdobas" : ""), { forzar: true });
-  navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]);
-  notificarTexto("🛵 Nuevo pedido " + etiquetaPedido(o.codigo, "app"), `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia", token: id });
-  try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
-}
-$("btnNuevoVer").onclick = () => {
-  $("modalNuevoPedido").classList.add("oculto");
-  irA("mapa");
-  if (PedidoRep.id()) cancelarNotif({ token: PedidoRep.id() });
-};
-$("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
-$("btnNuevoAceptar").onclick = async () => {
-  if (!(await OrdenAdminRep.responder("aceptado"))) return;
-  $("modalNuevoPedido").classList.add("oculto");
-  try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
-  seguirme = true;
-  Camara.setModo("fitbounds");
-  Camara.refrescarBoton();
-  irA("mapa");
-  setTimeout(() => {
-    Camara.actualizar(true);
-    const cliPed = PedidoRep.posCliente();
-    if (cliPed) {
-      const pts = [];
-      if (ultimaPos) pts.push([ultimaPos.lat, ultimaPos.lng]);
-      pts.push([cliPed.lat, cliPed.lng]);
-      if (pts.length === 2 && mapa) mapa.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 17 });
-    }
-  }, 500);
-};
-$("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado")) $("modalNuevoPedido").classList.add("oculto"); };
-OrdenAdminRep.init({
-  db, usuario: () => usuario, uid: () => uidActual,
-  alCambiar: () => { renderLista(); try { ChatsEntrantes.marcarConPedido(); } catch (_) {} },
-  alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
-  alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))
-});
-
-/* ============================================================
-   CHATS ENTRANTES (pool de WhatsApp)
-   ============================================================ */
-const ChatsEntrantes = (() => {
-  const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos";
-  const RAIZ_CLIENTES = "clientes";
-  const MAX_FOTO = 300000;
-  const CLAVE_REG = "brothersFacturasEntregadas", CLAVE_FAC = "brothersFacChat_";
-  const RADIO_LLEGADA_M = 200;
-  const TYPING_MS = 1500, TYPING_CADUCA = 4000;
-  const COLOR_TICK_ENVIADO = "#8696A0", COLOR_TICK_LEIDO = "#25D366";
-  let consulta = null, lista = {}, abiertoId = null, consultaMsgs = null, previoId = null;
-  const vistos = new Set();
-  let ultDia = null;
-  let cargada = false;
-  let ultimoConPedido = null;
-  const avisadas = new Set();
-  const tsPrevio = {};
-  const sinLeer = {};
-  const marcasSol = {}, marcasCli = {};
-  let lect = {}, typing = {}, ultimaDirCliente = null, refUltimaDir = null, refLeidos = null, refTyping = null;
-  let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
-
-  const rutasPend = {};
-
-  const termino = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
-  const omitida = (d) => !!(d && d.omitidoPor && uidActual && d.omitidoPor[uidActual]);
-  const libre = (d) => !!d && typeof d === "object" && !d.repartidorUid && !termino(d) && !omitida(d);
-  const mio = (d) => !!d && typeof d === "object" && !!uidActual && d.repartidorUid === uidActual && !termino(d);
-  const sinLeerTotal = () => Object.keys(sinLeer).reduce((t, k) => t + (mio(lista[k]) ? sinLeer[k] : 0), 0);
-  const pendientes = () => Object.keys(lista).filter((k) => libre(lista[k])).length + sinLeerTotal();
-  const activos = () => Object.keys(lista).filter((k) => mio(lista[k])).length;
-
-  function el(tag, clase, texto) {
-    const e = document.createElement(tag);
-    if (clase) e.className = clase;
-    if (texto !== undefined) e.textContent = texto;
-    return e;
-  }
-  const dinero = (n) => "C$ " + (Number(n) || 0).toFixed(2);
-  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-  const cortar = (s, n) => String(s == null ? "" : s).slice(0, n);
-  const okLL = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180;
-  const horaDe = (ts) => new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
-  function etiquetaDia(ts) {
-    const d = new Date(ts), hoy = new Date();
-    const ini = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-    const dif = Math.round((ini(hoy) - ini(d)) / 86400000);
-    return dif === 0 ? "Hoy" : dif === 1 ? "Ayer" : d.toLocaleDateString("es", { day: "numeric", month: "long" });
-  }
-  function aviso(msg) {
-    const e = $("cnErr");
-    e.textContent = msg || "";
-    e.classList.toggle("oculto", !msg);
-  }
-  function puntoDe(d) {
-    const g = d && d.clienteGps;
-    if (g && okLL(g.lat, g.lng)) return { lat: g.lat, lng: g.lng };
-    const x = d && d.pedido && d.pedido.destino;
-    return x && okLL(x.lat, x.lng) ? { lat: x.lat, lng: x.lng } : null;
-  }
-  // FASE 1 · ya no mostramos coordenadas numéricas: solo texto de "ubicación en vivo"
-  function textoDestino(d) {
-    const x = d && d.pedido && d.pedido.destino;
-    if (!x) return "Sin datos de ubicación";
-    if (x.tipo === "gps" || x.tipo === "pin") return "Ubicación en vivo del cliente";
-    return x.texto ? cortar(x.texto, 200) : "Ubicación en vivo del cliente";
-  }
-
-  let toastTimer = null, toastAccion = null;
-  function toast(ico, titulo, texto, accion, ms) {
-    $("solToastIco").textContent = ico;
-    $("solToastTit").textContent = titulo;
-    $("solToastTxt").textContent = texto;
-    toastAccion = accion || null;
-    $("solToast").classList.remove("oculto");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => $("solToast").classList.add("oculto"), ms || 6000);
-  }
-  $("solToast").addEventListener("click", () => {
-    $("solToast").classList.add("oculto");
-    const a = toastAccion; toastAccion = null;
-    if (a) a();
-  });
-
-  function iniciar() {
-    detener(true);
-    cargada = false;
-    consulta = db.ref(RAIZ).limitToLast(60);
-    consulta.on("value", (s) => {
-      lista = s.val() || {};
-      revisarCambios();
-      if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();
-      if (previoId) refrescarPrevia();
-      pintarLista();
-      pintarMapa();
-      marcarConPedido();
-      actualizarNav();
-    }, (e) => {
-      lista = {};
-      pintarLista(e && e.code === "PERMISSION_DENIED" ? "Faltan permisos en Firebase para leer los chats (reglas)." : "No se pudieron cargar los chats.");
-    });
-  }
-  function detener(conservarFactura) {
-    if (consulta) { consulta.off(); consulta = null; }
-    cerrarConversacion();
-    cerrarPrevia();
-    lista = {};
-    avisadas.clear();
-    [marcasSol, marcasCli].forEach((c) => Object.keys(c).forEach((id) => { try { mapa.removeLayer(c[id]); } catch (_) {} delete c[id]; }));
-    Object.keys(rutasPend).forEach((id) => { try { if (rutasPend[id] && rutasPend[id].linea) mapa.removeLayer(rutasPend[id].linea); } catch (_) {} delete rutasPend[id]; });
-    ultimoConPedido = null;
-    $("chipConPedido").classList.add("oculto");
-    if (!conservarFactura) { try { Factura.salirModoChat(true); } catch (_) {} }
-  }
-  function revisarCambios() {
-    Object.keys(lista).forEach((id) => {
-      if (libre(lista[id])) {
-        if (!avisadas.has(id)) { avisadas.add(id); if (cargada) anunciarSolicitud(id, lista[id]); }
-      } else avisadas.delete(id);
-    });
-    avisadas.forEach((id) => { if (!lista[id]) avisadas.delete(id); });
-    Object.keys(lista).forEach((id) => {
-      const d = lista[id], ts = Number(d && d.ts) || 0, antes = tsPrevio[id];
-      tsPrevio[id] = ts;
-      if (!mio(d) || antes === undefined || ts <= antes || d.ultimoDe !== "cliente") return;
-      mensajeDelCliente(id, d);
-    });
-    cargada = true;
-  }
-  function anunciarSolicitud(id, d) {
-    const p = d.pedido || {};
-    try { Voz.solicitud(); } catch (_) {}
-    toast("📥", "Solicitud de pedido", cortar(p.quiere || d.nombre || "Un cliente quiere hacer un pedido", 80), () => { irA("mapa"); vistaPrevia(id); }, 9000);
-    notificarTexto("📥 Solicitud de pedido", cortar(p.quiere || "Un cliente quiere hacer un pedido", 120), "Nueva solicitud", { solicitud: id });
-  }
-  function mensajeDelCliente(id, d) {
-    const visible = abiertoId === id && vistaActual === "chats" && !document.hidden;
-    if (visible) return;
-    sinLeer[id] = (sinLeer[id] || 0) + 1;
-    const nombre = cortar(d.nombre || "Cliente", 30);
-    try { Voz.hablar(d.nombre ? "El cliente " + nombre + " te ha escrito" : Voz.FRASES.mensajeCliente); } catch (_) {}
-    toast("💬", nombre, cortar(d.ultimoMensaje || "Te escribió", 90), () => { irA("chats"); abrir(id); }, 7000);
-    notificarTexto("Cliente · " + nombre, cortar(d.ultimoMensaje || "Te escribió", 120), "Nuevos chats", { solicitud: id });
-  }
-  function filaChat(id, d, esMio) {
-    const f = el("div", "cn-item" + (esMio ? "" : " nuevo"));
-    const nombre = String(d.nombre || "Cliente").slice(0, 40), p = d.pedido || {};
-    f.appendChild(el("span", "cn-av", nombre.charAt(0).toUpperCase()));
-    const dat = el("div", "cn-dat");
-    const tit = el("strong", "", nombre);
-    if (esMio && sinLeer[id]) tit.appendChild(el("span", "cn-sinleer", String(sinLeer[id])));
-    dat.appendChild(tit);
-    const ult = d.ultimoMensaje ? String(d.ultimoMensaje)
-      : esMio ? "Sin mensajes todavía"
-      : p.quiere ? cortar(p.quiere, 60) + (p.origen ? " · de " + cortar(p.origen, 40) : "") : "Quiere hacer un pedido";
-    dat.appendChild(el("small", "", ult + (d.ts ? " · " + horaDe(d.ts) : "")));
-    f.appendChild(dat);
-    const b = el("button", esMio ? "oscuro" : "cn-ver", esMio ? "Abrir" : "Ver");
-    b.type = "button";
-    b.addEventListener("click", () => (esMio ? abrir(id) : vistaPrevia(id)));
-    f.appendChild(b);
-    return f;
-  }
-  function pintarLista(error) {
-    const nuevos = $("cnNuevos"), mios = $("cnMios");
-    nuevos.textContent = ""; mios.textContent = "";
-    if (error) { nuevos.appendChild(el("div", "cn-msg-bloq", error)); return; }
-    const ids = Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object")
-      .sort((a, b) => (Number(lista[b].ts) || 0) - (Number(lista[a].ts) || 0));
-    const libres = ids.filter((k) => libre(lista[k])), mios_ = ids.filter((k) => mio(lista[k]));
-    if (!libres.length) nuevos.appendChild(el("div", "cn-vacio", "No hay chats nuevos. Cuando un cliente haga una solicitud, sonará y aparecerá aquí al instante."));
-    libres.forEach((k) => nuevos.appendChild(filaChat(k, lista[k], false)));
-    if (!mios_.length) mios.appendChild(el("div", "cn-vacio", "Aún no atiendes ningún chat."));
-    mios_.forEach((k) => mios.appendChild(filaChat(k, lista[k], true)));
-    pintarRegistro();
-  }
-  function marcarConPedido() {
-    const on = orden.length > 0
-            || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo())
-            || activos() > 0;
-    const chip = $("chipConPedido");
-    if (chip) {
-      chip.classList.toggle("oculto", !on);
-      chip.textContent = on ? "🛵 OCUPADO · CON PEDIDO" : "";
-    }
-    if (uidActual && on !== ultimoConPedido) {
-      ultimoConPedido = on;
-      db.ref("ubicaciones/" + uidActual).update({ conPedido: on, enViaje: on }).catch(() => {});
-    }
-  }
-  function publicarGps(p) {
-    if (!p || !okLL(p.lat, p.lng) || !uidActual) return;
-    Object.keys(lista).forEach((id) => {
-      if (!mio(lista[id])) return;
-      const d = lista[id];
-      const cambios = { repartidorGps: { lat: p.lat, lng: p.lng, ts: TS } };
-      if (!d.llegadaTs) {
-        const punto = puntoDe(d);
-        if (punto && distanciaM(p.lat, p.lng, punto.lat, punto.lng) <= RADIO_LLEGADA_M) {
-          cambios.llegadaTs = TS; cambios.llegadaPor = "gps";
-          cambios.llegadaLat = p.lat; cambios.llegadaLng = p.lng;
-        }
-      }
-      db.ref(RAIZ + "/" + id).update(cambios).catch(() => {});
-    });
-  }
-  function marca(coleccion, id, p, html, tam, alTocar) {
-    if (!p) { if (coleccion[id]) { mapa.removeLayer(coleccion[id]); delete coleccion[id]; } return; }
-    const ll = [p.lat, p.lng];
-    if (!coleccion[id]) {
-      coleccion[id] = L.marker(ll, { icon: L.divIcon({ className: "", html, iconSize: tam, iconAnchor: [tam[0] / 2, tam[1] / 2] }), zIndexOffset: 900 }).addTo(mapa);
-      if (alTocar) coleccion[id].on("click", alTocar);
-    } else coleccion[id].setLatLng(ll);
-  }
-  function pintarMapa() {
-    if (typeof mapa === "undefined" || !mapa) return;
-    Object.keys(lista).forEach((id) => {
-      const d = lista[id];
-      marca(marcasSol, id, libre(d) ? puntoDe(d) : null, '<div class="sol-pin calculando"><span>📥</span>…</div>', [190, 44], () => vistaPrevia(id));
-      marca(marcasCli, id, mio(d) ? puntoDe(d) : null, '<div class="sol-cli">📍 ' + escHtml(cortar(d && d.nombre || "Cliente", 20)) + "</div>", [150, 32]);
-    });
-    [marcasSol, marcasCli].forEach((c) => Object.keys(c).forEach((id) => { if (!lista[id]) { mapa.removeLayer(c[id]); delete c[id]; } }));
-    pintarRutasPendientes();
-  }
-
-  function pintarRutasPendientes() {
-    if (typeof mapa === "undefined" || !mapa) return;
-    if (typeof Ordenes === "undefined" || typeof Ordenes.rutaCalles !== "function") return;
-    const ahora = Date.now();
-    Object.keys(lista).forEach((id) => {
-      const d = lista[id];
-      const pendiente = libre(d) && ultimaPos;
-      if (!pendiente) {
-        if (rutasPend[id]) {
-          try { mapa.removeLayer(rutasPend[id].linea); } catch (_) {}
-          delete rutasPend[id];
-        }
-        return;
-      }
-      const punto = puntoDe(d);
-      if (!punto) return;
-      const prev = rutasPend[id];
-      const cambioPunto = !prev || !prev.punto || Math.abs(prev.punto.lat - punto.lat) > 0.0001 || Math.abs(prev.punto.lng - punto.lng) > 0.0001;
-      const cambioPos = !prev || !prev.pos || Math.abs(prev.pos.lat - ultimaPos.lat) > 0.00025 || Math.abs(prev.pos.lng - ultimaPos.lng) > 0.00025;
-      const expirado = !prev || ahora - prev.ts > 20000;
-      if (prev && prev.calculando) return;
-      if (!cambioPunto && !cambioPos && !expirado) return;
-
-      if (!prev) {
-        const linea = L.polyline([[ultimaPos.lat, ultimaPos.lng], [punto.lat, punto.lng]], {
-          color: "#E5322D", weight: 4, opacity: .75, dashArray: "6 10", lineCap: "round"
-        }).addTo(mapa);
-        rutasPend[id] = { linea, ts: ahora, punto, pos: { lat: ultimaPos.lat, lng: ultimaPos.lng }, calculando: true };
-      } else {
-        prev.ts = ahora;
-        prev.punto = punto;
-        prev.pos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
-        prev.calculando = true;
-      }
-      const rp = rutasPend[id];
-      Ordenes.rutaCalles({ lat: ultimaPos.lat, lng: ultimaPos.lng }, punto).then((r) => {
-        if (!rutasPend[id] || rutasPend[id] !== rp || !r) { if (rp) rp.calculando = false; return; }
-        rp.calculando = false;
-        rp.dist = r.dist;
-        rp.linea.setStyle({ color: "#E5322D", weight: 5, opacity: .9, dashArray: null });
-        rp.linea.setLatLngs([[rp.pos.lat, rp.pos.lng], ...r.pts]);
-        if (marcasSol[id]) {
-          const txt = r.dist >= 1000 ? (r.dist / 1000).toFixed(1) + " km" : Math.round(r.dist) + " m";
-          const html = '<div class="sol-pin"><span>📥</span>' + txt + '</div>';
-          try { marcasSol[id].setIcon(L.divIcon({ className: "", html, iconSize: [190, 44], iconAnchor: [95, 22] })); } catch (_) {}
-        }
-      }).catch(() => { if (rp) rp.calculando = false; });
-    });
-    Object.keys(rutasPend).forEach((id) => {
-      if (!lista[id] || !libre(lista[id]) || !ultimaPos) {
-        try { mapa.removeLayer(rutasPend[id].linea); } catch (_) {}
-        delete rutasPend[id];
-      }
-    });
-  }
-
-  function vistaPrevia(id) {
-    const d = lista[id];
-    if (mio(d)) { irA("chats"); return abrir(id); }
-    if (!libre(d)) return toast("ℹ️", "Solicitud", "Esa solicitud ya no está disponible.", null, 4000);
-    previoId = id;
-    pintarPrevia(d);
-    $("spAviso").classList.add("oculto");
-    $("spAtender").disabled = false;
-    $("modalSolicitud").classList.remove("oculto");
-  }
-  function pintarPrevia(d) {
-    const p = d.pedido || {}, c = $("spCuerpo");
-    c.textContent = "";
-    const fila = (t, v) => { const f = el("div", "sp-fila"); f.appendChild(el("small", "", t)); f.appendChild(el("b", "", v)); c.appendChild(f); };
-    fila("Cliente", cortar(d.nombre || "Cliente", 40));
-    fila("🛍️ Qué desea", p.quiere ? cortar(p.quiere, 200) : "No lo indicó (chat anterior)");
-    fila("📍 De dónde lo desea", p.origen ? cortar(p.origen, 120) : "No lo indicó");
-    fila(p.modo === "envia" ? "🎁 Lo envía a otra persona · entrega en" : "🙋 Lo recibe el cliente · ubicación", textoDestino(d));
-    const h = $("spChat"), ms = d.mensajes && typeof d.mensajes === "object" ? Object.keys(d.mensajes).sort().slice(-4).map((k) => d.mensajes[k]) : [];
-    h.textContent = "";
-    ms.forEach((m) => {
-      if (!m || typeof m !== "object") return;
-      const t = m.tipo === "foto" ? "📷 Foto" : m.tipo === "factura" ? "🧾 Factura" : cortar(m.texto, 120);
-      h.appendChild(el("p", "", (m.de === "cliente" ? "Cliente: " : "Repartidor: ") + t));
-    });
-    if (ms.length) h.insertBefore(el("small", "", "Historial del chat"), h.firstChild);
-    h.classList.toggle("oculto", !ms.length);
-  }
-  function refrescarPrevia() {
-    const d = lista[previoId];
-    if (mio(d)) return cerrarPrevia();
-    if (!libre(d)) {
-      $("spAviso").textContent = "Otro repartidor ya tomó esta solicitud.";
-      $("spAviso").classList.remove("oculto");
-      $("spAtender").disabled = true;
-    } else pintarPrevia(d);
-  }
-  function cerrarPrevia() {
-    previoId = null;
-    $("modalSolicitud").classList.add("oculto");
-  }
-  $("spCerrar").addEventListener("click", cerrarPrevia);
-  $("spAtender").addEventListener("click", () => { if (previoId) atender(previoId, $("spAtender")); });
-
-  async function atender(id, btn) {
-    if (!uidActual || !usuario) return;
-    btn.disabled = true;
-    cancelarNotif({ solicitud: id });
-    try {
-      const r = await db.ref(RAIZ + "/" + id + "/repartidorUid").transaction((cur) => (cur === null ? uidActual : undefined));
-      if (!r.committed || r.snapshot.val() !== uidActual) {
-        $("spAviso").textContent = "Otro repartidor ya tomó esta solicitud.";
-        $("spAviso").classList.remove("oculto");
-        return;
-      }
-      await db.ref(RAIZ + "/" + id).update({ estado: "atendido", repartidorNombre: usuario, atendidoTs: TS });
-      if (!mio(lista[id])) lista[id] = Object.assign({}, lista[id], { repartidorUid: uidActual, estado: "atendido", repartidorNombre: usuario });
-      cerrarPrevia();
-      marcarConPedido();
-      publicarGps(ultimaPos);
-      pintarMapa();
-      irA("chats");
-      abrir(id);
-      if (viajes[id]) {
-        setTimeout(() => {
-          irA("mapa");
-          seleccionar(id, true);
-        }, 350);
-      }
-    } catch (e) {
-      $("spAviso").textContent = "No se pudo atender el chat: " + (e.code || e.message);
-      $("spAviso").classList.remove("oculto");
-    } finally { btn.disabled = false; }
-  }
-
-  function abrir(id) {
-    const d = lista[id];
-    if (!mio(d)) return;
-    cancelarNotif({ solicitud: id });
-    cerrarConversacion();
-    abiertoId = id;
-    sinLeer[id] = 0;
-    actualizarNav();
-    aviso("");
-    const p = d.pedido || {};
-    $("cnNombre").textContent = String(d.nombre || "Cliente").slice(0, 40);
-    $("cnResumen").textContent = p.quiere ? "🛍️ " + cortar(p.quiere, 120) + " · de " + cortar(p.origen, 80) + " · 📍 " + textoDestino(d) : "";
-    $("cnLista").classList.add("oculto");
-    $("cnConv").classList.remove("oculto");
-    $("cnMsgs").textContent = "";
-    vistos.clear(); ultDia = null;
-    if (d.estado !== "atendido") {
-      db.ref(RAIZ + "/" + id).update({ estado: "atendido", repartidorNombre: usuario, atendidoTs: TS }).catch(() => {});
-    }
-    consultaMsgs = db.ref(RAIZ + "/" + id + "/mensajes").limitToLast(300);
-    consultaMsgs.on("child_added", (s) => {
-      if (vistos.has(s.key)) return;
-      vistos.add(s.key);
-      const m = s.val();
-      if (m && typeof m === "object") pintarMensaje(m, s.key);
-    }, (e) => aviso("No se pudieron leer los mensajes: " + (e.code || e.message)));
-    leerLeidos(id);
-    leerTyping(id);
-    leerUltimaDirCliente(d);
-    marcarLeidoPropio(id);
-    pintarTyping();
-  }
-  function cerrarConversacion() {
-    if (consultaMsgs) { consultaMsgs.off(); consultaMsgs = null; }
-    if (refLeidos) { refLeidos.off(); refLeidos = null; }
-    if (refTyping) { refTyping.off(); refTyping = null; }
-    if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
-    apagarTypingPropio();
-    abiertoId = null;
-    lect = {}; typing = {}; ultimaDirCliente = null;
-    $("cnConv").classList.add("oculto");
-    $("cnLista").classList.remove("oculto");
-    $("cnUltimaDir").classList.add("oculto");
-  }
-  const alFinal = () => { const c = $("cnMsgs"); c.scrollTop = c.scrollHeight; };
-  function cargarFoto(id, clave, img, listo) {
-    db.ref(RAIZ_FOTOS + "/" + id + "/" + clave).once("value").then((s) => {
-      const v = s.val();
-      if (typeof v === "string" && v.indexOf("data:image/") === 0) { img.addEventListener("load", listo, { once: true }); img.src = v; }
-      else img.alt = "Foto no disponible";
-    }).catch(() => { img.alt = "No se pudo cargar la foto"; });
-  }
-  function pintarMensaje(m, clave) {
-    const c = $("cnMsgs"), ts = Number(m.ts) || Date.now(), yo = m.de === "repartidor";
-    const pegado = c.scrollHeight - c.scrollTop - c.clientHeight < 80 || yo;
-    const dia = new Date(ts).toDateString();
-    if (dia !== ultDia) { ultDia = dia; c.appendChild(el("div", "cn-dia", etiquetaDia(ts))); }
-    const b = el("div", "cn-b" + (yo ? " yo" : ""));
-    if (m.tipo === "factura" && m.factura && typeof m.factura === "object") {
-      b.classList.add("fac");
-      b.appendChild(tarjetaFactura(m.factura));
-    } else if (m.tipo === "foto") {
-      b.classList.add("foto");
-      const img = document.createElement("img");
-      img.alt = "Cargando foto…";
-      b.appendChild(img);
-      cargarFoto(abiertoId, clave, img, () => { if (pegado) alFinal(); });
-    } else {
-      b.appendChild(el("p", "", String(m.texto || "")));
-    }
-    const h = el("span", "cn-h", horaDe(ts));
-    if (yo) {
-      const tick = document.createElement("span");
-      tick.className = "cn-tick"; tick.dataset.ts = ts; tick.textContent = "✓";
-      tick.style.color = COLOR_TICK_ENVIADO;
-      h.appendChild(document.createTextNode(" "));
-      h.appendChild(tick);
-    }
-    b.appendChild(h);
-    c.appendChild(b);
-    actualizarTicksChat();
-    if (pegado) alFinal();
-    if (!yo) marcarLeidoPropio(abiertoId);
-  }
-  function actualizarTicksChat() {
-    $("cnMsgs").querySelectorAll(".cn-tick").forEach((t) => {
-      const ts = +t.dataset.ts || 0;
-      const leido = ts > 0 && (Number(lect.cliente) || 0) >= ts;
-      t.textContent = leido ? "✓✓" : "✓";
-      t.classList.toggle("leido", leido);
-      t.style.color = leido ? COLOR_TICK_LEIDO : COLOR_TICK_ENVIADO;
-      t.title = leido ? "Leído" : "Enviado";
-    });
-  }
-  let tmLeidoPropio = null, tUltLeidoPropio = 0;
-  function marcarLeidoPropio(id) {
-    if (!id || !uidActual || document.visibilityState !== "visible") return;
-    clearTimeout(tmLeidoPropio);
-    const espera = 1500 - (Date.now() - tUltLeidoPropio);
-    if (espera > 0) { tmLeidoPropio = setTimeout(() => marcarLeidoPropio(id), espera + 50); return; }
-    tUltLeidoPropio = Date.now();
-    db.ref(RAIZ + "/" + id + "/leidos/repartidor").set(TS).catch(() => {});
-  }
-  function leerLeidos(id) {
-    if (refLeidos) { refLeidos.off(); refLeidos = null; }
-    refLeidos = db.ref(RAIZ + "/" + id + "/leidos");
-    refLeidos.on("value", (s) => {
-      const v = s.val() || {};
-      lect = { cliente: Number(v.cliente) || 0, repartidor: Number(v.repartidor) || 0 };
-      actualizarTicksChat();
-    }, () => {});
-  }
-  function marcarTypingPropio() {
-    if (!abiertoId || !uidActual) return;
-    const ahora = Date.now();
-    if (ahora - tUltTyping < TYPING_MS) {
-      clearTimeout(tmEscribiendo);
-      tmEscribiendo = setTimeout(marcarTypingPropio, TYPING_MS);
-      return;
-    }
-    tUltTyping = ahora;
-    db.ref(RAIZ + "/" + abiertoId + "/typing/repartidor").set(TS).catch(() => {});
-    clearTimeout(tmEscribiendo);
-    tmEscribiendo = setTimeout(marcarTypingPropio, TYPING_MS);
-  }
-  function apagarTypingPropio() {
-    clearTimeout(tmEscribiendo);
-    if (abiertoId) db.ref(RAIZ + "/" + abiertoId + "/typing/repartidor").remove().catch(() => {});
-    tUltTyping = 0;
-  }
-  function leerTyping(id) {
-    if (refTyping) { refTyping.off(); refTyping = null; }
-    refTyping = db.ref(RAIZ + "/" + id + "/typing");
-    refTyping.on("value", (s) => {
-      typing = s.val() || {};
-      pintarTyping();
-      clearTimeout(tmTypingRefresh);
-      const ahora = Date.now();
-      const cad = Object.entries(typing)
-        .filter(([rol]) => rol !== "repartidor")
-        .map(([, ts]) => Number(ts) + TYPING_CADUCA - ahora)
-        .filter((x) => x > 0);
-      if (cad.length) tmTypingRefresh = setTimeout(pintarTyping, Math.min(...cad) + 50);
-    }, () => {});
-  }
-  function pintarTyping() {
-    const sub = $("cnSub");
-    if (!sub) return;
-    const ahora = Date.now();
-    const cliTs = Number(typing.cliente) || 0;
-    if (cliTs > 0 && ahora - cliTs < TYPING_CADUCA) {
-      sub.textContent = "Cliente está escribiendo…";
-      sub.classList.add("escribiendo");
-    } else {
-      sub.textContent = "Cliente";
-      sub.classList.remove("escribiendo");
-    }
-  }
-  function leerUltimaDirCliente(d) {
-    if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
-    ultimaDirCliente = null;
-    $("cnUltimaDir").classList.add("oculto");
-    if (!d || !d.clienteId) return;
-    refUltimaDir = db.ref(RAIZ_CLIENTES + "/" + d.clienteId + "/ultimaDireccion");
-    refUltimaDir.on("value", (s) => {
-      const u = s.val();
-      if (!u || typeof u !== "object") { $("cnUltimaDir").classList.add("oculto"); return; }
-      if (u.tipo !== "pin" && u.tipo !== "direccion") { $("cnUltimaDir").classList.add("oculto"); return; }
-      let donde = "";
-      if (u.tipo === "direccion") donde = String(u.texto || "");
-      else if (okLL(Number(u.lat), Number(u.lng))) donde = `Pin del mapa (${Number(u.lat).toFixed(5)}, ${Number(u.lng).toFixed(5)})`;
-      if (!donde) { $("cnUltimaDir").classList.add("oculto"); return; }
-      let hace = "";
-      if (u.ts) {
-        const secs = Math.max(0, Math.round((Date.now() - Number(u.ts)) / 1000));
-        hace = secs < 60 ? "hace unos segundos" : secs < 3600 ? "hace " + Math.round(secs / 60) + " min" : secs < 86400 ? "hace " + Math.round(secs / 3600) + " h" : "hace " + Math.round(secs / 86400) + " días";
-      }
-      $("cnUltimaDirTxt").innerHTML = "📮 <b>Última dirección del cliente:</b> " + escHtml(donde) + (hace ? " (" + escHtml(hace) + ")" : "");
-      $("cnUltimaDir").classList.remove("oculto");
-      ultimaDirCliente = { tipo: u.tipo, texto: donde };
-    }, () => {});
-  }
-  function filaF(etiqueta, valor, clase) {
-    const f = el("div", "cn-ffil" + (clase ? " " + clase : ""));
-    f.appendChild(el("span", "", etiqueta));
-    f.appendChild(el("b", "", valor));
-    return f;
-  }
-
-  function tarjetaFactura(f) {
-    const caja = document.createElement("div");
-    const prods = (Array.isArray(f.productos) ? f.productos : []).filter((p) => p && typeof p === "object");
-    const extras = prods.filter((p) => String(p.nombre || "").startsWith("➕"));
-    const normales = prods.filter((p) => !String(p.nombre || "").startsWith("➕"));
-    const tieneExtras = extras.length > 0 || Number(f.mandadoExtra) > 0;
-
-    const cab = el("div", "cn-fcab");
-    cab.appendChild(el("strong", "", "🏍️ Brother’s Delivery"));
-    cab.appendChild(el("span", "", tieneExtras ? "Factura con mandado" : "Factura"));
-    caja.appendChild(cab);
-
-    const cue = el("div", "cn-fcue");
-    if (f.cliente) cue.appendChild(el("div", "cn-fmeta", "Cliente: " + String(f.cliente)));
-    if (f.deposito) cue.appendChild(el("div", "cn-fmeta", "Depósito: sí"));
-
-    if (normales.length) {
-      cue.appendChild(el("div", "cn-fsec", "📦 Productos"));
-      const lis = el("div", "cn-flis");
-      normales.forEach((p) => lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio))));
-      cue.appendChild(lis);
-      const subtotal = normales.reduce((t, p) => t + (Number(p.precio) || 0), 0);
-      cue.appendChild(filaF("Total productos", dinero(subtotal), "sub"));
-    }
-
-    const mandadoEnvio = Number(f.mandadoExtra) || 0;
-    const deliveryTotal = Number(f.delivery) || 0;
-    const deliveryBase = Math.max(0, deliveryTotal - mandadoEnvio);
-    if (deliveryBase > 0) {
-      cue.appendChild(filaF("🛵 Delivery base", dinero(deliveryBase)));
-    }
-
-    if (tieneExtras) {
-      cue.appendChild(el("div", "cn-fsec", "➕ Mandado Extra"));
-      if (extras.length) {
-        const lisEx = el("div", "cn-flis");
-        extras.forEach((p) => lisEx.appendChild(filaF(String(p.nombre).replace(/^➕\s*/, ""), dinero(p.precio))));
-        cue.appendChild(lisEx);
-        const subExtras = extras.reduce((t, p) => t + (Number(p.precio) || 0), 0);
-        cue.appendChild(filaF("Total mandado (productos)", dinero(subExtras), "sub"));
-      }
-      if (mandadoEnvio > 0) {
-        cue.appendChild(filaF("Envío extra del mandado", dinero(mandadoEnvio)));
-      }
-    }
-
-    if (Number(f.prioridad) > 0) {
-      cue.appendChild(filaF("⚡ Prioridad", dinero(f.prioridad)));
-    }
-
-    cue.appendChild(filaF("GRAN TOTAL", dinero(f.totalFinal != null ? f.totalFinal : f.total), "total"));
-
-    if (f.pedido) {
-      const cod = el("div", "cn-fcod");
-      cod.appendChild(el("small", "", "Código de retiro"));
-      cod.appendChild(el("span", "", String(f.pedido)));
-      cue.appendChild(cod);
-    }
-    caja.appendChild(cue);
-    return caja;
-  }
-  $("cnForm").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const inp = $("cnInput"), texto = inp.value.trim().slice(0, 600);
-    if (!texto || !abiertoId || !mio(lista[abiertoId])) return;
-    inp.value = ""; aviso("");
-    apagarTypingPropio();
-    const id = abiertoId, clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
-    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "texto", texto, ts: TS };
-    cambios["ultimoMensaje"] = texto.slice(0, 80);
-    cambios["ultimoDe"] = "repartidor";
-    cambios["ts"] = TS;
-    try { await db.ref(RAIZ + "/" + id).update(cambios); }
-    catch (e) { inp.value = texto; aviso("No se pudo enviar: " + (e.code || e.message)); }
-    inp.focus();
-  });
-  $("cnInput").addEventListener("input", () => { if (abiertoId) marcarTypingPropio(); });
-  if ($("cnVolver")) $("cnVolver").addEventListener("click", cerrarConversacion);
-  function comprimirImagen(archivo) {
-    return new Promise((ok, fallo) => {
-      if (!archivo || !/^image\//.test(archivo.type)) return fallo(new Error("tipo"));
-      const url = URL.createObjectURL(archivo), img = new Image();
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        let lado = 960;
-        for (let i = 0; i < 5; i++) {
-          const k = Math.min(1, lado / Math.max(img.width, img.height)), cv = document.createElement("canvas");
-          cv.width = Math.max(1, Math.round(img.width * k));
-          cv.height = Math.max(1, Math.round(img.height * k));
-          cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-          const salida = cv.toDataURL("image/jpeg", 0.7);
-          if (salida.length <= MAX_FOTO) return ok(salida);
-          lado = Math.round(lado * 0.75);
-        }
-        fallo(new Error("grande"));
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); fallo(new Error("lectura")); };
-      img.src = url;
-    });
-  }
-  async function subirFotoChat(archivo) {
-    const id = abiertoId;
-    if (!archivo || !id || !mio(lista[id])) return;
-    aviso("");
-    let foto;
-    try { foto = await comprimirImagen(archivo); }
-    catch (_) { return aviso("No se pudo preparar la foto. Prueba con otra."); }
-    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
-    cambios[RAIZ_FOTOS + "/" + id + "/" + clave] = foto;
-    cambios[RAIZ + "/" + id + "/mensajes/" + clave] = { de: "repartidor", tipo: "foto", ts: TS };
-    cambios[RAIZ + "/" + id + "/ultimoMensaje"] = "📷 Foto";
-    cambios[RAIZ + "/" + id + "/ultimoDe"] = "repartidor";
-    cambios[RAIZ + "/" + id + "/ts"] = TS;
-    try { await db.ref().update(cambios); }
-    catch (e) { aviso("No se pudo enviar la foto: " + (e.code || e.message)); }
-  }
-  $("cnFoto").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("cnInFoto").click(); });
-  $("cnGaleria").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("cnInGaleria").click(); });
-  $("cnInFoto").addEventListener("change", () => {
-    const f = $("cnInFoto").files && $("cnInFoto").files[0];
-    $("cnInFoto").value = "";
-    if (f) subirFotoChat(f);
-  });
-  $("cnInGaleria").addEventListener("change", () => {
-    const f = $("cnInGaleria").files && $("cnInGaleria").files[0];
-    $("cnInGaleria").value = "";
-    if (f) subirFotoChat(f);
-  });
-  function leerFacLocal(id) {
-    try { const o = JSON.parse(localStorage.getItem(CLAVE_FAC + id) || "null"); return o && o.actual ? o : null; } catch (_) { return null; }
-  }
-  function guardarFacLocal(id, base, actual) {
-    try { localStorage.setItem(CLAVE_FAC + id, JSON.stringify({ base, actual, ts: Date.now() })); } catch (_) {}
-  }
-  function limpiarLocal(id) {
-    try { localStorage.removeItem(CLAVE_FAC + id); } catch (_) {}
-    try { Factura.descartarChat(id); } catch (_) {}
-    delete sinLeer[id];
-  }
-  $("cnFacturar").addEventListener("click", () => {
-    const d = abiertoId && lista[abiertoId];
-    if (!mio(d)) return;
-    Factura.prepararChat({ solicitudId: abiertoId, cliente: d.nombre || "" });
-    irA("factura");
-  });
-  $("cnMandado").addEventListener("click", () => {
-    const id = abiertoId, d = id && lista[id];
-    if (!mio(d)) return;
-    const reg = leerFacLocal(id), base = reg && reg.base;
-    SubFactura.abrir(
-      { token: id, pedido: base ? base.pedido : "—", cliente: d.nombre || "", factura: base ? { subtotal: base.subtotal, delivery: base.delivery, total: base.total } : null, sub: d.subfactura || null },
-      { db, usuario: () => usuario, rutaSub: RAIZ + "/" + id + "/subfactura", alCambiar: () => {}, enviarChat: (c, sub) => enviarExtras(id, d, base, c, sub) }
-    );
-  });
-  async function enviarExtras(id, d, base, c, sub) {
-    if (!mio(lista[id])) throw new Error("Este chat ya no está asignado a ti.");
-    const b = base || { productos: [], subtotal: 0, delivery: 0, mandadoExtra: 0, prioridad: 0, deposito: false, total: 0, totalFinal: 0, cliente: d.nombre || "",
-      pedido: (typeof Factura.nuevoCodigoChat === "function" ? Factura.nuevoCodigoChat() : "") };
-    const items = (sub.items || []).map((i) => ({ nombre: "➕ " + cortar(i.nombre, 60), precio: Number(i.precio) || 0 }));
-    const cumul = JSON.parse(JSON.stringify({
-      productos: (b.productos || []).concat(items),
-      subtotal: r2((Number(b.subtotal) || 0) + c.totalSub),
-      delivery: r2((Number(b.delivery) || 0) + c.envioExtra),
-      mandadoExtra: r2((Number(b.mandadoExtra) || 0) + c.envioExtra),
-      prioridad: 0, deposito: !!b.deposito, total: c.gran, totalFinal: c.gran, pedido: b.pedido,
-      cliente: cortar((b.cliente || d.nombre || "") + " · con mandado extra", 60)
-    }));
-    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
-    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "factura", factura: cumul, ts: TS };
-    cambios["ultimoMensaje"] = "🧾 Factura actualizada · " + dinero(c.gran);
-    cambios["ultimoDe"] = "repartidor";
-    cambios["ts"] = TS;
-    cambios["facturaFinal"] = cumul;
-    await db.ref(RAIZ + "/" + id).update(cambios);
-    guardarFacLocal(id, b, cumul);
-  }
-  function leerRegistro() {
-    try { const a = JSON.parse(localStorage.getItem(CLAVE_REG) || "[]"); return Array.isArray(a) ? a.filter((x) => x && typeof x === "object") : []; } catch (_) { return []; }
-  }
-  function escribirRegistro(a) { try { localStorage.setItem(CLAVE_REG, JSON.stringify(a.slice(-300))); } catch (_) {} }
-  function registrarEntrega(id, d, reg) {
-    const a = leerRegistro();
-    if (a.some((x) => x.id === id)) return;
-    const ahora = Date.now(), dia = (typeof Factura !== "undefined" && Factura.diaNegocio) ? Factura.diaNegocio() : new Date(ahora).toDateString();
-    const orden = a.filter((x) => x.dia === dia).reduce((m, x) => Math.max(m, Number(x.orden) || 0), 0) + 1;
-    const act = reg && reg.actual, base = reg && reg.base;
-    a.push({
-      id, ts: ahora, dia, orden, cliente: cortar(d.nombre || "Cliente", 40), sinFactura: !act,
-      pedido: act ? String(act.pedido || "") : "", productos: act && Array.isArray(act.productos) ? act.productos : [],
-      subtotal: act ? Number(act.subtotal) || 0 : 0, delivery: act ? Number(act.delivery) || 0 : 0,
-      extras: act && base ? r2((Number(act.totalFinal) || 0) - (Number(base.totalFinal) || 0)) : 0,
-      totalFinal: act ? Number(act.totalFinal) || 0 : 0
-    });
-    escribirRegistro(a);
-    const r = a[a.length - 1], t = new Date(ahora);
-    if (t.getHours() < 8) t.setDate(t.getDate() - 1);
-    const iso = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
-    db.ref("facturas_historial/" + iso + "/" + id).set(JSON.parse(JSON.stringify({
-      repartidorUid: uidActual, repartidorNombre: cortar(usuario, 60), cliente: r.cliente, pedido: cortar(r.pedido, 30),
-      productos: r.productos.map((p) => ({ nombre: cortar(p.nombre, 80), precio: Number(p.precio) || 0 })),
-      subtotal: r.subtotal, delivery: r.delivery, extras: r.extras, totalFinal: r.totalFinal, orden: r.orden, sinFactura: r.sinFactura, ts: TS
-    }))).catch(() => {});
-  }
-  function pintarRegistro() {
-    const caja = $("cnRegistro");
-    caja.textContent = "";
-    const a = leerRegistro();
-    if (!a.length) { caja.appendChild(el("div", "cn-vacio", "Cuando entregues un pedido, su factura se guarda aquí.")); return; }
-    const dias = {};
-    a.forEach((x) => { (dias[x.dia] = dias[x.dia] || []).push(x); });
-    Object.keys(dias).sort((p, q) => Math.max(...dias[q].map((x) => x.ts)) - Math.max(...dias[p].map((x) => x.ts))).forEach((dia) => {
-      const grupo = dias[dia].sort((p, q) => (p.orden || 0) - (q.orden || 0));
-      caja.appendChild(el("div", "cn-dia-reg", etiquetaDia(grupo[0].ts) + " · " + grupo.length + " entrega" + (grupo.length > 1 ? "s" : "")));
-      grupo.forEach((x) => caja.appendChild(tarjetaRegistro(x)));
-    });
-  }
-  function tarjetaRegistro(x) {
-    const t = el("div", "cn-reg"), cab = el("div", "cn-reg-cab");
-    cab.appendChild(el("span", "cn-reg-num", "#" + (x.orden || "?")));
-    const dat = el("div", "");
-    dat.appendChild(el("strong", "", x.cliente || "Cliente"));
-    dat.appendChild(el("small", "", (x.pedido ? x.pedido + " · " : "") + horaDe(x.ts) + (x.sinFactura ? " · sin factura" : "")));
-    cab.appendChild(dat);
-    cab.appendChild(el("span", "cn-reg-total", dinero(x.totalFinal)));
-    t.appendChild(cab);
-    if (!x.sinFactura) {
-      const det = document.createElement("details");
-      det.appendChild(el("summary", "", "Ver detalle"));
-      const lis = el("div", "cn-flis");
-      (x.productos || []).forEach((p) => { if (p && typeof p === "object") lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio))); });
-      det.appendChild(lis);
-      const tot = el("div", "cn-ftot");
-      tot.appendChild(filaF("Subtotal", dinero(x.subtotal)));
-      tot.appendChild(filaF("Delivery", dinero(x.delivery)));
-      if (Number(x.extras) > 0) tot.appendChild(filaF("Incluye mandado extra", dinero(x.extras)));
-      tot.appendChild(filaF("Total", dinero(x.totalFinal), "total"));
-      det.appendChild(tot);
-      t.appendChild(det);
-    }
-    const bt = el("button", "peligro cn-borrar", "🗑️ Eliminar factura");
-    bt.type = "button";
-    bt.addEventListener("click", () => {
-      if (!confirm("¿Eliminar esta factura de tu registro? Solo se borra de este teléfono.")) return;
-      escribirRegistro(leerRegistro().filter((y) => !(y.id === x.id && y.ts === x.ts)));
-      pintarRegistro();
-    });
-    t.appendChild(bt);
-    return t;
-  }
-  $("cnIniciarEntrega").addEventListener("click", () => {
-    const id = abiertoId;
-    if (!id) return;
-    const d = lista[id];
-    if (!d) return;
-    if (!viajes[id]) {
-      crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true, esChat: true });
-      try { guardarViajes(); sincronizarContactos(); } catch (_) {}
-    } else { viajes[id].esChat = true; }
-    cerrarConversacion();
-    irA("mapa");
-    seleccionar(id, false);
-    seguirme = true;
-    Camara.setModo("navegacion");
-    Camara.refrescarBoton();
-    Camara.actualizar(true);
-    setEstado("🛵 Navegación activa · siguiendo tu posición", "ok");
-  });
-  async function enviarFactura(f) {
-    const id = f && f.chatId;
-    if (!id) throw new Error("Falta el chat de destino.");
-    const d = lista[id];
-    if (!mio(d)) throw new Error("Este chat ya no está asignado a ti.");
-    const fac = JSON.parse(JSON.stringify({
-      productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre), precio: Number(p.precio) || 0 })),
-      subtotal: f.subtotal, delivery: f.delivery, mandadoExtra: f.mandadoExtra || 0, prioridad: f.prioridad || 0,
-      deposito: !!f.deposito, total: f.total, totalFinal: f.totalFinal, pedido: f.pedido, cliente: f.cliente || d.nombre || ""
-    }));
-    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
-    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "factura", factura: fac, ts: TS };
-    cambios["ultimoMensaje"] = "🧾 Factura · " + dinero(f.totalFinal);
-    cambios["ultimoDe"] = "repartidor";
-    cambios["ts"] = TS;
-    cambios["facturaFinal"] = fac;
-    cambios["subfactura"] = null;
-    await db.ref(RAIZ + "/" + id).update(cambios);
-    guardarFacLocal(id, fac, fac);
-  }
-  if ($("cnEntregado")) $("cnEntregado").addEventListener("click", async () => {
-    const id = abiertoId, d = id && lista[id];
-    if (!mio(d)) return;
-    const reg = leerFacLocal(id), nombre = cortar(d.nombre || "el cliente", 40);
-    if (!confirm(reg ? "¿Confirmas que entregaste el pedido de " + nombre + "? El chat se cerrará y quedará solo su factura." : "No enviaste factura a " + nombre + ". ¿Marcar como entregado de todos modos?")) return;
-    const btn = $("cnEntregado");
-    btn.disabled = true;
-    try { await db.ref(RAIZ + "/" + id).update({ estado: "entregado", entregadoTs: TS, repartidorGps: null }); }
-    catch (e) { btn.disabled = false; return aviso("No se pudo confirmar la entrega: " + (e.code || e.message)); }
-    btn.disabled = false;
-    registrarEntrega(id, d, reg);
-    limpiarLocal(id);
-    cerrarConversacion();
-    delete lista[id].repartidorUid;
-    lista[id].estado = "entregado";
-    marcarConPedido(); pintarLista(); pintarMapa(); actualizarNav();
-    toast("✅", "Entrega registrada", "La factura de " + nombre + " quedó guardada.", null, 4500);
-  });
-  $("cnCancelar").addEventListener("click", () => { if (abiertoId && mio(lista[abiertoId])) $("modalCancelar").classList.remove("oculto"); });
-  $("cancVolver").addEventListener("click", () => $("modalCancelar").classList.add("oculto"));
-  $("cancCliente").addEventListener("click", () => resolverCancelacion("cliente"));
-  $("cancPasar").addEventListener("click", () => resolverCancelacion("pasar"));
-  async function resolverCancelacion(tipo) {
-    const id = abiertoId, d = id && lista[id];
-    $("modalCancelar").classList.add("oculto");
-    if (!mio(d)) return;
-    const cambios = tipo === "pasar"
-      ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, reasignadoTs: TS, ts: TS }
-      : { estado: "cancelado", motivoCancelacion: "cliente", canceladoTs: TS, repartidorGps: null };
-    if (tipo === "pasar") cambios["omitidoPor/" + uidActual] = true;
-    try { await db.ref(RAIZ + "/" + id).update(cambios); }
-    catch (e) { return aviso("No se pudo " + (tipo === "pasar" ? "pasar el pedido" : "cancelar") + ": " + (e.code || e.message)); }
-    limpiarLocal(id);
-    cerrarConversacion();
-    marcarConPedido();
-    toast(tipo === "pasar" ? "🔁" : "🚫", tipo === "pasar" ? "Pedido devuelto al grupo" : "Pedido cancelado", tipo === "pasar" ? "Otro repartidor lo recibirá." : "El cliente fue avisado.", null, 4500);
-  }
-  function alMostrar() {
-    pintarLista();
-    if (abiertoId) setTimeout(alFinal, 30);
-  }
-  Factura.alEnviarChat = (f) => enviarFactura(f);
-  Factura.alTerminarChat = () => irA("chats");
-  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes, cerrarConversacion, abierto: () => !!abiertoId };
-})();
-
-function ajustarViewportRep() {
-  const vv = window.visualViewport;
-  if (!vv) return;
-  const r = document.documentElement.style;
-  r.setProperty("--vvh", Math.round(vv.height) + "px");
-  r.setProperty("--vvt", Math.round(vv.offsetTop) + "px");
-  const activo = document.activeElement;
-  if (activo && (activo.tagName === "INPUT" || activo.tagName === "TEXTAREA")) {
-    setTimeout(() => activo.scrollIntoView({ block: "nearest" }), 60);
-  }
-  window.scrollTo(0, 0);
-}
-if (window.visualViewport) {
-  window.visualViewport.addEventListener("resize", ajustarViewportRep);
-  window.visualViewport.addEventListener("scroll", ajustarViewportRep);
-  ajustarViewportRep();
-}
+  if (typeof 
