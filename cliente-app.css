@@ -70,7 +70,7 @@ body.wa-cliente {
 .wa-cliente .wa-chat.oculto { display: none !important; }
 
 .wa-cliente .wa-barra {
-  display: flex; align-items: center; gap: 12px; background: #075E54; color: #fff;
+  display: flex; align-items: center; gap: 10px; max-width: 100%; overflow: hidden; box-sizing: border-box; background: #075E54; color: #fff;
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px; flex-shrink: 0;
 }
 .wa-cliente .wa-avatar {
@@ -79,7 +79,8 @@ body.wa-cliente {
 }
 .wa-cliente .wa-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .wa-cliente .wa-avatar img.oculto, .wa-cliente .wa-avatar b.oculto { display: none !important; }
-.wa-cliente .wa-titulos { display: grid; line-height: 1.2; min-width: 0; }
+.wa-cliente .wa-titulos { display: grid; line-height: 1.2; min-width: 0; flex: 1 1 0; }
+.wa-cliente .wa-titulos small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wa-cliente .wa-titulos strong { font-size: 17px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wa-cliente .wa-titulos small { font-size: 13px; font-weight: 600; opacity: .8; }
 .wa-cliente .wa-titulos small.escribiendo { color: #7CE8B5; opacity: 1; font-style: italic; }
@@ -179,15 +180,29 @@ body.wa-cliente {
 
 /* ---------- Botón «Seguir mi Pedido» (cabecera, estilo WhatsApp oficial) ---------- */
 .wa-cliente .wa-seguir {
-  margin-left: auto; height: 40px; padding: 0 16px; border: 0; border-radius: 20px; flex-shrink: 0;
+  margin-left: auto; height: 40px; padding: 0 14px; border: 0; border-radius: 20px; flex: 0 0 auto; max-width: 52%;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; overflow: hidden;
   background: #25D366; color: #06382F; font-size: 14px; font-weight: 800; white-space: nowrap;
   box-shadow: 0 2px 6px rgba(0,0,0,.25); transition: transform .12s ease, background-color .12s ease;
+}
+.wa-cliente .wa-seguir-ico { font-size: 15px; line-height: 1; }
+.wa-cliente .wa-seguir-txt { overflow: hidden; text-overflow: ellipsis; }
+/* Pantallas angostas: el botón se reduce a «Seguir» para no tapar el nombre del repartidor */
+@media (max-width: 420px) {
+  .wa-cliente .wa-barra { padding-left: 10px; padding-right: 10px; gap: 8px; }
+  .wa-cliente .wa-avatar { width: 40px; height: 40px; }
+  .wa-cliente .wa-seguir-ext { display: none; }
+  .wa-cliente .wa-seguir { padding: 0 12px; font-size: 13px; }
+}
+@media (max-width: 320px) {
+  .wa-cliente .wa-seguir-txt { display: none; }
+  .wa-cliente .wa-seguir { width: 40px; padding: 0; }
+  .wa-cliente .wa-seguir-ico { font-size: 18px; }
 }
 .wa-cliente .wa-seguir:active { transform: scale(.95); background: #1EBE5A; }
 .wa-cliente .wa-seguir:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 .wa-cliente .wa-seguir[aria-expanded="true"] { background: #128C7E; color: #fff; }
 .wa-cliente .wa-seguir.oculto { display: none !important; }
-@media (max-width: 380px) { .wa-cliente .wa-seguir { padding: 0 12px; font-size: 13px; } }
 
 /* ---------- Mapa de seguimiento ---------- */
 .wa-cliente .wa-panel-mapa.oculto { display: none !important; }
