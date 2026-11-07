@@ -1069,3 +1069,67 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
     transform: none !important;
   }
 }
+
+
+/* ===== FASE 1 · Cabecera sin deformación (chat + salir) ===== */
+.barra-marca { gap: 8px; }
+.barra-marca .titulo { flex: 1 1 auto; min-width: 0; }
+.barra-marca .titulo strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.barra-marca .salir { flex: none; width: 42px; min-width: 42px; height: 42px; aspect-ratio: 1 / 1; margin-left: 0; padding: 0; border-radius: 50%; line-height: 1; }
+.barra-marca .salir + .salir { margin-left: 0; }
+.barra-marca .salir.oculto { display: none !important; }
+.barra-marca .salir svg { width: 22px; height: 22px; display: block; flex: none; }
+
+/* ===== FASE 1 · Pedido como primer mensaje del chat ===== */
+#vistaChats .cn-resumen { text-align: center; font-weight: 800; }
+#vistaChats .cn-b.cn-pedido-ini { align-self: flex-start; width: min(92%, 380px); max-width: none; display: grid; gap: 8px; padding: 10px 12px 6px; border: 1px solid #E1E6EB; border-left: 4px solid #25D366; }
+#vistaChats .cn-pi-tit { font-size: 14px; font-weight: 800; color: #0E141B; }
+#vistaChats .cn-pi-fila { display: grid; gap: 1px; }
+#vistaChats .cn-pi-fila small { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: #5B6672; }
+#vistaChats .cn-pi-fila span { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* ===== FASE 1 · Botones 50/50: Iniciar entrega | Cancelar ===== */
+#vistaChats .cn-acciones { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 8px 10px; background: #fff; border-bottom: 1px solid #E1E6EB; box-sizing: border-box; width: 100%; }
+#vistaChats .cn-acciones button { width: 100%; min-width: 0; height: 44px; margin: 0; padding: 0 8px; border-radius: 12px; font-size: 14px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; display: flex; align-items: center; justify-content: center; gap: 6px; }
+#vistaChats .cn-acciones .cn-iniciar { border: 0; color: #fff; background: linear-gradient(135deg, #25D366 0%, #1E9B5A 100%); box-shadow: 0 3px 10px rgba(37, 211, 102, .3); letter-spacing: 0; }
+#vistaChats .cn-acciones .cn-iniciar:active { transform: scale(.98); }
+#vistaChats .cn-acciones .cn-iniciar:focus-visible { outline: 3px solid #1E9B5A; outline-offset: 2px; }
+#vistaChats .cn-acciones .cn-iniciar-ico { font-size: 17px; line-height: 1; flex: none; }
+
+
+/* ===== FASE 3 · z-index de marcadores del mapa (negocios < clientes < repartidor) ===== */
+.leaflet-paneLugares-pane { z-index: 590; }
+.leaflet-marker-pane { z-index: 600; }
+.leaflet-paneYo-pane { z-index: 640; }
+.leaflet-paneLugares-pane .leaflet-marker-icon { will-change: auto; }
+.leaflet-marker-icon.rep-yo { z-index: 10000 !important; }
+#formBusqRep input { width: 100%; }
+
+/* ===== FASE 3 · Layout 50/50 responsivo (Iniciar entrega | Cancelar) ===== */
+#vistaChats .cn-acciones { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+#vistaChats .cn-acciones > button { flex: 1 1 0; }
+@media (max-width: 360px) {
+  #vistaChats .cn-acciones { gap: 6px; padding-left: 8px; padding-right: 8px; }
+  #vistaChats .cn-acciones button { font-size: 13px; padding: 0 4px; gap: 4px; }
+  #vistaChats .cn-acciones .cn-iniciar-ico { font-size: 15px; }
+}
+@media (min-width: 700px) {
+  #vistaChats .cn-acciones { max-width: 720px; margin: 0 auto; }
+  #vistaChats .cn-acciones button { height: 48px; font-size: 15px; }
+}
+
+/* ===== FASE 3 · Barra flotante "Ocultar / Mostrar pedido" legible ===== */
+#vistaMapa .hoja-pedidos { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+#vistaMapa .hoja-pedidos .pedido-card { gap: 10px; padding: 12px; }
+#vistaMapa .hoja-pedidos .pc-datos { min-width: 0; flex: 1; }
+#vistaMapa .hoja-pedidos .pc-datos strong { display: block; font-size: 16px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#vistaMapa .hoja-pedidos .pc-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 11.5px; line-height: 1.3; color: #5B6672; }
+#vistaMapa .hoja-pedidos .pc-total { flex: none; max-width: 40%; }
+#vistaMapa .hoja-pedidos .pc-total b { font-size: 18px; color: #0E141B; }
+#vistaMapa .hoja-pedidos .pc-botones.pc-botones-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+#vistaMapa .hoja-pedidos .pc-botones.pc-botones-3 button { min-width: 0; height: 46px; padding: 0 4px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.barra-hoja #barraHojaTxt { max-width: calc(100% - 48px); }
+@media (max-width: 360px) {
+  #vistaMapa .hoja-pedidos .pc-botones.pc-botones-3 button { font-size: 12px; }
+  #vistaMapa .hoja-pedidos .pc-total b { font-size: 16px; }
+}
