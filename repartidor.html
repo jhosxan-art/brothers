@@ -275,14 +275,14 @@
       <div class="fx-cab">
         <div class="fx-campo fx-grow">
           <span class="fx-et">👤 Cliente</span>
-          <input type="text" id="customerName" placeholder="Nombre del cliente" autocomplete="off">
+          <input type="text" id="customerName" placeholder="Nombre del cliente" autocomplete="off" enterkeyhint="next">
         </div>
         <button type="button" class="stats-btn" onclick="showStats()" aria-label="Estadísticas">📊</button>
       </div>
       <div class="fx-fila2">
         <div class="fx-campo fx-delivery">
           <span class="fx-et">🛵 Delivery</span>
-          <div class="fx-moneda" id="deliveryManual"><i>C$</i><input type="number" id="deliveryPrice" value="" placeholder="0" min="0" step="0.01" oninput="calculateTotal()" inputmode="decimal"></div>
+          <div class="fx-moneda" id="deliveryManual"><i>C$</i><input type="number" id="deliveryPrice" value="" placeholder="0" min="0" step="0.01" oninput="calculateTotal()" inputmode="decimal" enterkeyhint="next"></div>
           <div class="fx-sistema" id="deliverySistema" style="display:none"><b id="deliverySistemaMonto">C$ 0.00</b><small>Precio del sistema</small></div>
         </div>
         <div class="fx-campo fx-grow">
@@ -299,8 +299,8 @@
         <div class="fx-prod">
           <div id="productInputSection">
             <div class="product-item">
-              <input type="text" placeholder="Producto" id="currentProductName" autocomplete="off">
-              <input type="number" placeholder="C$" id="currentProductPrice" min="0" step="0.01" inputmode="decimal">
+              <input type="text" placeholder="Producto" id="currentProductName" autocomplete="off" enterkeyhint="next">
+              <input type="number" placeholder="C$" id="currentProductPrice" min="0" step="0.01" inputmode="decimal" enterkeyhint="done">
             </div>
           </div>
           <button type="button" class="add-product-btn" onclick="addProductToList()" aria-label="Agregar producto">+</button>
@@ -370,7 +370,7 @@
       <h2 class="cn-tit">Mis chats</h2>
       <div id="cnMios"></div>
       <h2 class="cn-tit">🧾 Facturas entregadas</h2>
-      <div id="cnRegistro"></div>
+      <div id="cnRegistro" class="pc-contenedor" aria-label="Facturas entregadas, resumen financiero y filtros por fecha"></div>
     </div>
     <div id="cnConv" class="cn-conv oculto">
       <div class="cn-cab">

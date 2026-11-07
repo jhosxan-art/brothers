@@ -666,6 +666,39 @@
       }
     },
 
+    "contabilidad": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists() || (auth.token.firebase.sign_in_provider === 'anonymous' && $uid.beginsWith('inv_') && root.child('ordenes').child($uid.replace('inv_', '')).child('asignacion').child('authUid').val() === auth.uid))",
+        ".indexOn": ["fecha", "tsLocal"],
+        "$id": {
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (!data.exists() && newData.exists() && ((auth.uid === $uid && root.child('repartidores').child(auth.uid).exists()) || (auth.token.firebase.sign_in_provider === 'anonymous' && $uid === 'inv_' + $id && root.child('ordenes').child($id).child('asignacion').child('authUid').val() === auth.uid))))",
+          ".validate": "newData.hasChildren(['id', 'origen', 'repartidorUid', 'base', 'extras', 'fijo', 'rBase', 'bolsa', 'gananciaRepartidor', 'comisionEmpresa', 'bruto', 'ts', 'tsLocal', 'fecha']) && newData.child('repartidorUid').val() === $uid",
+          "id": { ".validate": "newData.isString() && newData.val().length <= 120" },
+          "origen": { ".validate": "newData.val() === 'chat' || newData.val() === 'admin' || newData.val() === 'manual' || newData.val() === 'invitado'" },
+          "repartidorUid": { ".validate": "newData.isString() && newData.val().length <= 80" },
+          "repartidorNombre": { ".validate": "newData.isString() && newData.val().length <= 60" },
+          "cliente": { ".validate": "newData.isString() && newData.val().length <= 60" },
+          "pedido": { ".validate": "newData.isString() && newData.val().length <= 30" },
+          "base": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "extras": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "fijo": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "rBase": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "bolsa": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "gananciaRepartidor": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "comisionEmpresa": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "bruto": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "prioridad": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "sinFactura": { ".validate": "newData.isBoolean()" },
+          "ts": { ".validate": "newData.isNumber() && newData.val() <= now" },
+          "tsLocal": { ".validate": "newData.isNumber()" },
+          "fecha": { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)" },
+          "iso": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "$otro": { ".validate": false }
+        }
+      }
+    },
+
     "facturas_historial": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$dia": {

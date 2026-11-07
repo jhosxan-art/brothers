@@ -385,7 +385,16 @@ label.opcion input { width: 20px; height: 20px; flex: none; }
 .leaflet-container { touch-action: none !important; -webkit-tap-highlight-color: transparent; }
 .cerrar-res { padding: 10px 14px; background: var(--celeste-suave); color: var(--tinta); font-weight: 800; font-size: 13px; text-align: center; cursor: pointer; position: sticky; top: 0; }
 .panel-guia { right: 70px; }
-.fx .fx-acciones { position: sticky; bottom: 0; z-index: 3; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 6px; background: #fff; }
+.fx .fx-acciones { position: static; z-index: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; padding: 6px 0 4px; background: transparent; }
+/* FASE 1 · Crear Factura: botones dentro del flujo del formulario (nunca flotan sobre los inputs ni sobre el teclado) */
+body.rep #vistaFactura .invoice-container .fx-acciones { position: static !important; inset: auto !important; bottom: auto !important; transform: none !important; }
+body.rep #vistaFactura { height: auto; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+body.rep #vistaFactura .invoice-container { padding-bottom: calc(16px + env(safe-area-inset-bottom)); transition: padding-bottom .15s ease; }
+body.rep #vistaFactura input, body.rep #vistaFactura select, body.rep #vistaFactura textarea { scroll-margin: 96px 0; }
+/* Teclado virtual abierto: se ocultan los elementos fijos inferiores y se deja holgura para centrar el campo activo */
+body.rep.fx-teclado > #navApp { display: none !important; }
+body.rep.fx-teclado #vistaFactura .invoice-container { padding-bottom: calc(var(--vvh, 100dvh) * .5); }
+@media (prefers-reduced-motion: reduce) { body.rep #vistaFactura { scroll-behavior: auto; } }
 .fx .fx-acciones button { height: 56px; min-width: 0; margin: 0; padding: 0 8px; border-radius: 14px; font-size: 14px; font-weight: 800; line-height: 1.15; white-space: normal; text-align: center; display: grid; place-items: center; box-sizing: border-box; }
 .fx .fx-acciones .generate-btn { background: var(--ink); color: #fff; box-shadow: 0 6px 16px rgba(14,20,27,.3); border: 2px solid var(--ink); }
 .fx .fx-acciones .contacto-btn { background: #fff; color: var(--ink); border: 2px solid var(--ink); box-shadow: none; }
@@ -1133,3 +1142,80 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   #vistaMapa .hoja-pedidos .pc-botones.pc-botones-3 button { font-size: 12px; }
   #vistaMapa .hoja-pedidos .pc-total b { font-size: 16px; }
 }
+
+/* ============================================================
+   FASE 3 · Panel contable "Facturas entregadas"
+   Resumen financiero, filtros por fecha y tarjetas con origen
+   (Chat · Admin · Manual · Invitado). Móvil primero.
+   ============================================================ */
+.pc-contenedor { display: grid; gap: 12px; min-width: 0; }
+.pc-tit { font-size: 16px; font-weight: 800; margin: 4px 0 0; }
+.pc-panel { display: grid; gap: 12px; min-width: 0; }
+.pc-resumen { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pc-res { display: grid; gap: 4px; align-content: space-between; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid var(--linea); border-left-width: 5px; min-width: 0; }
+.pc-res small { font-size: 11.5px; font-weight: 700; line-height: 1.25; color: var(--texto2); }
+.pc-res b { font-size: 19px; font-weight: 800; line-height: 1.1; overflow-wrap: anywhere; }
+.pc-res-bruto { border-left-color: var(--tinta); }
+.pc-res-repartidor { border-left-color: var(--wa); background: #F1FCF5; }
+.pc-res-empresa { border-left-color: var(--rojo); background: var(--rojo-suave); }
+.pc-res-cuenta { border-left-color: var(--celeste); background: var(--celeste-suave); }
+.pc-filtros { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid var(--linea); }
+.pc-rapidos { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pc-rap { height: 42px; padding: 0 8px; border-radius: 12px; border: 2px solid var(--linea); background: var(--gris); color: var(--tinta); font: inherit; font-size: 13px; font-weight: 800; -webkit-tap-highlight-color: transparent; }
+.pc-rap.activa { background: var(--celeste); border-color: var(--celeste-prof); color: var(--tinta); }
+.pc-rap:focus-visible { outline: 3px solid var(--celeste-prof); outline-offset: 2px; }
+.pc-rango { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pc-rango label { font-size: 12px; font-weight: 700; color: var(--texto2); min-width: 0; }
+.pc-rango input[type="date"] { width: 100%; min-width: 0; height: 42px; padding: 0 8px; border: 2px solid var(--linea); border-radius: 12px; background: #fff; color: var(--tinta); font: inherit; font-size: 14px; font-weight: 700; }
+.pc-rango input[type="date"]:focus { outline: 3px solid var(--celeste-prof); outline-offset: 1px; border-color: var(--celeste-prof); }
+.pc-rango-txt { font-size: 12.5px; font-weight: 700; color: var(--celeste-prof); margin: 0; }
+.pc-lista { display: grid; gap: 8px; min-width: 0; }
+.pc-dia { margin-top: 4px; font-size: 12.5px; font-weight: 800; color: var(--texto2); text-transform: uppercase; letter-spacing: .03em; }
+.pc-vacio { padding: 18px 14px; border-radius: 14px; background: #fff; border: 1px dashed var(--linea); text-align: center; font-size: 13.5px; font-weight: 600; color: var(--texto2); }
+.pc-error { border-color: var(--rojo); background: var(--rojo-suave); color: var(--rojo); }
+.pc-item { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid var(--linea); min-width: 0; }
+.pc-item-cab { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pc-item-dat { display: grid; flex: 1; min-width: 0; line-height: 1.25; }
+.pc-item-dat strong { font-size: 14.5px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-item-dat small { font-size: 12px; font-weight: 600; color: var(--texto2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-item-total { font-size: 16px; font-weight: 800; white-space: nowrap; }
+.pc-origen { flex-shrink: 0; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 800; white-space: nowrap; background: var(--gris); color: var(--tinta); }
+.pc-origen-chat { background: #E3F9EC; color: #167A43; }
+.pc-origen-admin { background: var(--celeste-suave); color: #0B4A6B; }
+.pc-origen-manual { background: #EAECEF; color: var(--tinta); }
+.pc-origen-invitado { background: var(--rojo-suave); color: #A5201C; }
+.pc-desglose3 { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 6px; }
+.pc-desglose3 > div { display: grid; gap: 2px; padding: 8px; border-radius: 10px; background: var(--gris); min-width: 0; }
+.pc-desglose3 small { font-size: 11px; font-weight: 700; color: var(--texto2); }
+.pc-desglose3 b { font-size: 13.5px; font-weight: 800; overflow-wrap: anywhere; }
+.pc-desglose3 .neta { background: #E3F9EC; }
+.pc-desglose3 .neta b { color: #167A43; }
+.pc-item details summary { cursor: pointer; font-size: 12.5px; font-weight: 800; color: var(--celeste-prof); padding: 4px 0; }
+.pc-calculo { display: grid; gap: 4px; padding: 8px 10px; border-radius: 10px; background: var(--gris); }
+.pc-fila { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.pc-fila span { color: var(--texto2); font-weight: 600; }
+.pc-fila b { font-weight: 800; white-space: nowrap; }
+.pc-fila.sep { padding-top: 4px; margin-top: 2px; border-top: 1px dashed var(--linea); }
+.pc-fila.verde b { color: #167A43; }
+.pc-fila.rojo b { color: var(--rojo); }
+@media (min-width: 700px) {
+  .pc-resumen { grid-template-columns: repeat(4, 1fr); }
+  .pc-rapidos { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ============================================================
+   FASE 4 · Cierre de estilos
+   - Botones de "Crear Factura" siempre dentro del flujo del formulario
+     (nunca flotan sobre los campos cuando sube el teclado).
+   - Auto-scroll: los campos dejan margen para quedar centrados.
+   - Etiquetas de origen visibles también en listados compactos.
+   ============================================================ */
+body.rep #vistaFactura .fx-acciones,
+body.rep #vistaFactura .invoice-container .fx-acciones { position: static !important; inset: auto !important; top: auto !important; right: auto !important; bottom: auto !important; left: auto !important; transform: none !important; width: auto; }
+body.rep #vistaFactura input, body.rep #vistaFactura select, body.rep #vistaFactura textarea { scroll-margin: 96px 0; }
+body.rep #vistaFactura { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scroll-behavior: smooth; }
+.pc-item { transition: box-shadow .15s ease; }
+.pc-item:focus-within { box-shadow: 0 0 0 3px var(--celeste-suave); }
+.pc-origen { letter-spacing: .01em; border: 1px solid rgba(14, 20, 27, .08); }
+.pc-origen-otro { background: var(--gris); color: var(--texto2); }
+@media (prefers-reduced-motion: reduce) { body.rep #vistaFactura { scroll-behavior: auto; } .pc-item { transition: none; } }

@@ -236,6 +236,14 @@
       if (estado === "retirado") await O.marcarRetiro(db, t, orden, sig.i, monto); else await O.marcar(db, t, estado, orden);
       await db.ref(`ordenes/${t}/guia`).remove().catch(() => {});
       if (estado === "entregado") {
+        /* FASE 2 · Contabilidad unificada (origen "invitado") */
+        try {
+          const ps = (await db.ref("pedidos/" + t).once("value")).val() || {};
+          let precio = 0;
+          try { precio = typeof O.totalDelivery === "function" ? Number(O.totalDelivery(orden)) : (Number(orden.delivery) || 0) + (Number(orden.iva) || 0); } catch (_) {}
+          const c = Contabilidad.desdePedido(ps, Number.isFinite(precio) ? precio : 0);
+          Contabilidad.registrar(db, uid, Object.assign({ id: t, origen: "invitado", repartidorNombre: nombre, cliente: orden.cliente || "Cliente", pedido: orden.codigo || "" }, c));
+        } catch (_) {}
         await db.ref("pedidos/" + t).update({ estado: "entregado", fin: TS, lat: null, lng: null, rumbo: null, velocidad: null, precision: null, destLat: null, destLng: null, distancia: null, cerca: null });
         await db.ref("ubicaciones/" + uid).remove().catch(() => {});
         final("entregado");
@@ -282,6 +290,11 @@
     $("finTxt").textContent = estado === "entregado" ? "Gracias por tu ayuda. Ya puedes cerrar esta página." : "El administrador canceló este pedido. Ya puedes cerrar esta página.";
     localStorage.removeItem(claveLocal);
     vista("vFin");
+    /* FASE 3 · Facturas entregadas (contabilidad unificada, origen "invitado") */
+    if (estado === "entregado") {
+      const caja = $("panelContableInv"), cuerpo = $("panelContableInvCuerpo");
+      if (caja && cuerpo) { caja.classList.remove("oculto"); PanelContable.montar({ db, uid, contenedor: cuerpo, rangoInicial: "mes", ocultarSiError: true, alFallar: () => caja.classList.add("oculto") }); }
+    }
   }
 
   function iniciarMapa() {

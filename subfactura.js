@@ -102,3 +102,326 @@ const SubFactura = (() => {
 
   return { ETIQUETA, instantanea, calcular, money, abrir };
 })();
+
+/* ============================================================
+   CONTABILIDAD UNIFICADA · FASE 2
+   Nodo único en Firebase:  contabilidad/{uid}/{idEntrega}
+   Fuentes (campo "origen"):
+     "chat"     → Chat tipo WhatsApp (solicitudes_entrantes)
+     "admin"    → Pedido enviado por el Admin (ordenes + pedidos)
+     "manual"   → Factura creada a mano en "Crear Factura" (pedidos)
+     "invitado" → Repartidor invitado (ordenes + pedidos)
+
+   Fórmula:
+     P_base  = pedido base (productos + delivery base, SIN mandados extra ni prioridad)
+     E       = mandados extra / subfacturas (botón +C$10/+C$20, subfactura, extras del admin)
+     F       = 7 si P_base < 200 · 14 si 200 ≤ P_base ≤ 400 · 28 si P_base > 400
+     R_base  = P_base − F            (mínimo 0)
+     Bolsa   = R_base + E
+     Repartidor (70 %)  = Bolsa × 0.70
+     Empresa            = F + Bolsa × 0.30
+   La prioridad (propina) se guarda aparte y NO entra en la bolsa.
+   Un pedido sin factura/monto (P_base = 0 y E = 0) se registra en cero.
+   ============================================================ */
+const Contabilidad = (() => {
+  const RAIZ = "contabilidad";
+  const n = (x) => (Number.isFinite(+x) ? +x : 0);
+  const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+  const cortar = (s, k) => String(s == null ? "" : s).slice(0, k);
+  const registradas = new Set();
+
+  function fijo(pBase) {
+    const p = n(pBase);
+    if (p < 200) return 7;
+    if (p <= 400) return 14;
+    return 28;
+  }
+
+  function calcular(pBase, extras) {
+    const P = Math.max(0, r2(pBase)), E = Math.max(0, r2(extras));
+    if (P === 0 && E === 0) return { base: 0, extras: 0, fijo: 0, rBase: 0, bolsa: 0, repartidor: 0, empresa: 0, bruto: 0 };
+    const F = fijo(P), rBase = Math.max(0, r2(P - F)), bolsa = r2(rBase + E);
+    return { base: P, extras: E, fijo: F, rBase, bolsa, repartidor: r2(bolsa * 0.70), empresa: r2(F + bolsa * 0.30), bruto: r2(P + E) };
+  }
+
+  /* Día de negocio (corte a las 08:00, igual que Factura.diaNegocio) en formato ISO yyyy-mm-dd */
+  function fechaISO(ts) {
+    const t = new Date(ts || Date.now());
+    if (t.getHours() < 8) t.setDate(t.getDate() - 1);
+    return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  }
+
+  /* Facturas enviadas al chat: base = primera factura, actual = factura acumulada con mandados */
+  function desdeFacturas(base, actual) {
+    const b = base || actual;
+    if (!b) return { pBase: 0, extras: 0, prioridad: 0, sinFactura: true };
+    const tf = (f) => n(f.totalFinal != null ? f.totalFinal : f.total);
+    const pBase = Math.max(0, r2(tf(b) - n(b.prioridad) - n(b.mandadoExtra)));
+    const a = actual || b;
+    return { pBase, extras: Math.max(0, r2(tf(a) - n(a.prioridad) - pBase)), prioridad: n(a.prioridad), sinFactura: false };
+  }
+
+  /* Nodo pedidos/{token}: detalle + subfactura + extras del admin. fallbackBase = precio del delivery si no hubo factura */
+  function desdePedido(p, fallbackBase) {
+    const x = p && typeof p === "object" ? p : {}, det = x.detalle && typeof x.detalle === "object" ? x.detalle : null;
+    const fac = x.factura && typeof x.factura === "object" ? x.factura : null, sub = x.subfactura && typeof x.subfactura === "object" ? x.subfactura : null;
+    let pBase = 0, extras = 0, prioridad = 0, sinFactura = false;
+    if (det) {
+      const entrega = det.deliveryBase != null ? n(det.deliveryBase) : Math.max(0, n(det.delivery) - n(det.mandadoExtra));
+      pBase = n(det.subtotal) + entrega;
+      extras += n(det.mandadoExtra);
+      prioridad = n(det.prioridad);
+    } else if (fac) {
+      pBase = n(fac.total != null ? fac.total : n(fac.subtotal) + n(fac.delivery));
+    } else { pBase = n(fallbackBase); sinFactura = true; }
+    if (sub) {
+      const items = sub.items ? (Array.isArray(sub.items) ? sub.items : Object.values(sub.items)) : [];
+      extras += items.reduce((t, i) => t + n(i && i.precio), 0) + n(sub.envioExtra);
+    }
+    if (x.extras && typeof x.extras === "object") extras += Object.values(x.extras).reduce((t, e) => t + n(e && e.monto), 0);
+    return { pBase: r2(pBase), extras: r2(extras), prioridad: r2(prioridad), sinFactura };
+  }
+
+  /* Escribe una única vez la entrega en el nodo histórico unificado (clave = id de la entrega). */
+  async function registrar(db, uid, r) {
+    if (!db || !uid || !r || !r.id) return null;
+    const clave = uid + "/" + r.id;
+    if (registradas.has(clave)) return null;
+    registradas.add(clave);
+    const ref = db.ref(RAIZ + "/" + uid + "/" + r.id);
+    try {
+      /* Si las reglas no dejan leer este nodo (p. ej. invitado), se escribe igual: la regla solo permite crear, no sobrescribir. */
+      try { if ((await ref.once("value")).exists()) return null; }
+      catch (e) { if (!(e && e.code === "PERMISSION_DENIED")) throw e; }
+      const c = calcular(r.pBase, r.extras), ahora = Date.now();
+      const obj = JSON.parse(JSON.stringify({
+        id: String(r.id), origen: r.origen, repartidorUid: uid, repartidorNombre: cortar(r.repartidorNombre, 60),
+        cliente: cortar(r.cliente, 60), pedido: cortar(r.pedido, 30),
+        base: c.base, extras: c.extras, fijo: c.fijo, rBase: c.rBase, bolsa: c.bolsa,
+        gananciaRepartidor: c.repartidor, comisionEmpresa: c.empresa, bruto: c.bruto,
+        prioridad: r2(r.prioridad), sinFactura: !!r.sinFactura,
+        ts: firebase.database.ServerValue.TIMESTAMP, tsLocal: ahora, fecha: fechaISO(ahora), iso: new Date(ahora).toISOString()
+      }));
+      await ref.set(obj);
+      return obj;
+    } catch (e) {
+      registradas.delete(clave);
+      console.warn("[contabilidad] no se pudo registrar la entrega", r.id, e && (e.code || e.message));
+      return null;
+    }
+  }
+
+  return { RAIZ, fijo, calcular, fechaISO, desdeFacturas, desdePedido, registrar };
+})();
+
+/* ============================================================
+   PANEL CONTABLE · FASE 3
+   Interfaz unificada de "Facturas entregadas" (Chat · Admin · Manual · Invitado).
+   Lee contabilidad/{uid} (nodo de la Fase 2) en tiempo real, filtra por la
+   fecha de negocio guardada en cada entrega (campo "fecha", yyyy-mm-dd) y
+   recalcula el resumen y el listado cada vez que cambia el rango o llega
+   una entrega nueva.
+   Uso:  PanelContable.montar({ db, uid, contenedor, rangoInicial?, ocultarSiError?, alFallar? })
+         PanelContable.detener()
+   ============================================================ */
+const PanelContable = (() => {
+  const n = (x) => (Number.isFinite(+x) ? +x : 0);
+  const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100;
+  const dinero = (x) => "C$ " + r2(x).toFixed(2);
+  const pad = (x) => String(x).padStart(2, "0");
+  const iso = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  const deISO = (s) => { const p = String(s).split("-"); return new Date(+p[0], +p[1] - 1, +p[2], 12); };
+  const bonita = (s) => { const p = String(s || "").split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : "—"; };
+  const hora = (ts) => { try { return new Date(ts).toLocaleTimeString("es-NI", { hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } };
+  const ORIGENES = { chat: ["💬", "Chat"], admin: ["📦", "Admin"], manual: ["🧾", "Manual"], invitado: ["👤", "Invitado"] };
+  const RAPIDOS = [["hoy", "Hoy"], ["semana", "Esta Semana"], ["quincena", "Esta Quincena"], ["mes", "Este Mes"]];
+
+  function h(tag, clase, texto) {
+    const e = document.createElement(tag);
+    if (clase) e.className = clase;
+    if (texto != null) e.textContent = texto;
+    return e;
+  }
+
+  /* Rango [inicio, fin] (yyyy-mm-dd) de un filtro rápido. La semana va de lunes a domingo. */
+  function rangoRapido(clave) {
+    const hoy = Contabilidad.fechaISO(Date.now()), d = deISO(hoy), y = d.getFullYear(), m = d.getMonth(), dia = d.getDate();
+    const ultimo = new Date(y, m + 1, 0).getDate();
+    if (clave === "hoy") return [hoy, hoy];
+    if (clave === "semana") { const dow = (d.getDay() + 6) % 7; return [iso(new Date(y, m, dia - dow, 12)), iso(new Date(y, m, dia - dow + 6, 12))]; }
+    if (clave === "quincena") return dia <= 15 ? [iso(new Date(y, m, 1, 12)), iso(new Date(y, m, 15, 12))] : [iso(new Date(y, m, 16, 12)), iso(new Date(y, m, ultimo, 12))];
+    return [iso(new Date(y, m, 1, 12)), iso(new Date(y, m, ultimo, 12))];
+  }
+
+  /* Totales del conjunto de entregas ya filtrado */
+  function totalizar(a) {
+    const t = { bruto: 0, repartidor: 0, empresa: 0, cuenta: a.length };
+    a.forEach((x) => { t.bruto += n(x.bruto != null ? x.bruto : n(x.base) + n(x.extras)); t.repartidor += n(x.gananciaRepartidor); t.empresa += n(x.comisionEmpresa); });
+    t.bruto = r2(t.bruto); t.repartidor = r2(t.repartidor); t.empresa = r2(t.empresa);
+    return t;
+  }
+
+  function fila(k, v, clase) {
+    const f = h("div", "pc-fila" + (clase ? " " + clase : ""));
+    f.appendChild(h("span", "", k)); f.appendChild(h("b", "", v));
+    return f;
+  }
+
+  function tarjeta(x) {
+    const o = ORIGENES[x.origen] || ["🧾", "Factura"];
+    const t = h("div", "pc-item"), cab = h("div", "pc-item-cab");
+    cab.appendChild(h("span", "pc-origen pc-origen-" + (ORIGENES[x.origen] ? x.origen : "otro"), o[0] + " " + o[1]));
+    const dat = h("div", "pc-item-dat");
+    dat.appendChild(h("strong", "", x.cliente || "Cliente"));
+    dat.appendChild(h("small", "", (x.pedido ? x.pedido + " · " : "") + hora(x.tsLocal || x.ts) + (x.sinFactura ? " · sin factura" : "")));
+    cab.appendChild(dat);
+    cab.appendChild(h("span", "pc-item-total", dinero(x.bruto != null ? x.bruto : n(x.base) + n(x.extras))));
+    t.appendChild(cab);
+    const des = h("div", "pc-desglose3");
+    [["Base", dinero(x.base)], ["Extras", dinero(x.extras)], ["Ganancia neta", dinero(x.gananciaRepartidor)]].forEach((p, i) => {
+      const c = h("div", i === 2 ? "neta" : "");
+      c.appendChild(h("small", "", p[0])); c.appendChild(h("b", "", p[1]));
+      des.appendChild(c);
+    });
+    t.appendChild(des);
+    const det = document.createElement("details");
+    det.appendChild(h("summary", "", "Ver cálculo"));
+    const cal = h("div", "pc-calculo");
+    cal.appendChild(fila("Pedido base", dinero(x.base)));
+    cal.appendChild(fila("Deducción fija", "− " + dinero(x.fijo)));
+    cal.appendChild(fila("Base tras rebajo", dinero(x.rBase)));
+    cal.appendChild(fila("+ Mandados extra", dinero(x.extras)));
+    cal.appendChild(fila("Bolsa a repartir", dinero(x.bolsa), "sep"));
+    cal.appendChild(fila("Ganancia repartidor (70 %)", dinero(x.gananciaRepartidor), "verde"));
+    cal.appendChild(fila("Comisión Brother’s Deliverys", dinero(x.comisionEmpresa), "rojo"));
+    if (n(x.prioridad) > 0) cal.appendChild(fila("Prioridad (aparte, no entra en la bolsa)", dinero(x.prioridad)));
+    det.appendChild(cal);
+    t.appendChild(det);
+    return t;
+  }
+
+  let est = null;
+
+  function detener() {
+    if (!est) return;
+    if (est.q && est.cb) { try { est.q.off("value", est.cb); } catch (_) {} }
+    try { est.cont.textContent = ""; } catch (_) {}
+    est = null;
+  }
+
+  function montar(op) {
+    const cont = op && op.contenedor;
+    if (!cont || !op.db || !op.uid) return null;
+    if (est && est.uid === op.uid && est.cont === cont && cont.isConnected && cont.firstChild) return est;
+    detener();
+    cont.textContent = "";
+    const e = { uid: op.uid, cont, db: op.db, q: null, cb: null, items: [], error: null, cargado: false, clave: RAPIDOS.some((r) => r[0] === op.rangoInicial) ? op.rangoInicial : "hoy", desde: "", hasta: "" };
+    est = e;
+
+    const panel = h("div", "pc-panel");
+    const resumen = h("div", "pc-resumen");
+    const tarjetasRes = {};
+    [["bruto", "Total Realizado en Pedidos"], ["repartidor", "Ganancia Neta Repartidor"], ["empresa", "Comisión Brother’s Deliverys"], ["cuenta", "Total de Pedidos Realizados"]].forEach((p) => {
+      const c = h("div", "pc-res pc-res-" + p[0]);
+      c.appendChild(h("small", "", p[1]));
+      tarjetasRes[p[0]] = h("b", "", "—");
+      c.appendChild(tarjetasRes[p[0]]);
+      resumen.appendChild(c);
+    });
+    panel.appendChild(resumen);
+
+    const filtros = h("div", "pc-filtros");
+    const rapidos = h("div", "pc-rapidos");
+    rapidos.setAttribute("role", "group"); rapidos.setAttribute("aria-label", "Filtro rápido por fecha");
+    const botones = {};
+    RAPIDOS.forEach((r) => {
+      const b = h("button", "pc-rap", r[1]); b.type = "button"; b.dataset.rango = r[0];
+      botones[r[0]] = b; rapidos.appendChild(b);
+    });
+    filtros.appendChild(rapidos);
+    const rango = h("div", "pc-rango");
+    const l1 = h("label", "", "Fecha Inicio"), i1 = document.createElement("input");
+    const l2 = h("label", "", "Fecha Fin"), i2 = document.createElement("input");
+    i1.type = "date"; i2.type = "date"; i1.setAttribute("aria-label", "Fecha de inicio"); i2.setAttribute("aria-label", "Fecha de fin");
+    l1.appendChild(i1); l2.appendChild(i2);
+    rango.appendChild(l1); rango.appendChild(l2);
+    filtros.appendChild(rango);
+    const txtRango = h("p", "pc-rango-txt");
+    filtros.appendChild(txtRango);
+    panel.appendChild(filtros);
+
+    const lista = h("div", "pc-lista");
+    lista.setAttribute("aria-live", "polite");
+    panel.appendChild(lista);
+    cont.appendChild(panel);
+
+    const limites = () => e.clave === "personalizado"
+      ? (() => { let a = e.desde || "0000-01-01", b = e.hasta || "9999-12-31"; if (a > b) { const t = a; a = b; b = t; } return [a, b]; })()
+      : rangoRapido(e.clave);
+
+    function pintar() {
+      const [a, b] = limites();
+      Object.keys(botones).forEach((k) => { botones[k].classList.toggle("activa", e.clave === k); botones[k].setAttribute("aria-pressed", e.clave === k ? "true" : "false"); });
+      txtRango.textContent = (e.desde || e.hasta) && e.clave === "personalizado"
+        ? "Mostrando " + (e.desde ? "desde " + bonita(a) : "") + (e.hasta ? (e.desde ? " " : "") + "hasta " + bonita(b) : "")
+        : "Mostrando " + (a === b ? bonita(a) : bonita(a) + " al " + bonita(b));
+      lista.textContent = "";
+      if (e.error) {
+        const permiso = e.error.code === "PERMISSION_DENIED";
+        if (op.ocultarSiError) { cont.classList.add("oculto"); return; }
+        Object.keys(tarjetasRes).forEach((k) => { tarjetasRes[k].textContent = "—"; });
+        lista.appendChild(h("div", "pc-vacio pc-error", permiso ? "Faltan permisos en Firebase para leer la contabilidad (reglas)." : "No se pudo cargar la contabilidad. Revisa tu conexión."));
+        return;
+      }
+      const datos = e.items.filter((x) => x && x.fecha && x.fecha >= a && x.fecha <= b).sort((p, q) => n(q.tsLocal || q.ts) - n(p.tsLocal || p.ts));
+      const t = totalizar(datos);
+      tarjetasRes.bruto.textContent = dinero(t.bruto);
+      tarjetasRes.repartidor.textContent = dinero(t.repartidor);
+      tarjetasRes.empresa.textContent = dinero(t.empresa);
+      tarjetasRes.cuenta.textContent = String(t.cuenta);
+      if (!e.cargado) { lista.appendChild(h("div", "pc-vacio", "Cargando facturas entregadas…")); return; }
+      if (!datos.length) { lista.appendChild(h("div", "pc-vacio", "No hay facturas entregadas en este rango de fechas.")); return; }
+      const dias = {};
+      datos.forEach((x) => { (dias[x.fecha] = dias[x.fecha] || []).push(x); });
+      Object.keys(dias).sort().reverse().forEach((f) => {
+        lista.appendChild(h("div", "pc-dia", bonita(f) + " · " + dias[f].length + " entrega" + (dias[f].length > 1 ? "s" : "")));
+        dias[f].forEach((x) => lista.appendChild(tarjeta(x)));
+      });
+    }
+
+    function suscribir() {
+      if (e.q && e.cb) { try { e.q.off("value", e.cb); } catch (_) {} }
+      const [a, b] = limites();
+      e.cargado = false;
+      e.q = e.db.ref(Contabilidad.RAIZ + "/" + e.uid).orderByChild("fecha").startAt(a).endAt(b);
+      e.cb = (s) => {
+        const v = s.val() || {};
+        e.items = Object.keys(v).map((k) => v[k]).filter((x) => x && typeof x === "object");
+        e.error = null; e.cargado = true;
+        pintar();
+      };
+      e.q.on("value", e.cb, (err) => { e.error = err || { code: "ERROR" }; e.cargado = true; pintar(); if (op.alFallar) { try { op.alFallar(e.error); } catch (_) {} } });
+      pintar();
+    }
+
+    function aplicarRapido(clave) {
+      e.clave = clave;
+      const r = rangoRapido(clave);
+      e.desde = r[0]; e.hasta = r[1];
+      i1.value = r[0]; i2.value = r[1];
+      suscribir();
+    }
+    function aplicarPersonalizado() {
+      e.clave = "personalizado"; e.desde = i1.value || ""; e.hasta = i2.value || "";
+      suscribir();
+    }
+    rapidos.addEventListener("click", (ev) => { const b = ev.target.closest("button[data-rango]"); if (b) aplicarRapido(b.dataset.rango); });
+    i1.addEventListener("change", aplicarPersonalizado);
+    i2.addEventListener("change", aplicarPersonalizado);
+
+    aplicarRapido(e.clave);
+    return e;
+  }
+
+  return { montar, detener, activo: () => !!est, rangoRapido, totalizar };
+})();

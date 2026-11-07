@@ -801,8 +801,16 @@ const PedidoRep = (() => {
     try { if (typeof Ordenes !== "undefined" && typeof Ordenes.totalDelivery === "function") { const t = Number(Ordenes.totalDelivery(o)); if (Number.isFinite(t)) return t; } } catch (_) {}
     return Math.round(((Number(o.delivery) || 0) + (Number(o.iva) || 0)) * 100) / 100;
   }
+  /* FASE 2 · Contabilidad: entrega de un pedido enviado por el Admin (origen "admin") */
+  async function registrarEntregaAdmin(token, o, fallback) {
+    try {
+      const p = (await db.ref("pedidos/" + token).once("value")).val() || {};
+      const c = Contabilidad.desdePedido(p, fallback);
+      await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "admin", repartidorNombre: usuario, cliente: o.cliente || "Cliente", pedido: o.codigo || "" }, c));
+    } catch (_) {}
+  }
   const prioridad = () => prio || prioPed;
-  const aceptado = () => !!(datos && datos.estado_asignacion === "aceptado" && ACTIVO.includes(datos.estado));
+  const aceptado =() => !!(datos && datos.estado_asignacion === "aceptado" && ACTIVO.includes(datos.estado));
   const nombre = () => (datos && datos.cliente) || "Cliente";
 
   function seguir(nuevo) {
@@ -814,6 +822,7 @@ const PedidoRep = (() => {
       if (id !== nuevo) return;
       const d = s.val();
       const ajeno = d && d.asignacion && d.asignacion.tipo === "registrado" && d.asignacion.uid && d.asignacion.uid !== uidActual;
+      if (d && !ajeno && datos && d.estado === "entregado" && !d.forzadoPorAdmin && d.asignacion && d.asignacion.uid === uidActual) registrarEntregaAdmin(nuevo, d, precioDelivery(d));
       if (!d || ajeno || ["entregado", "cancelado"].includes(d.estado)) return soltar();
       datos = d; prio = d.prioridad === true;
       pintarBoton(); alCambiarPrioridad(); pintarCliente();
@@ -1920,9 +1929,19 @@ async function cerrarViaje(token, estadoFinal) {
         : { estado: "cancelado", motivoCancelacion: "repartidor", canceladoTs: TS, repartidorGps: null });
     } catch (_) {}
   }
+  if (estadoFinal === "entregado") registrarEntregaViaje(v, token);
   quitarViaje(token);
   irA("factura");
   if (estadoFinal === "entregado") mostrarEntregado(quien);
+}
+/* FASE 2 · Contabilidad: entrega desde chat (origen "chat") o factura manual (origen "manual") */
+async function registrarEntregaViaje(v, token) {
+  try {
+    if (v.esChat || /^sol_/.test(token)) { ChatsEntrantes.entregar(token); return; }
+    const p = (await db.ref("pedidos/" + token).once("value")).val() || {};
+    const c = Contabilidad.desdePedido(p, 0);
+    await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "manual", repartidorNombre: usuario, cliente: v.cliente || p.clienteNombre || "Cliente", pedido: v.pedido || p.pedido || "" }, c));
+  } catch (_) {}
 }
 function mostrarEntregado(quien) {
   const n = orden.length;
@@ -2112,7 +2131,7 @@ const ChatsEntrantes = (() => {
     Object.keys(rutasPend).forEach((id) => { try { if (rutasPend[id] && rutasPend[id].linea) mapa.removeLayer(rutasPend[id].linea); } catch (_) {} delete rutasPend[id]; });
     ultimoConPedido = null;
     $("chipConPedido").classList.add("oculto");
-    if (!conservarFactura) { try { Factura.salirModoChat(true); } catch (_) {} }
+    if (!conservarFactura) { try { Factura.salirModoChat(true); } catch (_) {} try { PanelContable.detener(); } catch (_) {} }
   }
   function revisarCambios() {
     Object.keys(lista).forEach((id) => {
@@ -2790,7 +2809,15 @@ const ChatsEntrantes = (() => {
     try { const a = JSON.parse(localStorage.getItem(CLAVE_REG) || "[]"); return Array.isArray(a) ? a.filter((x) => x && typeof x === "object") : []; } catch (_) { return []; }
   }
   function escribirRegistro(a) { try { localStorage.setItem(CLAVE_REG, JSON.stringify(a.slice(-300))); } catch (_) {} }
+  function entregar(id) {
+    registrarEntrega(id, lista[id] || {}, leerFacLocal(id));
+    limpiarLocal(id);
+  }
   function registrarEntrega(id, d, reg) {
+    { /* FASE 2 · Contabilidad unificada (origen "chat"): base = 1.ª factura, extras = mandados acumulados */
+      const c = Contabilidad.desdeFacturas(reg && reg.base, reg && reg.actual);
+      Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, sinFactura: c.sinFactura });
+    }
     const a = leerRegistro();
     if (a.some((x) => x.id === id)) return;
     const ahora = Date.now(), dia = (typeof Factura !== "undefined" && Factura.diaNegocio) ? Factura.diaNegocio() : new Date(ahora).toDateString();
@@ -2813,51 +2840,11 @@ const ChatsEntrantes = (() => {
       subtotal: r.subtotal, delivery: r.delivery, extras: r.extras, totalFinal: r.totalFinal, orden: r.orden, sinFactura: r.sinFactura, ts: TS
     }))).catch(() => {});
   }
+  /* FASE 3 · "Facturas entregadas" unificado: lee contabilidad/{uid} (Chat · Admin · Manual) en tiempo real con resumen y filtros por fecha */
   function pintarRegistro() {
     const caja = $("cnRegistro");
-    caja.textContent = "";
-    const a = leerRegistro();
-    if (!a.length) { caja.appendChild(el("div", "cn-vacio", "Cuando entregues un pedido, su factura se guarda aquí.")); return; }
-    const dias = {};
-    a.forEach((x) => { (dias[x.dia] = dias[x.dia] || []).push(x); });
-    Object.keys(dias).sort((p, q) => Math.max(...dias[q].map((x) => x.ts)) - Math.max(...dias[p].map((x) => x.ts))).forEach((dia) => {
-      const grupo = dias[dia].sort((p, q) => (p.orden || 0) - (q.orden || 0));
-      caja.appendChild(el("div", "cn-dia-reg", etiquetaDia(grupo[0].ts) + " · " + grupo.length + " entrega" + (grupo.length > 1 ? "s" : "")));
-      grupo.forEach((x) => caja.appendChild(tarjetaRegistro(x)));
-    });
-  }
-  function tarjetaRegistro(x) {
-    const t = el("div", "cn-reg"), cab = el("div", "cn-reg-cab");
-    cab.appendChild(el("span", "cn-reg-num", "#" + (x.orden || "?")));
-    const dat = el("div", "");
-    dat.appendChild(el("strong", "", x.cliente || "Cliente"));
-    dat.appendChild(el("small", "", (x.pedido ? x.pedido + " · " : "") + horaDe(x.ts) + (x.sinFactura ? " · sin factura" : "")));
-    cab.appendChild(dat);
-    cab.appendChild(el("span", "cn-reg-total", dinero(x.totalFinal)));
-    t.appendChild(cab);
-    if (!x.sinFactura) {
-      const det = document.createElement("details");
-      det.appendChild(el("summary", "", "Ver detalle"));
-      const lis = el("div", "cn-flis");
-      (x.productos || []).forEach((p) => { if (p && typeof p === "object") lis.appendChild(filaF(String(p.nombre || "Producto"), dinero(p.precio))); });
-      det.appendChild(lis);
-      const tot = el("div", "cn-ftot");
-      tot.appendChild(filaF("Subtotal", dinero(x.subtotal)));
-      tot.appendChild(filaF("Delivery", dinero(x.delivery)));
-      if (Number(x.extras) > 0) tot.appendChild(filaF("Incluye mandado extra", dinero(x.extras)));
-      tot.appendChild(filaF("Total", dinero(x.totalFinal), "total"));
-      det.appendChild(tot);
-      t.appendChild(det);
-    }
-    const bt = el("button", "peligro cn-borrar", "🗑️ Eliminar factura");
-    bt.type = "button";
-    bt.addEventListener("click", () => {
-      if (!confirm("¿Eliminar esta factura de tu registro? Solo se borra de este teléfono.")) return;
-      escribirRegistro(leerRegistro().filter((y) => !(y.id === x.id && y.ts === x.ts)));
-      pintarRegistro();
-    });
-    t.appendChild(bt);
-    return t;
+    if (!caja || !uidActual) return;
+    PanelContable.montar({ db, uid: uidActual, contenedor: caja, rangoInicial: "hoy" });
   }
   $("cnIniciarEntrega").addEventListener("click", () => {
     const id = abiertoId;
@@ -2941,7 +2928,7 @@ const ChatsEntrantes = (() => {
   }
   Factura.alEnviarChat = (f) => enviarFactura(f);
   Factura.alTerminarChat = () => irA("chats");
-  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes, cerrarConversacion, puntos, abrirConv, totalFactura, abierto: () => !!abiertoId };
+  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes, cerrarConversacion, puntos, abrirConv, totalFactura, entregar, abierto: () => !!abiertoId };
 })();
 
 function ajustarViewportRep() {

@@ -609,6 +609,60 @@ window.Factura = {
   document.getElementById('invoicePopup').addEventListener('click', function(e) { if (e.target === this) closePopup(); });
   document.getElementById('depositPromptPopup').addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
 
+  /* FASE 1 · Teclado móvil: auto-scroll del campo activo + altura según visualViewport */
+  function iniciarTecladoFactura() {
+      const vista = document.getElementById('vistaFactura');
+      if (!vista) return;
+      const vv = window.visualViewport;
+      const esCampo = (el) => !!el && el.nodeType === 1 && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && vista.contains(el) && el.type !== 'hidden';
+      let alturaBase = vv ? vv.height : window.innerHeight;
+      let temporizador = 0;
+
+      function centrarActivo() {
+          const el = document.activeElement;
+          if (!esCampo(el)) return;
+          try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }); }
+          catch (_) { el.scrollIntoView(); }
+      }
+      function programarCentrado(ms) {
+          clearTimeout(temporizador);
+          temporizador = setTimeout(centrarActivo, ms);
+      }
+      function sincronizarViewport() {
+          const alto = vv ? vv.height : window.innerHeight;
+          const activo = esCampo(document.activeElement);
+          if (!activo) alturaBase = Math.max(alto, alturaBase);
+          const abierto = activo && alto < alturaBase - 120;
+          const r = document.documentElement.style;
+          r.setProperty('--vvh', Math.round(alto) + 'px');
+          document.body.classList.toggle('fx-teclado', abierto);
+          if (abierto) programarCentrado(120);
+      }
+
+      vista.addEventListener('focusin', (e) => {
+          if (!esCampo(e.target)) return;
+          sincronizarViewport();
+          programarCentrado(320);
+      });
+      vista.addEventListener('focusout', () => {
+          setTimeout(() => { if (!esCampo(document.activeElement)) { document.body.classList.remove('fx-teclado'); sincronizarViewport(); } }, 80);
+      });
+      if (vv) {
+          vv.addEventListener('resize', sincronizarViewport);
+          vv.addEventListener('scroll', () => { if (esCampo(document.activeElement)) programarCentrado(150); });
+      }
+      window.addEventListener('orientationchange', () => { alturaBase = 0; setTimeout(() => { alturaBase = vv ? vv.height : window.innerHeight; sincronizarViewport(); }, 400); });
+
+      const nombre = document.getElementById('currentProductName'), precio = document.getElementById('currentProductPrice');
+      const enter = (e, fn) => { if (e.key === 'Enter') { e.preventDefault(); fn(); } };
+      if (nombre && precio) nombre.addEventListener('keydown', (e) => enter(e, () => precio.focus()));
+      if (precio) precio.addEventListener('keydown', (e) => enter(e, () => { addProductToList(); if (nombre) nombre.focus(); }));
+      const cliente = document.getElementById('customerName'), delivery = document.getElementById('deliveryPrice');
+      if (cliente && delivery) cliente.addEventListener('keydown', (e) => enter(e, () => { if (delivery.offsetParent !== null) delivery.focus(); else if (nombre) nombre.focus(); }));
+      if (delivery && nombre) delivery.addEventListener('keydown', (e) => enter(e, () => nombre.focus()));
+  }
+  iniciarTecladoFactura();
+
   restaurarBorrador(); renderProductList();
   document.getElementById('customerName').addEventListener('input', guardarBorrador);
   toggleExtraErrand(extraErrand); calculateTotal();
