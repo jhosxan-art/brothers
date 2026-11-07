@@ -55,9 +55,9 @@ jobs:
           print('google-services.json listo para', pkg)
           PY
 
-          - name: Generar iconos
-          run: |
-          # Si existe un icono específico de admin en la carpeta assets, lo usamos como principal
+      - name: Generar iconos
+        run: |
+          # Si existen los iconos específicos de admin en la carpeta assets, los mapeamos para la compilación
           if [ -f assets/icon-admin-only.png ]; then
             cp assets/icon-admin-only.png assets/icon-only.png
           fi
@@ -67,6 +67,8 @@ jobs:
           if [ -f assets/icon-admin-background.png ]; then
             cp assets/icon-admin-background.png assets/icon-background.png
           fi
+          # Si existe una carpeta assets-admin alternativa, también la soportamos
+          if [ -d assets-admin ]; then rm -rf assets && cp -r assets-admin assets; fi
           npx --yes @capacitor/assets generate --android
 
       - name: Permisos y canal de notificaciones
