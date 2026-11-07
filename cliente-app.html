@@ -50,13 +50,28 @@
     </div>
   </main>
 
-  <!-- 2) Modal inicial: qué desea, de dónde, quién recibe y dónde -->
+  <!-- 2) Modal inicial: tipo de servicio (Enviar / Pedir) y datos del pedido -->
   <div id="vPedido" class="wa-modal oculto" role="dialog" aria-modal="true" aria-label="Tu pedido">
     <div class="wa-hoja">
-      <div class="wa-pasos" aria-hidden="true"><i class="on"></i><i></i><i></i></div>
+      <div id="pasosInd" class="wa-pasos oculto" aria-hidden="true"></div>
       <form id="formPedido" class="wa-form-pedido" autocomplete="off" novalidate>
 
-        <section class="wa-paso" data-paso="1">
+        <!-- Pantalla 0: selector dual -->
+        <section class="wa-paso" data-paso="0">
+          <h2 class="wa-pregunta">¿Qué necesitas hoy?</h2>
+          <p class="wa-ayuda">Elige una opción para empezar.</p>
+          <button type="button" class="wa-dual wa-dual-enviar" data-servicio="enviar">
+            <span class="wa-dual-ico" aria-hidden="true">📦</span>
+            <span class="wa-dual-txt"><b>Enviar algo</b><small>Mándados y envíos de paquetes</small></span>
+          </button>
+          <button type="button" class="wa-dual wa-dual-pedir" data-servicio="pedir">
+            <span class="wa-dual-ico" aria-hidden="true">🍔</span>
+            <span class="wa-dual-txt"><b>Pedir algo</b><small>Comida, compras y productos</small></span>
+          </button>
+        </section>
+
+        <!-- ===== Flujo "Pedir algo" ===== -->
+        <section class="wa-paso oculto" data-paso="1">
           <label class="wa-pregunta" for="inQuiere">¿Qué deseas?</label>
           <input id="inQuiere" maxlength="200" placeholder="Ej. 2 hamburguesas y una Coca-Cola">
           <label class="wa-pregunta" for="inOrigen">¿De dónde lo deseas?</label>
@@ -94,7 +109,7 @@
             </div>
           </div>
 
-          <div class="wa-seg" role="group" aria-label="Forma de indicar el lugar">
+          <div id="segPedir" class="wa-seg" role="group" aria-label="Forma de indicar el lugar">
             <button type="button" class="activa" data-tipo="pin">📍 Pin en el mapa</button>
             <button type="button" data-tipo="direccion">🏠 Dirección exacta</button>
           </div>
@@ -108,11 +123,62 @@
           </div>
         </section>
 
+        <!-- ===== Flujo "Enviar algo" ===== -->
+        <section class="wa-paso oculto" data-paso="E1">
+          <h2 class="wa-pregunta">📦 Enviar algo</h2>
+          <label class="wa-pregunta chica" for="inPaquete">¿Qué vas a enviar?</label>
+          <input id="inPaquete" maxlength="200" placeholder="Ej. Documentos, una caja pequeña, llaves">
+          <p class="wa-ayuda">¿Cómo coordinamos las direcciones?</p>
+          <button type="button" class="wa-opcion" data-envio="retiran">
+            <b>📍 Retiran donde mí</b>
+            <small>Usamos tu GPS en vivo como punto de retiro. Tú indicas dónde se entrega.</small>
+          </button>
+          <button type="button" class="wa-opcion" data-envio="traen">
+            <b>🏠 Traen donde mí</b>
+            <small>Tu GPS en vivo es el punto de entrega. Tú indicas dónde se retira.</small>
+          </button>
+          <button type="button" class="wa-opcion" data-envio="texto">
+            <b>✍️ Prefiero escribir las direcciones</b>
+            <small>Sin mapas: escribes el lugar de retiro y el de entrega.</small>
+          </button>
+        </section>
+
+        <section class="wa-paso oculto" data-paso="E2">
+          <h2 id="tituloE2" class="wa-pregunta">📍 Retiran donde mí</h2>
+          <div class="wa-gps-caja">
+            <p id="ayudaGpsE" class="wa-ayuda"></p>
+            <button id="btnGpsE" type="button" class="oscuro">📍 Activar mi ubicación</button>
+            <div id="estadoGpsE" class="wa-estado oculto" role="status"></div>
+          </div>
+          <p id="lblLugarE" class="wa-pregunta chica">¿Dónde se entrega el paquete?</p>
+          <div id="segEnvio" class="wa-seg" role="group" aria-label="Forma de indicar el lugar">
+            <button type="button" class="activa" data-tipo="pin">📍 Pin en el mapa</button>
+            <button type="button" data-tipo="direccion">🏠 Dirección exacta</button>
+          </div>
+          <div id="boxPinE" class="wa-campo">
+            <div id="mapaEnvio" class="wa-pin-mapa" aria-label="Mapa para colocar el pin"></div>
+            <small id="ayudaPinE" class="wa-ayuda">Toca el mapa para colocar el pin. Puedes arrastrarlo.</small>
+          </div>
+          <div id="boxDirE" class="wa-campo oculto">
+            <label for="inLugarE">Dirección exacta</label>
+            <input id="inLugarE" maxlength="200" placeholder="Calle, número, referencia">
+          </div>
+        </section>
+
+        <section class="wa-paso oculto" data-paso="E3">
+          <h2 class="wa-pregunta">✍️ Escribe las direcciones</h2>
+          <p class="wa-ayuda">Escribe con claridad: calle, barrio y una referencia (por ejemplo, «frente a la pulpería»).</p>
+          <label for="inRetiroTxt">Dirección / Lugar de Retiro</label>
+          <input id="inRetiroTxt" maxlength="120" placeholder="Ej. Casa azul, barrio San Antonio">
+          <label for="inEntregaTxt">Dirección / Lugar de Entrega</label>
+          <input id="inEntregaTxt" maxlength="200" placeholder="Ej. Colegio Central, portón verde">
+        </section>
+
         <div id="msgPedido" class="wa-estado error oculto" role="alert"></div>
 
         <div class="wa-acciones">
           <button id="btnAtras" type="button" class="oculto">Atrás</button>
-          <button id="btnSiguiente" type="submit" class="primario">Siguiente</button>
+          <button id="btnSiguiente" type="submit" class="primario oculto">Siguiente</button>
         </div>
       </form>
     </div>
@@ -127,7 +193,7 @@
         <small id="subChat">Buscando repartidor…</small>
       </div>
       <button id="btnCambiarNombre" class="wa-btn-barra oculto" type="button" aria-label="Cambiar mi nombre" title="Cambiar mi nombre">✏️</button>
-      <button id="btnMapa" class="wa-btn-barra oculto" type="button" aria-label="Ver mapa" aria-expanded="false">🗺️</button>
+      <button id="btnSeguir" class="wa-seguir oculto" type="button" aria-haspopup="dialog" aria-expanded="false">Seguir mi Pedido</button>
     </header>
 
     <div id="avisoEspera" class="wa-aviso" role="status">
@@ -139,10 +205,16 @@
       <button id="btnCancelar" class="peligro wa-cancelar" type="button">Cancelar solicitud</button>
     </div>
 
-    <div id="panelMapa" class="wa-panel-mapa oculto">
-      <div id="mapaSeguir" aria-label="Mapa con la ubicación de tu repartidor"></div>
-      <div id="rutaInfo" class="wa-ruta-info oculto" role="status" aria-live="polite"></div>
-      <div id="estadoMapa" class="wa-estado-mapa">Esperando la ubicación de tu repartidor…</div>
+    <div id="panelMapa" class="wa-panel-mapa oculto" role="dialog" aria-modal="true" aria-label="Seguir mi pedido">
+      <div class="wa-mapa-barra">
+        <button id="btnCerrarMapa" class="wa-mapa-cerrar" type="button" aria-label="Volver al chat">← Chat</button>
+        <strong>Seguir mi Pedido</strong>
+      </div>
+      <div class="wa-mapa-cuerpo">
+        <div id="mapaSeguir" aria-label="Mapa con la ubicación de tu repartidor"></div>
+        <div id="rutaInfo" class="wa-ruta-info oculto" role="status" aria-live="polite"></div>
+        <div id="estadoMapa" class="wa-estado-mapa">Esperando la ubicación de tu repartidor…</div>
+      </div>
     </div>
 
     <div id="mensajes" class="wa-mensajes" role="log" aria-live="polite" aria-relevant="additions"></div>
