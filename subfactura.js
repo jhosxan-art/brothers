@@ -113,8 +113,9 @@ const SubFactura = (() => {
      "invitado" → Repartidor invitado (ordenes + pedidos)
 
    Fórmula:
-     P_base  = pedido base (productos + delivery base, SIN mandados extra ni prioridad)
-     E       = mandados extra / subfacturas (botón +C$10/+C$20, subfactura, extras del admin)
+     P_base  = costo del DELIVERY base (NO incluye el costo de los productos, ni mandados extra, ni prioridad)
+     E       = mandados extra de delivery (botón +C$10/+C$20, envío extra de la subfactura, extras del admin);
+               el costo de los productos/compras NUNCA entra en la contabilidad
      F       = 7 si P_base < 200 · 14 si 200 ≤ P_base ≤ 400 · 28 si P_base > 400
      R_base  = P_base − F            (mínimo 0)
      Bolsa   = R_base + E
@@ -155,28 +156,28 @@ const Contabilidad = (() => {
   function desdeFacturas(base, actual) {
     const b = base || actual;
     if (!b) return { pBase: 0, extras: 0, prioridad: 0, sinFactura: true };
-    const tf = (f) => n(f.totalFinal != null ? f.totalFinal : f.total);
-    const pBase = Math.max(0, r2(tf(b) - n(b.prioridad) - n(b.mandadoExtra)));
+    /* Solo delivery: factura.delivery = delivery base + mandado extra; los productos (subtotal) se ignoran */
     const a = actual || b;
-    return { pBase, extras: Math.max(0, r2(tf(a) - n(a.prioridad) - pBase)), prioridad: n(a.prioridad), sinFactura: false };
+    const deliveryBase = (f) => (f.deliveryBase != null ? n(f.deliveryBase) : Math.max(0, n(f.delivery) - n(f.mandadoExtra)));
+    return { pBase: Math.max(0, r2(deliveryBase(a))), extras: Math.max(0, r2(n(a.mandadoExtra))), prioridad: n(a.prioridad), sinFactura: false };
   }
 
-  /* Nodo pedidos/{token}: detalle + subfactura + extras del admin. fallbackBase = precio del delivery si no hubo factura */
+  /* Nodo pedidos/{token}: detalle + subfactura + extras del admin, SOLO delivery (sin costo de productos). fallbackBase = precio del delivery si no hubo factura */
   function desdePedido(p, fallbackBase) {
     const x = p && typeof p === "object" ? p : {}, det = x.detalle && typeof x.detalle === "object" ? x.detalle : null;
     const fac = x.factura && typeof x.factura === "object" ? x.factura : null, sub = x.subfactura && typeof x.subfactura === "object" ? x.subfactura : null;
     let pBase = 0, extras = 0, prioridad = 0, sinFactura = false;
     if (det) {
       const entrega = det.deliveryBase != null ? n(det.deliveryBase) : Math.max(0, n(det.delivery) - n(det.mandadoExtra));
-      pBase = n(det.subtotal) + entrega;
+      pBase = entrega; /* solo delivery, sin el subtotal de productos */
       extras += n(det.mandadoExtra);
       prioridad = n(det.prioridad);
     } else if (fac) {
-      pBase = n(fac.total != null ? fac.total : n(fac.subtotal) + n(fac.delivery));
+      pBase = n(fac.delivery); /* solo delivery, sin el subtotal de productos */
     } else { pBase = n(fallbackBase); sinFactura = true; }
     if (sub) {
       const items = sub.items ? (Array.isArray(sub.items) ? sub.items : Object.values(sub.items)) : [];
-      extras += items.reduce((t, i) => t + n(i && i.precio), 0) + n(sub.envioExtra);
+      extras += n(sub.envioExtra); /* los items (compras/productos) no entran; solo el envío extra */
     }
     if (x.extras && typeof x.extras === "object") extras += Object.values(x.extras).reduce((t, e) => t + n(e && e.monto), 0);
     return { pBase: r2(pBase), extras: r2(extras), prioridad: r2(prioridad), sinFactura };
@@ -278,7 +279,7 @@ const PanelContable = (() => {
     cab.appendChild(h("span", "pc-item-total", dinero(x.bruto != null ? x.bruto : n(x.base) + n(x.extras))));
     t.appendChild(cab);
     const des = h("div", "pc-desglose3");
-    [["Base", dinero(x.base)], ["Extras", dinero(x.extras)], ["Ganancia neta", dinero(x.gananciaRepartidor)]].forEach((p, i) => {
+    [["Delivery", dinero(x.base)], ["Extras", dinero(x.extras)], ["Ganancia neta", dinero(x.gananciaRepartidor)]].forEach((p, i) => {
       const c = h("div", i === 2 ? "neta" : "");
       c.appendChild(h("small", "", p[0])); c.appendChild(h("b", "", p[1]));
       des.appendChild(c);
@@ -287,7 +288,7 @@ const PanelContable = (() => {
     const det = document.createElement("details");
     det.appendChild(h("summary", "", "Ver cálculo"));
     const cal = h("div", "pc-calculo");
-    cal.appendChild(fila("Pedido base", dinero(x.base)));
+    cal.appendChild(fila("Delivery base", dinero(x.base)));
     cal.appendChild(fila("Deducción fija", "− " + dinero(x.fijo)));
     cal.appendChild(fila("Base tras rebajo", dinero(x.rBase)));
     cal.appendChild(fila("+ Mandados extra", dinero(x.extras)));
