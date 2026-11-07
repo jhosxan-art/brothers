@@ -557,7 +557,16 @@
           }
         },
         "pedido": {
-          ".validate": "newData.hasChildren(['quiere', 'origen', 'modo', 'destino'])",
+          ".validate": "newData.hasChildren(['quiere', 'origen', 'modo', 'destino']) && (newData.child('tipo').val() !== 'envio' || newData.hasChild('retiro')) && (!newData.hasChild('retiro') || newData.child('tipo').val() === 'envio')",
+          "tipo": { ".validate": "newData.val() === 'envio' || newData.val() === 'compra'" },
+          "retiro": {
+            ".validate": "newData.hasChild('tipo') && ((newData.child('tipo').val() === 'direccion' && newData.hasChild('texto')) || ((newData.child('tipo').val() === 'gps' || newData.child('tipo').val() === 'pin') && newData.hasChildren(['lat', 'lng'])))",
+            "tipo": { ".validate": "newData.val() === 'gps' || newData.val() === 'pin' || newData.val() === 'direccion'" },
+            "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+            "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+            "texto": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 200" },
+            "$otro": { ".validate": false }
+          },
           "quiere": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 200" },
           "origen": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 120" },
           "modo": { ".validate": "newData.val() === 'recibe' || newData.val() === 'envia'" },
