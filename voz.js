@@ -7,6 +7,8 @@
      (para eso hacen falta notificaciones push; ver README).
    Cambia las frases aquí, en un solo lugar.
    FASE 3: se agrega solicitudAdmin() para el panel del administrador.
+   ACTUALIZACIÓN: alertas del ciclo de vida del pedido para el administrador
+   (nuevo pedido por WhatsApp, repartidor lo tomó, va a entregar, entregado).
    ============================================================ */
 const Voz = (() => {
   const FRASES = {
@@ -25,7 +27,17 @@ const Voz = (() => {
     // Celular del cliente (cliente-app.html)
     clientePedidoAceptado: "Un repartidor ha aceptado tu pedido",
     clienteMensajeNuevo: "Tienes un nuevo mensaje del repartidor",
-    clienteRepartidorCerca: "Tu repartidor está cerca de tu destino"
+    clienteRepartidorCerca: "Tu repartidor está cerca de tu destino",
+    // Administrador · ciclo de vida del pedido
+    pedidoWhatsAppAdmin: (cliente, quiere, origen) =>
+      "Nuevo pedido por WhatsApp" + (cliente ? " del cliente " + cliente : "") +
+      (quiere ? ". Quiere " + quiere : "") + (origen ? ", de " + origen : ""),
+    pedidoTomadoAdmin: (rep, cliente) =>
+      (rep || "Un repartidor") + " tomó el pedido" + (cliente ? " del cliente " + cliente : ""),
+    repartidorEnCaminoAdmin: (rep, cliente) =>
+      (rep || "El repartidor") + " va en camino a entregar" + (cliente ? " el pedido de " + cliente : "") + ". Está llegando a la dirección del cliente",
+    pedidoEntregadoAdmin: (rep, cliente) =>
+      "Pedido entregado" + (cliente ? " a " + cliente : "") + (rep ? " por " + rep : "") + ". Pedido cerrado con éxito"
   };
   const soporta = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
   let desbloqueada = false, audio = null, vozEs = null, gen = 0, pendiente = null;   // gen: cancela repeticiones pendientes
@@ -139,6 +151,30 @@ const Voz = (() => {
     hablar(FRASES.solicitudAdmin, { forzar: true });
   };
 
+  /* Texto corto y limpio para voz (sin emojis ni signos raros, máximo n letras) */
+  const limpiar = (t, n = 80) => String(t == null ? "" : t).replace(/[^\p{L}\p{N}\s.,:;()\-\/]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n);
+
+  /* ADMIN · Nuevo pedido por WhatsApp (igual de insistente que un mensaje directo: vibra y lo dice 2 veces) */
+  const pedidoWhatsAppAdmin = (d = {}) => {
+    try { if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]); } catch (_) {}
+    hablar(FRASES.pedidoWhatsAppAdmin(limpiar(d.cliente, 30), limpiar(d.quiere, 70), limpiar(d.origen, 40)), { forzar: true, repetir: 2, pausaMs: 2000 });
+  };
+  /* ADMIN · Un repartidor tomó el pedido (dice quién) */
+  const pedidoTomadoAdmin = (d = {}) => {
+    try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (_) {}
+    hablar(FRASES.pedidoTomadoAdmin(limpiar(d.repartidor, 30), limpiar(d.cliente, 30)), { forzar: true });
+  };
+  /* ADMIN · El repartidor va a entregar / está llegando */
+  const repartidorEnCaminoAdmin = (d = {}) => {
+    try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (_) {}
+    hablar(FRASES.repartidorEnCaminoAdmin(limpiar(d.repartidor, 30), limpiar(d.cliente, 30)), { forzar: true });
+  };
+  /* ADMIN · Pedido entregado y cerrado */
+  const pedidoEntregadoAdmin = (d = {}) => {
+    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (_) {}
+    hablar(FRASES.pedidoEntregadoAdmin(limpiar(d.repartidor, 30), limpiar(d.cliente, 30)), { forzar: true });
+  };
+
   /* Alertas del cliente. Se dicen una vez; la de cercanía se repite para que se oiga con el celular en el bolsillo */
   const clientePedidoAceptado = () => hablar(FRASES.clientePedidoAceptado, { forzar: true });
   const clienteMensajeNuevo = () => hablar(FRASES.clienteMensajeNuevo);
@@ -148,5 +184,6 @@ const Voz = (() => {
   };
 
   return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad, solicitud, solicitudAdmin,
+           pedidoWhatsAppAdmin, pedidoTomadoAdmin, repartidorEnCaminoAdmin, pedidoEntregadoAdmin,
            clientePedidoAceptado, clienteMensajeNuevo, clienteRepartidorCerca };
 })();

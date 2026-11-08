@@ -528,24 +528,54 @@ const PedidosAdmin = (() => {
     }, () => {});
   }
 
+  /* Ciclo de vida del pedido (panel de órdenes): tomado → en camino → entregado.
+     Cada aviso = banner flotante (con foto del repartidor) + voz + notificación del sistema. */
   function avisarCambios(nuevo) {
-    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅❌🔗🛵]/gu, "")); };
+    const ir = (t) => () => { try { if (typeof irAPestana === "function") irAPestana("panelPedidos"); } catch (_) {} };
+    const emitir = (id, icono, clase, titulo, lineas, uid, voz) => {
+      PushAdmin.mostrar({ id, icono, clase, titulo, lineas, foto: FotosRep.get(uid), etiquetaVer: "Ver", alVer: ir() });
+      PushAdmin.sistema(icono + " " + titulo, (lineas || []).filter(Boolean).join(" · "), id, ir());
+      try { if (typeof voz === "function") voz(); } catch (_) {}
+    };
     Object.entries(nuevo).forEach(([t, o]) => {
       const a = ordenes[t]; if (!a) return;
-      const resp = o.estado_asignacion;
-      if (resp !== a.estado_asignacion && (resp === "aceptado" || resp === "rechazado") && o.asignacion && o.asignacion.tipo === "registrado") {
-        const quien = o.asignacion.nombre || "repartidor";
-        if (resp === "aceptado") decir(`✅ El repartidor ${quien} aceptó el pedido ${cod(o.codigo)}`);
-        else decir(`❌ El repartidor ${quien} rechazó el pedido ${cod(o.codigo)}`);
-      }
+      const cli = o.cliente || "", cl = cod(o.codigo);
       const nom = (o.asignacion && o.asignacion.nombre) || "El repartidor", pa = O.paradas(a), po = O.paradas(o);
-      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) decir(`🔗 ${nom} aceptó el pedido ${cod(o.codigo)}`);
+      const uid = o.asignacion ? (o.asignacion.tipo === "invitado" ? O.uidInvitado(t) : o.asignacion.uid) : null;
+      const resp = o.estado_asignacion;
+      /* 1) El repartidor tomó (aceptó) el pedido */
+      if (resp !== a.estado_asignacion && resp === "aceptado" && o.asignacion && o.asignacion.tipo === "registrado") {
+        const quien = o.asignacion.nombre || "repartidor";
+        emitir("ord-tomado-" + t, "🛵", "wa", quien + " tomó el pedido " + cl, ["👤 Cliente: " + cli, "🛵 Repartidor: " + quien], uid,
+          () => Voz.pedidoTomadoAdmin({ repartidor: quien, cliente: cli }));
+      } else if (resp !== a.estado_asignacion && resp === "rechazado" && o.asignacion && o.asignacion.tipo === "registrado") {
+        const quien = o.asignacion.nombre || "repartidor";
+        emitir("ord-rechazo-" + t, "❌", "alerta", quien + " rechazó el pedido " + cl, ["👤 Cliente: " + cli, "Hay que reasignarlo"], uid,
+          () => O.hablar(quien + " rechazó el pedido " + cl));
+      }
+      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) {
+        emitir("ord-tomado-" + t, "🔗", "wa", nom + " tomó el pedido " + cl, ["👤 Cliente: " + cli, "🛵 Repartidor invitado: " + nom], uid,
+          () => Voz.pedidoTomadoAdmin({ repartidor: nom, cliente: cli }));
+      }
+      /* 2) Retiros: si ya retiró todo, va hacia el cliente (en camino a entregar) */
       po.forEach((p, k) => {
         if (!p.retirado || (pa[k] && pa[k].retirado)) return;
         const falta = po.filter((x) => !x.retirado).length;
-        decir(`📦 ${nom} ya retiró ${p.producto ? p.producto : "un producto"}${p.texto ? " en " + p.texto : ""}. ${falta ? "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "") : "Pedido completo, va hacia el cliente"}`);
+        if (!falta) {
+          emitir("ord-camino-" + t, "🚚", "wa", nom + " va a entregar el pedido " + cl, ["👤 Cliente: " + cli, "📍 " + ((o.entrega && o.entrega.texto) || "En camino a la dirección del cliente")], uid,
+            () => Voz.repartidorEnCaminoAdmin({ repartidor: nom, cliente: cli }));
+        } else {
+          const que = p.producto ? p.producto : "un producto";
+          emitir("ord-retiro-" + t + "-" + k, "📦", "wa", nom + " ya retiró " + que, [p.texto ? "📍 " + p.texto : "", "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "")], uid,
+            () => O.hablar(nom + " ya retiró " + que + ". Faltan " + falta + " retiro" + (falta > 1 ? "s" : "")));
+        }
       });
-      if (o.estado !== a.estado && o.estado === "entregado") decir(`✅ ${nom} entregó el pedido ${cod(o.codigo)}`);
+      /* 3) Entregado: cierre exitoso (el panel y el historial se repintan solos tras este aviso) */
+      if (o.estado !== a.estado && o.estado === "entregado") {
+        emitir("ord-entregado-" + t, "✅", "ok", "Pedido " + cl + " entregado", ["👤 Cliente: " + cli, "🛵 Entregó: " + nom], uid,
+          () => Voz.pedidoEntregadoAdmin({ repartidor: nom, cliente: cli }));
+        try { window.dispatchEvent(new CustomEvent("pedido-finalizado", { detail: { id: t, origen: "orden", estado: "entregado" } })); } catch (_) {}
+      }
       if (o.estado !== a.estado && (o.estado === "entregado" || o.estado === "cancelado") && t === avisoToken) aviso("");
     });
   }
@@ -884,6 +914,128 @@ try { window.pintarEquipo = () => EQUIPO.render(); } catch (_) {}
 
 
 /* ============================================================
+   FOTOS DE REPARTIDORES (cache en vivo para banners de notificación)
+   ============================================================ */
+const FotosRep = (() => {
+  let ref = null, fotos = {};
+  function iniciar() {
+    if (ref || typeof db === "undefined") return;
+    try {
+      ref = db.ref("repartidorFotos");
+      ref.on("value", (s) => { fotos = s.val() || {}; }, () => { fotos = {}; ref = null; });
+    } catch (_) { ref = null; }
+  }
+  function detener() { if (ref) { try { ref.off(); } catch (_) {} ref = null; } fotos = {}; }
+  const get = (uid) => { const f = uid ? fotos[uid] : null; return typeof f === "string" && f.indexOf("data:image/") === 0 ? f : ""; };
+  if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
+  return { iniciar, detener, get };
+})();
+
+
+/* ============================================================
+   PUSH ADMIN · Banners flotantes + notificación del sistema
+   Un solo lugar para avisar visualmente al administrador.
+   Se usa para: pedidos nuevos por WhatsApp y ciclo de vida del pedido
+   (tomado, en camino, entregado). Todo el texto se inserta con textContent.
+   ============================================================ */
+const PushAdmin = (() => {
+  const MAX_VISIBLES = 3, TTL_DEFECTO = 12000;
+  const pilaEl = () => document.getElementById("pushAdminStack");
+  const hacer = (tag, clase, texto) => {
+    const e = document.createElement(tag);
+    if (clase) e.className = clase;
+    if (texto !== undefined) e.textContent = texto;
+    return e;
+  };
+  const fotoValida = (f) => typeof f === "string" && f.indexOf("data:image/") === 0 && f.length < 400000;
+
+  function quitar(nodo, rapido) {
+    if (!nodo || !nodo.parentNode) return;
+    if (nodo._t) { clearTimeout(nodo._t); nodo._t = null; }
+    if (rapido) { nodo.remove(); return; }
+    nodo.classList.add("saliendo");
+    setTimeout(() => nodo.remove(), 260);
+  }
+
+  /* o = { id, icono, titulo, lineas:[], foto, clase, ttl, etiquetaVer, alVer } */
+  function mostrar(o) {
+    const pila = pilaEl();
+    if (!pila || !o) return null;
+    const id = String(o.id || "push-" + Date.now());
+    [...pila.children].forEach((n) => { if (n.dataset.pushId === id) quitar(n, true); });
+    while (pila.children.length >= MAX_VISIBLES) quitar(pila.firstElementChild, true);
+
+    const ttl = Number(o.ttl) > 0 ? Number(o.ttl) : TTL_DEFECTO;
+    const card = hacer("div", "push-card" + (o.clase ? " " + o.clase : ""));
+    card.dataset.pushId = id;
+    card.setAttribute("role", "alert");
+    card.style.setProperty("--push-ttl", ttl + "ms");
+
+    const av = hacer("span", "push-av");
+    if (fotoValida(o.foto)) {
+      const img = hacer("img"); img.src = o.foto; img.alt = ""; av.classList.add("con-foto"); av.appendChild(img);
+    } else {
+      av.textContent = o.icono || "🔔";
+    }
+    if (fotoValida(o.foto) && o.icono) av.appendChild(hacer("i", "push-av-ic", o.icono));
+    card.appendChild(av);
+
+    const cuerpo = hacer("div", "push-cuerpo");
+    cuerpo.appendChild(hacer("strong", "push-titulo", String(o.titulo || "")));
+    (o.lineas || []).filter(Boolean).forEach((l) => cuerpo.appendChild(hacer("small", "push-linea", String(l))));
+    card.appendChild(cuerpo);
+
+    const acc = hacer("div", "push-acc");
+    if (typeof o.alVer === "function") {
+      const ver = hacer("button", "push-ver", o.etiquetaVer || "Ver");
+      ver.type = "button";
+      ver.addEventListener("click", () => { try { o.alVer(); } catch (_) {} quitar(card); });
+      acc.appendChild(ver);
+    }
+    const x = hacer("button", "push-x", "✕");
+    x.type = "button"; x.setAttribute("aria-label", "Cerrar notificación");
+    x.addEventListener("click", () => quitar(card));
+    acc.appendChild(x);
+    card.appendChild(acc);
+
+    card.appendChild(hacer("span", "push-barra"));
+    pila.appendChild(card);
+    card._t = setTimeout(() => quitar(card), ttl);
+    return card;
+  }
+
+  /* Notificación del sistema (sirve cuando la pestaña está en segundo plano) */
+  function sistema(titulo, cuerpo, tag, alClick) {
+    try {
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      const opc = { body: cuerpo || "", tag: tag || "pedido-admin", renotify: true, requireInteraction: false, vibrate: [300, 150, 300] };
+      const abrir = () => { try { window.focus(); } catch (_) {} if (typeof alClick === "function") alClick(); };
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+        navigator.serviceWorker.getRegistration().then((reg) => {
+          if (reg && reg.showNotification) reg.showNotification(titulo, opc);
+          else { const n = new Notification(titulo, opc); n.onclick = () => { abrir(); n.close(); }; }
+        }).catch(() => { const n = new Notification(titulo, opc); n.onclick = () => { abrir(); n.close(); }; });
+      } else {
+        const n = new Notification(titulo, opc); n.onclick = () => { abrir(); n.close(); };
+      }
+    } catch (_) {}
+  }
+
+  /* El navegador solo deja pedir permiso tras un toque del usuario */
+  function pedirPermiso() {
+    try {
+      if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+      const pedir = () => { try { Notification.requestPermission(); } catch (_) {} };
+      document.addEventListener("pointerdown", pedir, { once: true, passive: true });
+    } catch (_) {}
+  }
+  pedirPermiso();
+
+  return { mostrar, sistema, quitar };
+})();
+
+
+/* ============================================================
    2) SOLICITUDES ADMIN (Chats, Modo Espectador, Palomitas)
    ============================================================ */
 const SolicitudesAdmin = (() => {
@@ -946,25 +1098,75 @@ const SolicitudesAdmin = (() => {
     m.className = "sa-msg" + (error ? " error" : "") + (texto ? "" : " oculto");
   }
 
+  function irAlPanel() {
+    try { if (typeof irAPestana === "function") irAPestana(PANEL); } catch (_) {}
+  }
+  /* Pedido nuevo por WhatsApp: misma respuesta que un mensaje directo (voz + banner + push del sistema) */
   function anunciarNuevas(ids) {
     if (!ids.length) return;
-    try { if (typeof Voz !== "undefined" && Voz.solicitudAdmin) Voz.solicitudAdmin(); } catch (_) {}
-    if (typeof toast === "function") {
-      toast("📥 " + (ids.length === 1 ? "Nueva solicitud de cliente pendiente" : ids.length + " solicitudes nuevas pendientes"));
+    if (ids.length === 1) {
+      const k = ids[0], d = lista[k] || {}, p = d.pedido || {};
+      const cliente = cortar(d.nombre || "Cliente", 40);
+      try { if (typeof Voz !== "undefined" && Voz.pedidoWhatsAppAdmin) Voz.pedidoWhatsAppAdmin({ cliente, quiere: p.quiere, origen: p.origen }); else if (Voz.solicitudAdmin) Voz.solicitudAdmin(); } catch (_) {}
+      PushAdmin.mostrar({
+        id: "sol-" + k, icono: "📥", clase: "wa", titulo: "Nuevo pedido por WhatsApp",
+        lineas: ["👤 " + cliente, p.quiere ? "🛍️ " + cortar(p.quiere, 90) : "", p.origen ? "📍 De " + cortar(p.origen, 50) : ""],
+        etiquetaVer: "Abrir", alVer: () => { irAlPanel(); if (lista[k]) abrirVisor(k); }
+      });
+      PushAdmin.sistema("📥 Nuevo pedido por WhatsApp", cliente + (p.quiere ? " · " + cortar(p.quiere, 90) : ""), "solicitud-" + k, () => { irAlPanel(); if (lista[k]) abrirVisor(k); });
+      return;
     }
-    try {
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        const titulo = "📥 " + (ids.length === 1 ? "Nueva solicitud de pedido" : ids.length + " solicitudes nuevas");
-        const cuerpo = ids.length === 1 ? "Un cliente quiere hacer un pedido. Toca para abrir el panel de Solicitudes." : ids.length + " clientes quieren hacer pedidos. Toca para abrir el panel de Solicitudes.";
-        const n = new Notification(titulo, { body: cuerpo, tag: "solicitud-nueva" });
-        n.onclick = () => { window.focus(); irAPestana("panelSolicitudes"); n.close(); };
+    try { if (typeof Voz !== "undefined" && Voz.hablar) Voz.hablar(ids.length + " nuevos pedidos por WhatsApp", { forzar: true, repetir: 2, pausaMs: 2000 }); } catch (_) {}
+    const nombres = ids.map((k) => cortar((lista[k] && lista[k].nombre) || "Cliente", 24)).slice(0, 4).join(", ");
+    PushAdmin.mostrar({
+      id: "sol-multi", icono: "📥", clase: "wa", titulo: ids.length + " pedidos nuevos por WhatsApp",
+      lineas: ["👤 " + nombres + (ids.length > 4 ? "…" : "")], etiquetaVer: "Ver todos", alVer: irAlPanel
+    });
+    PushAdmin.sistema("📥 " + ids.length + " pedidos nuevos por WhatsApp", nombres, "solicitud-multi", irAlPanel);
+  }
+
+  /* Ciclo de vida de la solicitud: repartidor la tomó → llegó/va a entregar → entregada.
+     Compara el estado anterior con el nuevo en cada cambio de Firebase. */
+  const evVistos = new Set();
+  function avisarCiclo(antes, ahora) {
+    const ver = (k) => () => { try { if (typeof irAPestana === "function") irAPestana(PANEL); } catch (_) {} if (lista[k]) abrirVisor(k); };
+    const emitir = (clave, k, icono, clase, titulo, lineas, uid, voz) => {
+      if (evVistos.has(clave)) return;
+      evVistos.add(clave);
+      PushAdmin.mostrar({ id: clave, icono, clase, titulo, lineas, foto: FotosRep.get(uid), etiquetaVer: "Ver", alVer: ver(k) });
+      PushAdmin.sistema(icono + " " + titulo, (lineas || []).filter(Boolean).join(" · "), clave, ver(k));
+      try { if (typeof voz === "function") voz(); } catch (_) {}
+    };
+    Object.keys(ahora).forEach((k) => {
+      const d = ahora[k], a = antes[k];
+      if (!d || typeof d !== "object" || !a) return;
+      const cli = cortar(d.nombre || "Cliente", 40), rep = cortar(d.repartidorNombre || "Un repartidor", 40), uid = d.repartidorUid;
+      /* 1) Lo tomó un repartidor (o se reasignó a otro) */
+      if (uid && uid !== a.repartidorUid && !fin(d)) {
+        emitir("sol-tomado-" + k + "-" + uid, k, "🛵", "wa", rep + " tomó el pedido de " + cli,
+          ["👤 Cliente: " + cli, "🛵 Repartidor: " + rep, d.pedido && d.pedido.quiere ? "🛍️ " + cortar(d.pedido.quiere, 90) : ""], uid,
+          () => Voz.pedidoTomadoAdmin({ repartidor: rep, cliente: cli }));
       }
-    } catch (_) {}
+      /* 2) Avisó que llegó / va a entregar */
+      if (d.llegadaTs && !a.llegadaTs && !fin(d)) {
+        emitir("sol-camino-" + k + "-" + d.llegadaTs, k, "🚚", "wa", rep + " está llegando con el pedido de " + cli,
+          ["👤 Cliente: " + cli, "📍 Va en camino o llegando a la dirección del cliente"], uid,
+          () => Voz.repartidorEnCaminoAdmin({ repartidor: rep, cliente: cli }));
+      }
+      /* 3) Entregado: cierre exitoso */
+      if (d.estado === "entregado" && a.estado !== "entregado") {
+        emitir("sol-entregado-" + k, k, "✅", "ok", "Pedido de " + cli + " entregado",
+          ["👤 Cliente: " + cli, d.repartidorNombre ? "🛵 Entregó: " + rep : ""], uid,
+          () => Voz.pedidoEntregadoAdmin({ repartidor: d.repartidorNombre ? rep : "", cliente: cli }));
+        try { window.dispatchEvent(new CustomEvent("pedido-finalizado", { detail: { id: k, origen: "solicitud", estado: "entregado" } })); } catch (_) {}
+        try { if (typeof pintarLista === "function") pintarLista(); } catch (_) {}
+      }
+    });
   }
 
   function iniciar() {
     detener();
-    cargada = false; avisadas.clear();
+    cargada = false; avisadas.clear(); evVistos.clear();
     consulta = db.ref(RAIZ).limitToLast(100);
     consulta.on("value", (s) => {
       const antes = lista;
@@ -979,6 +1181,7 @@ const SolicitudesAdmin = (() => {
           }
         });
         if (nuevas.length) anunciarNuevas(nuevas);
+        avisarCiclo(antes, lista);
       } else {
         Object.keys(lista).forEach((k) => { if (lista[k] && estadoDe(lista[k]) === "nuevo") avisadas.add(k); });
       }
