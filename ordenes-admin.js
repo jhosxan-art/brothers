@@ -1626,47 +1626,33 @@ const SolicitudesAdmin = (() => {
 
 
 /* ============================================================
-   FASE 2 · BRÚJULA DEL MAPA
-   - La aguja apunta al norte real con el sensor del aparato (si existe);
-     sin sensor queda fija al norte geográfico (mapa orientado al norte).
-   - Al tocarla se DESBLOQUEA el mapa: moverlo, acercarlo y girarlo con los dedos
-     (el giro usa el plugin leaflet-rotate; si no carga, el mapa sigue sin girar).
+   BRÚJULA DEL MAPA
+   - La aguja SIEMPRE señala el norte del mapa: se calcula a partir del propio mapa (hacia dónde cae el norte
+     geográfico en la pantalla), así gira junto con él al rotarlo, moverlo o acercarlo, sin depender de sensores.
+   - Al tocarla se DESBLOQUEA el mapa: moverlo, acercarlo y girarlo con los dedos (plugin leaflet-rotate;
+     si no carga, el mapa sigue sin girar y la aguja queda fija al norte).
      Un segundo toque lo vuelve a bloquear y lo orienta al norte.
    ============================================================ */
 const Brujula = (() => {
-  let btn = null, aguja = null, estado = null, listo = false, libre = false, rumbo = null, pendiente = false, orientEscucha = false;
+  let btn = null, aguja = null, estado = null, listo = false, libre = false, pendiente = false;
   const g = (id) => document.getElementById(id);
   const puedeGirar = () => !!(typeof mapa !== "undefined" && mapa && typeof mapa.setBearing === "function" && mapa.options && mapa.options.rotate);
-  const bearingMapa = () => (puedeGirar() ? (Number(mapa.getBearing()) || 0) : 0);
+  /* Ángulo (horario) con que se ve el norte geográfico respecto a "arriba" de la pantalla. */
+  function anguloNorte() {
+    try {
+      const c = mapa.getCenter(), n = L.latLng(Math.min(c.lat + 0.002, 85), c.lng);
+      const p0 = mapa.latLngToContainerPoint(c), p1 = mapa.latLngToContainerPoint(n);
+      const dx = p1.x - p0.x, dy = p1.y - p0.y;
+      if (!isFinite(dx) || !isFinite(dy) || (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6)) return 0;
+      return Math.atan2(dx, -dy) * 180 / Math.PI;
+    } catch (_) { return 0; }
+  }
   function pintar() {
-    if (!aguja) return;
     pendiente = false;
-    const rot = libre && puedeGirar() ? -bearingMapa() : (rumbo == null ? -bearingMapa() : -rumbo);
-    aguja.setAttribute("transform", "rotate(" + rot.toFixed(1) + " 24 24)");
+    if (!aguja || !mapa) return;
+    aguja.setAttribute("transform", "rotate(" + anguloNorte().toFixed(1) + " 24 24)");
   }
   function pedirPintar() { if (!pendiente) { pendiente = true; requestAnimationFrame(pintar); } }
-  function alOrientar(e) {
-    let h = null;
-    if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;
-    else if ((e.absolute === true || e.type === "deviceorientationabsolute") && typeof e.alpha === "number") h = (360 - e.alpha) % 360;
-    if (h == null || !isFinite(h)) return;
-    const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
-    rumbo = (h + ang + 360) % 360;
-    pedirPintar();
-  }
-  async function escucharOrientacion() {
-    if (orientEscucha) return;
-    try {
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        const r = await DeviceOrientationEvent.requestPermission();   // iPhone: exige un toque del usuario
-        if (r !== "granted") return;
-        window.addEventListener("deviceorientation", alOrientar, true);
-      } else if ("ondeviceorientationabsolute" in window) window.addEventListener("deviceorientationabsolute", alOrientar, true);
-      else if (typeof DeviceOrientationEvent !== "undefined") window.addEventListener("deviceorientation", alOrientar, true);
-      else return;
-      orientEscucha = true;
-    } catch (_) {}
-  }
   function aplicarModo() {
     if (!mapa) return;
     btn.classList.toggle("libre", libre);
@@ -1690,12 +1676,11 @@ const Brujula = (() => {
     if (!btn || !aguja || !mapa) return;
     listo = true;
     if (mapa.touchRotate) { try { mapa.touchRotate.disable(); } catch (_) {} }   // arranca bloqueado
-    if (puedeGirar()) mapa.on("rotate", pedirPintar);
-    btn.addEventListener("click", () => { escucharOrientacion(); libre = !libre; aplicarModo(); });
-    escucharOrientacion();   // Android: arranca sin permiso; iPhone espera el primer toque
+    mapa.on("rotate move zoom moveend zoomend resize viewreset", pedirPintar);
+    btn.addEventListener("click", () => { libre = !libre; aplicarModo(); });
     pintar();
   }
-  return { iniciar };
+  return { iniciar, pintar: pedirPintar };
 })();
 
 

@@ -1470,3 +1470,20 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
 @media (prefers-reduced-motion: reduce) {
   .eq-cuerpo, .eq-mod.cerrada .eq-cuerpo, .eq-flecha { transition: none; }
 }
+
+/* ============================================================
+   MAPA ADMIN · Negocios pequeños y pegados al mapa (estilo Google Maps / Waze),
+   tarjeta de información siempre por encima y fotos en la lista de Chats
+   ============================================================ */
+.neg-ico { background: none; border: 0; cursor: pointer; }
+.neg-pin { position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 2px solid #F59E0B; display: grid; place-items: center; font-size: 11px; line-height: 1; box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
+.neg-etq { position: absolute; left: 24px; top: 50%; transform: translateY(-50%); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; color: #3C4043; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; pointer-events: none; }
+.zoom-lejos .neg-etq { display: none; }
+/* La tarjeta de información queda por encima de todos los íconos del mapa */
+.leaflet-popup-pane { z-index: 900; }
+.leaflet-popup { z-index: 900; }
+
+/* Foto de perfil del repartidor en la lista de Chats */
+#listaChats .tarjeta-rep .avatar { flex: none; width: 52px; height: 52px; padding: 4px; border: 2px solid var(--celeste); background-color: var(--celeste-suave); background-repeat: no-repeat; display: grid; place-items: center; overflow: hidden; }
+#listaChats .tarjeta-rep .avatar svg { width: 100%; height: 100%; display: block; }
+#listaChats .tarjeta-rep .avatar.con-foto { padding: 0; background-color: transparent; border-color: var(--celeste-prof); }

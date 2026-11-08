@@ -621,6 +621,14 @@ function formNegocio(d, id) {
     } catch (err) { toast("No se pudo guardar: " + err.message); $("nOk").disabled = false; }
   };
 }
+/* Ícono de negocio: círculo pequeño anclado exactamente en su coordenada, con el nombre al lado (solo con zoom cercano). */
+function iconoNegocio(l) {
+  return L.divIcon({
+    className: "neg-ico",
+    html: '<span class="neg-pin">' + esc(l.icono || "📍") + '</span><span class="neg-etq">' + esc(l.nombre || "") + "</span>",
+    iconSize: [20, 20], iconAnchor: [10, 10]
+  });
+}
 function pintarLugares() {
   if (!mapa) return;
   Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
@@ -628,8 +636,8 @@ function pintarLugares() {
     if (typeof l.lat !== "number") return;
     const clave = [l.nombre, l.icono].join("|");
     let m = lugarMarks[id];
-    if (!m) { m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: Lugares.iconoMapa(l), zIndexOffset: 100 }); if (verNegocios) m.addTo(mapa); m._clave = clave; m.bindPopup(() => popupLugar(id), { offset: [0, -14], minWidth: 230 }); }
-    else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(Lugares.iconoMapa(l)); m._clave = clave; } }
+    if (!m) { m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: iconoNegocio(l), zIndexOffset: 100 }); if (verNegocios) m.addTo(mapa); m._clave = clave; m.bindPopup(() => popupLugar(id), { offset: [0, -10], minWidth: 230, autoPanPaddingTopLeft: [16, 110], autoPanPaddingBottomRight: [90, 110] }); }
+    else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(iconoNegocio(l)); m._clave = clave; } }
   });
 }
 function popupLugar(id) {
@@ -907,23 +915,24 @@ const fechaCorta = (ts) => (ts ? new Date(ts).toLocaleString("es", { day: "2-dig
 function conversaciones() {
   const eq = Object.keys(registrados).map((uid) => {
     const r = resEquipo[uid] || {};
-    return { key: "eq:" + uid, titulo: "👥 " + nombreUid(uid), ts: r.ts || 0, sinLeer: sinLeerEq[uid] || 0,
+    return { key: "eq:" + uid, uid, titulo: "👥 " + nombreUid(uid), ts: r.ts || 0, sinLeer: sinLeerEq[uid] || 0,
       sub: r.ultimo ? `${r.ultimoDe === "admin" ? "Tú" : nombreUid(uid)}: ${r.ultimo}` : "Sin mensajes todavía" };
   }).sort((a, b) => b.ts - a.ts || a.titulo.localeCompare(b.titulo));
   const cl = Object.entries(resumenes).sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0)).map(([token, r]) => ({
-    key: "cl:" + token, titulo: `Pedido ${r.pedido || "—"} · ${r.repartidor || "Repartidor"}`, ts: r.ts || 0, sinLeer: 0,
+    key: "cl:" + token, uid: r.repartidorUid || r.uid || "", titulo: `Pedido ${r.pedido || "—"} · ${r.repartidor || "Repartidor"}`, ts: r.ts || 0, sinLeer: 0,
     sub: `${r.ultimoDe === "cliente" ? "Cliente" : (r.repartidor || "Repartidor")}: ${r.ultimo || ""}` }));
   return { eq, cl };
 }
 function pintarChats() {
   const { eq, cl } = conversaciones();
   const tarjeta = (c) => `<div class="tarjeta-rep conv${selChats.has(c.key) ? " sel" : ""}" data-key="${esc(c.key)}" style="cursor:pointer"><div class="fila">
-      ${modoSel ? `<input type="checkbox" class="chk" ${selChats.has(c.key) ? "checked" : ""} tabindex="-1" aria-label="Seleccionar">` : `<span class="avatar">${RIDER_SVG}</span>`}
+      ${modoSel ? `<input type="checkbox" class="chk" ${selChats.has(c.key) ? "checked" : ""} tabindex="-1" aria-label="Seleccionar">` : `<span class="avatar" data-av="${esc(c.uid || "")}">${RIDER_SVG}</span>`}
       <div class="datos"><strong>${esc(c.titulo)}${c.sinLeer ? ` <span class="badge">${c.sinLeer}</span>` : ""}</strong>
         <small>${esc(c.sub)}</small><small>${esc(fechaCorta(c.ts))}</small></div></div></div>`;
   $("listaChats").innerHTML =
     `<h3 class="sec">Equipo (chat con tus repartidores)</h3>` + (eq.length ? eq.map(tarjeta).join("") : '<p class="ayuda">Aún no hay repartidores.</p>') +
     `<h3 class="sec">Clientes (archivo de pedidos)</h3>` + (cl.length ? cl.map(tarjeta).join("") : '<p class="ayuda">Aún no hay conversaciones de clientes.</p>');
+  aplicarFotosAvatares();
   actualizarBarraSel();
 }
 function actualizarBarraSel() {
