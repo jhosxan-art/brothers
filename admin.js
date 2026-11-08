@@ -91,7 +91,13 @@ function errorAuth(e) {
   return t[e.code] || e.message;
 }
 const viajesDe = (uid) => Object.entries(activos).filter(([, d]) => d.repartidorUid === uid).map(([token, d]) => ({ token, d }));
-const viajeDe = (uid) => viajesDe(uid)[0] || null;
+/* Solicitud de cliente (chat tipo WhatsApp) que el repartidor tomó y sigue activa → también cuenta como viaje (repartidor ocupado) */
+const solActivaDe = (uid) => Object.entries(solicitudesMapa).find(([, x]) => x && x.repartidorUid === uid && !["nuevo", "entregado", "cancelado"].includes(x.estado || "nuevo"));
+function viajeSolDe(uid) {
+  const e = solActivaDe(uid); if (!e) return null;
+  return { token: "sol_" + e[0], d: { repartidorUid: uid, estado: "en_ruta", solicitudId: e[0], clienteNombre: e[1].nombre || "Cliente", pedido: "de " + (e[1].nombre || "cliente") } };
+}
+const viajeDe = (uid) => viajesDe(uid)[0] || viajeSolDe(uid);
 function estadoDe(uid) {
   const u = ubic[uid];
   if (!u) return "sinDatos";
@@ -179,6 +185,7 @@ auth.onAuthStateChanged(async (user) => {
   initMapa();
   iniciarMonitoreo();
   registrarPushAdmin(user.uid);
+  ActivaSiempre.activar(false);
   Policia.iniciar({ db, mapa: () => mapa, uid: () => auth.currentUser && auth.currentUser.uid, nombre: () => "Brothers (admin)", rol: "admin", pos: () => null });
   setTimeout(() => { if (!encuadrePedidosHecho) encuadrarTodosActivos(); }, 1500);
 });
@@ -226,6 +233,89 @@ async function registrarPushAdmin(uid) {
     await PN.register();
   } catch (e) { console.warn("Push admin:", e); }
 }
+/* ============================================================
+   PERMISO DE CÁMARA EN EL CHAT
+   Al tocar la cámara (o un selector de imagen) dentro de un chat, si el permiso no está dado se pide primero.
+   ============================================================ */
+const PermisosCamara = (() => {
+  let concedida = false, pidiendo = null;
+  const gumOriginal = (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices) : null;
+  async function estado() {
+    try { const P = adminPlug("Camera"); if (P && P.checkPermissions) return (await P.checkPermissions()).camera; } catch (_) {}
+    try { if (navigator.permissions && navigator.permissions.query) return (await navigator.permissions.query({ name: "camera" })).state; } catch (_) {}
+    return "prompt";
+  }
+  function pedir() {
+    if (concedida) return Promise.resolve(true);
+    if (pidiendo) return pidiendo;
+    pidiendo = (async () => {
+      try {
+        const e = await estado();
+        if (e === "granted" || e === "limited") { concedida = true; return true; }
+        const P = adminPlug("Camera");
+        if (P && P.requestPermissions) {
+          const r = await P.requestPermissions({ permissions: ["camera"] });
+          if (r.camera === "granted" || r.camera === "limited") { concedida = true; toast("📷 Cámara activada."); return true; }
+          toast("📷 Sin permiso de cámara. Actívalo en Ajustes › Aplicaciones › Brother’s Deliverys › Permisos."); return false;
+        }
+        if (gumOriginal) {
+          const st = await gumOriginal({ video: true });
+          st.getTracks().forEach((t) => t.stop());
+          concedida = true; toast("📷 Cámara activada."); return true;
+        }
+        return true;   // sin API de permisos: el sistema lo pedirá al abrir la cámara
+      } catch (_) {
+        toast("📷 Sin permiso de cámara. Actívalo en Ajustes › Aplicaciones › Brother’s Deliverys › Permisos.");
+        return false;
+      } finally { pidiendo = null; }
+    })();
+    return pidiendo;
+  }
+  // Selectores de imagen / cámara dentro de un chat
+  document.addEventListener("click", (e) => {
+    const inp = e.target && e.target.closest && e.target.closest('input[type="file"]');
+    if (!inp || inp.dataset.permOk || concedida) return;
+    const enChat = inp.hasAttribute("capture") || inp.closest('[id*="chat" i], [class*="chat" i]');
+    if (!enChat || !/image|\*\/\*|^$/.test(inp.getAttribute("accept") || "")) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    pedir().then((ok) => { if (ok) { inp.dataset.permOk = "1"; try { inp.click(); } catch (_) {} setTimeout(() => { delete inp.dataset.permOk; }, 1500); } });
+  }, true);
+  // Cámara abierta por código (getUserMedia) dentro de la app
+  if (gumOriginal) {
+    navigator.mediaDevices.getUserMedia = async (c) => { if (c && c.video && !concedida) await pedir(); return gumOriginal(c); };
+  }
+  return { pedir };
+})();
+
+/* ============================================================
+   MANTENER LA APP ACTIVA (no dormirse)
+   Recibir avisos con ahorro de batería, pantalla apagada o en segundo plano:
+   activa el servicio en segundo plano y pide excluir la app del ahorro de batería.
+   Requiere un plugin nativo de modo en segundo plano (BackgroundMode) instalado en la app Android.
+   ============================================================ */
+const ActivaSiempre = (() => {
+  const CLAVE_PEDIDA = "admin_bateria_pedida";
+  async function activar(manual) {
+    if (!adminEsNativo()) { if (manual) toast("Esta opción solo funciona en la app instalada en el celular."); return false; }
+    const BM = adminPlug("BackgroundMode");
+    if (!BM) { if (manual) toast("Falta el plugin de segundo plano en la app (BackgroundMode). Instálalo y vuelve a compilar la app."); return false; }
+    try { if (BM.setSettings) await BM.setSettings({ title: "Brother’s Deliverys", text: "Recibiendo pedidos y mensajes", silent: false, hidden: false, resume: true }); } catch (_) {}
+    try { if (BM.enable) await BM.enable(); } catch (e) { console.warn("BackgroundMode.enable:", e); }
+    try { if (BM.disableWebViewOptimizations) await BM.disableWebViewOptimizations(); } catch (_) {}
+    let pidio = false;
+    try {
+      if ((manual || !localStorage.getItem(CLAVE_PEDIDA)) && BM.disableBatteryOptimizations) {
+        await BM.disableBatteryOptimizations(); pidio = true;
+        try { localStorage.setItem(CLAVE_PEDIDA, "1"); } catch (_) {}
+      }
+    } catch (e) { console.warn("BackgroundMode.disableBatteryOptimizations:", e); }
+    if (manual) toast(pidio ? "🔋 Acepta la ventana del sistema para que la app no se duerma." : "🔋 Modo activo: la app sigue funcionando en segundo plano.");
+    return true;
+  }
+  return { activar };
+})();
+$("btnActiva").onclick = () => ActivaSiempre.activar(true);
+
 async function quitarPushAdmin() {
   try { if (adminPushUid && adminPushClave) await db.ref("admin_tokens/" + adminPushUid + "/" + adminPushClave).remove(); } catch (_) {}
   adminPushUid = null; adminPushClave = null;
@@ -241,6 +331,7 @@ function normalizarTelefono(t) {
 function initMapa() {
   if (!mapa) {
     mapa = L.map("mapaAdmin", Object.assign({}, GestosMapa.opciones, { rotate: true, touchRotate: true, bearing: 0 })).setView([12.5700, -87.1311], 13);
+    mapa.createPane("paneNegocios").style.zIndex = 590;   // los negocios siempre quedan DEBAJO de los repartidores (markerPane = 600)
     L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);
     GestosMapa.aplicar(mapa);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -293,7 +384,7 @@ function pintarMarcador(uid) {
   const est = estadoDe(uid), nombre = nombreUid(uid);
   const clave = nombre + "|" + est, pos = [u.lat, u.lng];
   if (!marcadores[uid]) {
-    marcadores[uid] = L.marker(pos, { icon: iconoRepAdmin(nombre, est) }).addTo(mapa);
+    marcadores[uid] = L.marker(pos, { icon: iconoRepAdmin(nombre, est), zIndexOffset: 1000 }).addTo(mapa);
     marcadores[uid]._clave = clave;
     marcadores[uid].bindPopup(() => popupRep(uid), { offset: [0, -22], minWidth: 210 });
     if (!ajusteProgramado) { ajusteProgramado = true; setTimeout(ajustarVista, 800); }
@@ -304,6 +395,7 @@ function pintarMarcador(uid) {
   const el = marcadores[uid].getElement();
   if (el) el.classList.toggle("sel-rep", uid === selUid);
   pintarGuia(uid);
+  pintarGuiasSolicitud(uid);
   if (typeof PedidosAdmin !== "undefined") PedidosAdmin.recorridoInv(uid);
   pintarBannerAdmin();
 }
@@ -378,31 +470,78 @@ function iconoSolAdmin(nombre) {
     iconSize: [44, 44], iconAnchor: [22, 22]
   });
 }
+/* Solicitud pendiente: pin rojo pulsante. Solicitud TOMADA: pin con el nombre de quien la tomó + línea guía por calles hasta el cliente. */
+const capasGuiaSol = {};   // id → { capa, origen, dest, ts, seq }
+function iconoSolTomada(cliente, rep) {
+  return L.divIcon({
+    className: "",
+    html: `<div class="pin-solicitud-admin tomada"><span>🛵</span></div><span class="etq-solicitud-admin tomada">${esc(rep)} → ${esc(cliente || "Cliente")}</span>`,
+    iconSize: [44, 44], iconAnchor: [22, 22]
+  });
+}
+function popupSolTomada(s) {
+  const p = s.pedido || {}, rep = s.repartidorNombre || nombreUid(s.repartidorUid);
+  return `<div class="pop-rep"><strong>🛵 ${esc(rep)} tomó el pedido</strong><small>👤 Cliente: ${esc(s.nombre || "Cliente")}</small>` +
+    (p.quiere ? `<small>🛍️ ${esc(p.quiere)}${p.origen ? " · de " + esc(p.origen) : ""}</small>` : "") +
+    `<small>Estado: ${esc(s.estado || "atendido")}</small></div>`;
+}
+function quitarGuiaSol(id) {
+  const c = capasGuiaSol[id]; if (!c) return;
+  c.seq++; try { mapa.removeLayer(c.capa); } catch (_) {}
+  delete capasGuiaSol[id];
+}
+async function actualizarGuiaSol(id, s) {
+  const p = puntoSolicitud(s), u = s && ubic[s.repartidorUid];
+  if (!mapa || !p || !u || typeof u.lat !== "number") return quitarGuiaSol(id);
+  let c = capasGuiaSol[id];
+  if (!c) c = capasGuiaSol[id] = { capa: L.layerGroup().addTo(mapa), origen: null, dest: null, ts: 0, seq: 0, pts: null };
+  const movido = !c.origen || Ruta.dist([u.lat, u.lng], c.origen) > 80, cambioDest = !c.dest || Ruta.dist([p.lat, p.lng], c.dest) > 10;
+  if (!cambioDest && !(movido && Date.now() - c.ts > 12000)) return;
+  c.ts = Date.now(); c.origen = [u.lat, u.lng]; c.dest = [p.lat, p.lng];
+  const seq = ++c.seq, color = colorUid(s.repartidorUid);
+  let r = null;
+  try { r = await Ordenes.rutaCalles({ lat: u.lat, lng: u.lng }, { lat: p.lat, lng: p.lng }); } catch (_) {}
+  if (capasGuiaSol[id] !== c || c.seq !== seq) return;
+  const linea = r && r.pts ? [[u.lat, u.lng], ...r.pts, [p.lat, p.lng]] : [[u.lat, u.lng], [p.lat, p.lng]];
+  c.capa.clearLayers();
+  L.polyline(linea, { color: "#fff", weight: 10, opacity: .9, interactive: false }).addTo(c.capa);
+  L.polyline(linea, { color, weight: 6, opacity: r ? .95 : .6, dashArray: r ? null : "6 8", lineCap: "round", interactive: false }).addTo(c.capa);
+}
+function pintarGuiasSolicitud(uid) {
+  Object.entries(solicitudesMapa).forEach(([id, s]) => { if (s && s.repartidorUid === uid && solActivaDe(uid) && solActivaDe(uid)[0] === id) actualizarGuiaSol(id, s); });
+}
 function pintarSolicitudesMapa() {
   if (!mapa) return;
-  const activas = new Set();
+  const activas = new Set(), tomadas = new Set();
   Object.entries(solicitudesMapa).forEach(([id, s]) => {
-    if (!s || s.repartidorUid) return;                 // ya tomada por un repartidor
-    if (s.estado && s.estado !== "nuevo") return;      // ya no está pendiente
+    if (!s) return;
+    const tomada = !!s.repartidorUid;
+    if (tomada ? ["nuevo", "entregado", "cancelado"].includes(s.estado || "nuevo") : (s.estado && s.estado !== "nuevo")) return;   // ya no está pendiente ni en curso
     const p = puntoSolicitud(s);
     if (!p) return;
-    activas.add(id);
-    if (marcasSolicitud[id]) {
-      marcasSolicitud[id].setLatLng([p.lat, p.lng]);
-      marcasSolicitud[id].setIcon(iconoSolAdmin(s.nombre));
+    activas.add(id); if (tomada) tomadas.add(id);
+    const rep = tomada ? (s.repartidorNombre || nombreUid(s.repartidorUid)) : "";
+    const clave = (tomada ? "t|" + rep + "|" : "n|") + (s.nombre || "");
+    let mk = marcasSolicitud[id];
+    if (!mk) {
+      mk = marcasSolicitud[id] = L.marker([p.lat, p.lng], { icon: tomada ? iconoSolTomada(s.nombre, rep) : iconoSolAdmin(s.nombre), zIndexOffset: 2000 }).addTo(mapa);
+      mk._clave = clave;
     } else {
-      const mk = L.marker([p.lat, p.lng], { icon: iconoSolAdmin(s.nombre), zIndexOffset: 2000 }).addTo(mapa);
-      mk.on("click", () => { try { irAPestana("panelSolicitudes"); } catch (_) {} });
-      marcasSolicitud[id] = mk;
+      mk.setLatLng([p.lat, p.lng]);
+      if (mk._clave !== clave) { mk.setIcon(tomada ? iconoSolTomada(s.nombre, rep) : iconoSolAdmin(s.nombre)); mk._clave = clave; }
     }
+    mk.off("click");
+    if (tomada) { mk.bindPopup(() => popupSolTomada(solicitudesMapa[id] || s), { offset: [0, -14], autoPanPaddingTopLeft: [16, 110], autoPanPaddingBottomRight: [90, 110] }); }
+    else { mk.unbindPopup(); mk.on("click", () => { try { irAPestana("panelSolicitudes"); } catch (_) {} }); }
+    if (tomada && solActivaDe(s.repartidorUid) && solActivaDe(s.repartidorUid)[0] === id) actualizarGuiaSol(id, s); else quitarGuiaSol(id);
   });
-  // Quitar los pines que ya no están activos
   Object.keys(marcasSolicitud).forEach((id) => {
     if (!activas.has(id)) {
       try { mapa.removeLayer(marcasSolicitud[id]); } catch (_) {}
       delete marcasSolicitud[id];
     }
   });
+  Object.keys(capasGuiaSol).forEach((id) => { if (!tomadas.has(id)) quitarGuiaSol(id); });
 }
 function iniciarSolicitudesMapa() {
   if (refSolicMapa) refSolicMapa.off();
@@ -412,6 +551,10 @@ function iniciarSolicitudesMapa() {
     const antes = solicitudesMapa;
     solicitudesMapa = s.val() || {};
     pintarSolicitudesMapa();
+    const uidsSol = new Set();
+    [antes, solicitudesMapa].forEach((o) => Object.values(o).forEach((x) => { if (x && x.repartidorUid) uidsSol.add(x.repartidorUid); }));
+    uidsSol.forEach((u) => { if (ubic[u]) pintarMarcador(u); });
+    pintarLista();
     /* FASE 3 · Detectar nuevas solicitudes pendientes y hacer fitBounds si el admin está en el mapa */
     if (!primeraSolMapa) {
       const nuevas = Object.keys(solicitudesMapa).filter((id) => {
@@ -663,7 +806,7 @@ function pintarLugaresYa() {
     const clave = [l.nombre, l.icono].join("|");
     let m = lugarMarks[id];
     if (!m) {
-      m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: iconoNegocio(l), zIndexOffset: 100, keyboard: false, riseOnHover: false });
+      m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: iconoNegocio(l), pane: "paneNegocios", keyboard: false, riseOnHover: false });
       m._clave = clave;
       m.bindPopup(() => popupLugar(id), { offset: [0, -10], minWidth: 230, autoPanPaddingTopLeft: [16, 110], autoPanPaddingBottomRight: [90, 110] });
     } else {

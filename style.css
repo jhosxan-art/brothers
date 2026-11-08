@@ -1485,3 +1485,16 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
 #listaChats .tarjeta-rep .avatar { flex: none; width: 52px; height: 52px; padding: 4px; border: 2px solid var(--celeste); background-color: var(--celeste-suave); background-repeat: no-repeat; display: grid; place-items: center; overflow: hidden; }
 #listaChats .tarjeta-rep .avatar svg { width: 100%; height: 100%; display: block; }
 #listaChats .tarjeta-rep .avatar.con-foto { padding: 0; background-color: transparent; border-color: var(--celeste-prof); }
+
+/* Foto de perfil visible: el ícono de moto se oculta cuando hay foto (las reglas de arriba lo volvían a mostrar encima) */
+#listaChats .tarjeta-rep .avatar.con-foto svg,
+#listaEquipo .tarjeta-rep .avatar.con-foto svg,
+.eq-av-xl.con-foto svg { display: none; }
+#listaChats .tarjeta-rep .avatar.con-foto,
+#listaEquipo .tarjeta-rep .avatar.con-foto,
+.eq-av-xl.con-foto { background-size: cover; background-position: center; background-repeat: no-repeat; }
+
+/* Solicitud de cliente ya tomada por un repartidor */
+.pin-solicitud-admin.tomada { background: #0A86C9; border-color: #fff; animation: none; }
+.pin-solicitud-admin.tomada::before { display: none; }
+.etq-solicitud-admin.tomada { background: #0A86C9; color: #fff; }
