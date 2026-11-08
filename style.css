@@ -1219,3 +1219,25 @@ body.rep #vistaFactura { overflow-y: auto; -webkit-overflow-scrolling: touch; ov
 .pc-origen { letter-spacing: .01em; border: 1px solid rgba(14, 20, 27, .08); }
 .pc-origen-otro { background: var(--gris); color: var(--texto2); }
 @media (prefers-reduced-motion: reduce) { body.rep #vistaFactura { scroll-behavior: auto; } .pc-item { transition: none; } }
+
+/* ============================================================
+   AJUSTES · Cortina de "Facturas entregadas", forma de pago e IVAs extras
+   ============================================================ */
+.pc-cortina-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 48px; margin: 0 0 8px; padding: 0 14px; border: 2px solid var(--linea); border-radius: 14px; background: #fff; color: var(--tinta); font: inherit; font-size: 15px; font-weight: 800; text-align: left; -webkit-tap-highlight-color: transparent; }
+.pc-cortina-btn:active { background: var(--gris); }
+.pc-cortina-btn:focus-visible { outline: 3px solid var(--celeste-prof); outline-offset: 2px; }
+.pc-cortina-btn.abierta { border-color: var(--celeste-prof); background: var(--celeste-suave); }
+.pc-cortina-flecha { font-size: 18px; line-height: 1; transition: transform .2s ease; }
+.pc-cortina-btn.abierta .pc-cortina-flecha { transform: rotate(180deg); }
+.pc-pago { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.pc-pago small { width: 100%; font-size: 11px; font-weight: 700; color: var(--texto2); }
+.pc-pago-btn { flex: 1 1 0; min-width: 0; height: 38px; padding: 0 8px; border: 2px solid var(--linea); border-radius: 10px; background: var(--gris); color: var(--tinta); font: inherit; font-size: 12.5px; font-weight: 800; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
+.pc-pago-btn:disabled { opacity: 1; }
+.pc-pago-btn.activo.pc-pago-efectivo { background: #E3F9EC; border-color: #1E9B5A; color: #167A43; }
+.pc-pago-btn.activo.pc-pago-transferencia { background: var(--celeste-suave); border-color: var(--celeste-prof); color: #0B4A6B; }
+.pc-pago-sin { font-size: 11.5px; font-weight: 600; font-style: normal; color: var(--texto2); }
+.fx-iva .fx-iva-fila { display: flex; align-items: center; gap: 8px; }
+.fx-iva .fx-iva-btn { flex: none; width: 46px; height: 46px; padding: 0; border: 2px solid var(--linea); border-radius: 12px; background: var(--gris); color: var(--tinta); font: inherit; font-size: 22px; font-weight: 800; line-height: 1; -webkit-tap-highlight-color: transparent; }
+.fx-iva .fx-iva-btn:active { background: var(--celeste-suave); }
+.fx-iva input#ivasExtras { flex: none; width: 64px; height: 46px; padding: 0 6px; text-align: center; font-size: 17px; font-weight: 800; border: 2px solid var(--linea); border-radius: 12px; }
+.fx-iva .fx-iva-monto { flex: 1; min-width: 0; font-size: 14px; font-weight: 800; color: var(--celeste-prof); }

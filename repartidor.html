@@ -277,7 +277,6 @@
           <span class="fx-et">👤 Cliente</span>
           <input type="text" id="customerName" placeholder="Nombre del cliente" autocomplete="off" enterkeyhint="next">
         </div>
-        <button type="button" class="stats-btn" onclick="showStats()" aria-label="Estadísticas">📊</button>
       </div>
       <div class="fx-fila2">
         <div class="fx-campo fx-delivery">
@@ -292,6 +291,15 @@
             <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(10)">+C$10</button>
             <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(20)">+C$20</button>
           </div>
+        </div>
+      </div>
+      <div class="fx-campo fx-iva" id="fxIvaFila">
+        <span class="fx-et">🧮 Para agregar IVAs extras (cada IVA vale C$ 7)</span>
+        <div class="fx-iva-fila">
+          <button type="button" class="fx-iva-btn" onclick="cambiarIvasExtras(-1)" aria-label="Quitar un IVA extra">−</button>
+          <input type="number" id="ivasExtras" value="0" min="0" max="20" step="1" inputmode="numeric" enterkeyhint="done" oninput="calculateTotal()" aria-label="Cantidad de IVAs extras">
+          <button type="button" class="fx-iva-btn" onclick="cambiarIvasExtras(1)" aria-label="Agregar un IVA extra">+</button>
+          <b id="ivasExtrasMonto" class="fx-iva-monto">0 IVAs = C$ 0</b>
         </div>
       </div>
       <div class="fx-campo">
@@ -319,24 +327,6 @@
       </div>
     </div>
 
-    <div class="stats-container" id="statsContainer">
-      <button type="button" class="back-btn" onclick="hideStats()">← Volver</button>
-      <div class="stats-header"><h1>📊 Mis Estadísticas</h1></div>
-      <div class="stats-card"><h3>Total de Pedidos Hoy</h3><p class="big-number" id="totalOrders">0</p></div>
-      <div class="stats-card"><h3>Total en Delivery + Extras</h3><p class="big-number" id="totalEarnings">C$ 0.00</p></div>
-      <div class="iva-section">
-        <label for="ivaAmount">Restar I.V.A (C$):</label>
-        <input type="number" id="ivaAmount" value="0" min="0" step="0.01" oninput="calculateIVA()" placeholder="Ingrese monto a restar">
-        <div id="ivaResult" style="display: none;" class="iva-result"></div>
-      </div>
-      <div class="deposits-card">
-        <h3>📌 Facturas “Por Cobrar” (Depósito)</h3>
-        <div class="small-muted">Aquí se guardan los pedidos marcados como “pagó por depósito” con detalles para cobrar después.</div>
-        <div id="depositInvoicesList" style="margin-top: 10px;"></div>
-        <button type="button" class="reset-deposits-btn" onclick="clearDepositInvoices()">🧹 Limpiar “Por Cobrar”</button>
-      </div>
-      <button type="button" class="reset-stats-btn" onclick="resetStats()">🔄 Reiniciar Estadísticas</button>
-    </div>
   </div>
 
   <section id="vistaMapa" class="oculto">
@@ -348,7 +338,6 @@
         </form>
         <button id="btnVerNegociosRep" class="herr-rep on" type="button" aria-label="Ver u ocultar negocios" aria-pressed="true">🏪</button>
         <button id="btnPolicia" class="herr-rep" type="button" aria-label="Reportar policía">🚨</button>
-        <button id="btnMarcarDestino" class="herr-rep" type="button" aria-label="Marcar destino en el mapa">📍</button>
         <button id="btnSeguir" class="herr-rep" type="button" aria-label="Seguir mi moto (cámara de navegación)">🧭</button>
         <button id="btnVerTodo" class="herr-rep" type="button" aria-label="Ver todo">⛶</button>
       </div>
@@ -369,8 +358,8 @@
       <div id="cnNuevos"></div>
       <h2 class="cn-tit">Mis chats</h2>
       <div id="cnMios"></div>
-      <h2 class="cn-tit">🧾 Facturas entregadas</h2>
-      <div id="cnRegistro" class="pc-contenedor" aria-label="Facturas entregadas, resumen financiero y filtros por fecha"></div>
+      <button id="btnCortinaFacturas" class="pc-cortina-btn" type="button" aria-expanded="false" aria-controls="cnRegistro"><span>🧾 Facturas entregadas</span><span class="pc-cortina-flecha" aria-hidden="true">▾</span></button>
+      <div id="cnRegistro" class="pc-contenedor oculto" aria-label="Facturas entregadas, resumen financiero y filtros por fecha"></div>
     </div>
     <div id="cnConv" class="cn-conv oculto">
       <div class="cn-cab">

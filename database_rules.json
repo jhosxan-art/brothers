@@ -557,16 +557,7 @@
           }
         },
         "pedido": {
-          ".validate": "newData.hasChildren(['quiere', 'origen', 'modo', 'destino']) && (newData.child('tipo').val() !== 'envio' || newData.hasChild('retiro')) && (!newData.hasChild('retiro') || newData.child('tipo').val() === 'envio')",
-          "tipo": { ".validate": "newData.val() === 'envio' || newData.val() === 'compra'" },
-          "retiro": {
-            ".validate": "newData.hasChild('tipo') && ((newData.child('tipo').val() === 'direccion' && newData.hasChild('texto')) || ((newData.child('tipo').val() === 'gps' || newData.child('tipo').val() === 'pin') && newData.hasChildren(['lat', 'lng'])))",
-            "tipo": { ".validate": "newData.val() === 'gps' || newData.val() === 'pin' || newData.val() === 'direccion'" },
-            "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
-            "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
-            "texto": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 200" },
-            "$otro": { ".validate": false }
-          },
+          ".validate": "newData.hasChildren(['quiere', 'origen', 'modo', 'destino'])",
           "quiere": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 200" },
           "origen": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 120" },
           "modo": { ".validate": "newData.val() === 'recibe' || newData.val() === 'envia'" },
@@ -697,6 +688,10 @@
           "gananciaRepartidor": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "comisionEmpresa": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "bruto": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "fijoBase": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "ivasExtras": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20" },
+          "ivasMonto": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "metodoPago": { ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('repartidores').child(auth.uid).exists()))", ".validate": "newData.val() === 'efectivo' || newData.val() === 'transferencia'" },
           "prioridad": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "sinFactura": { ".validate": "newData.isBoolean()" },
           "ts": { ".validate": "newData.isNumber() && newData.val() <= now" },

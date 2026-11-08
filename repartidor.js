@@ -320,8 +320,11 @@ $("btnSalir").onclick = async () => {
 function initMapa() {
   if (mapa) return;
   mapa = L.map("mapaRuta", Object.assign({}, GestosMapa.opciones, Camara.opcionesMapa())).setView([12.5700, -87.1311], 14);
-  mapa.createPane("paneLugares").style.zIndex = 590;
-  mapa.createPane("paneYo").style.zIndex = 640;
+  /* Los paneles propios se crean junto al panel de popups (mismo contenedor, también con el mapa rotado) para que la ventana de información quede siempre encima de TODOS los íconos */
+  { const base = (mapa.getPane("popupPane") && mapa.getPane("popupPane").parentNode) || undefined;
+    mapa.createPane("paneLugares", base).style.zIndex = 590;
+    mapa.createPane("paneYo", base).style.zIndex = 640;
+    mapa.getPane("popupPane").style.zIndex = 800; }
   L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);
   GestosMapa.aplicar(mapa);
   mapa.on("click movestart", cerrarBusquedaRep);
@@ -611,16 +614,9 @@ function seleccionar(token, enfocar) {
     Camara.actualizar(true);
   }
 }
-$("btnMarcarDestino").onclick = () => {
-  if (!seleccionado) return alert("No hay un pedido seleccionado.");
-  marcando = !marcando;
-  $("btnMarcarDestino").classList.toggle("activo", marcando);
-  $("avisoMarcar").textContent = `Toca el mapa para marcar el destino de ${nombreDe(viajes[seleccionado])}.`;
-  $("avisoMarcar").classList.toggle("oculto", !marcando);
-};
 function fijarDestinoManual(lat, lng) {
   const v = viajes[seleccionado]; if (!v) return;
-  marcando = false; $("btnMarcarDestino").classList.remove("activo"); $("avisoMarcar").classList.add("oculto");
+  marcando = false;  $("avisoMarcar").classList.add("oculto");
   fijarDestino(v, lat, lng);
 }
 function fijarDestino(v, lat, lng) {
@@ -684,7 +680,8 @@ function detalleDeFactura(f, conPrioridad) {
   const base = Number(f.total) || 0;
   const d = {
     productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre).slice(0, 80), precio: Number(p.precio) || 0 })),
-    subtotal: Number(f.subtotal) || 0, delivery: Number(f.delivery) || 0, totalBase: base, total: base
+    subtotal: Number(f.subtotal) || 0, delivery: Number(f.delivery) || 0, totalBase: base, total: base,
+    deliveryBase: f.deliveryBase != null ? Number(f.deliveryBase) || 0 : undefined, mandadoExtra: Number(f.mandadoExtra) || 0, ivasExtras: Number(f.ivasExtras) || 0
   };
   if (conPrioridad) { d.prioridad = PRIORIDAD_EXTRA; d.total = Math.round((base + PRIORIDAD_EXTRA) * 100) / 100; }
   return JSON.parse(JSON.stringify(d));
@@ -1642,6 +1639,9 @@ async function prepararNotificaciones(pedir) {
 }
 
 const PUSH_HABILITADO = true;
+/* true = el Worker "worker-solicitudes.js" envía el push de "Nueva solicitud de pedido" (app abierta, en segundo plano o cerrada).
+   Si aún no lo desplegaste, ponlo en false para que la app siga avisando con la notificación local. */
+const PUSH_SOLICITUDES_SERVIDOR = true;
 let pushActivo = false, abrirPendiente = null;
 async function registrarPush() {
   if (!PUSH_HABILITADO) return;
@@ -1662,6 +1662,7 @@ async function registrarPush() {
     PN.addListener("registrationError", (e) => console.warn("Push:", e));
     PN.addListener("pushNotificationActionPerformed", (ev) => {
       const d = (ev.notification && ev.notification.data) || {};
+      if (d.tipo === "solicitud" && d.solicitud) return ChatsEntrantes.abrirSolicitud(d.solicitud);
       if (d.tipo === "mensaje") return abrirChatAdmin();
       if (d.tipo === "pedido" || d.tipo === "guia") return irA("mapa");
       const tk = d.token;
@@ -1678,6 +1679,7 @@ function notificarTexto(titulo, cuerpo, resumen, extra) {
   const ln = plug("LocalNotifications");
   if (!ln || !document.hidden) return;
   if (pushActivo && extra && extra.equipo) return;
+  if (PUSH_SOLICITUDES_SERVIDOR && pushActivo && extra && extra.nuevaSolicitud) return;
   const id = Math.floor(Math.random() * 2000000000);
   const clave = claveNotif(extra);
   if (clave) { notifIds[clave] = id; guardarNotifIds(); }
@@ -1930,6 +1932,7 @@ async function cerrarViaje(token, estadoFinal) {
     } catch (_) {}
   }
   if (estadoFinal === "entregado") registrarEntregaViaje(v, token);
+  if (v.esChat || /^sol_/.test(token)) { try { ChatsEntrantes.cerrarPedido(token, estadoFinal); } catch (_) {} }
   quitarViaje(token);
   irA("factura");
   if (estadoFinal === "entregado") mostrarEntregado(quien);
@@ -1967,7 +1970,7 @@ Atras.iniciar([
   },
   () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
   () => { if (!$("resBusqRep").classList.contains("oculto") || document.activeElement === $("busqRep")) { cerrarBusquedaRep(); return true; } return false; },
-  () => { if (marcando) { marcando = false; $("btnMarcarDestino").classList.remove("activo"); $("avisoMarcar").classList.add("oculto"); return true; } return false; },
+  () => { if (marcando) { marcando = false;  $("avisoMarcar").classList.add("oculto"); return true; } return false; },
   () => { if ($("invoiceContainer").style.display === "none") { hideStats(); return true; } return false; },
   () => { if (vistaActual === "mapa" && uidActual) { irA("factura"); return true; } return false; }
 ]);
@@ -2028,7 +2031,7 @@ const ChatsEntrantes = (() => {
   const RADIO_LLEGADA_M = 200;
   const TYPING_MS = 1500, TYPING_CADUCA = 4000;
   const COLOR_TICK_ENVIADO = "#8696A0", COLOR_TICK_LEIDO = "#25D366";
-  let consulta = null, lista = {}, abiertoId = null, consultaMsgs = null, previoId = null;
+  let consulta = null, lista = {}, abiertoId = null, consultaMsgs = null, previoId = null, solPendiente = null;
   const vistos = new Set();
   let ultDia = null;
   let cargada = false;
@@ -2112,6 +2115,7 @@ const ChatsEntrantes = (() => {
       revisarCambios();
       if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();
       if (previoId) refrescarPrevia();
+      resolverSolPendiente();
       pintarLista();
       pintarMapa();
       marcarConPedido();
@@ -2152,7 +2156,7 @@ const ChatsEntrantes = (() => {
     const p = d.pedido || {};
     try { Voz.solicitud(); } catch (_) {}
     toast("📥", "Solicitud de pedido", cortar(p.quiere || d.nombre || "Un cliente quiere hacer un pedido", 80), () => { irA("mapa"); vistaPrevia(id); }, 9000);
-    notificarTexto("📥 Solicitud de pedido", cortar(p.quiere || "Un cliente quiere hacer un pedido", 120), "Nueva solicitud", { solicitud: id });
+    notificarTexto("📥 Solicitud de pedido", cortar(p.quiere || "Un cliente quiere hacer un pedido", 120), "Nueva solicitud", { solicitud: id, nuevaSolicitud: true });
   }
   function mensajeDelCliente(id, d) {
     const visible = abiertoId === id && vistaActual === "chats" && !document.hidden;
@@ -2345,6 +2349,19 @@ const ChatsEntrantes = (() => {
     });
   }
 
+  /* Toque en el push "Nueva solicitud": abre la vista previa (Atender / Cerrar) en cuanto la solicitud esté cargada */
+  function abrirSolicitud(id) {
+    solPendiente = id;
+    if (cargada) resolverSolPendiente();
+  }
+  function resolverSolPendiente() {
+    if (!solPendiente) return;
+    const id = solPendiente;
+    if (!lista[id]) { if (cargada) { solPendiente = null; toast("ℹ️", "Solicitud", "Esa solicitud ya no está disponible.", null, 4000); } return; }
+    solPendiente = null;
+    irA(activos() ? "chats" : "mapa");
+    vistaPrevia(id);
+  }
   function vistaPrevia(id) {
     const d = lista[id];
     if (mio(d)) { irA("chats"); return abrir(id); }
@@ -2813,10 +2830,20 @@ const ChatsEntrantes = (() => {
     registrarEntrega(id, lista[id] || {}, leerFacLocal(id));
     limpiarLocal(id);
   }
+  /* Pedido terminado (entregado o cancelado) desde el chat o desde el mapa: se cierra el chat abierto y se quitan
+     los botones Iniciar entrega / Cancelar / Entregado de ambos lados, para que no quede nada pendiente. */
+  function cerrarPedido(id, estado) {
+    const d = lista[id];
+    if (d) { d.estado = estado; delete d.repartidorUid; }
+    limpiarLocal(id);
+    if (abiertoId === id) cerrarConversacion();
+    if (previoId === id) cerrarPrevia();
+    marcarConPedido(); pintarLista(); pintarMapa(); actualizarNav();
+  }
   function registrarEntrega(id, d, reg) {
     { /* FASE 2 · Contabilidad unificada (origen "chat"): base = 1.ª factura, extras = mandados acumulados */
       const c = Contabilidad.desdeFacturas(reg && reg.base, reg && reg.actual);
-      Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, sinFactura: c.sinFactura });
+      Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, ivasExtras: c.ivasExtras, sinFactura: c.sinFactura });
     }
     const a = leerRegistro();
     if (a.some((x) => x.id === id)) return;
@@ -2844,8 +2871,19 @@ const ChatsEntrantes = (() => {
   function pintarRegistro() {
     const caja = $("cnRegistro");
     if (!caja || !uidActual) return;
-    PanelContable.montar({ db, uid: uidActual, contenedor: caja, rangoInicial: "hoy" });
+    if (caja.classList.contains("oculto")) return;
+    PanelContable.montar({ db, uid: uidActual, contenedor: caja, rangoInicial: "hoy", editablePago: true });
   }
+  /* Cortina: "Facturas entregadas" queda oculta y se despliega solo al tocar el encabezado */
+  { const btnCort = $("btnCortinaFacturas");
+    if (btnCort) btnCort.addEventListener("click", () => {
+      const caja = $("cnRegistro"); if (!caja) return;
+      const abrir = caja.classList.contains("oculto");
+      caja.classList.toggle("oculto", !abrir);
+      btnCort.setAttribute("aria-expanded", String(abrir));
+      btnCort.classList.toggle("abierta", abrir);
+      if (abrir) pintarRegistro();
+    }); }
   $("cnIniciarEntrega").addEventListener("click", () => {
     const id = abiertoId;
     if (!id) return;
@@ -2872,7 +2910,7 @@ const ChatsEntrantes = (() => {
     if (!mio(d)) throw new Error("Este chat ya no está asignado a ti.");
     const fac = JSON.parse(JSON.stringify({
       productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre), precio: Number(p.precio) || 0 })),
-      subtotal: f.subtotal, delivery: f.delivery, mandadoExtra: f.mandadoExtra || 0, prioridad: f.prioridad || 0,
+      subtotal: f.subtotal, delivery: f.delivery, mandadoExtra: f.mandadoExtra || 0, prioridad: f.prioridad || 0, ivasExtras: f.ivasExtras || 0,
       deposito: !!f.deposito, total: f.total, totalFinal: f.totalFinal, pedido: f.pedido, cliente: f.cliente || d.nombre || ""
     }));
     const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
@@ -2919,6 +2957,7 @@ const ChatsEntrantes = (() => {
     catch (e) { return aviso("No se pudo " + (tipo === "pasar" ? "pasar el pedido" : "cancelar") + ": " + (e.code || e.message)); }
     limpiarLocal(id);
     cerrarConversacion();
+    if (viajes[id]) { try { quitarViaje(id); } catch (_) {} }
     marcarConPedido();
     toast(tipo === "pasar" ? "🔁" : "🚫", tipo === "pasar" ? "Pedido devuelto al grupo" : "Pedido cancelado", tipo === "pasar" ? "Otro repartidor lo recibirá." : "El cliente fue avisado.", null, 4500);
   }
@@ -2928,7 +2967,7 @@ const ChatsEntrantes = (() => {
   }
   Factura.alEnviarChat = (f) => enviarFactura(f);
   Factura.alTerminarChat = () => irA("chats");
-  return { iniciar, detener, pendientes, alMostrar, activos, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes, cerrarConversacion, puntos, abrirConv, totalFactura, entregar, abierto: () => !!abiertoId };
+  return { iniciar, detener, pendientes, alMostrar, activos, abrirSolicitud, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes, cerrarConversacion, puntos, abrirConv, totalFactura, entregar, cerrarPedido, abierto: () => !!abiertoId };
 })();
 
 function ajustarViewportRep() {

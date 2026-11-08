@@ -116,7 +116,8 @@ const SubFactura = (() => {
      P_base  = costo del DELIVERY base (NO incluye el costo de los productos, ni mandados extra, ni prioridad)
      E       = mandados extra de delivery (botón +C$10/+C$20, envío extra de la subfactura, extras del admin);
                el costo de los productos/compras NUNCA entra en la contabilidad
-     F       = 7 si P_base < 200 · 14 si 200 ≤ P_base ≤ 400 · 28 si P_base > 400
+     F       = deducción fija = (7 si P_base < 200 · 14 si 200 ≤ P_base ≤ 400 · 28 si P_base > 400)
+               + IVAs extras × 7   (cada IVA extra vale C$ 7 y se indica en "Crear Factura")
      R_base  = P_base − F            (mínimo 0)
      Bolsa   = R_base + E
      Repartidor (70 %)  = Bolsa × 0.70
@@ -138,11 +139,14 @@ const Contabilidad = (() => {
     return 28;
   }
 
-  function calcular(pBase, extras) {
-    const P = Math.max(0, r2(pBase)), E = Math.max(0, r2(extras));
-    if (P === 0 && E === 0) return { base: 0, extras: 0, fijo: 0, rBase: 0, bolsa: 0, repartidor: 0, empresa: 0, bruto: 0 };
-    const F = fijo(P), rBase = Math.max(0, r2(P - F)), bolsa = r2(rBase + E);
-    return { base: P, extras: E, fijo: F, rBase, bolsa, repartidor: r2(bolsa * 0.70), empresa: r2(F + bolsa * 0.30), bruto: r2(P + E) };
+  const IVA_VALOR = 7;
+  const nIvas = (k) => { const v = Math.floor(n(k)); return v > 0 ? Math.min(v, 20) : 0; };
+
+  function calcular(pBase, extras, ivasExtras) {
+    const P = Math.max(0, r2(pBase)), E = Math.max(0, r2(extras)), I = nIvas(ivasExtras);
+    if (P === 0 && E === 0) return { base: 0, extras: 0, fijoBase: 0, ivasExtras: 0, ivasMonto: 0, fijo: 0, rBase: 0, bolsa: 0, repartidor: 0, empresa: 0, bruto: 0 };
+    const FB = fijo(P), IM = I * IVA_VALOR, F = FB + IM, rBase = Math.max(0, r2(P - F)), bolsa = r2(rBase + E);
+    return { base: P, extras: E, fijoBase: FB, ivasExtras: I, ivasMonto: IM, fijo: F, rBase, bolsa, repartidor: r2(bolsa * 0.70), empresa: r2(F + bolsa * 0.30), bruto: r2(P + E) };
   }
 
   /* Día de negocio (corte a las 08:00, igual que Factura.diaNegocio) en formato ISO yyyy-mm-dd */
@@ -155,19 +159,20 @@ const Contabilidad = (() => {
   /* Facturas enviadas al chat: base = primera factura, actual = factura acumulada con mandados */
   function desdeFacturas(base, actual) {
     const b = base || actual;
-    if (!b) return { pBase: 0, extras: 0, prioridad: 0, sinFactura: true };
+    if (!b) return { pBase: 0, extras: 0, prioridad: 0, ivasExtras: 0, sinFactura: true };
     /* Solo delivery: factura.delivery = delivery base + mandado extra; los productos (subtotal) se ignoran */
     const a = actual || b;
     const deliveryBase = (f) => (f.deliveryBase != null ? n(f.deliveryBase) : Math.max(0, n(f.delivery) - n(f.mandadoExtra)));
-    return { pBase: Math.max(0, r2(deliveryBase(a))), extras: Math.max(0, r2(n(a.mandadoExtra))), prioridad: n(a.prioridad), sinFactura: false };
+    return { pBase: Math.max(0, r2(deliveryBase(a))), extras: Math.max(0, r2(n(a.mandadoExtra))), prioridad: n(a.prioridad), ivasExtras: nIvas(a.ivasExtras != null ? a.ivasExtras : b.ivasExtras), sinFactura: false };
   }
 
   /* Nodo pedidos/{token}: detalle + subfactura + extras del admin, SOLO delivery (sin costo de productos). fallbackBase = precio del delivery si no hubo factura */
   function desdePedido(p, fallbackBase) {
     const x = p && typeof p === "object" ? p : {}, det = x.detalle && typeof x.detalle === "object" ? x.detalle : null;
     const fac = x.factura && typeof x.factura === "object" ? x.factura : null, sub = x.subfactura && typeof x.subfactura === "object" ? x.subfactura : null;
-    let pBase = 0, extras = 0, prioridad = 0, sinFactura = false;
+    let pBase = 0, extras = 0, prioridad = 0, ivasExtras = 0, sinFactura = false;
     if (det) {
+      ivasExtras = nIvas(det.ivasExtras);
       const entrega = det.deliveryBase != null ? n(det.deliveryBase) : Math.max(0, n(det.delivery) - n(det.mandadoExtra));
       pBase = entrega; /* solo delivery, sin el subtotal de productos */
       extras += n(det.mandadoExtra);
@@ -180,7 +185,7 @@ const Contabilidad = (() => {
       extras += n(sub.envioExtra); /* los items (compras/productos) no entran; solo el envío extra */
     }
     if (x.extras && typeof x.extras === "object") extras += Object.values(x.extras).reduce((t, e) => t + n(e && e.monto), 0);
-    return { pBase: r2(pBase), extras: r2(extras), prioridad: r2(prioridad), sinFactura };
+    return { pBase: r2(pBase), extras: r2(extras), prioridad: r2(prioridad), ivasExtras, sinFactura };
   }
 
   /* Escribe una única vez la entrega en el nodo histórico unificado (clave = id de la entrega). */
@@ -194,11 +199,11 @@ const Contabilidad = (() => {
       /* Si las reglas no dejan leer este nodo (p. ej. invitado), se escribe igual: la regla solo permite crear, no sobrescribir. */
       try { if ((await ref.once("value")).exists()) return null; }
       catch (e) { if (!(e && e.code === "PERMISSION_DENIED")) throw e; }
-      const c = calcular(r.pBase, r.extras), ahora = Date.now();
+      const c = calcular(r.pBase, r.extras, r.ivasExtras), ahora = Date.now();
       const obj = JSON.parse(JSON.stringify({
         id: String(r.id), origen: r.origen, repartidorUid: uid, repartidorNombre: cortar(r.repartidorNombre, 60),
         cliente: cortar(r.cliente, 60), pedido: cortar(r.pedido, 30),
-        base: c.base, extras: c.extras, fijo: c.fijo, rBase: c.rBase, bolsa: c.bolsa,
+        base: c.base, extras: c.extras, fijoBase: c.fijoBase, ivasExtras: c.ivasExtras, ivasMonto: c.ivasMonto, fijo: c.fijo, rBase: c.rBase, bolsa: c.bolsa,
         gananciaRepartidor: c.repartidor, comisionEmpresa: c.empresa, bruto: c.bruto,
         prioridad: r2(r.prioridad), sinFactura: !!r.sinFactura,
         ts: firebase.database.ServerValue.TIMESTAMP, tsLocal: ahora, fecha: fechaISO(ahora), iso: new Date(ahora).toISOString()
@@ -222,7 +227,7 @@ const Contabilidad = (() => {
    fecha de negocio guardada en cada entrega (campo "fecha", yyyy-mm-dd) y
    recalcula el resumen y el listado cada vez que cambia el rango o llega
    una entrega nueva.
-   Uso:  PanelContable.montar({ db, uid, contenedor, rangoInicial?, ocultarSiError?, alFallar? })
+   Uso:  PanelContable.montar({ db, uid, contenedor, rangoInicial?, ocultarSiError?, alFallar?, editablePago? })
          PanelContable.detener()
    ============================================================ */
 const PanelContable = (() => {
@@ -235,6 +240,7 @@ const PanelContable = (() => {
   const bonita = (s) => { const p = String(s || "").split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : "—"; };
   const hora = (ts) => { try { return new Date(ts).toLocaleTimeString("es-NI", { hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } };
   const ORIGENES = { chat: ["💬", "Chat"], admin: ["📦", "Admin"], manual: ["🧾", "Manual"], invitado: ["👤", "Invitado"] };
+  const PAGOS = { efectivo: "💵 Efectivo", transferencia: "🏦 Transferencia" };
   const RAPIDOS = [["hoy", "Hoy"], ["semana", "Esta Semana"], ["quincena", "Esta Quincena"], ["mes", "Este Mes"]];
 
   function h(tag, clase, texto) {
@@ -268,13 +274,13 @@ const PanelContable = (() => {
     return f;
   }
 
-  function tarjeta(x) {
+  function tarjeta(x, ctx) {
     const o = ORIGENES[x.origen] || ["🧾", "Factura"];
     const t = h("div", "pc-item"), cab = h("div", "pc-item-cab");
     cab.appendChild(h("span", "pc-origen pc-origen-" + (ORIGENES[x.origen] ? x.origen : "otro"), o[0] + " " + o[1]));
     const dat = h("div", "pc-item-dat");
     dat.appendChild(h("strong", "", x.cliente || "Cliente"));
-    dat.appendChild(h("small", "", (x.pedido ? x.pedido + " · " : "") + hora(x.tsLocal || x.ts) + (x.sinFactura ? " · sin factura" : "")));
+    dat.appendChild(h("small", "", (x.pedido ? x.pedido + " · " : "") + hora(x.tsLocal || x.ts) + (x.sinFactura ? " · sin factura" : "") + (PAGOS[x.metodoPago] ? " · " + PAGOS[x.metodoPago] : "")));
     cab.appendChild(dat);
     cab.appendChild(h("span", "pc-item-total", dinero(x.bruto != null ? x.bruto : n(x.base) + n(x.extras))));
     t.appendChild(cab);
@@ -285,11 +291,33 @@ const PanelContable = (() => {
       des.appendChild(c);
     });
     t.appendChild(des);
+    if (ctx && (ctx.editable || PAGOS[x.metodoPago])) {
+      const pago = h("div", "pc-pago");
+      pago.appendChild(h("small", "", "Forma de pago"));
+      Object.keys(PAGOS).forEach((k) => {
+        if (!ctx.editable && x.metodoPago !== k) return;
+        const b = h("button", "pc-pago-btn pc-pago-" + k + (x.metodoPago === k ? " activo" : ""), PAGOS[k]);
+        b.type = "button"; b.disabled = !ctx.editable; b.setAttribute("aria-pressed", x.metodoPago === k ? "true" : "false");
+        if (ctx.editable) b.addEventListener("click", () => {
+          b.disabled = true;
+          ctx.db.ref(RAIZ + "/" + ctx.uid + "/" + (x.id || "") + "/metodoPago").set(x.metodoPago === k ? null : k)
+            .catch((err) => { b.disabled = false; alert("No se pudo guardar la forma de pago: " + ((err && (err.code || err.message)) || "error")); });
+        });
+        pago.appendChild(b);
+      });
+      if (ctx.editable && !PAGOS[x.metodoPago]) pago.appendChild(h("em", "pc-pago-sin", "Sin indicar"));
+      t.appendChild(pago);
+    }
     const det = document.createElement("details");
     det.appendChild(h("summary", "", "Ver cálculo"));
     const cal = h("div", "pc-calculo");
     cal.appendChild(fila("Delivery base", dinero(x.base)));
-    cal.appendChild(fila("Deducción fija", "− " + dinero(x.fijo)));
+    const ivM = n(x.ivasMonto), fBase = x.fijoBase != null ? n(x.fijoBase) : Math.max(0, n(x.fijo) - ivM);
+    cal.appendChild(fila(ivM > 0 ? "Deducción fija por rango" : "Deducción fija", "− " + dinero(fBase)));
+    if (ivM > 0) {
+      cal.appendChild(fila("IVAs extras (" + n(x.ivasExtras) + " × C$ 7)", "− " + dinero(ivM)));
+      cal.appendChild(fila("Deducción fija total", "− " + dinero(x.fijo)));
+    }
     cal.appendChild(fila("Base tras rebajo", dinero(x.rBase)));
     cal.appendChild(fila("+ Mandados extra", dinero(x.extras)));
     cal.appendChild(fila("Bolsa a repartir", dinero(x.bolsa), "sep"));
@@ -386,7 +414,7 @@ const PanelContable = (() => {
       datos.forEach((x) => { (dias[x.fecha] = dias[x.fecha] || []).push(x); });
       Object.keys(dias).sort().reverse().forEach((f) => {
         lista.appendChild(h("div", "pc-dia", bonita(f) + " · " + dias[f].length + " entrega" + (dias[f].length > 1 ? "s" : "")));
-        dias[f].forEach((x) => lista.appendChild(tarjeta(x)));
+        dias[f].forEach((x) => lista.appendChild(tarjeta(x, { editable: !!op.editablePago, db: e.db, uid: e.uid })));
       });
     }
 
