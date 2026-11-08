@@ -55,13 +55,68 @@ const ActualizacionApp = (() => {
   let ref = null;
   const g = (id) => document.getElementById(id);
   const urlSegura = (u) => { try { const x = new URL(String(u || "").trim()); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch (_) { return ""; } };
+  /* Convierte enlaces de "compartir" de Google Drive / Dropbox en enlaces de descarga directa del APK. */
+  function enlaceDirecto(u) {
+    const url = urlSegura(u); if (!url) return "";
+    try {
+      const x = new URL(url);
+      if (/(^|\.)drive\.google\.com$/.test(x.hostname)) {
+        const m = x.pathname.match(/\/file\/d\/([^/]+)/), id = (m && m[1]) || x.searchParams.get("id");
+        if (id) return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(id);
+      }
+      if (/(^|\.)dropbox\.com$/.test(x.hostname)) { x.searchParams.delete("dl"); x.searchParams.set("dl", "1"); return x.href; }
+    } catch (_) {}
+    return url;
+  }
+  const abrirNavegador = (url) => { try { window.open(url, "_system"); } catch (_) { window.location.href = url; } };
+
+  /* Descarga el APK dentro de la app y abre el instalador del sistema (sin desinstalar la app).
+     Si faltan los plugins Filesystem/FileOpener, abre el enlace en el navegador como antes. */
+  let enCurso = false;
+  async function actualizarApp(url, btn) {
+    if (enCurso) return;
+    const FS = esNativo() ? plug("Filesystem") : null, FO = esNativo() ? plug("FileOpener") : null;
+    if (!FS || !FO || !FS.downloadFile) return abrirNavegador(url);
+    const ARCHIVO = "brothers-repartidor-update.apk", DIR = "CACHE", txtBtn = btn.textContent;
+    const prog = g("updProg"), barra = g("updProgBarra"), est = g("updEstado");
+    const estado = (t) => { if (est) est.textContent = t || ""; };
+    const avance = (pc) => { if (barra) barra.style.width = pc + "%"; if (prog) prog.setAttribute("aria-valuenow", String(pc)); };
+    let escucha = null;
+    enCurso = true; btn.setAttribute("aria-disabled", "true");
+    try {
+      prog.classList.remove("oculto"); avance(0); btn.textContent = "DESCARGANDO… 0 %"; estado("Descargando la actualización. No cierres la app.");
+      try { await FS.deleteFile({ path: ARCHIVO, directory: DIR }); } catch (_) {}
+      try {
+        escucha = await FS.addListener("progress", (p) => {
+          if (!p || (p.url && p.url !== url) || !(p.contentLength > 0)) return;
+          const pc = Math.min(100, Math.round((p.bytes / p.contentLength) * 100));
+          avance(pc); btn.textContent = "DESCARGANDO… " + pc + " %";
+        });
+      } catch (_) {}
+      await FS.downloadFile({ url, path: ARCHIVO, directory: DIR, progress: true });
+      const st = await FS.stat({ path: ARCHIVO, directory: DIR });
+      if (!st || Number(st.size) < 300000) throw new Error("El enlace no descargó un APK (revisa que sea un enlace directo).");
+      avance(100); btn.textContent = "INSTALANDO…"; estado("Descarga lista. Acepta la ventana de instalación del sistema.");
+      const { uri } = await FS.getUri({ path: ARCHIVO, directory: DIR });
+      await FO.open({ filePath: uri, contentType: "application/vnd.android.package-archive", openWithDefault: true });
+      estado("Si no aparece el instalador, toca el botón otra vez. Si el sistema lo pide, permite instalar apps desde Brothers Repartidor.");
+    } catch (err) {
+      console.warn("actualizarApp:", err);
+      estado("No se pudo instalar dentro de la app. Abriendo la descarga en el navegador…");
+      setTimeout(() => abrirNavegador(url), 1200);
+    } finally {
+      try { if (escucha && escucha.remove) await escucha.remove(); } catch (_) {}
+      enCurso = false; btn.removeAttribute("aria-disabled"); btn.textContent = txtBtn;
+      setTimeout(() => { if (prog) prog.classList.add("oculto"); }, 1500);
+    }
+  }
   function mostrar(d) {
-    const url = urlSegura(d.url), btn = g("btnActualizarApp");
+    const url = enlaceDirecto(d.url), btn = g("btnActualizarApp");
     g("updNovedades").textContent = String(d.novedades || "").trim() || "Mejoras de rendimiento y correcciones.";
     g("updVersionTxt").textContent = "Tu versión: " + APP_VERSION + " · Nueva versión: " + Number(d.version);
     if (url) {
       btn.href = url; btn.removeAttribute("aria-disabled");
-      btn.onclick = (e) => { e.preventDefault(); try { window.open(url, "_system"); } catch (_) { window.location.href = url; } };
+      btn.onclick = (e) => { e.preventDefault(); actualizarApp(url, btn); };
     } else {
       btn.removeAttribute("href"); btn.setAttribute("aria-disabled", "true"); btn.onclick = (e) => e.preventDefault();
     }
