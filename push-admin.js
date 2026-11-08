@@ -11,6 +11,12 @@
    NUEVO · WhatsApp: PushAdmin.pedidoAsignado(...) también le manda por WhatsApp (Cloud API de Meta, a través del mismo Worker)
            el mensaje "Tienes un nuevo pedido en la app. Detalles: ..." al número que guardaste en el repartidor (campo Teléfono).
            El token de Meta NO está aquí: vive como Secret en Cloudflare (WA_TOKEN y WA_PHONE_ID).
+   NUEVO · Pedidos de clientes (solicitudes_entrantes): PushAdmin.solicitud(evento, texto, solicitudId) con evento
+           nuevo | tomado | entrega | entregado | cancelado. Manda el aviso a los OTROS celulares/tablets de esta misma cuenta de
+           administrador (tokens en admin_tokens), por el mismo Worker. En el aparato que detecta el cambio el aviso ya sale por
+           voz + toast + notificación local (ordenes-admin.js).
+           LIMITE: con la app de ESTE aparato cerrada no hay quién detecte el cambio. Eso requiere un disparador de servidor
+           (Worker/Cloud Function que escuche solicitudes_entrantes y avise a admin_tokens) que aún no existe en el proyecto.
    Se carga DESPUÉS de admin.js (usa sus globales: db, auth, toast).
    ============================================================ */
 const PushAdmin = (() => {
@@ -132,5 +138,60 @@ const PushAdmin = (() => {
   function punto(uid, p) {
     return enviar(uid, { tipo: "guia", canal: "pedidos", titulo: "📍 Nuevo punto de " + (p === "entrega" ? "entrega" : "retiro"), cuerpo: "Brothers te marcó un punto. Su ruta se traza sola." });
   }
-  return { enviar, pedidoAsignado, mensaje, guia, punto, configurado, whatsappPedido };
+
+  /* ---------- NUEVO · Avisos de pedidos de clientes (solicitudes_entrantes) ---------- */
+  const EVENTOS_SOL = {
+    nuevo:     { tipo: "sol_nuevo",     titulo: "📥 Nuevo pedido de cliente" },
+    tomado:    { tipo: "sol_tomado",    titulo: "🛵 Pedido tomado" },
+    entrega:   { tipo: "sol_entrega",   titulo: "📍 Va a entregar" },
+    entregado: { tipo: "sol_entregado", titulo: "✅ Pedido entregado" },
+    cancelado: { tipo: "sol_cancelado", titulo: "🚫 Pedido cancelado" }
+  };
+  async function llamarWorker(cuerpo) {
+    const user = auth.currentUser; if (!user) return { ok: false, error: "sin sesión" };
+    const idToken = await user.getIdToken();
+    const r = await fetch(URL_PUSH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+      body: JSON.stringify(cuerpo)
+    });
+    let j = {}; try { j = await r.json(); } catch (_) {}
+    return { ok: !!(r.ok && j && j.ok), code: j && j.code, error: (j && j.error) || ("error " + r.status) };
+  }
+  /* Tokens de los demás dispositivos de esta cuenta de administrador (excluye el aparato actual). */
+  async function otrosDispositivosAdmin() {
+    const u = auth.currentUser; if (!u) return [];
+    const propia = (typeof adminPushClave !== "undefined") ? adminPushClave : null;
+    const t = (await db.ref("admin_tokens/" + u.uid).once("value")).val() || {};
+    return Object.keys(t).filter((k) => k !== propia && t[k] && typeof t[k].token === "string" && t[k].token.length >= 20)
+      .map((k) => ({ clave: k, token: t[k].token }));
+  }
+  /* Nunca lanza error y nunca muestra toast (el aviso ya salió por voz/notificación local): devuelve true/false. */
+  async function solicitud(evento, texto, id) {
+    try {
+      const ev = EVENTOS_SOL[evento]; if (!ev || !configurado() || !id) return false;
+      const clave = "sol|" + id + "|" + evento;
+      if (ultimos[clave] && Date.now() - ultimos[clave] < 60000) return false;   // un solo aviso por solicitud y evento
+      ultimos[clave] = Date.now();
+      const otros = await otrosDispositivosAdmin();
+      if (!otros.length) return false;
+      let alguno = false;
+      for (const o of otros) {
+        const res = await llamarWorker({
+          token: o.token, titulo: recorta(ev.titulo, 80), cuerpo: recorta(texto, 240), canal: "admin",
+          data: { tipo: ev.tipo, solicitud: String(id) }
+        });
+        if (res.ok) { alguno = true; continue; }
+        if (res.code === "UNREGISTERED" || res.code === "INVALID_ARGUMENT") {   // celular que ya no existe: se limpia su token
+          const u = auth.currentUser;
+          if (u) db.ref("admin_tokens/" + u.uid + "/" + o.clave).remove().catch(() => {});
+        } else console.warn("PushAdmin.solicitud:", res.error);
+      }
+      return alguno;
+    } catch (err) {
+      console.warn("PushAdmin.solicitud:", err && err.message ? err.message : err);
+      return false;
+    }
+  }
+  return { enviar, pedidoAsignado, mensaje, guia, punto, configurado, whatsappPedido, solicitud };
 })();

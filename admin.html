@@ -14,7 +14,7 @@
   <style>
     /* ---- FASE 3 · Solicitudes entrantes (auditoría de chats cliente ↔ repartidor, solo lectura) ---- */
     nav.tabs { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; }
-    nav.tabs button { font-size: 12px; padding: 0 4px; position: relative; }
+    nav.tabs button { font-size: 12px; line-height: 1.1; padding: 0 4px; position: relative; overflow: hidden; text-overflow: ellipsis; }
     .sa-badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: #E5322D; color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center; vertical-align: middle; }
     #panelSolicitudes { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: grid; align-content: start; gap: 10px; max-width: 520px; width: 100%; margin: 0 auto; }
     #panelSolicitudes.oculto { display: none !important; }
@@ -233,8 +233,6 @@
 
   <!-- Aplicación -->
   <div id="vistaApp" class="oculto">
-    <!-- Notificaciones push flotantes (pedidos nuevos y ciclo de vida del pedido) -->
-    <div id="pushAdminStack" class="push-stack" role="region" aria-live="assertive" aria-label="Notificaciones de pedidos"></div>
     <div id="avisoVoz" class="aviso-sonido oculto" style="margin:8px 12px 0">
       <span>🔊 Toca para activar las alertas de voz de los mensajes.</span>
       <button id="btnActivarVoz" class="primario" type="button">Activar</button>
@@ -247,7 +245,6 @@
         <div class="buscador">
           <form id="formBusq" autocomplete="off">
             <input id="busq" type="search" placeholder="Buscar ciudad, dirección, negocio o coordenadas" enterkeyhint="search" aria-label="Buscar en el mapa">
-            <button type="submit" aria-label="Buscar">🔎</button>
           </form>
           <div id="resBusq" class="res-busq oculto"></div>
         </div>
@@ -261,7 +258,6 @@
           <button id="btnIconoMas" class="herr" type="button" aria-label="Iconos de repartidor más grandes"><b>🛵＋</b><small>Más grande</small></button>
           <button id="btnIconoMenos" class="herr" type="button" aria-label="Iconos de repartidor más pequeños"><b>🛵－</b><small>Más chico</small></button>
           <button id="btnFacturasVivo" class="herr" type="button" aria-label="Auditar facturas en curso de los repartidores"><b>🧾</b><small>Facturas</small></button>
-          <button id="btnRutas" class="herr on" type="button" aria-label="Mostrar u ocultar las rutas de los repartidores" aria-pressed="true"><b>🛣</b><small>Rutas</small></button>
           <button id="btnCentrar" class="herr" type="button" aria-label="Ver a todos"><b>⛶</b><small>Ver todos</small></button>
         </div>
         <!-- Guiar: toca el icono de un repartidor y luego el mapa -->
@@ -275,6 +271,8 @@
           </div>
         </div>
         <div id="toastAdmin" class="toast-admin oculto" role="status"></div>
+        <!-- FASE 2 · Brújula: apunta al norte real; al tocarla se desbloquea el mapa (mover y girar con los dedos) -->
+        <button id="btnBrujula" class="brujula" type="button" aria-pressed="false" aria-label="Brújula. Toca para desbloquear el mapa y poder girarlo"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#fff" stroke="currentColor" stroke-width="2"/><g id="brAguja"><polygon points="24,5 29,24 19,24" fill="#E5322D"/><polygon points="24,43 29,24 19,24" fill="#8A97A5"/><text x="24" y="17" text-anchor="middle" font-size="8" font-weight="800" fill="#fff">N</text></g><circle cx="24" cy="24" r="2.5" fill="#0E141B"/></svg><small id="brEstado">Bloqueado</small></button>
       </div>
     </section>
 
@@ -292,31 +290,62 @@
     </section>
 
     <section id="panelEquipo" class="oculto">
-      <div class="formulario-equipo">
+      <!-- FASE 3 · Orden: 1) Agregar repartidor · 2) Tu equipo · 3) Facturas del día · 4) Calificaciones -->
+      <div class="formulario-equipo eq-nuevo">
         <h2>Agregar repartidor</h2>
+        <div class="eq-foto-fila">
+          <button id="nuevoFotoPrev" class="avatar eq-av-xl" type="button" data-rider aria-label="Elegir foto de perfil del nuevo repartidor"></button>
+          <div class="eq-foto-txt">
+            <strong>Foto de perfil</strong>
+            <small>Opcional. El cliente la verá en su seguimiento.</small>
+            <div class="acciones-fila">
+              <button id="nuevoFotoElegir" class="mini" type="button">Elegir foto</button>
+              <button id="nuevoFotoQuitar" class="mini peligro oculto" type="button">Quitar</button>
+            </div>
+          </div>
+          <input id="nuevoFotoFile" type="file" accept="image/*" hidden>
+        </div>
         <label>Correo del repartidor <input id="nuevoCorreo" type="email" autocomplete="off" placeholder="rodrigo@gmail.com"></label>
         <label>Contraseña (mínimo 6 caracteres) <input id="nuevaClave" type="text" autocomplete="off" placeholder="Se la das al repartidor"></label>
         <label>Número de teléfono (WhatsApp) <input id="nuevoTelefono" type="tel" inputmode="tel" autocomplete="off" placeholder="50588887777 (con código de país)"></label>
         <div id="msgEquipo" class="estado oculto"></div>
         <button id="btnAgregar" class="primario">Crear repartidor</button>
       </div>
-      <h2>Facturas del día</h2>
-      <label>Día <input id="diaStats" type="date"></label>
-      <div id="statsDia" class="acciones" style="margin:10px 0"></div>
-      <h3 class="sec">⭐ Calificaciones de clientes</h3>
-      <label>Periodo <select id="califRango"><option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="0">Todo el tiempo</option></select></label>
-      <div id="califLista" class="acciones" style="margin:10px 0"></div>
-      <!-- FASE ÚNICA · "Tu equipo" con botón Recargar -->
-      <div class="equipo-cab">
-        <h2>Tu equipo</h2>
-        <button id="btnRecargarEquipo" type="button" aria-label="Recargar lista de repartidores">🔄 Recargar</button>
-      </div>
-      <div id="listaEquipo" class="acciones"></div>
-      <h2>Negocios del mapa</h2>
-      <p class="ayuda">Los repartidores ven estos negocios en su mapa y los pueden buscar por nombre.</p>
-      <button id="btnNuevoNegocio" class="primario" type="button">➕ Agregar negocio</button>
-      <div id="listaNegocios" class="acciones" style="margin-top:10px"></div>
-      <div style="margin-top:22px;text-align:center"><button id="btnLanzarUpd" class="mini" type="button" style="opacity:.55">🚀 Lanzar actualización</button></div>
+
+      <!-- 2) Tu equipo (cortina) -->
+      <section class="eq-mod" id="modEquipo">
+        <div class="equipo-cab eq-cab">
+          <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoEquipo"><span>Tu equipo</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
+          <button id="btnRecargarEquipo" type="button" aria-label="Recargar lista de repartidores">🔄 Recargar</button>
+        </div>
+        <div class="eq-cuerpo" id="cuerpoEquipo"><div class="eq-cuerpo-in">
+          <div id="listaEquipo" class="acciones"></div>
+        </div></div>
+      </section>
+
+      <!-- 3) Facturas del día (cortina) -->
+      <section class="eq-mod" id="modFacturas">
+        <div class="eq-cab">
+          <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoFacturas"><span>Facturas del día</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
+        </div>
+        <div class="eq-cuerpo" id="cuerpoFacturas"><div class="eq-cuerpo-in">
+          <label>Día <input id="diaStats" type="date"></label>
+          <div id="statsDia" class="acciones" style="margin:10px 0"></div>
+        </div></div>
+      </section>
+
+      <!-- 4) Calificaciones de clientes (cortina) -->
+      <section class="eq-mod" id="modCalif">
+        <div class="eq-cab">
+          <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoCalif"><span>⭐ Calificaciones de clientes</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
+        </div>
+        <div class="eq-cuerpo" id="cuerpoCalif"><div class="eq-cuerpo-in">
+          <label>Periodo <select id="califRango"><option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="90">Últimos 90 días</option><option value="0">Todo el tiempo</option></select></label>
+          <div id="califLista" class="acciones" style="margin:10px 0"></div>
+        </div></div>
+      </section>
+
+      <div class="eq-pie" style="margin-top:22px;text-align:center"><button id="btnLanzarUpd" class="mini" type="button" style="opacity:.55">🚀 Lanzar actualización</button></div>
     </section>
 
     <!-- Pedidos: formulario, asignación (registrado o invitado) y estado en vivo -->
@@ -336,10 +365,6 @@
           <label class="pd-iva-campo">IVA extra <input id="pdIvaExtra" type="number" inputmode="decimal" min="0" step="0.01" value="0" placeholder="0"></label>
         </div>
         <label>📝 Detalles del paquete <textarea id="pdPaquete" rows="2" maxlength="400" placeholder="Qué lleva, tamaño, indicaciones…"></textarea></label>
-        <div class="pd-asig"><small>Asignación</small>
-          <div class="pd-seg" id="pdModo"><button type="button" data-m="registrado" class="on">Repartidor registrado</button><button type="button" data-m="invitado">🔗 Enlace de invitado</button></div></div>
-        <label id="pdRegBox">Repartidor <select id="pdRegSel"></select></label>
-        <p id="pdInvBox" class="ayuda oculto">Se generará un enlace. Quien lo abra y acepte queda como único repartidor: el enlace se bloquea para los demás. Tendrás un chat directo con él.</p>
         <div class="pd-pie">
           <div id="pdTotalDel" class="pd-total" aria-live="polite"></div>
           <div id="pdMsg" class="estado oculto" role="status"></div>
@@ -421,8 +446,8 @@
     </div>
 
     <nav class="tabs">
-      <button class="activa" data-tab="panelMapa">Mapa en vivo</button>
-      <button data-tab="panelPedidos">Pedidos</button>
+      <button class="activa" data-tab="panelMapa">Mapa</button>
+      <button data-tab="panelPedidos">Crear Pedido</button>
       <button data-tab="panelChats">Chats</button>
       <button data-tab="panelEquipo">Equipo</button>
       <button data-tab="panelSolicitudes">Solicitudes<span id="saBadge" class="sa-badge oculto">0</span></button>
@@ -445,6 +470,7 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>

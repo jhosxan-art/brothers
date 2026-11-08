@@ -7,8 +7,6 @@
      (para eso hacen falta notificaciones push; ver README).
    Cambia las frases aquí, en un solo lugar.
    FASE 3: se agrega solicitudAdmin() para el panel del administrador.
-   ACTUALIZACIÓN: alertas del ciclo de vida del pedido para el administrador
-   (nuevo pedido por WhatsApp, repartidor lo tomó, va a entregar, entregado).
    ============================================================ */
 const Voz = (() => {
   const FRASES = {
@@ -24,20 +22,16 @@ const Voz = (() => {
     solicitudPedido: "Hay una solicitud de pedido",
     // FASE 3 · aviso en el panel del administrador
     solicitudAdmin: "Nueva solicitud de cliente pendiente",
+    // FASE 2 · ciclo de vida del pedido de un cliente (panel del administrador)
+    solicitudNueva: (c, q, o) => "Nuevo pedido de " + c + (q ? ": " + q : "") + (o ? ", en " + o : ""),
+    solicitudTomada: (r, c) => r + " tomó el pedido de " + c,
+    solicitudEnEntrega: (r, c) => r + " llegó y va a entregar el pedido de " + c,
+    solicitudEntregada: (r, c) => r + " entregó el pedido de " + c,
+    solicitudCancelada: (por, r, c) => por === "cliente" ? "El cliente " + c + " canceló su pedido" : por === "repartidor" ? r + " canceló el pedido de " + c : "Se canceló el pedido de " + c,
     // Celular del cliente (cliente-app.html)
     clientePedidoAceptado: "Un repartidor ha aceptado tu pedido",
     clienteMensajeNuevo: "Tienes un nuevo mensaje del repartidor",
-    clienteRepartidorCerca: "Tu repartidor está cerca de tu destino",
-    // Administrador · ciclo de vida del pedido
-    pedidoWhatsAppAdmin: (cliente, quiere, origen) =>
-      "Nuevo pedido por WhatsApp" + (cliente ? " del cliente " + cliente : "") +
-      (quiere ? ". Quiere " + quiere : "") + (origen ? ", de " + origen : ""),
-    pedidoTomadoAdmin: (rep, cliente) =>
-      (rep || "Un repartidor") + " tomó el pedido" + (cliente ? " del cliente " + cliente : ""),
-    repartidorEnCaminoAdmin: (rep, cliente) =>
-      (rep || "El repartidor") + " va en camino a entregar" + (cliente ? " el pedido de " + cliente : "") + ". Está llegando a la dirección del cliente",
-    pedidoEntregadoAdmin: (rep, cliente) =>
-      "Pedido entregado" + (cliente ? " a " + cliente : "") + (rep ? " por " + rep : "") + ". Pedido cerrado con éxito"
+    clienteRepartidorCerca: "Tu repartidor está cerca de tu destino"
   };
   const soporta = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
   let desbloqueada = false, audio = null, vozEs = null, gen = 0, pendiente = null;   // gen: cancela repeticiones pendientes
@@ -151,28 +145,19 @@ const Voz = (() => {
     hablar(FRASES.solicitudAdmin, { forzar: true });
   };
 
-  /* Texto corto y limpio para voz (sin emojis ni signos raros, máximo n letras) */
-  const limpiar = (t, n = 80) => String(t == null ? "" : t).replace(/[^\p{L}\p{N}\s.,:;()\-\/]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n);
-
-  /* ADMIN · Nuevo pedido por WhatsApp (igual de insistente que un mensaje directo: vibra y lo dice 2 veces) */
-  const pedidoWhatsAppAdmin = (d = {}) => {
-    try { if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 300]); } catch (_) {}
-    hablar(FRASES.pedidoWhatsAppAdmin(limpiar(d.cliente, 30), limpiar(d.quiere, 70), limpiar(d.origen, 40)), { forzar: true, repetir: 2, pausaMs: 2000 });
-  };
-  /* ADMIN · Un repartidor tomó el pedido (dice quién) */
-  const pedidoTomadoAdmin = (d = {}) => {
-    try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (_) {}
-    hablar(FRASES.pedidoTomadoAdmin(limpiar(d.repartidor, 30), limpiar(d.cliente, 30)), { forzar: true });
-  };
-  /* ADMIN · El repartidor va a entregar / está llegando */
-  const repartidorEnCaminoAdmin = (d = {}) => {
-    try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (_) {}
-    hablar(FRASES.repartidorEnCaminoAdmin(limpiar(d.repartidor, 30), limpiar(d.cliente, 30)), { forzar: true });
-  };
-  /* ADMIN · Pedido entregado y cerrado */
-  const pedidoEntregadoAdmin = (d = {}) => {
-    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (_) {}
-    hablar(FRASES.pedidoEntregadoAdmin(limpiar(d.repartidor, 30), limpiar(d.cliente, 30)), { forzar: true });
+  /* FASE 2 · Aviso del administrador por cada paso del pedido de un cliente.
+     tipo: nuevo | tomado | entrega | entregado | cancelado. Devuelve el texto dicho (sirve para toast y notificación). */
+  const solicitudEvento = (tipo, x) => {
+    x = x || {};
+    const c = x.cliente || "un cliente", r = x.repartidor || "Un repartidor", f = FRASES;
+    const texto = tipo === "nuevo" ? f.solicitudNueva(c, x.quiere, x.origen)
+      : tipo === "tomado" ? f.solicitudTomada(r, c)
+      : tipo === "entrega" ? f.solicitudEnEntrega(r, c)
+      : tipo === "entregado" ? f.solicitudEntregada(r, c)
+      : f.solicitudCancelada(x.por, r, c);
+    try { if (navigator.vibrate) navigator.vibrate(tipo === "nuevo" ? [300, 150, 300, 150, 300] : [250, 120, 250]); } catch (_) {}
+    hablar(texto, { forzar: true, repetir: tipo === "nuevo" ? 2 : 1, pausaMs: 2000 });
+    return texto;
   };
 
   /* Alertas del cliente. Se dicen una vez; la de cercanía se repite para que se oiga con el celular en el bolsillo */
@@ -183,7 +168,6 @@ const Voz = (() => {
     hablar(FRASES.clienteRepartidorCerca, { forzar: true, repetir: 2, pausaMs: 2500 });
   };
 
-  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad, solicitud, solicitudAdmin,
-           pedidoWhatsAppAdmin, pedidoTomadoAdmin, repartidorEnCaminoAdmin, pedidoEntregadoAdmin,
+  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad, solicitud, solicitudAdmin, solicitudEvento,
            clientePedidoAceptado, clienteMensajeNuevo, clienteRepartidorCerca };
 })();

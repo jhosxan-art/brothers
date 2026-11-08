@@ -57,7 +57,6 @@
     },
 
     "repartidorFotos": {
-      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$uid": {
         ".read": true,
         ".write": "auth != null && root.child('admins').child(auth.uid).exists()",

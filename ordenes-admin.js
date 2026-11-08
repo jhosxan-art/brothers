@@ -99,7 +99,7 @@ const PedidosAdmin = (() => {
       return `<div class="pdl-fila ${cual}" data-k="${cual}" data-i="${i}">
         <button type="button" class="pdl-pt" data-a="mapa" aria-label="Fijar ${esc(etiqueta(cual, i))} en el mapa">
           <span class="pdl-ico" aria-hidden="true">${icono(cual, p)}</span>
-          <span class="pdl-txt"><b>${esc(etiqueta(cual, i))}</b><small>${esc((t || "Toca para fijar en el mapa (dirección opcional)") + det)}</small></span>
+          <span class="pdl-txt"><b>${esc(etiqueta(cual, i))}</b>${t || det ? `<small>${esc(t + det)}</small>` : ""}</span>
           <span class="pdl-est ${est[0]}">${est[1]}</span>
         </button>
         ${cual === "retiro" ? `<input data-f="producto" maxlength="120" autocomplete="off" placeholder="Producto a retirar aquí (ej. 2 pizzas medianas)" aria-label="Producto a retirar en ${esc(etiqueta(cual, i))}" value="${esc(p.producto)}">` : ""}
@@ -279,24 +279,9 @@ const PedidosAdmin = (() => {
     setTimeout(() => { if (ovl && ovl.m === m) { m.invalidateSize(); dibujar(true); } }, 80);
   }
 
-  function pintarSelectorReg() {
-    const sel = el("pdRegSel"), ids = Object.keys(registrados).sort((a, b) => nombreUid(a).localeCompare(nombreUid(b)));
-    const opts = ids.map((u) => `<option value="${esc(u)}">${esc(nombreUid(u))} · ${ETIQUETA[estadoDe(u)][0]}</option>`).join("");
-    if (opts === firmaSel) return; 
-    if (document.activeElement === sel) return; 
-    firmaSel = opts;
-    sel.innerHTML = '<option value="">— Elige un repartidor —</option>' + opts;
-    if (regSel && ids.includes(regSel)) sel.value = regSel;
-  }
-  function modoAsignacion(m) {
-    modoAsig = m;
-    el("pdModo").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === m));
-    el("pdRegBox").classList.toggle("oculto", m !== "registrado");
-    el("pdInvBox").classList.toggle("oculto", m !== "invitado");
-    document.querySelectorAll("#panelPedidos .pd-iva-campo").forEach((c) => c.classList.toggle("oculto", m !== "registrado")); 
-    el("pdCrear").textContent = m === "invitado" ? "Crear pedido y generar enlace" : "Crear y asignar pedido";
-    pintarTotalDelivery();
-  }
+  /* FASE 2 · el selector directo y los botones de modo ya no existen: la asignación se elige en un modal al crear el pedido */
+  function pintarSelectorReg() {}
+  function modoAsignacion(m) { modoAsig = m; pintarTotalDelivery(); }
 
   const n2 = (v) => { const x = parseFloat(v); return isFinite(x) && x > 0 ? Math.round(x * 100) / 100 : 0; };
   function ivaBaseAuto(d) { if (d >= 35 && d < 200) return 7; if (d >= 200 && d <= 300) return 14; return 0; }
@@ -336,19 +321,50 @@ const PedidosAdmin = (() => {
     if (!cliente) return falla("Escribe el nombre del cliente.");
     if (!retiros.length || !entregas.length) return falla("Fija al menos un lugar de retiro y uno de entrega (toca 📍 y elígelos en el mapa).");
     const principal = { texto: entregas[0].texto }; if (typeof entregas[0].lat === "number") { principal.lat = entregas[0].lat; principal.lng = entregas[0].lng; }
-    const extras = entregas.slice(1); 
+    const extras = entregas.slice(1);
     const linea = (x, n) => `${x.tipo === "cobro" ? "💵 Lugar de cobro" : "🏠 Entrega"} ${n}: ${x.texto}${x.nota ? " — " + x.nota : ""}${typeof x.lat === "number" ? " https://www.google.com/maps?q=" + x.lat + "," + x.lng : ""}`;
     const lineas = extras.map((x, k) => linea(x, k + 2));
     if (entregas[0].tipo === "cobro" || entregas[0].nota) lineas.unshift(linea(entregas[0], 1));
     const paquete = [el("pdPaquete").value.trim()].concat(lineas).filter(Boolean).join("\n");
-    let asignacion;
-    if (modoAsig === "registrado") {
-      const uid = regSel || el("pdRegSel").value;
-      if (!uid) return falla("Elige un repartidor registrado, o cambia a “Enlace de invitado”.");
-      asignacion = { tipo: "registrado", uid, nombre: nombreUid(uid) };
-    } else asignacion = { tipo: "invitado" };
-    creando = true; el("pdCrear").disabled = true; aviso("Creando pedido…", "ok");
-    const tot = totalForm(); 
+    modoAsig = "registrado"; pintarTotalDelivery();
+    pedirAsignacion({ cliente, paquete, retiros, extras, principal });
+  }
+
+  /* FASE 2 · Modal de asignación: repartidor registrado (con foto) o enlace de invitado */
+  function avatarRep(uid) {
+    const f = typeof fotosCache !== "undefined" ? fotosCache[uid] : null;
+    return f && typeof f === "string" && f.indexOf("data:image/") === 0
+      ? `<span class="as-av con-foto" style="background-image:url('${f}')"></span>`
+      : `<span class="as-av">${typeof RIDER_SVG !== "undefined" ? RIDER_SVG : "🛵"}</span>`;
+  }
+  function pedirAsignacion(base) {
+    const rango = { libre: 0, enRuta: 1, sinSenal: 2, desconectado: 3, sinDatos: 4 };
+    const ids = Object.keys(registrados).sort((a, b) => (rango[estadoDe(a)] - rango[estadoDe(b)]) || nombreUid(a).localeCompare(nombreUid(b)));
+    const tot = totalForm();
+    modal(`<div class="as-caja"><h2>Asignar pedido</h2>
+      <p class="ayuda">Cliente <b>${esc(base.cliente)}</b> · Total <b>${esc(O.money(tot.total))}</b></p>
+      <div class="as-sec">🛵 Asignar a un repartidor registrado</div>
+      <div class="as-lista" id="asLista">${ids.length ? ids.map((u) => {
+        const r = registrados[u] && typeof registrados[u] === "object" ? registrados[u] : {}, [tx, cl] = ETIQUETA[estadoDe(u)];
+        return `<button type="button" class="as-rep" data-uid="${esc(u)}">${avatarRep(u)}<span class="as-dat"><strong>${esc(nombreUid(u))}</strong><small>${esc(r.telefono ? "📱 +" + r.telefono : (r.email || "Sin datos de contacto"))}${viajeDe(u) ? " · con pedido" : ""}</small></span><span class="chip ${esc(cl)}">${esc(tx)}</span></button>`;
+      }).join("") : '<p class="ayuda">Aún no hay repartidores registrados.</p>'}</div>
+      <div class="as-o"><span>o</span></div>
+      <button id="asInv" class="as-inv" type="button"><b>🔗 Crear enlace de invitado</b><small>Para un repartidor externo. Lo envías por WhatsApp o lo copias. El pedido va sin IVA.</small></button>
+      <button id="asNo" class="oscuro" type="button">Cancelar</button></div>`);
+    el("asNo").onclick = cerrarModal;
+    el("asLista").onclick = (e) => {
+      const b = e.target.closest("button[data-uid]"); if (!b) return;
+      confirmarCreacion(base, { tipo: "registrado", uid: b.dataset.uid, nombre: nombreUid(b.dataset.uid) });
+    };
+    el("asInv").onclick = () => confirmarCreacion(base, { tipo: "invitado" });
+  }
+
+  async function confirmarCreacion(base, asignacion) {
+    if (creando) return;
+    const falla = (t) => { aviso(t, "error"); toast(t); };
+    cerrarModal();
+    modoAsig = asignacion.tipo; creando = true; el("pdCrear").disabled = true; aviso("Creando pedido…", "ok");
+    const tot = totalForm(), { cliente, paquete, retiros, extras, principal } = base;
     try {
       const datos = JSON.parse(JSON.stringify({
         cliente, paquete, retiros, delivery: tot.d,
@@ -356,8 +372,8 @@ const PedidosAdmin = (() => {
         entrega: principal, entregasExtra: extras, asignacion
       }));
       const { token, orden } = await O.crear(db, datos);
-      if (extras.length) db.ref("ordenes/" + token + "/entregasExtra").set(extras).catch(() => {}); 
-      ["pdCliente", "pdPaquete", "pdDelivery", "pdIvaBase"].forEach((id) => { el(id).value = ""; }); el("pdIvaExtra").value = "0"; pintarTotalDelivery();
+      if (extras.length) db.ref("ordenes/" + token + "/entregasExtra").set(extras).catch(() => {});
+      ["pdCliente", "pdPaquete", "pdDelivery", "pdIvaBase"].forEach((id) => { el(id).value = ""; }); el("pdIvaExtra").value = "0";
       retirosForm = [nuevoRetiro()]; entregasForm = [nuevaEntrega()]; pintarLugares();
       if (asignacion.tipo === "invitado") { aviso(""); mostrarEnlaces(token, orden); }
       else {
@@ -368,23 +384,24 @@ const PedidosAdmin = (() => {
     } catch (err) {
       console.error("crearPedido", err);
       falla("No se pudo crear el pedido: " + ((err && (err.code ? err.code + " · " : "") + err.message) || err) + (err && err.code === "PERMISSION_DENIED" ? " (revisa las reglas de Firebase)" : ""));
-    } finally { creando = false; el("pdCrear").disabled = false; }
+    } finally { creando = false; el("pdCrear").disabled = false; modoAsig = "registrado"; pintarTotalDelivery(); }
   }
 
   function mostrarEnlaces(t, o) {
     const li = O.urlInvitado(t), lc = O.urlCliente(t);
+    const msgWa = `🛵 Brother’s Deliverys · Pedido ${cod(o.codigo)}\nAbre este enlace, escribe tu nombre y sigue la ruta:\n${li}`;
     modal(`<h2>🔗 Enlace de invitado</h2>
       <p class="ayuda">Pedido <b>${esc(cod(o.codigo))}</b> · ${esc(o.cliente)}. Envía este enlace a quien hará la entrega: solo tendrá que escribir su nombre.</p>
       <div class="pd-enlace">${esc(li)}</div>
-      <button id="pdCopiarInv" class="primario" type="button">📋 Copiar enlace del invitado</button>
-      <button id="pdWaInv" class="whatsapp" type="button">Enviar por WhatsApp</button>
+      <button id="pdWaInv" class="whatsapp" type="button">💬 Enviar por WhatsApp</button>
+      <button id="pdCopiarInv" class="primario" type="button">📋 Copiar enlace y código ${esc(cod(o.codigo))}</button>
       <p class="ayuda">Enlace del cliente (seguimiento + chat con el invitado):</p>
       <div class="pd-enlace">${esc(lc)}</div>
       <button id="pdCopiarCli" type="button">📋 Copiar enlace del cliente</button>
       <button id="pdCerrarEnl" class="oscuro" type="button">Listo</button>`);
-    el("pdCopiarInv").onclick = () => copiar(li);
+    el("pdCopiarInv").onclick = () => copiar(`Pedido ${cod(o.codigo)}\n${li}`);
     el("pdCopiarCli").onclick = () => copiar(lc);
-    el("pdWaInv").onclick = () => wa(`🛵 Brother’s Deliverys · Pedido ${cod(o.codigo)}\nAbre este enlace, escribe tu nombre y sigue la ruta:\n${li}`);
+    el("pdWaInv").onclick = () => wa(msgWa);
     el("pdCerrarEnl").onclick = cerrarModal;
   }
 
@@ -506,8 +523,9 @@ const PedidosAdmin = (() => {
     Chat.iniciar({
       token: t, yo: "admin", ruta: RUTA_INV, pedido: o.codigo, nombreRepartidor: nom, puedeBorrar: true, avisos: false,
       titulo: () => "Chat con " + nom, subtitulo: () => "Pedido " + cod(o.codigo) + " · invitado",
-      alCerrar: () => { chatInvAbierto = null; }
+      alCerrar: () => { chatInvAbierto = null; ChatMessenger.limpiar(); }
     });
+    ChatMessenger.set({ uid: O.uidInvitado(t), nombre: nom });
     Chat.abrir();
   }
   function escucharChatInv() {
@@ -528,54 +546,24 @@ const PedidosAdmin = (() => {
     }, () => {});
   }
 
-  /* Ciclo de vida del pedido (panel de órdenes): tomado → en camino → entregado.
-     Cada aviso = banner flotante (con foto del repartidor) + voz + notificación del sistema. */
   function avisarCambios(nuevo) {
-    const ir = (t) => () => { try { if (typeof irAPestana === "function") irAPestana("panelPedidos"); } catch (_) {} };
-    const emitir = (id, icono, clase, titulo, lineas, uid, voz) => {
-      PushAdmin.mostrar({ id, icono, clase, titulo, lineas, foto: FotosRep.get(uid), etiquetaVer: "Ver", alVer: ir() });
-      PushAdmin.sistema(icono + " " + titulo, (lineas || []).filter(Boolean).join(" · "), id, ir());
-      try { if (typeof voz === "function") voz(); } catch (_) {}
-    };
+    const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅❌🔗🛵]/gu, "")); };
     Object.entries(nuevo).forEach(([t, o]) => {
       const a = ordenes[t]; if (!a) return;
-      const cli = o.cliente || "", cl = cod(o.codigo);
-      const nom = (o.asignacion && o.asignacion.nombre) || "El repartidor", pa = O.paradas(a), po = O.paradas(o);
-      const uid = o.asignacion ? (o.asignacion.tipo === "invitado" ? O.uidInvitado(t) : o.asignacion.uid) : null;
       const resp = o.estado_asignacion;
-      /* 1) El repartidor tomó (aceptó) el pedido */
-      if (resp !== a.estado_asignacion && resp === "aceptado" && o.asignacion && o.asignacion.tipo === "registrado") {
+      if (resp !== a.estado_asignacion && (resp === "aceptado" || resp === "rechazado") && o.asignacion && o.asignacion.tipo === "registrado") {
         const quien = o.asignacion.nombre || "repartidor";
-        emitir("ord-tomado-" + t, "🛵", "wa", quien + " tomó el pedido " + cl, ["👤 Cliente: " + cli, "🛵 Repartidor: " + quien], uid,
-          () => Voz.pedidoTomadoAdmin({ repartidor: quien, cliente: cli }));
-      } else if (resp !== a.estado_asignacion && resp === "rechazado" && o.asignacion && o.asignacion.tipo === "registrado") {
-        const quien = o.asignacion.nombre || "repartidor";
-        emitir("ord-rechazo-" + t, "❌", "alerta", quien + " rechazó el pedido " + cl, ["👤 Cliente: " + cli, "Hay que reasignarlo"], uid,
-          () => O.hablar(quien + " rechazó el pedido " + cl));
+        if (resp === "aceptado") decir(`✅ El repartidor ${quien} aceptó el pedido ${cod(o.codigo)}`);
+        else decir(`❌ El repartidor ${quien} rechazó el pedido ${cod(o.codigo)}`);
       }
-      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) {
-        emitir("ord-tomado-" + t, "🔗", "wa", nom + " tomó el pedido " + cl, ["👤 Cliente: " + cli, "🛵 Repartidor invitado: " + nom], uid,
-          () => Voz.pedidoTomadoAdmin({ repartidor: nom, cliente: cli }));
-      }
-      /* 2) Retiros: si ya retiró todo, va hacia el cliente (en camino a entregar) */
+      const nom = (o.asignacion && o.asignacion.nombre) || "El repartidor", pa = O.paradas(a), po = O.paradas(o);
+      if (o.asignacion && o.asignacion.tipo === "invitado" && o.asignacion.nombre && !(a.asignacion && a.asignacion.nombre)) decir(`🔗 ${nom} aceptó el pedido ${cod(o.codigo)}`);
       po.forEach((p, k) => {
         if (!p.retirado || (pa[k] && pa[k].retirado)) return;
         const falta = po.filter((x) => !x.retirado).length;
-        if (!falta) {
-          emitir("ord-camino-" + t, "🚚", "wa", nom + " va a entregar el pedido " + cl, ["👤 Cliente: " + cli, "📍 " + ((o.entrega && o.entrega.texto) || "En camino a la dirección del cliente")], uid,
-            () => Voz.repartidorEnCaminoAdmin({ repartidor: nom, cliente: cli }));
-        } else {
-          const que = p.producto ? p.producto : "un producto";
-          emitir("ord-retiro-" + t + "-" + k, "📦", "wa", nom + " ya retiró " + que, [p.texto ? "📍 " + p.texto : "", "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "")], uid,
-            () => O.hablar(nom + " ya retiró " + que + ". Faltan " + falta + " retiro" + (falta > 1 ? "s" : "")));
-        }
+        decir(`📦 ${nom} ya retiró ${p.producto ? p.producto : "un producto"}${p.texto ? " en " + p.texto : ""}. ${falta ? "Faltan " + falta + " retiro" + (falta > 1 ? "s" : "") : "Pedido completo, va hacia el cliente"}`);
       });
-      /* 3) Entregado: cierre exitoso (el panel y el historial se repintan solos tras este aviso) */
-      if (o.estado !== a.estado && o.estado === "entregado") {
-        emitir("ord-entregado-" + t, "✅", "ok", "Pedido " + cl + " entregado", ["👤 Cliente: " + cli, "🛵 Entregó: " + nom], uid,
-          () => Voz.pedidoEntregadoAdmin({ repartidor: nom, cliente: cli }));
-        try { window.dispatchEvent(new CustomEvent("pedido-finalizado", { detail: { id: t, origen: "orden", estado: "entregado" } })); } catch (_) {}
-      }
+      if (o.estado !== a.estado && o.estado === "entregado") decir(`✅ ${nom} entregó el pedido ${cod(o.codigo)}`);
       if (o.estado !== a.estado && (o.estado === "entregado" || o.estado === "cancelado") && t === avisoToken) aviso("");
     });
   }
@@ -631,6 +619,127 @@ const PedidosAdmin = (() => {
     db.ref().update({ [`ordenes/${token}/estado`]: "entregado", [`ordenes/${token}/actualizado`]: O.TS, ["ubicaciones/" + uid]: null }).catch(() => {});
   }
 
+  /* ============================================================
+     FASE 1 · FACTURAS EN RUTA (botón 🧾 del mapa)
+     Lista TODO lo que anda en ruta con el nombre del repartidor y
+     abre el detalle completo al tocar una. Fuentes:
+       o: pedidos creados por el admin (ordenes)  · p: pedidos en curso (pedidos)
+       s: solicitudes de clientes atendidas (solicitudes_entrantes)
+     ============================================================ */
+  const dinero = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+  const hayNum = (n) => typeof n === "number" && isFinite(n);
+
+  function facturasEnRuta() {
+    const lista = [], conOrden = new Set(), conSol = new Set();
+    Object.entries(ordenes).forEach(([t, o]) => {
+      if (!o || !activa(o) || !(o.asignacion && o.asignacion.nombre)) return;
+      conOrden.add(t);
+      lista.push({ k: "o:" + t, cliente: o.cliente || "Sin nombre", rep: o.asignacion.nombre, codigo: cod(o.codigo), tag: o.asignacion.tipo === "invitado" ? "Invitado" : "Pedido admin", total: O.money(O.totalDelivery ? O.totalDelivery(o) : (Number(o.delivery) || 0) + (Number(o.iva) || 0)), est: (O.ESTADOS[o.estado] || [""])[0], ts: o.creado || 0 });
+    });
+    let sols = [];
+    try { sols = typeof SolicitudesAdmin !== "undefined" && SolicitudesAdmin.activas ? SolicitudesAdmin.activas() : []; } catch (_) {}
+    sols.forEach(([id, d]) => {
+      conSol.add(id);
+      const ff = d.facturaFinal;
+      lista.push({ k: "s:" + id, cliente: d.nombre || "Cliente", rep: d.repartidorNombre || nombreUid(d.repartidorUid), codigo: ff && ff.pedido ? String(ff.pedido) : "Solicitud", tag: "Chat cliente", total: ff ? dinero(ff.totalFinal != null ? ff.totalFinal : ff.total) : "Sin factura final", est: "Con pedido", ts: d.ts || d.creado || 0 });
+    });
+    Object.entries(activos).forEach(([t, d]) => {
+      if (!d || d.estado !== "en_ruta" || conOrden.has(t) || (d.solicitudId && conSol.has(d.solicitudId))) return;
+      const f = d.factura || {}, det = d.detalle || {};
+      const tot = hayNum(det.total) ? det.total : hayNum(f.total) ? f.total : null;
+      lista.push({ k: "p:" + t, cliente: d.clienteNombre || f.cliente || "Cliente", rep: d.repartidorNombre || nombreUid(d.repartidorUid), codigo: d.pedido ? String(d.pedido) : "—", tag: d.sinFactura ? "Sin factura" : "En curso", total: tot == null ? "Sin factura" : dinero(tot), est: "En ruta", ts: d.inicio || 0 });
+    });
+    return lista.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  }
+
+  function abrirFacturasEnRuta() {
+    const l = facturasEnRuta();
+    modal(`<div class="fv-caja"><h2>🧾 Facturas en ruta</h2>
+      <p class="ayuda"><span class="fv-vivo">${l.length} activa${l.length === 1 ? "" : "s"}</span> · Toca una para ver el detalle completo.</p>
+      <div class="fv-lista-pedidos">${l.length ? l.map((x) => `<button type="button" class="pd-rep" data-fk="${esc(x.k)}"><span><strong>${esc(x.codigo)} · ${esc(x.cliente)}</strong><small>🛵 ${esc(x.rep)} · ${esc(x.est)} · ${esc(x.total)}</small></span><i class="pd-tag">${esc(x.tag)}</i></button>`).join("") : '<p class="ayuda">No hay facturas en ruta ahora mismo.</p>'}</div>
+      <button id="fvCerrar" class="oscuro" type="button">Cerrar</button></div>`);
+    el("fvCerrar").onclick = cerrarModal;
+    el("modalCaja").querySelector(".fv-lista-pedidos").onclick = (e) => {
+      const b = e.target.closest("button[data-fk]"); if (b) abrirDetalleFactura(b.dataset.fk);
+    };
+  }
+
+  const filaFv = (txt, val, clase) => `<div class="fv-fila${clase ? " " + clase : ""}"><span>${txt}</span><b>${val}</b></div>`;
+  function itemsFv(items) {
+    return (Array.isArray(items) ? items : Object.values(items || {})).filter((p) => p && typeof p === "object")
+      .map((p) => filaFv(esc(String(p.nombre || "Producto").replace(/^➕\s*/, "")), dinero(p.precio), String(p.nombre || "").indexOf("➕") === 0 ? "fv-ex" : "")).join("");
+  }
+  function totalesFv(f) {
+    if (!f || typeof f !== "object") return "";
+    let h = "";
+    if (hayNum(f.subtotal)) h += filaFv("Subtotal", dinero(f.subtotal), "fv-sub");
+    if (hayNum(f.delivery)) h += filaFv("🛵 Delivery", dinero(f.delivery));
+    if (Number(f.mandadoExtra) > 0) h += filaFv("➕ Mandado extra", dinero(f.mandadoExtra), "fv-ex");
+    if (Number(f.prioridad) > 0) h += filaFv("⚡ Prioridad", dinero(f.prioridad), "fv-pri");
+    if (Number(f.deposito) > 0) h += filaFv("Depósito", dinero(f.deposito));
+    const t = f.totalFinal != null ? f.totalFinal : f.total;
+    if (hayNum(t)) h += `<div class="fv-total"><span>Total</span><b>${dinero(t)}</b></div>`;
+    return h;
+  }
+  function subFv(s) {
+    if (!s || typeof s !== "object" || !hayNum(s.subtotal)) return "";
+    return `<div class="fv-sec">${esc(s.etiqueta || "Subfactura")}</div><div class="fv-bloque">${itemsFv(s.items)}${filaFv("Subtotal", dinero(s.subtotal), "fv-sub")}${Number(s.envioExtra) > 0 ? filaFv("Envío extra", dinero(s.envioExtra)) : ""}</div>`;
+  }
+  function extrasFv(ex) {
+    const l = Object.values(ex || {}).filter((x) => x && hayNum(x.monto));
+    return l.length ? `<div class="fv-sec">➕ Extras</div><div class="fv-bloque">${l.map((x) => filaFv(esc((x.nota || "Extra") + (x.por ? " · " + x.por : "")), dinero(x.monto), "fv-ex")).join("")}</div>` : "";
+  }
+  const bannerFv = (tit, sub) => `<div class="fv-banner"><b>${esc(tit)}</b><small>${esc(sub)}</small></div>`;
+
+  function abrirDetalleFactura(k) {
+    const tipo = String(k).slice(0, 1), id = String(k).slice(2);
+    let cuerpo = "";
+    if (tipo === "o") {
+      const o = ordenes[id]; if (!o) return toast("Ese pedido ya no está disponible.");
+      const a = o.asignacion || {}, ps = O.paradas(o), d = activos[id] || {};
+      cuerpo = bannerFv(`${cod(o.codigo)} · ${o.cliente || "Sin nombre"}`, `🛵 ${nombreOrden(o)}${a.tipo === "invitado" ? " (invitado)" : ""} · ${(O.ESTADOS[o.estado] || [""])[0]}`) +
+        `<div class="fv-sec">Ruta</div><div class="fv-bloque">${ps.map((p, i) => `<div class="fv-fila"><span>${p.retirado ? "✅" : "📦"} ${ps.length > 1 ? "Retiro " + (i + 1) + ": " : "Retiro: "}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}</span></div>`).join("")}<div class="fv-fila"><span>🏠 Entrega: ${esc((o.entrega && o.entrega.texto) || "—")}</span></div></div>` +
+        `<div class="fv-sec">Cobro</div><div class="fv-bloque">${filaFv("🛵 Delivery", dinero(o.delivery))}${Number(o.iva) > 0 ? filaFv("IVA", dinero(o.iva)) : ""}<div class="fv-total"><span>Total</span><b>${esc(O.money(O.totalDelivery ? O.totalDelivery(o) : (Number(o.delivery) || 0) + (Number(o.iva) || 0)))}</b></div></div>` +
+        (o.paquete ? `<div class="fv-sec">📝 Paquete</div><div class="fv-bloque"><div class="fv-fila"><span>${esc(o.paquete).replace(/\n/g, "<br>")}</span></div></div>` : "") +
+        (d.detalle || d.factura ? `<div class="fv-sec">Factura del repartidor</div><div class="fv-bloque">${totalesFv(d.detalle || d.factura)}</div>` : "") + subFv(d.subfactura) + extrasFv(d.extras);
+    } else if (tipo === "s") {
+      const s = typeof SolicitudesAdmin !== "undefined" && SolicitudesAdmin.activas ? SolicitudesAdmin.activas().find((x) => x[0] === id) : null;
+      if (!s) return toast("Esa solicitud ya no está en ruta.");
+      const d = s[1], p = d.pedido || {}, ff = d.facturaFinal;
+      const ped = Object.entries(activos).find(([, x]) => x && x.solicitudId === id);
+      cuerpo = bannerFv(`${d.nombre || "Cliente"}${ff && ff.pedido ? " · " + ff.pedido : ""}`, `🛵 ${d.repartidorNombre || nombreUid(d.repartidorUid)} · Chat de cliente`) +
+        (p.quiere ? `<div class="fv-sec">🛍️ Pedido</div><div class="fv-bloque"><div class="fv-fila"><span>${esc(p.quiere)}${p.origen ? " · de " + esc(p.origen) : ""}</span></div></div>` : "") +
+        (ff ? `<div class="fv-sec">Factura</div><div class="fv-bloque">${itemsFv(ff.productos)}${totalesFv(ff)}</div>` : '<div class="fv-sec">Factura</div><div class="fv-bloque"><div class="fv-fila"><span>Todavía no hay factura final: el repartidor aún no la envía.</span></div></div>') +
+        subFv(d.subfactura) + (ped ? subFv(ped[1].subfactura) + extrasFv(ped[1].extras) : "");
+    } else {
+      const d = activos[id]; if (!d) return toast("Ese pedido ya no está en ruta.");
+      cuerpo = bannerFv(`${d.pedido || "Pedido"} · ${d.clienteNombre || (d.factura && d.factura.cliente) || "Cliente"}`, `🛵 ${d.repartidorNombre || nombreUid(d.repartidorUid)} · En ruta`) +
+        (d.sinFactura ? '<div class="fv-bloque"><div class="fv-fila"><span>🧾 Todavía sin factura (solo enlace de contacto).</span></div></div>' : `<div class="fv-sec">Factura</div><div class="fv-bloque">${totalesFv(d.detalle || d.factura) || '<div class="fv-fila"><span>Sin montos todavía.</span></div>'}</div>`) +
+        subFv(d.subfactura) + extrasFv(d.extras);
+    }
+    modal(`<div class="fv-caja"><h2>🧾 Detalle de factura</h2><div class="fv-resumen">${cuerpo}</div>
+      <button id="fvVolver" class="primario" type="button">← Volver a la lista</button><button id="fvCerrar2" class="oscuro" type="button">Cerrar</button></div>`);
+    el("fvVolver").onclick = abrirFacturasEnRuta;
+    el("fvCerrar2").onclick = cerrarModal;
+  }
+
+  function abrirFacturaUid(uid) {
+    if (O.esInvitadoUid(uid) && ordenes[tokenInv(uid)]) return abrirDetalleFactura("o:" + tokenInv(uid));
+    const f = facturasEnRuta().find((x) => {
+      if (x.k.startsWith("o:")) { const o = ordenes[x.k.slice(2)]; return o && o.asignacion && o.asignacion.uid === uid; }
+      if (x.k.startsWith("s:")) { const s = SolicitudesAdmin.activas().find((y) => y[0] === x.k.slice(2)); return s && s[1].repartidorUid === uid; }
+      const d = activos[x.k.slice(2)]; return d && d.repartidorUid === uid;
+    });
+    if (f) abrirDetalleFactura(f.k); else toast("Este repartidor no tiene facturas en ruta.");
+  }
+  function verRecorrido(uid) {
+    const u = ubic[uid];
+    if (!mapa || !u || typeof u.lat !== "number") return toast("Este repartidor aún no comparte ubicación.");
+    mapa.flyTo([u.lat, u.lng], 17);
+    setTimeout(() => { try { if (marcadores[uid]) marcadores[uid].openPopup(); } catch (_) {} }, 700);
+  }
+  const recorridoInv = () => {};   // sin trazado propio: admin.js lo llama en cada refresco del marcador
+
   function iniciar() {
     detener(); primera = true;
     // FASE ÚNICA · Arrancar el módulo EQUIPO lo antes posible (aunque el mapa falle)
@@ -643,9 +752,9 @@ const PedidosAdmin = (() => {
       new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) quitarTemp(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });
       
       document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { cerrarMapaForm(); if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
-      el("pdModo").onclick = (e) => { const b = e.target.closest("button[data-m]"); if (b) modoAsignacion(b.dataset.m); };
+      try { Brujula.iniciar(); ChatMessenger.iniciar(); } catch (e) { console.warn("[FASE2] brújula/chat:", e); }
+      const btnFv = el("btnFacturasVivo"); if (btnFv) btnFv.onclick = abrirFacturasEnRuta;
       el("pdCrear").onclick = crearPedido;
-      el("pdRegSel").addEventListener("change", (e) => { regSel = e.target.value; });
       el("pdDelivery").addEventListener("input", alEscribirDelivery);
       el("pdIvaBase").addEventListener("input", pintarTotalDelivery);
       el("pdIvaExtra").addEventListener("input", pintarTotalDelivery);
@@ -667,8 +776,8 @@ const PedidosAdmin = (() => {
         if (a === "chatinv") abrirChatInv(t);
         else if (a === "linkinv") mostrarEnlaces(t, o);
         else if (a === "linkcli") copiar(O.urlCliente(t));
-        else if (a === "factura") toast("Ver factura próximamente");
-        else if (a === "recorrido") toast("Recorrido próximamente");
+        else if (a === "factura") abrirDetalleFactura("o:" + t);
+        else if (a === "recorrido") verRecorrido(O.uidInvitado(t));
         else if (a === "asignar") asignarExistente(t);
         else if (a === "cancelar") cancelarOrden(t);
         else if (a === "forzar-ent") forzarEstadoOrden(t, "entregado");
@@ -697,7 +806,8 @@ const PedidosAdmin = (() => {
   return {
     iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado,
     invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "",
-    forzarEstadoOrden, asignarManual
+    forzarEstadoOrden, asignarManual,
+    abrirFacturasEnRuta, abrirFacturaUid, verRecorrido, recorridoInv
   };
 })();
 
@@ -914,124 +1024,40 @@ try { window.pintarEquipo = () => EQUIPO.render(); } catch (_) {}
 
 
 /* ============================================================
-   FOTOS DE REPARTIDORES (cache en vivo para banners de notificación)
+   FASE 3 · Cortinas (minimizar / maximizar) de los módulos de "Equipo":
+   Tu equipo · Facturas del día · Calificaciones de clientes.
+   El estado de cada cortina se recuerda en este aparato.
    ============================================================ */
-const FotosRep = (() => {
-  let ref = null, fotos = {};
-  function iniciar() {
-    if (ref || typeof db === "undefined") return;
-    try {
-      ref = db.ref("repartidorFotos");
-      ref.on("value", (s) => { fotos = s.val() || {}; }, () => { fotos = {}; ref = null; });
-    } catch (_) { ref = null; }
+const CortinasEquipo = (() => {
+  const CLAVE = "admin_equipo_cortinas";
+  const panel = document.getElementById("panelEquipo");
+  let estado = {};
+  try { estado = JSON.parse(localStorage.getItem(CLAVE) || "{}") || {}; } catch (_) { estado = {}; }
+
+  function aplicar(mod, abierta) {
+    mod.classList.toggle("cerrada", !abierta);
+    const t = mod.querySelector(".eq-toggle");
+    if (t) t.setAttribute("aria-expanded", abierta ? "true" : "false");
+    const c = mod.querySelector(".eq-cuerpo");
+    if (c && "inert" in c) c.inert = !abierta;
   }
-  function detener() { if (ref) { try { ref.off(); } catch (_) {} ref = null; } fotos = {}; }
-  const get = (uid) => { const f = uid ? fotos[uid] : null; return typeof f === "string" && f.indexOf("data:image/") === 0 ? f : ""; };
-  if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
-  return { iniciar, detener, get };
-})();
-
-
-/* ============================================================
-   PUSH ADMIN · Banners flotantes + notificación del sistema
-   Un solo lugar para avisar visualmente al administrador.
-   Se usa para: pedidos nuevos por WhatsApp y ciclo de vida del pedido
-   (tomado, en camino, entregado). Todo el texto se inserta con textContent.
-   ============================================================ */
-const PushAdmin = (() => {
-  const MAX_VISIBLES = 3, TTL_DEFECTO = 12000;
-  const pilaEl = () => document.getElementById("pushAdminStack");
-  const hacer = (tag, clase, texto) => {
-    const e = document.createElement(tag);
-    if (clase) e.className = clase;
-    if (texto !== undefined) e.textContent = texto;
-    return e;
-  };
-  const fotoValida = (f) => typeof f === "string" && f.indexOf("data:image/") === 0 && f.length < 400000;
-
-  function quitar(nodo, rapido) {
-    if (!nodo || !nodo.parentNode) return;
-    if (nodo._t) { clearTimeout(nodo._t); nodo._t = null; }
-    if (rapido) { nodo.remove(); return; }
-    nodo.classList.add("saliendo");
-    setTimeout(() => nodo.remove(), 260);
+  function guardar() { try { localStorage.setItem(CLAVE, JSON.stringify(estado)); } catch (_) {} }
+  function alternar(mod) {
+    const abrir = mod.classList.contains("cerrada");
+    aplicar(mod, abrir);
+    estado[mod.id] = abrir;
+    guardar();
   }
-
-  /* o = { id, icono, titulo, lineas:[], foto, clase, ttl, etiquetaVer, alVer } */
-  function mostrar(o) {
-    const pila = pilaEl();
-    if (!pila || !o) return null;
-    const id = String(o.id || "push-" + Date.now());
-    [...pila.children].forEach((n) => { if (n.dataset.pushId === id) quitar(n, true); });
-    while (pila.children.length >= MAX_VISIBLES) quitar(pila.firstElementChild, true);
-
-    const ttl = Number(o.ttl) > 0 ? Number(o.ttl) : TTL_DEFECTO;
-    const card = hacer("div", "push-card" + (o.clase ? " " + o.clase : ""));
-    card.dataset.pushId = id;
-    card.setAttribute("role", "alert");
-    card.style.setProperty("--push-ttl", ttl + "ms");
-
-    const av = hacer("span", "push-av");
-    if (fotoValida(o.foto)) {
-      const img = hacer("img"); img.src = o.foto; img.alt = ""; av.classList.add("con-foto"); av.appendChild(img);
-    } else {
-      av.textContent = o.icono || "🔔";
-    }
-    if (fotoValida(o.foto) && o.icono) av.appendChild(hacer("i", "push-av-ic", o.icono));
-    card.appendChild(av);
-
-    const cuerpo = hacer("div", "push-cuerpo");
-    cuerpo.appendChild(hacer("strong", "push-titulo", String(o.titulo || "")));
-    (o.lineas || []).filter(Boolean).forEach((l) => cuerpo.appendChild(hacer("small", "push-linea", String(l))));
-    card.appendChild(cuerpo);
-
-    const acc = hacer("div", "push-acc");
-    if (typeof o.alVer === "function") {
-      const ver = hacer("button", "push-ver", o.etiquetaVer || "Ver");
-      ver.type = "button";
-      ver.addEventListener("click", () => { try { o.alVer(); } catch (_) {} quitar(card); });
-      acc.appendChild(ver);
-    }
-    const x = hacer("button", "push-x", "✕");
-    x.type = "button"; x.setAttribute("aria-label", "Cerrar notificación");
-    x.addEventListener("click", () => quitar(card));
-    acc.appendChild(x);
-    card.appendChild(acc);
-
-    card.appendChild(hacer("span", "push-barra"));
-    pila.appendChild(card);
-    card._t = setTimeout(() => quitar(card), ttl);
-    return card;
+  if (panel) {
+    panel.querySelectorAll(".eq-mod").forEach((mod) => aplicar(mod, estado[mod.id] !== false));
+    panel.addEventListener("click", (e) => {
+      const t = e.target.closest(".eq-toggle");
+      if (!t || !panel.contains(t)) return;
+      const mod = t.closest(".eq-mod");
+      if (mod) alternar(mod);
+    });
   }
-
-  /* Notificación del sistema (sirve cuando la pestaña está en segundo plano) */
-  function sistema(titulo, cuerpo, tag, alClick) {
-    try {
-      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-      const opc = { body: cuerpo || "", tag: tag || "pedido-admin", renotify: true, requireInteraction: false, vibrate: [300, 150, 300] };
-      const abrir = () => { try { window.focus(); } catch (_) {} if (typeof alClick === "function") alClick(); };
-      if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
-        navigator.serviceWorker.getRegistration().then((reg) => {
-          if (reg && reg.showNotification) reg.showNotification(titulo, opc);
-          else { const n = new Notification(titulo, opc); n.onclick = () => { abrir(); n.close(); }; }
-        }).catch(() => { const n = new Notification(titulo, opc); n.onclick = () => { abrir(); n.close(); }; });
-      } else {
-        const n = new Notification(titulo, opc); n.onclick = () => { abrir(); n.close(); };
-      }
-    } catch (_) {}
-  }
-
-  /* El navegador solo deja pedir permiso tras un toque del usuario */
-  function pedirPermiso() {
-    try {
-      if (typeof Notification === "undefined" || Notification.permission !== "default") return;
-      const pedir = () => { try { Notification.requestPermission(); } catch (_) {} };
-      document.addEventListener("pointerdown", pedir, { once: true, passive: true });
-    } catch (_) {}
-  }
-  pedirPermiso();
-
-  return { mostrar, sistema, quitar };
+  return { alternar, aplicar };
 })();
 
 
@@ -1098,93 +1124,74 @@ const SolicitudesAdmin = (() => {
     m.className = "sa-msg" + (error ? " error" : "") + (texto ? "" : " oculto");
   }
 
-  function irAlPanel() {
-    try { if (typeof irAPestana === "function") irAPestana(PANEL); } catch (_) {}
+  /* ============================================================
+     FASE 2 · AVISOS DEL CICLO DE VIDA DEL PEDIDO DEL CLIENTE
+     nuevo → tomado → entrega (llegadaTs) → entregado / cancelado.
+     Cada aviso: voz (Voz.solicitudEvento) + toast + notificación.
+     Se avisa solo de cambios posteriores a la primera carga y una sola vez por evento.
+     ============================================================ */
+  const vistosEv = new Set();
+  let notifOyente = false;
+  function irASolicitud(id) {
+    try { irAPestana("panelSolicitudes"); } catch (_) {}
+    setTimeout(() => { if (lista[id]) abrirVisor(id); }, 150);
   }
-  /* Pedido nuevo por WhatsApp: misma respuesta que un mensaje directo (voz + banner + push del sistema) */
-  function anunciarNuevas(ids) {
-    if (!ids.length) return;
-    if (ids.length === 1) {
-      const k = ids[0], d = lista[k] || {}, p = d.pedido || {};
-      const cliente = cortar(d.nombre || "Cliente", 40);
-      try { if (typeof Voz !== "undefined" && Voz.pedidoWhatsAppAdmin) Voz.pedidoWhatsAppAdmin({ cliente, quiere: p.quiere, origen: p.origen }); else if (Voz.solicitudAdmin) Voz.solicitudAdmin(); } catch (_) {}
-      PushAdmin.mostrar({
-        id: "sol-" + k, icono: "📥", clase: "wa", titulo: "Nuevo pedido por WhatsApp",
-        lineas: ["👤 " + cliente, p.quiere ? "🛍️ " + cortar(p.quiere, 90) : "", p.origen ? "📍 De " + cortar(p.origen, 50) : ""],
-        etiquetaVer: "Abrir", alVer: () => { irAlPanel(); if (lista[k]) abrirVisor(k); }
-      });
-      PushAdmin.sistema("📥 Nuevo pedido por WhatsApp", cliente + (p.quiere ? " · " + cortar(p.quiere, 90) : ""), "solicitud-" + k, () => { irAlPanel(); if (lista[k]) abrirVisor(k); });
-      return;
-    }
-    try { if (typeof Voz !== "undefined" && Voz.hablar) Voz.hablar(ids.length + " nuevos pedidos por WhatsApp", { forzar: true, repetir: 2, pausaMs: 2000 }); } catch (_) {}
-    const nombres = ids.map((k) => cortar((lista[k] && lista[k].nombre) || "Cliente", 24)).slice(0, 4).join(", ");
-    PushAdmin.mostrar({
-      id: "sol-multi", icono: "📥", clase: "wa", titulo: ids.length + " pedidos nuevos por WhatsApp",
-      lineas: ["👤 " + nombres + (ids.length > 4 ? "…" : "")], etiquetaVer: "Ver todos", alVer: irAlPanel
-    });
-    PushAdmin.sistema("📥 " + ids.length + " pedidos nuevos por WhatsApp", nombres, "solicitud-multi", irAlPanel);
+  async function notificarLocal(titulo, cuerpo, id, tipo) {
+    try {
+      const LN = typeof adminPlug === "function" ? adminPlug("LocalNotifications") : null;
+      if (LN) {
+        let p = await LN.checkPermissions();
+        if (p.display !== "granted") p = await LN.requestPermissions();
+        if (p.display === "granted") {
+          if (!notifOyente) {
+            notifOyente = true;
+            LN.addListener("localNotificationActionPerformed", (e) => { const x = e && e.notification && e.notification.extra; if (x && x.solicitud) irASolicitud(x.solicitud); });
+          }
+          await LN.schedule({ notifications: [{ id: (Date.now() % 2147483000) + 1, title: titulo, body: cuerpo, channelId: "admin", extra: { solicitud: id, tipo } }] });
+          return;
+        }
+      }
+    } catch (_) {}
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        const n = new Notification(titulo, { body: cuerpo, tag: "sol-" + id + "-" + tipo });
+        n.onclick = () => { window.focus(); irASolicitud(id); n.close(); };
+      }
+    } catch (_) {}
   }
-
-  /* Ciclo de vida de la solicitud: repartidor la tomó → llegó/va a entregar → entregada.
-     Compara el estado anterior con el nuevo en cada cambio de Firebase. */
-  const evVistos = new Set();
-  function avisarCiclo(antes, ahora) {
-    const ver = (k) => () => { try { if (typeof irAPestana === "function") irAPestana(PANEL); } catch (_) {} if (lista[k]) abrirVisor(k); };
-    const emitir = (clave, k, icono, clase, titulo, lineas, uid, voz) => {
-      if (evVistos.has(clave)) return;
-      evVistos.add(clave);
-      PushAdmin.mostrar({ id: clave, icono, clase, titulo, lineas, foto: FotosRep.get(uid), etiquetaVer: "Ver", alVer: ver(k) });
-      PushAdmin.sistema(icono + " " + titulo, (lineas || []).filter(Boolean).join(" · "), clave, ver(k));
-      try { if (typeof voz === "function") voz(); } catch (_) {}
-    };
-    Object.keys(ahora).forEach((k) => {
-      const d = ahora[k], a = antes[k];
-      if (!d || typeof d !== "object" || !a) return;
-      const cli = cortar(d.nombre || "Cliente", 40), rep = cortar(d.repartidorNombre || "Un repartidor", 40), uid = d.repartidorUid;
-      /* 1) Lo tomó un repartidor (o se reasignó a otro) */
-      if (uid && uid !== a.repartidorUid && !fin(d)) {
-        emitir("sol-tomado-" + k + "-" + uid, k, "🛵", "wa", rep + " tomó el pedido de " + cli,
-          ["👤 Cliente: " + cli, "🛵 Repartidor: " + rep, d.pedido && d.pedido.quiere ? "🛍️ " + cortar(d.pedido.quiere, 90) : ""], uid,
-          () => Voz.pedidoTomadoAdmin({ repartidor: rep, cliente: cli }));
-      }
-      /* 2) Avisó que llegó / va a entregar */
-      if (d.llegadaTs && !a.llegadaTs && !fin(d)) {
-        emitir("sol-camino-" + k + "-" + d.llegadaTs, k, "🚚", "wa", rep + " está llegando con el pedido de " + cli,
-          ["👤 Cliente: " + cli, "📍 Va en camino o llegando a la dirección del cliente"], uid,
-          () => Voz.repartidorEnCaminoAdmin({ repartidor: rep, cliente: cli }));
-      }
-      /* 3) Entregado: cierre exitoso */
-      if (d.estado === "entregado" && a.estado !== "entregado") {
-        emitir("sol-entregado-" + k, k, "✅", "ok", "Pedido de " + cli + " entregado",
-          ["👤 Cliente: " + cli, d.repartidorNombre ? "🛵 Entregó: " + rep : ""], uid,
-          () => Voz.pedidoEntregadoAdmin({ repartidor: d.repartidorNombre ? rep : "", cliente: cli }));
-        try { window.dispatchEvent(new CustomEvent("pedido-finalizado", { detail: { id: k, origen: "solicitud", estado: "entregado" } })); } catch (_) {}
-        try { if (typeof pintarLista === "function") pintarLista(); } catch (_) {}
-      }
+  const TITULO_EV = { nuevo: "📥 Nuevo pedido de cliente", tomado: "🛵 Pedido tomado", entrega: "📍 Va a entregar", entregado: "✅ Pedido entregado", cancelado: "🚫 Pedido cancelado" };
+  function eventosDe(k, d) {
+    const l = [{ c: k + ":nuevo", t: "nuevo" }];
+    if (d.repartidorUid) l.push({ c: k + ":tomado:" + d.repartidorUid, t: "tomado" });
+    if (d.llegadaTs) l.push({ c: k + ":entrega", t: "entrega" });
+    if (d.estado === "entregado") l.push({ c: k + ":entregado", t: "entregado" });
+    else if (d.estado === "cancelado") l.push({ c: k + ":cancelado", t: "cancelado" });
+    return l;
+  }
+  function revisarEventos(avisar) {
+    Object.keys(lista).forEach((k) => {
+      const d = lista[k]; if (!d || typeof d !== "object") return;
+      const nuevos = eventosDe(k, d).filter((e) => !vistosEv.has(e.c));
+      nuevos.forEach((e) => vistosEv.add(e.c));
+      if (!avisar || !nuevos.length) return;
+      const e = nuevos[nuevos.length - 1], p = d.pedido || {};
+      const por = d.canceladoPor || d.motivoCancelacion || "";
+      if ((e.t === "entregado" || e.t === "cancelado") && (d.forzadoPorAdmin || por === "admin")) return;   // lo hizo el propio admin
+      const texto = Voz.solicitudEvento(e.t, { cliente: cortar(d.nombre || "Cliente", 30), repartidor: cortar(d.repartidorNombre || "", 30), quiere: cortar(p.quiere || "", 80), origen: cortar(p.origen || "", 50), por });
+      if (typeof toast === "function") toast(TITULO_EV[e.t].slice(0, 2) + " " + texto);
+      notificarLocal(TITULO_EV[e.t], texto, k, e.t);
+      if (typeof PushAdmin !== "undefined" && PushAdmin.solicitud) PushAdmin.solicitud(e.t, texto, k);
     });
   }
 
   function iniciar() {
     detener();
-    cargada = false; avisadas.clear(); evVistos.clear();
+    cargada = false; avisadas.clear(); vistosEv.clear();
     consulta = db.ref(RAIZ).limitToLast(100);
     consulta.on("value", (s) => {
       const antes = lista;
       lista = s.val() || {};
-      if (cargada) {
-        const nuevas = [];
-        Object.keys(lista).forEach((k) => {
-          const d = lista[k];
-          if (d && estadoDe(d) === "nuevo" && !avisadas.has(k) && (!antes[k] || estadoDe(antes[k]) !== "nuevo")) {
-            avisadas.add(k);
-            nuevas.push(k);
-          }
-        });
-        if (nuevas.length) anunciarNuevas(nuevas);
-        avisarCiclo(antes, lista);
-      } else {
-        Object.keys(lista).forEach((k) => { if (lista[k] && estadoDe(lista[k]) === "nuevo") avisadas.add(k); });
-      }
+      revisarEventos(cargada);
       cargada = true;
       [...sel].forEach((id) => { if (!lista[id] || !fin(lista[id])) sel.delete(id); });
       pintar();
@@ -1613,7 +1620,126 @@ const SolicitudesAdmin = (() => {
     enlazar();
     if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
   }
-  return { iniciar, detener, forzarEstadoSolicitud };
+  const activas = () => Object.entries(lista).filter(([, d]) => d && typeof d === "object" && d.repartidorUid && !fin(d));
+  return { iniciar, detener, forzarEstadoSolicitud, activas };
+})();
+
+
+/* ============================================================
+   FASE 2 · BRÚJULA DEL MAPA
+   - La aguja apunta al norte real con el sensor del aparato (si existe);
+     sin sensor queda fija al norte geográfico (mapa orientado al norte).
+   - Al tocarla se DESBLOQUEA el mapa: moverlo, acercarlo y girarlo con los dedos
+     (el giro usa el plugin leaflet-rotate; si no carga, el mapa sigue sin girar).
+     Un segundo toque lo vuelve a bloquear y lo orienta al norte.
+   ============================================================ */
+const Brujula = (() => {
+  let btn = null, aguja = null, estado = null, listo = false, libre = false, rumbo = null, pendiente = false, orientEscucha = false;
+  const g = (id) => document.getElementById(id);
+  const puedeGirar = () => !!(typeof mapa !== "undefined" && mapa && typeof mapa.setBearing === "function" && mapa.options && mapa.options.rotate);
+  const bearingMapa = () => (puedeGirar() ? (Number(mapa.getBearing()) || 0) : 0);
+  function pintar() {
+    if (!aguja) return;
+    pendiente = false;
+    const rot = libre && puedeGirar() ? -bearingMapa() : (rumbo == null ? -bearingMapa() : -rumbo);
+    aguja.setAttribute("transform", "rotate(" + rot.toFixed(1) + " 24 24)");
+  }
+  function pedirPintar() { if (!pendiente) { pendiente = true; requestAnimationFrame(pintar); } }
+  function alOrientar(e) {
+    let h = null;
+    if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;
+    else if ((e.absolute === true || e.type === "deviceorientationabsolute") && typeof e.alpha === "number") h = (360 - e.alpha) % 360;
+    if (h == null || !isFinite(h)) return;
+    const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+    rumbo = (h + ang + 360) % 360;
+    pedirPintar();
+  }
+  async function escucharOrientacion() {
+    if (orientEscucha) return;
+    try {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        const r = await DeviceOrientationEvent.requestPermission();   // iPhone: exige un toque del usuario
+        if (r !== "granted") return;
+        window.addEventListener("deviceorientation", alOrientar, true);
+      } else if ("ondeviceorientationabsolute" in window) window.addEventListener("deviceorientationabsolute", alOrientar, true);
+      else if (typeof DeviceOrientationEvent !== "undefined") window.addEventListener("deviceorientation", alOrientar, true);
+      else return;
+      orientEscucha = true;
+    } catch (_) {}
+  }
+  function aplicarModo() {
+    if (!mapa) return;
+    btn.classList.toggle("libre", libre);
+    btn.setAttribute("aria-pressed", String(libre));
+    estado.textContent = libre ? "Libre" : "Bloqueado";
+    if (libre) {
+      ["dragging", "touchZoom", "doubleClickZoom", "scrollWheelZoom", "boxZoom", "keyboard"].forEach((h) => { try { if (mapa[h]) mapa[h].enable(); } catch (_) {} });
+      if (mapa.touchRotate) { try { mapa.touchRotate.enable(); } catch (_) {} }
+      toast(puedeGirar() ? "🧭 Mapa libre: muévelo y gíralo con los dedos. Toca la brújula para bloquear." : "🧭 Mapa libre (este navegador no permite girar el mapa). Toca la brújula para bloquear.");
+    } else {
+      if (puedeGirar()) { try { mapa.setBearing(0); } catch (_) {} }
+      if (mapa.touchRotate) { try { mapa.touchRotate.disable(); } catch (_) {} }
+      try { if (typeof GestosMapa !== "undefined") GestosMapa.aplicar(mapa); } catch (_) {}
+      toast("🧭 Mapa bloqueado y orientado al norte.");
+    }
+    pintar();
+  }
+  function iniciar() {
+    if (listo) return;
+    btn = g("btnBrujula"); aguja = g("brAguja"); estado = g("brEstado");
+    if (!btn || !aguja || !mapa) return;
+    listo = true;
+    if (mapa.touchRotate) { try { mapa.touchRotate.disable(); } catch (_) {} }   // arranca bloqueado
+    if (puedeGirar()) mapa.on("rotate", pedirPintar);
+    btn.addEventListener("click", () => { escucharOrientacion(); libre = !libre; aplicarModo(); });
+    escucharOrientacion();   // Android: arranca sin permiso; iPhone espera el primer toque
+    pintar();
+  }
+  return { iniciar };
+})();
+
+
+/* ============================================================
+   FASE 2 · CHAT ESTILO MESSENGER
+   Los estilos viven en style.css (body.admin .chat …). Este módulo agrega
+   la foto de perfil del repartidor en la cabecera y junto a sus burbujas.
+   ============================================================ */
+const ChatMessenger = (() => {
+  let ctx = null, obs = null, prog = false;
+  const foto = (uid) => { const f = typeof fotosCache !== "undefined" ? fotosCache[uid] : ""; return f && typeof f === "string" && f.indexOf("data:image/") === 0 ? f : ""; };
+  function avatar(clase) {
+    const s = document.createElement("span");
+    s.className = clase;
+    const f = ctx && foto(ctx.uid);
+    if (f) { s.style.backgroundImage = "url('" + f + "')"; s.classList.add("con-foto"); }
+    else s.textContent = String((ctx && ctx.nombre) || "R").trim().charAt(0).toUpperCase() || "R";
+    return s;
+  }
+  function decorar() {
+    prog = false;
+    const c = document.querySelector("body.admin .chat");
+    if (!c) return;
+    c.classList.add("messenger");
+    if (!ctx) return;
+    const barra = c.querySelector(".chat-barra");
+    if (barra) {
+      const previo = barra.querySelector(".msg-av-cab");
+      if (!previo || previo.dataset.uid !== ctx.uid) {
+        if (previo) previo.remove();
+        const a = avatar("msg-av msg-av-cab"); a.dataset.uid = ctx.uid;
+        const atras = barra.querySelector(".chat-atras");
+        if (atras && atras.nextSibling) barra.insertBefore(a, atras.nextSibling); else barra.insertBefore(a, barra.firstChild);
+      }
+    }
+    c.querySelectorAll(".burbuja.ajena:not([data-av])").forEach((b) => { b.dataset.av = "1"; b.classList.add("con-av"); b.appendChild(avatar("msg-av")); });
+  }
+  const pedir = () => { if (!prog) { prog = true; requestAnimationFrame(decorar); } };
+  function iniciar() {
+    if (obs) return;
+    obs = new MutationObserver(pedir);
+    obs.observe(document.body, { childList: true, subtree: true });
+  }
+  return { iniciar, set: (c) => { ctx = c; pedir(); }, limpiar: () => { ctx = null; } };
 })();
 
 

@@ -52,7 +52,9 @@ let modoNegocio = false, marcaBusq = null, datosBusq = null, resultadosBusq = []
 const selChats = new Set();
 
 /* FASE 3 · rutas de repartidores y pines de solicitudes pendientes */
-let verRutas = localStorage.getItem("verRutasAdmin") !== "0";
+/* FASE 1 · botón "Ruta" eliminado: las rutas punteadas quedan deshabilitadas */
+const verRutas = false;
+try { localStorage.removeItem("verRutasAdmin"); } catch (_) {}
 const capaRutas = {};               // uid → polyline
 const marcasSolicitud = {};         // id → marker de alerta
 let solicitudesMapa = {};           // solicitudes_entrantes (últimas 60)
@@ -215,6 +217,7 @@ async function registrarPushAdmin(uid) {
     });
     PN.addListener("pushNotificationActionPerformed", (ev) => {
       const d = (ev && ev.notification && ev.notification.data) || {};
+      if (String(d.tipo || "").indexOf("sol_") === 0) { irAPestana("panelSolicitudes"); return; }
       if (d.tipo === "chat_repartidor") {
         irAPestana("panelChats");
         if (d.equipo === "1" && d.uid && typeof abrirChatRep === "function") setTimeout(() => { try { abrirChatRep(d.uid); } catch (_) {} }, 300);
@@ -237,7 +240,7 @@ function normalizarTelefono(t) {
 
 function initMapa() {
   if (!mapa) {
-    mapa = L.map("mapaAdmin", GestosMapa.opciones).setView([12.5700, -87.1311], 13);
+    mapa = L.map("mapaAdmin", Object.assign({}, GestosMapa.opciones, { rotate: true, touchRotate: true, bearing: 0 })).setView([12.5700, -87.1311], 13);
     L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);
     GestosMapa.aplicar(mapa);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -319,14 +322,6 @@ $("btnVerNegocios").onclick = () => { verNegocios = !verNegocios; localStorage.s
 const cambiarEscala = (d) => { escalaRep = Math.max(.5, Math.min(2, +(escalaRep + d).toFixed(1))); localStorage.setItem("escalaRep", escalaRep); aplicarHerramientas(); toast("Tamaño de iconos: " + Math.round(escalaRep * 100) + " %"); };
 $("btnIconoMas").onclick = () => cambiarEscala(.2);
 $("btnIconoMenos").onclick = () => cambiarEscala(-.2);
-/* FASE 3 · toggle de rutas de repartidores */
-$("btnRutas").onclick = () => {
-  verRutas = !verRutas;
-  try { localStorage.setItem("verRutasAdmin", verRutas ? "1" : "0"); } catch (_) {}
-  aplicarHerramientas();
-  pintarRutas();
-  toast(verRutas ? "🛣 Rutas visibles" : "Rutas ocultas");
-};
 
 /* ============================================================
    FASE 3 · RUTAS DE REPARTIDORES EN EL MAPA DEL ADMIN
@@ -597,7 +592,7 @@ $("btnNegocio").onclick = () => {
   $("btnNegocio").classList.add("activo"); mapa.closePopup(); mapa.getContainer().classList.add("modo-guia", "modo-registro");
   toast("Toca el mapa donde está el negocio (o búscalo y usa “Guardar como negocio”).");
 };
-$("btnNuevoNegocio").onclick = () => { document.querySelector('.tabs button[data-tab="panelMapa"]').click(); setTimeout(() => $("btnNegocio").click(), 150); };
+/* FASE 3 · La gestión de negocios se hace solo desde el mapa (botón ➕ Agregar). */
 
 function formNegocio(d, id) {
   let icono = d.icono || "🏪";
@@ -647,28 +642,6 @@ function popupLugar(id) {
       <button class="mini peligro" data-pa="borrarlugar" data-id="${esc(id)}" type="button">🗑</button>
     </div></div>`;
 }
-function pintarNegocios() {
-  const ids = Object.keys(lugares).sort((a, b) => lugares[a].nombre.localeCompare(lugares[b].nombre));
-  $("listaNegocios").innerHTML = ids.length ? ids.map((id) => {
-    const l = lugares[id];
-    return `<div class="tarjeta-rep"><div class="fila"><span class="avatar" style="font-size:26px">${esc(l.icono || "📍")}</span>
-      <div class="datos"><strong>${esc(l.nombre)}</strong><small>${esc(l.dir || "Sin referencia")} · ${(+l.lat).toFixed(5)}, ${(+l.lng).toFixed(5)}</small></div></div>
-      <div class="acciones-fila"><button class="mini" data-ln="ver" data-id="${esc(id)}" type="button">Ver en el mapa</button>
-      <button class="mini" data-ln="editar" data-id="${esc(id)}" type="button">Editar</button>
-      <button class="mini peligro" data-ln="borrar" data-id="${esc(id)}" type="button">Eliminar</button></div></div>`;
-  }).join("") : '<p class="ayuda">Aún no hay negocios. Agrega el primero.</p>';
-}
-$("listaNegocios").onclick = (e) => {
-  const b = e.target.closest("button[data-ln]"); if (!b) return;
-  const id = b.dataset.id, l = lugares[id]; if (!l) return;
-  if (b.dataset.ln === "editar") formNegocio(l, id);
-  else if (b.dataset.ln === "borrar") { if (confirm(`¿Eliminar el negocio “${l.nombre}”?`)) db.ref("lugares/" + id).remove().then(() => toast("Negocio eliminado.")).catch((err) => toast(err.message)); }
-  else {
-    document.querySelector('.tabs button[data-tab="panelMapa"]').click();
-    setTimeout(() => { mapa.flyTo([l.lat, l.lng], 18); setTimeout(() => lugarMarks[id] && lugarMarks[id].openPopup(), 800); }, 150);
-  }
-};
-
 /* FASE 4 · Clientes en el mapa del admin con ícono discreto (24 px) */
 const clientesM = {};
 function pintarClientes() {
@@ -798,8 +771,9 @@ function abrirChatRep(uid) {
     titulo: () => "Chat con " + nombreUid(uid),
     subtitulo: () => "Equipo · Brothers ↔ repartidor",
     alEnviar: (m) => { if (typeof PushAdmin !== "undefined") PushAdmin.mensaje(uid, m); },
-    alCerrar: () => { chatEqAbierto = null; }
+    alCerrar: () => { chatEqAbierto = null; if (typeof ChatMessenger !== "undefined") ChatMessenger.limpiar(); }
   });
+  if (typeof ChatMessenger !== "undefined") ChatMessenger.set({ uid, nombre: nombreUid(uid) });
   Chat.abrir();
 }
 function quitarMarcador(uid) { if (marcadores[uid]) { mapa.removeLayer(marcadores[uid]); delete marcadores[uid]; } }
@@ -816,7 +790,7 @@ function iniciarMonitoreo() {
   $("diaStats").value = Dia.clave(); cargarStats(); cargarCalif();
 
   refLugares = db.ref("lugares");
-  refLugares.on("value", (s) => { lugares = s.val() || {}; pintarLugares(); pintarNegocios(); }, fallo);
+  refLugares.on("value", (s) => { lugares = s.val() || {}; pintarLugares(); }, fallo);
 
   refGuias = db.ref("guias");
   const guiaOk = (s) => { guias[s.key] = s.val(); pintarGuia(s.key); pintarBannerAdmin(); pintarLista(); if (s.key === selUid) pintarSeleccion(); };
@@ -970,6 +944,7 @@ $("listaChats").onclick = (e) => {
   const id = k.slice(3);
   if (k.startsWith("eq:")) return abrirChatRep(id);
   const r = resumenes[id] || {};
+  if (typeof ChatMessenger !== "undefined") ChatMessenger.limpiar();
   Chat.iniciar({
     token: id, soloLectura: true, puedeBorrar: true, pedido: r.pedido, nombreRepartidor: r.repartidor,
     titulo: (c) => "Pedido " + (c.pedido || "—"),
@@ -1108,6 +1083,28 @@ $("listaEquipo").onclick = (e) => {
   }
 };
 
+/* FASE 3 · Foto de perfil opcional al crear el repartidor (se guarda en repartidorFotos/<uid>) */
+let fotoNueva = "";
+function pintarFotoNueva() {
+  const av = $("nuevoFotoPrev"); if (!av) return;
+  av.style.backgroundImage = fotoNueva ? "url('" + fotoNueva + "')" : "";
+  av.style.backgroundSize = "cover"; av.style.backgroundPosition = "center";
+  av.classList.toggle("con-foto", !!fotoNueva);
+  $("nuevoFotoQuitar").classList.toggle("oculto", !fotoNueva);
+  $("nuevoFotoElegir").textContent = fotoNueva ? "Cambiar foto" : "Elegir foto";
+}
+$("nuevoFotoPrev").onclick = $("nuevoFotoElegir").onclick = () => $("nuevoFotoFile").click();
+$("nuevoFotoFile").onchange = async () => {
+  const f = $("nuevoFotoFile").files && $("nuevoFotoFile").files[0];
+  $("nuevoFotoFile").value = "";
+  if (!f) return;
+  if (!/^image\//.test(f.type)) return toast("Selecciona una imagen válida.");
+  if (f.size > 10 * 1024 * 1024) return toast("La imagen es demasiado grande (máx. 10 MB).");
+  try { fotoNueva = await comprimirFoto(f); pintarFotoNueva(); }
+  catch (err) { toast("No se pudo usar la foto: " + (err.message || err)); }
+};
+$("nuevoFotoQuitar").onclick = () => { fotoNueva = ""; pintarFotoNueva(); };
+
 $("btnAgregar").onclick = async () => {
   const email = $("nuevoCorreo").value.trim().toLowerCase();
   const clave = $("nuevaClave").value;
@@ -1130,8 +1127,14 @@ $("btnAgregar").onclick = async () => {
     const ficha = { email, nombre: nombreDesdeCorreo(email), creado: firebase.database.ServerValue.TIMESTAMP };
     if (telefono) ficha.telefono = telefono;
     await db.ref("repartidores/" + uid).set(ficha);
+    let avisoFoto = "";
+    if (fotoNueva) {
+      try { await db.ref("repartidorFotos/" + uid).set(fotoNueva); }
+      catch (_) { avisoFoto = " La foto no se pudo guardar; agrégala desde “Tu equipo”."; }
+    }
     $("nuevoCorreo").value = ""; $("nuevaClave").value = ""; $("nuevoTelefono").value = "";
-    setMsg("msgEquipo", `Listo: ${email} ya puede entrar a la app. Elegirá su nombre de usuario al iniciar sesión.`, "ok");
+    fotoNueva = ""; pintarFotoNueva();
+    setMsg("msgEquipo", `Listo: ${email} ya puede entrar a la app. Elegirá su nombre de usuario al iniciar sesión.` + avisoFoto, avisoFoto ? "error" : "ok");
   } catch (e) {
     setMsg("msgEquipo", e.code ? errorAuth(e) : e.message, "error");
   } finally {
@@ -1155,12 +1158,29 @@ Atras.iniciar([
 
 function abrirOcultar() {
   const uids = [...new Set([...Object.keys(registrados), ...Object.keys(ubic)])].sort((x, y) => nombreUid(x).localeCompare(nombreUid(y)));
-  modal(`<h2>👁 Repartidores en el mapa</h2>
+  const avatar = (uid) => {
+    const f = typeof fotosCache !== "undefined" ? fotosCache[uid] : null;
+    return f && typeof f === "string" && f.indexOf("data:image/") === 0
+      ? `<span class="oc-av con-foto" style="background-image:url('${f}')"></span>`
+      : `<span class="oc-av">${RIDER_SVG}</span>`;
+  };
+  const fila = (uid) => {
+    const est = estadoDe(uid), [txt, clase] = ETIQUETA[est], v = viajeDe(uid);
+    return `<label class="oc-fila"><input type="checkbox" class="sw" data-uid="${esc(uid)}" ${ocultos.has(uid) ? "" : "checked"}>
+      ${avatar(uid)}
+      <span class="oc-dat"><strong>${esc(nombreUid(uid))}${Ordenes.esInvitadoUid(uid) ? ' <i class="pd-tag">Invitado</i>' : ""}</strong>
+        <small><span class="chip ${clase}">${txt}</span>${v ? " · Pedido " + esc(v.d.pedido || "—") : ""}</small></span>
+      <span class="oc-sw" aria-hidden="true"></span></label>`;
+  };
+  modal(`<div class="oc-cab"><h2>👁 Repartidores en el mapa</h2><span id="ocConteo" class="oc-conteo"></span></div>
     <p class="ayuda">Activa o desactiva a cada uno. Los desactivados no aparecen en el mapa (ni su guía ni sus clientes). Siguen trabajando normal.</p>
-    <div class="lista-sw">${uids.length ? uids.map((uid) => { const [txt, clase] = ETIQUETA[estadoDe(uid)]; return `<label class="fila-sw"><span><strong>${esc(nombreUid(uid))}</strong><small class="chip ${clase}">${txt}</small></span><input type="checkbox" class="sw" data-uid="${esc(uid)}" ${ocultos.has(uid) ? "" : "checked"}></label>`; }).join("") : '<p class="ayuda">Aún no hay repartidores.</p>'}</div>
-    <button id="ocTodos" class="oscuro" type="button">Mostrar a todos</button><button id="ocListo" class="primario" type="button">Listo</button>`);
+    <div class="oc-lista">${uids.length ? uids.map(fila).join("") : '<p class="ayuda">Aún no hay repartidores.</p>'}</div>
+    <div class="oc-acc"><button id="ocTodos" type="button">Mostrar a todos</button><button id="ocNinguno" type="button">Ocultar a todos</button></div>
+    <button id="ocListo" class="primario" type="button">Listo</button>`);
+  const conteo = () => { const c = $("ocConteo"); if (c) c.textContent = (uids.length - uids.filter((u) => ocultos.has(u)).length) + " de " + uids.length + " visibles"; };
+  conteo();
   const aplicar = () => {
-    guardarOcultos();
+    guardarOcultos(); conteo();
     if (selUid && ocultos.has(selUid)) { selUid = null; pintarSeleccion(); }
     refrescar(); Object.keys(guias).forEach(pintarGuia);
   };
@@ -1168,7 +1188,9 @@ function abrirOcultar() {
     if (i.checked) ocultos.delete(i.dataset.uid); else ocultos.add(i.dataset.uid);
     aplicar();
   });
-  $("ocTodos").onclick = () => { ocultos.clear(); guardarOcultos(); document.querySelectorAll("#modalCaja input.sw").forEach((i) => i.checked = true); aplicar(); };
+  const todos = (mostrar) => { uids.forEach((u) => { if (mostrar) ocultos.delete(u); else ocultos.add(u); }); document.querySelectorAll("#modalCaja input.sw").forEach((i) => i.checked = mostrar); aplicar(); };
+  $("ocTodos").onclick = () => todos(true);
+  $("ocNinguno").onclick = () => todos(false);
   $("ocListo").onclick = cerrarModal;
 }
 $("btnOcultar").onclick = abrirOcultar;
