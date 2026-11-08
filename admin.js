@@ -256,6 +256,7 @@ function initMapa() {
     if (typeof PedidosAdmin !== "undefined") PedidosAdmin.clickMapa(e.latlng);
   });
   mapa.on("zoomend", () => mapa.getContainer().classList.toggle("zoom-lejos", mapa.getZoom() < 15));
+  mapa.on("moveend zoomend", programarSyncNegocios);
   mapa.getContainer().classList.add("zoom-lejos");
   aplicarHerramientas();
   setTimeout(() => mapa.invalidateSize(), 50);
@@ -316,7 +317,7 @@ function aplicarHerramientas() {
   /* FASE 3 · toggle de rutas */
   const br = $("btnRutas");
   if (br) { br.classList.toggle("on", verRutas); br.setAttribute("aria-pressed", String(verRutas)); }
-  Object.values(lugarMarks).forEach((m) => { if (verNegocios) m.addTo(mapa); else mapa.removeLayer(m); });
+  sincronizarNegocios();
 }
 $("btnVerNegocios").onclick = () => { verNegocios = !verNegocios; localStorage.setItem("verNegocios", verNegocios ? "1" : "0"); aplicarHerramientas(); toast(verNegocios ? "Negocios visibles" : "Negocios ocultos"); };
 const cambiarEscala = (d) => { escalaRep = Math.max(.5, Math.min(2, +(escalaRep + d).toFixed(1))); localStorage.setItem("escalaRep", escalaRep); aplicarHerramientas(); toast("Tamaño de iconos: " + Math.round(escalaRep * 100) + " %"); };
@@ -621,24 +622,56 @@ function formNegocio(d, id) {
     } catch (err) { toast("No se pudo guardar: " + err.message); $("nOk").disabled = false; }
   };
 }
-/* Ícono de negocio: círculo pequeño anclado exactamente en su coordenada, con el nombre al lado (solo con zoom cercano). */
+/* Ícono de negocio: círculo pequeño anclado exactamente en su coordenada, solo el ícono (sin nombre). */
 function iconoNegocio(l) {
   return L.divIcon({
     className: "neg-ico",
-    html: '<span class="neg-pin">' + esc(l.icono || "📍") + '</span><span class="neg-etq">' + esc(l.nombre || "") + "</span>",
+    html: '<span class="neg-pin">' + esc(l.icono || "📍") + "</span>",
     iconSize: [20, 20], iconAnchor: [10, 10]
   });
 }
-function pintarLugares() {
+/* Optimización: los negocios se dibujan en UNA capa y solo los que caen dentro de la pantalla (más un margen);
+   con el mapa muy alejado no se dibujan. Mover el mapa o activar la vista ya no crea cientos de íconos a la vez. */
+const capaNegocios = L.layerGroup();
+const ZOOM_MIN_NEGOCIOS = 14;
+let tSyncNeg = null;
+function sincronizarNegocios() {
   if (!mapa) return;
-  Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
+  const visible = verNegocios && mapa.getZoom() >= ZOOM_MIN_NEGOCIOS;
+  if (!visible) {
+    if (mapa.hasLayer(capaNegocios)) { capaNegocios.eachLayer((m) => { if (!m.isPopupOpen || !m.isPopupOpen()) capaNegocios.removeLayer(m); }); }
+    if (mapa.hasLayer(capaNegocios) && !capaNegocios.getLayers().length) mapa.removeLayer(capaNegocios);
+    return;
+  }
+  if (!mapa.hasLayer(capaNegocios)) capaNegocios.addTo(mapa);
+  const b = mapa.getBounds().pad(0.35);
+  Object.values(lugarMarks).forEach((m) => {
+    const dentro = b.contains(m.getLatLng());
+    const puesto = capaNegocios.hasLayer(m);
+    if (dentro && !puesto) capaNegocios.addLayer(m);
+    else if (!dentro && puesto && !(m.isPopupOpen && m.isPopupOpen())) capaNegocios.removeLayer(m);
+  });
+}
+function programarSyncNegocios() { clearTimeout(tSyncNeg); tSyncNeg = setTimeout(sincronizarNegocios, 140); }
+let tPintarLug = null;
+function pintarLugares() { clearTimeout(tPintarLug); tPintarLug = setTimeout(pintarLugaresYa, 120); }
+function pintarLugaresYa() {
+  if (!mapa) return;
+  Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { capaNegocios.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
   Object.entries(lugares).forEach(([id, l]) => {
-    if (typeof l.lat !== "number") return;
+    if (typeof l.lat !== "number" || typeof l.lng !== "number") return;
     const clave = [l.nombre, l.icono].join("|");
     let m = lugarMarks[id];
-    if (!m) { m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: iconoNegocio(l), zIndexOffset: 100 }); if (verNegocios) m.addTo(mapa); m._clave = clave; m.bindPopup(() => popupLugar(id), { offset: [0, -10], minWidth: 230, autoPanPaddingTopLeft: [16, 110], autoPanPaddingBottomRight: [90, 110] }); }
-    else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(iconoNegocio(l)); m._clave = clave; } }
+    if (!m) {
+      m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: iconoNegocio(l), zIndexOffset: 100, keyboard: false, riseOnHover: false });
+      m._clave = clave;
+      m.bindPopup(() => popupLugar(id), { offset: [0, -10], minWidth: 230, autoPanPaddingTopLeft: [16, 110], autoPanPaddingBottomRight: [90, 110] });
+    } else {
+      m.setLatLng([l.lat, l.lng]);
+      if (m._clave !== clave) { m.setIcon(iconoNegocio(l)); m._clave = clave; }
+    }
   });
+  sincronizarNegocios();
 }
 function popupLugar(id) {
   const l = lugares[id] || {};
@@ -867,7 +900,8 @@ function detener() {
   if (refLugares) { refLugares.off(); refLugares = null; }
   if (refStats) { refStats.off(); refStats = null; }
   facturasHoy = 0;
-  Object.keys(lugarMarks).forEach((id) => { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; });
+  clearTimeout(tPintarLug); clearTimeout(tSyncNeg);
+  capaNegocios.clearLayers(); Object.keys(lugarMarks).forEach((id) => { delete lugarMarks[id]; });
   lugares = {};
   if (refEq) { refEq.off(); refEq = null; }
   Object.keys(guiaCapas).forEach((u) => { delete guias[u]; pintarGuia(u); });

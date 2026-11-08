@@ -1477,8 +1477,6 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
    ============================================================ */
 .neg-ico { background: none; border: 0; cursor: pointer; }
 .neg-pin { position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 2px solid #F59E0B; display: grid; place-items: center; font-size: 11px; line-height: 1; box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
-.neg-etq { position: absolute; left: 24px; top: 50%; transform: translateY(-50%); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; color: #3C4043; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; pointer-events: none; }
-.zoom-lejos .neg-etq { display: none; }
 /* La tarjeta de información queda por encima de todos los íconos del mapa */
 .leaflet-popup-pane { z-index: 900; }
 .leaflet-popup { z-index: 900; }

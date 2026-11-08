@@ -463,6 +463,12 @@ const PedidosAdmin = (() => {
     if (a.tipo === "registrado" && a.uid && guias[a.uid] && guias[a.uid].ordenId === token) upd["guias/" + a.uid] = null;
     if (a.tipo === "invitado") upd["ubicaciones/" + O.uidInvitado(token)] = null;
     try {
+      if ((await db.ref("pedidos/" + token).once("value")).exists()) {
+        upd[`pedidos/${token}/estado`] = nuevoEstado;
+        if (esEnt) upd[`pedidos/${token}/fin`] = O.TS;
+      }
+    } catch (_) {}
+    try {
       await db.ref().update(upd);
       toast(esEnt ? "✅ Pedido forzado a ENTREGADO" : "🚫 Pedido forzado a CANCELADO");
     } catch (err) { toast("No se pudo forzar: " + err.message); }
@@ -718,9 +724,41 @@ const PedidosAdmin = (() => {
         subFv(d.subfactura) + extrasFv(d.extras);
     }
     modal(`<div class="fv-caja"><h2>🧾 Detalle de factura</h2><div class="fv-resumen">${cuerpo}</div>
-      <button id="fvVolver" class="primario" type="button">← Volver a la lista</button><button id="fvCerrar2" class="oscuro" type="button">Cerrar</button></div>`);
+      <button id="fvEntregar" class="primario" type="button">✅ Marcar como entregada</button>
+      <button id="fvVolver" type="button">← Volver a la lista</button><button id="fvCerrar2" class="oscuro" type="button">Cerrar</button></div>`);
+    el("fvEntregar").onclick = () => marcarEntregadaFactura(k);
     el("fvVolver").onclick = abrirFacturasEnRuta;
     el("fvCerrar2").onclick = cerrarModal;
+  }
+
+  /* Marcar como ENTREGADA desde el detalle de una factura (por si al repartidor se le olvidó). */
+  async function marcarEntregadaFactura(k) {
+    const tipo = String(k).slice(0, 1), id = String(k).slice(2);
+    if (tipo === "s") { cerrarModal(); return SolicitudesAdmin.forzarEstadoSolicitud(id, "entregado"); }
+    const upd = {};
+    let nombre = "";
+    if (tipo === "o") {
+      const o = ordenes[id]; if (!o) return toast("Ese pedido ya no está disponible.");
+      nombre = cod(o.codigo) + " · " + (o.cliente || "Sin nombre");
+      if (!confirm(`¿Marcar como ENTREGADO el pedido ${nombre}?\nEl repartidor saldrá de la ruta y la factura dejará de estar en ruta.`)) return;
+      const a = o.asignacion || {};
+      Object.assign(upd, {
+        [`ordenes/${id}/estado`]: "entregado", [`ordenes/${id}/actualizado`]: O.TS, [`ordenes/${id}/entregadoTs`]: O.TS,
+        [`ordenes/${id}/forzadoPorAdmin`]: true, [`ordenes/${id}/forzadoTs`]: O.TS
+      });
+      if (a.tipo === "registrado" && a.uid && guias[a.uid] && guias[a.uid].ordenId === id) upd["guias/" + a.uid] = null;
+      if (a.tipo === "invitado") { upd["ubicaciones/" + O.uidInvitado(id)] = null; upd["guias/" + O.uidInvitado(id)] = null; }
+    } else {
+      const d = activos[id]; if (!d) return toast("Ese pedido ya no está en ruta.");
+      nombre = (d.pedido || "Pedido") + " · " + (d.clienteNombre || (d.factura && d.factura.cliente) || "Cliente");
+      if (!confirm(`¿Marcar como ENTREGADO el pedido ${nombre}?\nLa factura dejará de estar en ruta.`)) return;
+    }
+    try {
+      if (tipo === "o") { if ((await db.ref("pedidos/" + id).once("value")).exists()) { upd[`pedidos/${id}/estado`] = "entregado"; upd[`pedidos/${id}/fin`] = O.TS; } }
+      else { upd[`pedidos/${id}/estado`] = "entregado"; upd[`pedidos/${id}/fin`] = O.TS; }
+      await db.ref().update(upd);
+      cerrarModal(); toast("✅ Pedido marcado como entregado");
+    } catch (err) { toast("No se pudo marcar como entregado: " + (err.message || err)); }
   }
 
   function abrirFacturaUid(uid) {
@@ -738,7 +776,92 @@ const PedidosAdmin = (() => {
     mapa.flyTo([u.lat, u.lng], 17);
     setTimeout(() => { try { if (marcadores[uid]) marcadores[uid].openPopup(); } catch (_) {} }, 700);
   }
-  const recorridoInv = () => {};   // sin trazado propio: admin.js lo llama en cada refresco del marcador
+  /* ============================================================
+     RUTA DE LOS PEDIDOS QUE ENVIÉ (repartidor registrado o invitado)
+     Cuando el repartidor toma el pedido se ve en el mapa: dónde retira (📦), dónde entrega (🏠/💵) y la línea
+     por las calles desde su posición hasta cada parada. admin.js llama a recorridoInv en cada refresco del marcador.
+     ============================================================ */
+  const rutasO = {};         // token → { capa, firma, pos, ts, seq }
+  const cachePatas = {};     // tramo (origen>destino) → { pts, dist, dur }
+  let tRutas = null;
+  const r5 = (n) => Math.round(n * 1e5) / 1e5;
+  const llOk = (p) => !!p && typeof p.lat === "number" && typeof p.lng === "number" && isFinite(p.lat) && isFinite(p.lng);
+  const kPata = (a, b) => r5(a.lat) + "," + r5(a.lng) + ">" + r5(b.lat) + "," + r5(b.lng);
+  function distM(a, b) {
+    const rad = Math.PI / 180, dLa = (b.lat - a.lat) * rad, dLo = (b.lng - a.lng) * rad;
+    const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLo / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.sqrt(h));
+  }
+  function pedidoTomado(o) {
+    const a = o && o.asignacion;
+    if (!a || !a.tipo || !activa(o)) return false;
+    if (a.tipo === "invitado") return !!a.nombre;                                   // el invitado ya abrió el enlace y puso su nombre
+    return o.estado_asignacion !== "pendiente" && o.estado_asignacion !== "rechazado"; // el registrado ya lo aceptó
+  }
+  function paradasRuta(o) {
+    const out = [];
+    O.paradas(o).forEach((p, i) => { if (llOk(p)) out.push({ lat: p.lat, lng: p.lng, cual: "retiro", emoji: "📦", p, i, hecho: !!p.retirado }); });
+    const extra = Array.isArray(o.entregasExtra) ? o.entregasExtra : Object.values(o.entregasExtra || {});
+    [o.entrega].concat(extra).forEach((e, i) => { if (e && llOk(e)) out.push({ lat: e.lat, lng: e.lng, cual: "entrega", emoji: e.tipo === "cobro" ? "💵" : "🏠", p: e, i, hecho: false }); });
+    return out;
+  }
+  function quitarRuta(t) {
+    const r = rutasO[t]; if (!r) return;
+    r.seq++; try { if (mapa) mapa.removeLayer(r.capa); } catch (_) {}
+    delete rutasO[t];
+  }
+  async function refrescarRuta(t) {
+    const o = ordenes[t];
+    if (!o || !pedidoTomado(o) || typeof mapa === "undefined" || !mapa) return quitarRuta(t);
+    const stops = paradasRuta(o), pend = stops.filter((x) => !x.hecho);
+    if (!pend.length) return quitarRuta(t);
+    const a = o.asignacion, uid = a.tipo === "invitado" ? O.uidInvitado(t) : a.uid;
+    const u = uid && ubic[uid], pos = u && llOk(u) ? { lat: u.lat, lng: u.lng } : null;
+    let r = rutasO[t];
+    if (!r) r = rutasO[t] = { capa: L.layerGroup().addTo(mapa), firma: "", pos: null, ts: 0, seq: 0 };
+    const firma = stops.map((x) => r5(x.lat) + "," + r5(x.lng) + (x.hecho ? "x" : "")).join("|");
+    const cambio = firma !== r.firma;
+    const movio = !!pos && (!r.pos || distM(pos, r.pos) > 60) && Date.now() - r.ts > 15000;
+    if (!cambio && !movio) return;
+    r.firma = firma; r.ts = Date.now(); if (pos) r.pos = pos;
+    const seq = ++r.seq, color = colorUid(uid || t);
+    const seqPts = (pos ? [pos] : []).concat(pend);
+    if (Object.keys(cachePatas).length > 250) Object.keys(cachePatas).forEach((k) => delete cachePatas[k]);
+    const patas = await Promise.all(seqPts.slice(0, -1).map(async (p0, k) => {
+      const p1 = seqPts[k + 1], key = kPata(p0, p1);
+      if (cachePatas[key]) return cachePatas[key];
+      try {
+        const res = await O.rutaCalles({ lat: p0.lat, lng: p0.lng }, { lat: p1.lat, lng: p1.lng });
+        if (res && res.pts) { cachePatas[key] = res; return res; }
+      } catch (_) {}
+      return null;
+    }));
+    if (r.seq !== seq || rutasO[t] !== r) return;               // llegó un cambio más nuevo mientras se calculaba
+    r.capa.clearLayers();
+    patas.forEach((res, k) => {
+      const p0 = seqPts[k], p1 = seqPts[k + 1];
+      const linea = res && res.pts ? [[p0.lat, p0.lng], ...res.pts, [p1.lat, p1.lng]] : [[p0.lat, p0.lng], [p1.lat, p1.lng]];
+      const actual = !!pos && k === 0, w = actual ? 6 : 4;
+      L.polyline(linea, { color: "#fff", weight: w + 4, opacity: .9, interactive: false }).addTo(r.capa);
+      L.polyline(linea, { color, weight: w, opacity: res ? (actual ? .95 : .75) : .6, dashArray: res ? (actual ? null : "2 9") : "6 8", lineCap: "round", interactive: false }).addTo(r.capa);
+    });
+    const nRet = O.paradas(o).length, rep = a.nombre || nombreUid(uid);
+    stops.forEach((x) => {
+      const titulo = x.cual === "retiro" ? (nRet > 1 ? "Retiro " + (x.i + 1) : "Retiro") + (x.hecho ? " ✅" : "") : (x.emoji === "💵" ? "Lugar de cobro" : "Entrega") + (x.i > 0 ? " " + (x.i + 1) : "");
+      L.marker([x.lat, x.lng], { icon: O.pinIcono(x.cual, x.emoji), opacity: x.hecho ? .45 : 1, zIndexOffset: 300, keyboard: false })
+        .bindPopup(`<div class="pop-rep"><strong>${x.emoji} ${esc(titulo)}</strong><small>${esc(x.p.texto || "—")}${x.p.producto ? " — " + esc(x.p.producto) : ""}</small><small>Pedido ${esc(cod(o.codigo))} · 🛵 ${esc(rep)}</small></div>`, { autoPanPaddingTopLeft: [16, 110], autoPanPaddingBottomRight: [90, 110] })
+        .addTo(r.capa);
+    });
+  }
+  function refrescarRutas() {
+    Object.keys(rutasO).forEach((t) => { if (!ordenes[t]) quitarRuta(t); });
+    Object.keys(ordenes).forEach((t) => { refrescarRuta(t).catch((e) => console.warn("[ruta pedido]", e)); });
+  }
+  function pedirRutas() {
+    if (tRutas) return;
+    tRutas = setTimeout(() => { tRutas = null; try { refrescarRutas(); } catch (e) { console.warn("[rutas pedidos]", e); } }, 1200);
+  }
+  const recorridoInv = () => pedirRutas();
 
   function iniciar() {
     detener(); primera = true;
@@ -792,12 +915,13 @@ const PedidosAdmin = (() => {
       const nuevo = s.val() || {};
       if (!primera) avisarCambios(nuevo);
       primera = false; ordenes = nuevo;
-      pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista();
+      pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista(); pedirRutas();
     }, () => { el("listaPedidos").innerHTML = '<p class="ayuda">Sin permiso para leer "ordenes". Revisa las reglas de Firebase.</p>'; });
   }
   function detener() {
     if (ref) { ref.off(); ref = null; }
     if (refChatInv) { refChatInv.off(); refChatInv = null; }
+    clearTimeout(tRutas); tRutas = null; Object.keys(rutasO).forEach(quitarRuta);
     ordenes = {}; resInv = {}; sinLeerInv = {};
     try { EQUIPO.detener(); } catch (e) {}
     cerrarMapaForm(); quitarTemp(); cancelarClick();
