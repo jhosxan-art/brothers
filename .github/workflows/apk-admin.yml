@@ -23,6 +23,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # ACCIÓN CLAVE: Configura el caché y previene timeouts al descargar Gradle
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
       - name: Preparar la app web (entrada = admin.html)
         run: |
           mkdir -p www
