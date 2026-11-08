@@ -1498,3 +1498,8 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
 .pin-solicitud-admin.tomada { background: #0A86C9; border-color: #fff; animation: none; }
 .pin-solicitud-admin.tomada::before { display: none; }
 .etq-solicitud-admin.tomada { background: #0A86C9; color: #fff; }
+
+/* Descarga de la actualización dentro de la app */
+.upd-prog { width: 100%; height: 10px; border-radius: 99px; background: var(--linea); overflow: hidden; }
+.upd-prog i { display: block; width: 0; height: 100%; background: var(--celeste-prof); border-radius: 99px; transition: width .2s ease; }
+#updEstado:empty { display: none; }

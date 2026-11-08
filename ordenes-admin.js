@@ -1861,14 +1861,72 @@ const ActualizacionAdmin = (() => {
   let ref = null;
   const bd = () => (typeof db !== "undefined" ? db : null);
   const urlSegura = (u) => { try { const x = new URL(String(u || "").trim()); return /^https?:$/.test(x.protocol) ? x.href : ""; } catch (_) { return ""; } };
+  /* Convierte enlaces de "compartir" de Google Drive / Dropbox en enlaces de descarga directa del APK. */
+  function enlaceDirecto(u) {
+    const url = urlSegura(u); if (!url) return "";
+    try {
+      const x = new URL(url);
+      if (/(^|\.)drive\.google\.com$/.test(x.hostname)) {
+        const m = x.pathname.match(/\/file\/d\/([^/]+)/) || null, id = (m && m[1]) || x.searchParams.get("id");
+        if (id) return "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(id);
+      }
+      if (/(^|\.)dropbox\.com$/.test(x.hostname)) { x.searchParams.delete("dl"); x.searchParams.set("dl", "1"); return x.href; }
+    } catch (_) {}
+    return url;
+  }
+  const abrirNavegador = (url) => { try { window.open(url, "_system"); } catch (_) { window.location.href = url; } };
+  const plug = (n) => (typeof adminPlug === "function" ? adminPlug(n) : null);
+
+  /* Descarga el APK dentro de la app y abre el instalador del sistema (sin desinstalar la app).
+     Requiere en la app Android: plugins Filesystem + FileOpener y el permiso REQUEST_INSTALL_PACKAGES.
+     Si falta algo, abre el enlace en el navegador como antes. */
+  let enCurso = false;
+  async function actualizarApp(url, btn) {
+    if (enCurso) return;
+    const nativo = typeof adminEsNativo === "function" && adminEsNativo();
+    const FS = nativo ? plug("Filesystem") : null, FO = nativo ? plug("FileOpener") : null;
+    if (!FS || !FO || !FS.downloadFile) return abrirNavegador(url);
+    const ARCHIVO = "brothers-admin-update.apk", DIR = "CACHE", txtBtn = btn.textContent;
+    const prog = g("updProg"), barra = g("updProgBarra"), est = g("updEstado");
+    const estado = (t) => { if (est) est.textContent = t || ""; };
+    const avance = (pc) => { if (barra) barra.style.width = pc + "%"; if (prog) prog.setAttribute("aria-valuenow", String(pc)); };
+    let escucha = null;
+    enCurso = true; btn.setAttribute("aria-disabled", "true");
+    try {
+      prog.classList.remove("oculto"); avance(0); btn.textContent = "DESCARGANDO… 0 %"; estado("Descargando la actualización. No cierres la app.");
+      try { await FS.deleteFile({ path: ARCHIVO, directory: DIR }); } catch (_) {}          // borra una descarga anterior
+      try {
+        escucha = await FS.addListener("progress", (p) => {
+          if (!p || (p.url && p.url !== url) || !(p.contentLength > 0)) return;
+          const pc = Math.min(100, Math.round((p.bytes / p.contentLength) * 100));
+          avance(pc); btn.textContent = "DESCARGANDO… " + pc + " %";
+        });
+      } catch (_) {}
+      await FS.downloadFile({ url, path: ARCHIVO, directory: DIR, progress: true });
+      const st = await FS.stat({ path: ARCHIVO, directory: DIR });
+      if (!st || Number(st.size) < 300000) throw new Error("El enlace no descargó un APK (revisa que sea un enlace directo).");
+      avance(100); btn.textContent = "INSTALANDO…"; estado("Descarga lista. Acepta la ventana de instalación del sistema.");
+      const { uri } = await FS.getUri({ path: ARCHIVO, directory: DIR });
+      await FO.open({ filePath: uri, contentType: "application/vnd.android.package-archive", openWithDefault: true });
+      estado("Si no aparece el instalador, toca el botón otra vez. Si el sistema lo pide, permite instalar apps desde Brother’s Deliverys.");
+    } catch (err) {
+      console.warn("actualizarApp:", err);
+      estado("No se pudo instalar dentro de la app. Abriendo la descarga en el navegador…");
+      setTimeout(() => abrirNavegador(url), 1200);
+    } finally {
+      try { if (escucha && escucha.remove) await escucha.remove(); } catch (_) {}
+      enCurso = false; btn.removeAttribute("aria-disabled"); btn.textContent = txtBtn;
+      setTimeout(() => { if (prog) prog.classList.add("oculto"); }, 1500);
+    }
+  }
 
   function mostrar(d) {
-    const url = urlSegura(d.url), btn = g("btnActualizarApp");
+    const url = enlaceDirecto(d.url), btn = g("btnActualizarApp");
     g("updNovedades").textContent = String(d.novedades || "").trim() || "Mejoras de rendimiento y correcciones.";
     g("updVersionTxt").textContent = "Tu versión: " + APP_VERSION_ADMIN + " · Nueva versión: " + Number(d.version);
     if (url) {
       btn.href = url; btn.removeAttribute("aria-disabled");
-      btn.onclick = (e) => { e.preventDefault(); try { window.open(url, "_system"); } catch (_) { window.location.href = url; } };
+      btn.onclick = (e) => { e.preventDefault(); actualizarApp(url, btn); };
     } else {
       btn.removeAttribute("href"); btn.setAttribute("aria-disabled", "true"); btn.onclick = (e) => e.preventDefault();
     }
@@ -1894,6 +1952,7 @@ const ActualizacionAdmin = (() => {
       <label>Nueva versión (ej. 2) <input id="updVersion" type="number" min="1" step="1" placeholder="2"></label>
       <label>Novedades <textarea id="updNov" rows="4" maxlength="600" placeholder="Qué trae esta versión…"></textarea></label>
       <label>Enlace del nuevo APK <input id="updUrl" type="url" placeholder="https://…"></label>
+      <small class="ayuda">Debe ser un enlace directo de descarga del .apk (GitHub Releases, Firebase Storage, tu servidor, o un enlace de Google Drive/Dropbox, que se convierte solo). La app lo descarga e instala sin desinstalar.</small>
       <div id="updMsg" class="estado oculto" role="status"></div>
       <button id="updPublicar" class="primario" type="button">Publicar actualización</button>
       <button id="updCancelar" class="oscuro" type="button">Cancelar</button>`);
@@ -1910,7 +1969,7 @@ const ActualizacionAdmin = (() => {
     g("updTipo").onchange = mostrarActual;
     g("updCancelar").onclick = cerrarModal;
     g("updPublicar").onclick = async () => {
-      const tipo = g("updTipo").value, version = Number(g("updVersion").value), novedades = g("updNov").value.trim(), url = urlSegura(g("updUrl").value);
+      const tipo = g("updTipo").value, version = Number(g("updVersion").value), novedades = g("updNov").value.trim(), url = enlaceDirecto(g("updUrl").value);
       if (!Number.isInteger(version) || version < 1) return msg("Escribe la versión como número entero.", "error");
       if (!novedades) return msg("Escribe las novedades.", "error");
       if (!url) return msg("El enlace debe empezar con http:// o https://", "error");

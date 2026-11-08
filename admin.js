@@ -298,18 +298,27 @@ const ActivaSiempre = (() => {
   async function activar(manual) {
     if (!adminEsNativo()) { if (manual) toast("Esta opción solo funciona en la app instalada en el celular."); return false; }
     const BM = adminPlug("BackgroundMode");
-    if (!BM) { if (manual) toast("Falta el plugin de segundo plano en la app (BackgroundMode). Instálalo y vuelve a compilar la app."); return false; }
-    try { if (BM.setSettings) await BM.setSettings({ title: "Brother’s Deliverys", text: "Recibiendo pedidos y mensajes", silent: false, hidden: false, resume: true }); } catch (_) {}
-    try { if (BM.enable) await BM.enable(); } catch (e) { console.warn("BackgroundMode.enable:", e); }
+    if (!BM) { if (manual) toast("Esta versión de la app no trae el modo de segundo plano. Instala la versión nueva."); return false; }
+    const cfg = { title: "Brother’s Deliverys", text: "Recibiendo pedidos y mensajes", silent: false, hidden: false, resume: true };
+    try { if (BM.requestNotificationsPermission) await BM.requestNotificationsPermission(); } catch (_) {}
+    try { if (BM.requestForegroundPermission) await BM.requestForegroundPermission(); } catch (_) {}
+    try { if (BM.setSettings) await BM.setSettings(cfg); } catch (_) {}
+    try { if (BM.enable) await BM.enable(cfg); } catch (e) { console.warn("BackgroundMode.enable:", e); }
     try { if (BM.disableWebViewOptimizations) await BM.disableWebViewOptimizations(); } catch (_) {}
-    let pidio = false;
+    // Exención del ahorro de batería (el plugin trae un nombre u otro según su versión)
+    const pedirExencion = BM.requestDisableBatteryOptimizations || BM.disableBatteryOptimizations;
+    let pidio = false, yaExenta = false;
     try {
-      if ((manual || !localStorage.getItem(CLAVE_PEDIDA)) && BM.disableBatteryOptimizations) {
-        await BM.disableBatteryOptimizations(); pidio = true;
+      if (BM.checkBatteryOptimizations) yaExenta = !!(await BM.checkBatteryOptimizations()).disabled;
+      else if (BM.isIgnoringBatteryOptimizations) yaExenta = !!(await BM.isIgnoringBatteryOptimizations()).isIgnoring;
+    } catch (_) {}
+    try {
+      if (!yaExenta && pedirExencion && (manual || !localStorage.getItem(CLAVE_PEDIDA))) {
+        await pedirExencion.call(BM); pidio = true;
         try { localStorage.setItem(CLAVE_PEDIDA, "1"); } catch (_) {}
       }
-    } catch (e) { console.warn("BackgroundMode.disableBatteryOptimizations:", e); }
-    if (manual) toast(pidio ? "🔋 Acepta la ventana del sistema para que la app no se duerma." : "🔋 Modo activo: la app sigue funcionando en segundo plano.");
+    } catch (e) { console.warn("Exención de batería:", e); }
+    if (manual) toast(yaExenta ? "🔋 Todo listo: la app ya no entra en ahorro de batería." : pidio ? "🔋 Acepta la ventana del sistema para que la app no se duerma." : "🔋 Modo activo: la app sigue funcionando en segundo plano.");
     return true;
   }
   return { activar };
