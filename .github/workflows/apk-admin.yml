@@ -38,6 +38,23 @@ jobs:
       - name: Instalar dependencias
         run: npm install --legacy-peer-deps
 
+      # Plugins de: instalar la actualización desde la app (file-opener) y mantener la app activa (background-mode).
+      # Si alguno no se puede instalar, la compilación continúa y esa función queda desactivada (aviso amarillo en el log).
+      - name: Plugins de actualización automática y segundo plano
+        run: |
+          A='@capacitor-community/file-opener@^6'
+          B='@anuradev/capacitor-background-mode@^6'
+          npm install --legacy-peer-deps --save "$A" "$B" \
+            || { npm install --legacy-peer-deps --save "$A" || echo "::warning::No se pudo instalar file-opener: la app abrirá el APK en el navegador."; \
+                 npm install --legacy-peer-deps --save "$B" || echo "::warning::No se pudo instalar background-mode: no habrá modo de segundo plano."; }
+
+      # La versión que la app cree tener es el número de esta compilación: en "Lanzar actualización" publicas ese mismo número.
+      - name: Versión de esta compilación
+        run: |
+          N=${{ github.run_number }}
+          sed -i -E "s/const APP_VERSION_ADMIN = [0-9]+;/const APP_VERSION_ADMIN = $N;/" www/ordenes-admin.js
+          grep -n "APP_VERSION_ADMIN =" www/ordenes-admin.js
+
       - name: Crear proyecto Android
         run: npx cap add android
 
@@ -80,14 +97,42 @@ jobs:
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p, encoding='utf-8').read()
-          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK"]
+          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK", "CAMERA", "REQUEST_INSTALL_PACKAGES", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE", "FOREGROUND_SERVICE_DATA_SYNC"]
           add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if 'android.permission.%s"' % x not in s)
+          if 'android.hardware.camera' not in s:
+              add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
           s = s.replace('<application', add + '    <application', 1)
           # Canal por defecto de las push del Admin: ventana emergente con sonido (la app lo crea con este mismo nombre: "admin")
           meta = '        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="admin" />\n'
           if 'default_notification_channel_id' not in s:
               s = s.replace('</application>', meta + '    </application>', 1)
           open(p, 'w', encoding='utf-8').write(s)
+          PY
+
+      # Firma con una llave PROPIA y fija: así Android permite actualizar sobre la app instalada sin desinstalar.
+      - name: Firma estable y número de versión
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          ws = os.environ['GITHUB_WORKSPACE']
+          if not (os.path.exists('admin-release.keystore') and os.path.exists('admin-release.properties')):
+              print('::error::Faltan admin-release.keystore y admin-release.properties en la raiz del repositorio. Ejecuta una vez el flujo "Crear llave de firma del Admin", descarga el ZIP y sube esos 2 archivos a la raiz del repositorio.')
+              sys.exit(1)
+          props = {}
+          for linea in open('admin-release.properties', encoding='utf-8'):
+              if '=' in linea:
+                  k, v = linea.strip().split('=', 1); props[k] = v
+          p = 'android/app/build.gradle'
+          s = open(p, encoding='utf-8').read()
+          n = int(os.environ['GITHUB_RUN_NUMBER'])
+          firma = ("\n    signingConfigs {\n        debug {\n            storeFile file('%s/admin-release.keystore')\n"
+                   "            storePassword '%s'\n            keyAlias '%s'\n            keyPassword '%s'\n        }\n    }\n"
+                   % (ws, props['storePassword'], props['keyAlias'], props['keyPassword']))
+          s = s.replace('android {', 'android {' + firma, 1)
+          s = re.sub(r'versionCode\s+\d+', 'versionCode %d' % (100 + n), s, count=1)
+          s = re.sub(r'versionName\s+"[^"]*"', 'versionName "%d"' % n, s, count=1)
+          open(p, 'w', encoding='utf-8').write(s)
+          print('Firma estable lista · versionCode', 100 + n)
           PY
 
       - name: Sincronizar
@@ -99,8 +144,25 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      - name: Nombrar el APK con su versión
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk brothers-admin-v${{ github.run_number }}.apk
+
       - name: Subir APK a Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: APK-Admin
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: brothers-admin-v${{ github.run_number }}.apk
+
+      # Enlace DIRECTO del APK (lo que pegas en "Lanzar actualización"). Funciona sin iniciar sesión si el repositorio es público.
+      - name: Publicar APK en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: admin-v${{ github.run_number }}
+          name: Admin versión ${{ github.run_number }}
+          files: brothers-admin-v${{ github.run_number }}.apk
+
+      - name: Mostrar versión y enlace
+        run: |
+          echo "### APK del Admin listo" >> $GITHUB_STEP_SUMMARY
+          echo "Versión para publicar en Lanzar actualización: **${{ github.run_number }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Enlace directo: https://github.com/${{ github.repository }}/releases/download/admin-v${{ github.run_number }}/brothers-admin-v${{ github.run_number }}.apk" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,32 @@
+name: Crear llave de firma del Admin (una sola vez)
+
+# Ejecútalo UNA SOLA VEZ: GitHub → Actions → "Crear llave de firma del Admin" → Run workflow.
+# Descarga el ZIP "llave-admin" (en la parte de abajo de la ejecución) y sube sus 2 archivos a la raíz del repositorio:
+#   admin-release.keystore  y  admin-release.properties
+# IMPORTANTE: el repositorio debe ser PRIVADO (esa llave es la que autoriza las actualizaciones de tu app).
+# No lo vuelvas a ejecutar: una llave nueva obligaría a desinstalar la app en todos los teléfonos.
+on:
+  workflow_dispatch:
+
+jobs:
+  llave:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Generar llave
+        run: |
+          PASS=$(openssl rand -hex 12)
+          keytool -genkeypair -keystore admin-release.keystore -alias brothersadmin -keyalg RSA -keysize 2048 -validity 36500 -storepass "$PASS" -keypass "$PASS" -dname "CN=Brothers Admin, O=Brothers Deliverys, C=NI"
+          printf 'storePassword=%s\nkeyAlias=brothersadmin\nkeyPassword=%s\n' "$PASS" "$PASS" > admin-release.properties
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llave-admin
+          path: |
+            admin-release.keystore
+            admin-release.properties
+          retention-days: 3
