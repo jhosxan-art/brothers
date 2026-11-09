@@ -30,6 +30,20 @@ jobs:
       - name: Instalar dependencias
         run: npm install --legacy-peer-deps
 
+      # Plugin que abre el instalador del APK descargado (actualización desde la propia app).
+      # Si no se puede instalar, la compilación continúa y la app abrirá el enlace en el navegador.
+      - name: Plugin de actualización automática
+        run: |
+          npm install --legacy-peer-deps --save '@capacitor-community/file-opener@^6' \
+            || echo "::warning::No se pudo instalar file-opener: la app abrirá el APK en el navegador."
+
+      # La versión que la app cree tener es el número de esta compilación: en "Lanzar actualización" publicas ese mismo número.
+      - name: Versión de esta compilación
+        run: |
+          N=${{ github.run_number }}
+          sed -i -E "s/const APP_VERSION = [0-9]+;/const APP_VERSION = $N;/" www/repartidor.js
+          grep -n "const APP_VERSION =" www/repartidor.js
+
       - name: Crear proyecto Android
         run: npx cap add android
 
@@ -58,7 +72,7 @@ jobs:
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p, encoding='utf-8').read()
-          perms = ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "VIBRATE", "POST_NOTIFICATIONS", "WAKE_LOCK", "CAMERA", "SYSTEM_ALERT_WINDOW", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"]
+          perms = ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "ACCESS_BACKGROUND_LOCATION", "VIBRATE", "POST_NOTIFICATIONS", "WAKE_LOCK", "CAMERA", "SYSTEM_ALERT_WINDOW", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", "REQUEST_INSTALL_PACKAGES"]
           add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if x not in s)
           s = s.replace('<application', add + '    <application', 1)
           # Canal por defecto de las notificaciones push: ventana emergente con sonido (se crea en la app con el mismo nombre)
@@ -127,6 +141,32 @@ jobs:
           open(d + '/MainActivity.java', 'w', encoding='utf-8').write(main)
           PY
 
+      # Firma con la llave fija (la misma admin-release.keystore): así Android permite actualizar sin desinstalar.
+      - name: Firma estable y número de versión
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          ws = os.environ['GITHUB_WORKSPACE']
+          if not (os.path.exists('admin-release.keystore') and os.path.exists('admin-release.properties')):
+              print('::error::Faltan admin-release.keystore y admin-release.properties en la raiz del repositorio.')
+              sys.exit(1)
+          props = {}
+          for linea in open('admin-release.properties', encoding='utf-8'):
+              if '=' in linea:
+                  k, v = linea.strip().split('=', 1); props[k] = v
+          p = 'android/app/build.gradle'
+          s = open(p, encoding='utf-8').read()
+          n = int(os.environ['GITHUB_RUN_NUMBER'])
+          firma = ("\n    signingConfigs {\n        debug {\n            storeFile file('%s/admin-release.keystore')\n"
+                   "            storePassword '%s'\n            keyAlias '%s'\n            keyPassword '%s'\n        }\n    }\n"
+                   % (ws, props['storePassword'], props['keyAlias'], props['keyPassword']))
+          s = s.replace('android {', 'android {' + firma, 1)
+          s = re.sub(r'versionCode\s+\d+', 'versionCode %d' % (100 + n), s, count=1)
+          s = re.sub(r'versionName\s+"[^"]*"', 'versionName "%d"' % n, s, count=1)
+          open(p, 'w', encoding='utf-8').write(s)
+          print('Firma estable lista · versionCode', 100 + n)
+          PY
+
       - name: Sincronizar
         run: npx cap sync android
 
@@ -153,8 +193,26 @@ jobs:
           cd android
           ./gradlew assembleDebug --no-daemon
 
+      - name: Nombrar el APK con su versión
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk brothers-repartidor-v${{ github.run_number }}.apk
+
       - name: Subir APK a Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: APK-Repartidor
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: brothers-repartidor-v${{ github.run_number }}.apk
+
+      # Enlace DIRECTO del APK (lo que pegas en "Lanzar actualización"). Funciona sin iniciar sesión si el repositorio es público.
+      - name: Publicar APK en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: repartidor-v${{ github.run_number }}
+          name: Repartidor versión ${{ github.run_number }}
+          files: brothers-repartidor-v${{ github.run_number }}.apk
+          make_latest: false
+
+      - name: Mostrar versión y enlace
+        run: |
+          echo "### APK del Repartidor listo" >> $GITHUB_STEP_SUMMARY
+          echo "Versión para publicar en Lanzar actualización: **${{ github.run_number }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Enlace directo: https://github.com/${{ github.repository }}/releases/download/repartidor-v${{ github.run_number }}/brothers-repartidor-v${{ github.run_number }}.apk" >> $GITHUB_STEP_SUMMARY
