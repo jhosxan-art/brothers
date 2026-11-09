@@ -36,6 +36,27 @@ const PedidosAdmin = (() => {
     return ids.filter((u) => ["enRuta", "libre"].includes(estadoDe(u))).sort((a, b) => nombreUid(a).localeCompare(nombreUid(b)));
   }
 
+  // FASE 1 · Capas del mapa: los negocios (.neg-ico) siempre quedan POR DEBAJO de repartidores y demás marcadores.
+  // Leaflet asigna z-index inline según la latitud; aquí se fuerza un valor bajo fijo para los negocios y se mantiene
+  // aunque Leaflet reposicione los íconos (zoom, movimiento, actualización en vivo).
+  let obsCapas = null;
+  function ordenarCapasMapa() {
+    const pane = document.querySelector(".leaflet-marker-pane");
+    if (!pane) return;
+    pane.querySelectorAll(".leaflet-marker-icon.neg-ico").forEach((m) => {
+      if (m.style.zIndex !== "-100000") m.style.zIndex = "-100000";
+    });
+  }
+  function vigilarCapasMapa() {
+    if (obsCapas) return;
+    const pane = document.querySelector(".leaflet-marker-pane");
+    if (!pane) { setTimeout(vigilarCapasMapa, 800); return; }
+    let t = null;
+    obsCapas = new MutationObserver(() => { if (t) return; t = setTimeout(() => { t = null; ordenarCapasMapa(); }, 30); });
+    obsCapas.observe(pane, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
+    ordenarCapasMapa();
+  }
+
   function cancelarClick() { if (timerClick) { clearTimeout(timerClick); timerClick = null; } }
   function quitarTemp() { if (tempMarca && mapa) { mapa.removeLayer(tempMarca); } tempMarca = null; }
 
@@ -442,10 +463,9 @@ const PedidosAdmin = (() => {
     const o = ordenes[token];
     if (!o) return toast("No encuentro ese pedido.");
     if (!["entregado", "cancelado"].includes(nuevoEstado)) return toast("Estado no válido.");
+    if (!activa(o)) return toast(`El pedido ${cod(o.codigo)} ya está ${o.estado === "entregado" ? "entregado" : "cancelado"}: no admite más cambios.`);
     const esEnt = nuevoEstado === "entregado";
-    const yaEsta = o.estado === nuevoEstado;
-    if (yaEsta && !confirm(`El pedido ${cod(o.codigo)} YA está ${esEnt ? "ENTREGADO" : "CANCELADO"}.\n¿Re-forzar de todos modos?`)) return;
-    if (!yaEsta && !confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el pedido " + cod(o.codigo) + "?\n\nEsto sobrescribe el estado sin importar lo que diga el repartidor o el cliente.")) return;
+    if (!confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el pedido " + cod(o.codigo) + "?\n\nEsto sobrescribe el estado sin importar lo que diga el repartidor o el cliente.")) return;
     const motivo = (prompt("Motivo del forzado (opcional):", "") || "").trim().slice(0, 300);
     if (!motivo && !confirm("Sin motivo. ¿Continuar igual?")) return;
     
@@ -512,7 +532,7 @@ const PedidosAdmin = (() => {
       <div class="acciones-fila" style="flex-wrap:wrap">
         ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}${a.tipo && activa(o) ? btn("factura", "🧾 Factura", "pri") : ""}${inv && activa(o) ? btn("recorrido", "🗺 Recorrido") : ""}
         ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
-        ${btn("forzar-ent", "✅ Forzar entregado")}${btn("forzar-canc", "🚫 Forzar cancelado")}
+        ${activa(o) ? btn("forzar-ent", "✅ Forzar entregado") + btn("forzar-canc", "🚫 Forzar cancelado") : ""}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
       </div></div>`;
   }
@@ -869,6 +889,7 @@ const PedidosAdmin = (() => {
     try { EQUIPO.iniciar(); } catch (e) { console.error("[EQUIPO] iniciar:", e); }
     if (!listo) {
       listo = true;
+      try { vigilarCapasMapa(); } catch (e) { console.warn("[capas mapa]", e); }
       mapa.on("preclick", () => { busqAbierta = !el("resBusq").classList.contains("oculto"); });
       mapa.on("popupclose", () => { popupCerrado = Date.now(); });
       mapa.on("dblclick zoomstart movestart", cancelarClick);
@@ -1376,15 +1397,18 @@ const SolicitudesAdmin = (() => {
     
     vis.forEach((k) => {
       const d = lista[k], est = estadoDe(d), p = d.pedido || {};
-      const f = el("div", "sa-item" + (est === "nuevo" ? " nuevo" : est === "atendido" ? " activo" : ""));
-      if (fin(d)) {
+      const finalizada = fin(d);
+      const f = el("div", "sa-item" + (est === "nuevo" ? " nuevo" : est === "atendido" ? " activo" : "") + (finalizada ? " fin" : ""));
+      const fila = el("div", "sa-fila");
+      if (finalizada) {
         const c = el("input", "sa-chk");
         c.type = "checkbox"; c.checked = sel.has(k);
+        c.setAttribute("aria-label", "Seleccionar solicitud finalizada");
         c.addEventListener("change", () => { if (c.checked) sel.add(k); else sel.delete(k); pintarHerramientas(visibles()); });
-        f.appendChild(c);
+        fila.appendChild(c);
       }
       const nombre = cortar(d.nombre || "Cliente", 40);
-      f.appendChild(el("span", "sa-av", nombre.charAt(0).toUpperCase()));
+      fila.appendChild(el("span", "sa-av", nombre.charAt(0).toUpperCase()));
       const dat = el("div", "sa-dat");
       dat.appendChild(el("strong", "", nombre));
       dat.appendChild(chipEstado(d));
@@ -1392,25 +1416,27 @@ const SolicitudesAdmin = (() => {
       const ult = d.ultimoMensaje ? (d.ultimoDe === "cliente" ? "Cliente: " : d.ultimoDe === "repartidor" ? "Repartidor: " : "") + String(d.ultimoMensaje) : "Sin mensajes todavía";
       dat.appendChild(el("small", "", ult + (d.ts ? " · " + horaDe(d.ts) : "")));
       if (valoracion(d)) dat.appendChild(el("small", "sa-estrellas", estrellas(valoracion(d))));
-      f.appendChild(dat);
-      
+      fila.appendChild(dat);
+      f.appendChild(fila);
+
       const acc = el("div", "sa-acc");
       const b = el("button", "oscuro", "👁 Ver");
       b.type = "button"; b.addEventListener("click", () => abrirVisor(k));
       acc.appendChild(b);
-      
-      if (d.repartidorUid) {
-        const fEnt = el("button", "primario", "✅");
+
+      // Estados finales (Entregado / Cancelado): NO se muestran botones de forzar ni cancelar.
+      if (d.repartidorUid && !finalizada) {
+        const fEnt = el("button", "primario", "✅ Entregado");
         fEnt.type = "button"; fEnt.title = "Forzar entregado";
         fEnt.addEventListener("click", () => forzarEstadoSolicitud(k, "entregado"));
         acc.appendChild(fEnt);
-        const fCanc = el("button", "peligro", "🚫");
+        const fCanc = el("button", "peligro", "🚫 Cancelar");
         fCanc.type = "button"; fCanc.title = "Forzar cancelado";
         fCanc.addEventListener("click", () => forzarEstadoSolicitud(k, "cancelado"));
         acc.appendChild(fCanc);
       }
-      if (fin(d)) {
-        const x = el("button", "peligro", "🗑");
+      if (finalizada) {
+        const x = el("button", "peligro", "🗑 Eliminar");
         x.type = "button"; x.addEventListener("click", () => borrar([k]));
         acc.appendChild(x);
       }
@@ -1452,10 +1478,9 @@ const SolicitudesAdmin = (() => {
     const d = lista[id];
     if (!d) return msg("No encuentro esa solicitud.", true);
     if (!["entregado", "cancelado"].includes(nuevoEstado)) return msg("Estado no válido.", true);
+    if (fin(d)) return msg("Esta solicitud ya está " + (d.estado === "entregado" ? "entregada" : "cancelada") + ": no admite más cambios de estado.", true);
     const esEnt = nuevoEstado === "entregado";
-    const yaEsta = d.estado === nuevoEstado;
-    if (yaEsta && !confirm("La solicitud YA está " + (esEnt ? "ENTREGADA" : "CANCELADA") + ".\n¿Re-forzar de todos modos?")) return;
-    if (!yaEsta && !confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el chat de " + cortar(d.nombre || "Cliente", 30) + "?")) return;
+    if (!confirm((esEnt ? "¿Forzar como ENTREGADO" : "¿Forzar como CANCELADO") + " el chat de " + cortar(d.nombre || "Cliente", 30) + "?")) return;
     const motivo = (prompt("Motivo del forzado (opcional):", "") || "").trim().slice(0, 300);
     if (!motivo && !confirm("Sin motivo. ¿Continuar igual?")) return;
     const upd = {
@@ -1473,16 +1498,28 @@ const SolicitudesAdmin = (() => {
     } catch (e) { msg("No se pudo forzar: " + (e.code || e.message), true); }
   }
 
+  // Espectador: deshabilitado cuando la solicitud está Entregada o Cancelada
+  function bloquearEspectador(bloq) {
+    const b = g("saMapaBtn"); if (!b) return;
+    b.disabled = !!bloq;
+    b.setAttribute("aria-disabled", String(!!bloq));
+    b.title = bloq ? "No disponible: el pedido ya fue entregado o cancelado" : "";
+    if (bloq) {
+      const caja = g("saMapaCaja");
+      if (caja && !caja.classList.contains("oculto")) { caja.classList.add("oculto"); b.setAttribute("aria-expanded", "false"); }
+    }
+  }
   function cabeceraVisor() {
     const d = lista[visorId];
-    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); g("saForzarEnt").classList.add("oculto"); g("saForzarCanc").classList.add("oculto"); return; }
+    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); g("saForzarEnt").classList.add("oculto"); g("saForzarCanc").classList.add("oculto"); bloquearEspectador(true); return; }
     g("saTitulo").textContent = cortar(d.nombre || "Cliente", 40);
     const est = estadoDe(d), v = valoracion(d);
     g("saSub").textContent = est === "nuevo" ? "Sin atender todavía" : est === "atendido" ? "Con pedido · " + cortar(d.repartidorNombre || "un repartidor", 30) : est === "entregado" ? "Entregado" + (d.forzadoPorAdmin ? " · forzado" : "") : "Cancelado" + (d.forzadoPorAdmin ? " · forzado" : "");
     g("saBorrarUno").classList.toggle("oculto", !fin(d));
-    const activa = !!d.repartidorUid;
+    const activa = !!d.repartidorUid && !fin(d);
     g("saForzarEnt").classList.toggle("oculto", !activa);
     g("saForzarCanc").classList.toggle("oculto", !activa);
+    bloquearEspectador(fin(d));
     const p = d.pedido;
     const r = g("saPedido");
     
@@ -1667,6 +1704,7 @@ const SolicitudesAdmin = (() => {
   }
   function alternarMapa() {
     if (typeof L === "undefined") return msg("No se pudo cargar el mapa (Leaflet).", true);
+    if (visorId && fin(lista[visorId])) return msg("Modo espectador no disponible: el pedido ya fue entregado o cancelado.", true);
     const caja = g("saMapaCaja"), abrir = caja.classList.contains("oculto");
     caja.classList.toggle("oculto", !abrir);
     g("saMapaBtn").setAttribute("aria-expanded", String(abrir));
@@ -1678,7 +1716,7 @@ const SolicitudesAdmin = (() => {
     setTimeout(() => { mapa.invalidateSize(); encuadrado = false; actualizarMapa(true); }, 80);
   }
   function actualizarMapa(forzar) {
-    if (!mapa || !visorId || g("saMapaCaja").classList.contains("oculto")) return;
+    if (!mapa || !visorId || g("saMapaCaja").classList.contains("oculto") || fin(lista[visorId])) return;
     const d = lista[visorId] || {}, cg = d.clienteGps, rg = d.repartidorGps, dest = d.pedido && d.pedido.destino;
     let cli = null, vivoCli = false;
     if (cg && okLL(cg.lat, cg.lng)) { cli = { lat: cg.lat, lng: cg.lng }; vivoCli = true; }

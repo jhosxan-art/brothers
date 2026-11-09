@@ -16,21 +16,23 @@
     nav.tabs { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; }
     nav.tabs button { font-size: 12px; line-height: 1.1; padding: 0 4px; position: relative; overflow: hidden; text-overflow: ellipsis; }
     .sa-badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: #E5322D; color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center; vertical-align: middle; }
-    #panelSolicitudes { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: grid; align-content: start; gap: 10px; max-width: 520px; width: 100%; margin: 0 auto; }
+    #panelSolicitudes { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 12px; max-width: 520px; width: 100%; margin: 0 auto; }
+    #panelSolicitudes > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
     #panelSolicitudes.oculto { display: none !important; }
     #panelSolicitudes h2 { font-size: 20px; font-weight: 800; }
-    .sa-filtros { display: flex; gap: 8px; }
-    .sa-filtros button { flex: 1; height: 38px; padding: 0 8px; border-radius: 19px; font-size: 13px; }
+    .sa-filtros { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+    .sa-filtros button { min-width: 0; height: 38px; padding: 0 8px; border-radius: 19px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sa-filtros button.on { background: #0E141B; border-color: #0E141B; color: #fff; }
-    .sa-item { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
+    .sa-item { display: flex; flex-direction: column; align-items: stretch; gap: 12px; width: 100%; min-width: 0; box-sizing: border-box; padding: 14px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
+    .sa-fila { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
     .sa-item.nuevo { border-color: #3DB8F5; box-shadow: inset 4px 0 0 #3DB8F5; }
     .sa-av { width: 44px; height: 44px; border-radius: 50%; background: #E8F6FE; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex: none; }
-    .sa-dat { flex: 1; min-width: 0; display: grid; gap: 1px; text-align: left; }
-    .sa-dat strong { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sa-dat small { font-size: 12.5px; font-weight: 600; color: #5B6672; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sa-estado { display: inline-block; width: fit-content; padding: 2px 8px; border-radius: 10px; font-size: 11.5px; font-weight: 800; background: #E8F6FE; }
+    .sa-dat { flex: 1; min-width: 0; display: grid; gap: 4px; text-align: left; }
+    .sa-dat strong { font-size: 15.5px; font-weight: 800; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sa-dat small { font-size: 12.5px; font-weight: 600; line-height: 1.35; color: #5B6672; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+    .sa-estado { display: inline-block; width: fit-content; max-width: 100%; padding: 3px 10px; border-radius: 10px; font-size: 11.5px; font-weight: 800; line-height: 1.3; background: #E8F6FE; overflow-wrap: anywhere; }
     .sa-estado.atendido { background: #E8F6EE; color: #17794A; }
-    .sa-item button { flex: none; width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 13px; }
+    .sa-item button { min-width: 0; height: 40px; padding: 0 12px; border-radius: 12px; font-size: 13px; white-space: nowrap; }
     .sa-vacio { padding: 14px; border-radius: 14px; background: #fff; border: 1px dashed #D6DDE3; font-size: 13.5px; font-weight: 600; color: #5B6672; }
 
     /* ============================================================
@@ -136,6 +138,7 @@
     }
     #modalSolicitud .sa-acciones button:active { transform: scale(.97); }
     #modalSolicitud .sa-acciones button.oculto { display: none !important; }
+    #modalSolicitud .sa-acciones button:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(1); transform: none; }
     #modalSolicitud .sa-acciones #saForzarEnt { background: #E8F6EE; border-color: #1E9B5A; color: #0E141B; }
     #modalSolicitud .sa-acciones #saForzarCanc { background: #FDECEB; border-color: #E5322D; color: #8E1B17; }
     #modalSolicitud .sa-acciones #saMapaBtn { background: #0E141B; border-color: #0E141B; color: #fff; }
@@ -379,7 +382,6 @@
 
     <section id="panelSolicitudes" class="oculto">
       <h2>Solicitudes entrantes</h2>
-      <p class="ayuda">Chats de clientes que piden por la app. Las conversaciones son de solo lectura: ves mensajes, fotos, facturas con sus mandados extra, valoraciones y el GPS de cliente y repartidor. Puedes forzar el estado a entregado o cancelado si algo falla.</p>
       <div id="saResumen" class="sa-resumen"></div>
       <div id="saServicio" class="sa-servicio oculto" aria-label="Repartidores con pedido"></div>
       <div class="sa-filtros" id="saFiltros">

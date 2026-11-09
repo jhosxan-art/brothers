@@ -640,10 +640,10 @@ body.admin .tabs .badge-nav { margin-left: 3px; min-width: 18px; height: 18px; p
 .sa-estado.cancelado { background: #FDECEB; color: #8E1B17; }
 .sa-item.activo { border-color: #25D366; box-shadow: inset 4px 0 0 #25D366; }
 .sa-estrellas { color: #E0A100 !important; font-size: 14px !important; letter-spacing: 2px; }
-.sa-acc { display: flex; gap: 6px; flex: none; }
-.sa-acc button { width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 13px; }
-.sa-herr { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
-.sa-fecha-fila { display: flex; align-items: center; gap: 8px; }
+.sa-acc { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; width: 100%; min-width: 0; }
+.sa-acc button { width: 100%; height: 40px; padding: 0 10px; border-radius: 12px; font-size: 13px; }
+.sa-herr { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; box-sizing: border-box; gap: 8px; padding: 12px; border-radius: 16px; background: #fff; border: 1px solid #E1E6EB; }
+.sa-fecha-fila { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .sa-fecha { display: block; flex: none; font-size: 13px; font-weight: 800; }
 .sa-fecha-fila input[type="date"] { flex: 1; min-width: 0; height: 40px; border-radius: 12px; }
 .sa-fecha-fila button { flex: none; width: auto; height: 40px; padding: 0 14px; border-radius: 12px; font-size: 13px; }
@@ -668,8 +668,8 @@ body.admin .tabs .badge-nav { margin-left: 3px; min-width: 18px; height: 18px; p
 .avatar.con-foto svg { display: none; }
 #listaPedidos .mini[data-pa="forzar-ent"], #listaPedidos .mini[data-pa="forzar-canc"] { background: #FFF3D6; border-color: #F59E0B; color: #7A4B00; }
 #listaPedidos .mini[data-pa="forzar-ent"]:hover, #listaPedidos .mini[data-pa="forzar-canc"]:hover { background: #FFE7A8; }
-#saLista .sa-acc { display: flex; gap: 4px; flex: none; }
-#saLista .sa-acc button { width: auto; height: 34px; padding: 0 10px; border-radius: 10px; font-size: 13px; min-width: 0; }
+#saLista { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
+#saLista .sa-acc button { height: 40px; min-width: 0; }
 #saLista .sa-acc button[title="Forzar entregado"] { background: #E8F6EE; border-color: #1E9B5A; color: #0E141B; }
 #saLista .sa-acc button[title="Forzar cancelado"] { background: #FDECEB; border-color: #E5322D; color: #8E1B17; }
 .wa-tick, .cn-tick, .sa-tick { font-weight: 800; letter-spacing: -2px; transition: color .2s; }
@@ -1112,6 +1112,10 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 .leaflet-paneYo-pane { z-index: 640; }
 .leaflet-paneLugares-pane .leaflet-marker-icon { will-change: auto; }
 .leaflet-marker-icon.rep-yo { z-index: 10000 !important; }
+
+/* ===== FASE 1 · Capas del mapa admin: negocios SIEMPRE debajo de repartidores ===== */
+.leaflet-marker-pane .leaflet-marker-icon.neg-ico { z-index: -100000 !important; }
+.leaflet-marker-pane .leaflet-marker-icon.neg-ico:hover { z-index: -99999 !important; }
 #formBusqRep input { width: 100%; }
 
 /* ===== FASE 3 · Layout 50/50 responsivo (Iniciar entrega | Cancelar) ===== */
@@ -1503,3 +1507,28 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
 .upd-prog { width: 100%; height: 10px; border-radius: 99px; background: var(--linea); overflow: hidden; }
 .upd-prog i { display: block; width: 0; height: 100%; background: var(--celeste-prof); border-radius: 99px; transition: width .2s ease; }
 #updEstado:empty { display: none; }
+
+
+/* ===== FASE 2 · Solicitudes: sin scroll horizontal, tarjetas ordenadas y acciones coherentes con el estado ===== */
+#panelSolicitudes, #panelSolicitudes * { overflow-wrap: anywhere; }
+#panelSolicitudes .sa-dat strong { overflow-wrap: normal; }
+#panelSolicitudes .sa-fecha-fila input[type="date"] { flex: 1 1 140px; max-width: 100%; }
+#panelSolicitudes .sa-item .sa-chk { margin-top: 10px; }
+#panelSolicitudes .sa-item.fin { background: #FAFBFC; }
+#panelSolicitudes .sa-item button:disabled { opacity: .4; cursor: not-allowed; }
+@media (min-width: 900px) {
+  #saLista { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); align-items: start; }
+}
+@media (max-width: 360px) {
+  #panelSolicitudes .sa-acc { grid-template-columns: 1fr 1fr; }
+  #panelSolicitudes .sa-av { width: 38px; height: 38px; font-size: 16px; }
+}
+
+/* ===== FASE 3 · Verificación responsiva universal (celular · tablet · laptop · TV) ===== */
+body.admin #panelChats, body.admin #panelEquipo, body.admin #panelPedidos, body.admin #panelSolicitudes { overflow-x: hidden; box-sizing: border-box; min-width: 0; }
+body.admin nav.tabs { max-width: 100%; }
+body.admin nav.tabs button { min-width: 0; }
+@media (max-width: 340px) { body.admin nav.tabs button { font-size: 11px; padding: 0 2px; } }
+@media (min-width: 1920px) {
+  body.admin #panelChats, body.admin #panelEquipo, body.admin #panelPedidos, body.admin #panelSolicitudes { font-size: 17px; }
+}
