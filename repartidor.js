@@ -1772,12 +1772,19 @@ function alAccionNotificacion(ev) {
 }
 
 const nativo = () => plug("Nativo");
+/* La burbuja flotante solo muestra "Chat al cliente" y "Ver ubicación" mientras el repartidor anda con un pedido */
+let pedidoNativo = false;
+function avisarPedidoNativo(on) {
+  if (typeof on === "boolean") pedidoNativo = on;
+  try { const n = nativo(); if (n && n.conPedido) n.conPedido({ activo: pedidoNativo }).catch(() => {}); } catch (_) {}
+}
 let esperandoAjustes = false, nativoListo = false, alElegirCb = null;
 async function iniciarNativo(forzarModal) {
   const n = nativo(); if (!n) return;
   if (!nativoListo) { nativoListo = true; n.addListener("entrante", alEntrante); }
   let e; try { e = await n.estado(); } catch (_) { return; }
   if (e.permiso) n.activar({ activo: true }).catch(() => {});
+  avisarPedidoNativo();
   const falta = !e.permiso || !e.bateria;
   const hace3dias = Date.now() - Number(localStorage.getItem("nativoPreguntado") || 0) > 3 * 86400000;
   if (falta && (forzarModal || hace3dias)) {
@@ -2258,6 +2265,7 @@ const ChatsEntrantes = (() => {
     const on = orden.length > 0
             || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo())
             || activos() > 0;
+    avisarPedidoNativo(on);
     const chip = $("chipConPedido");
     if (chip) {
       chip.classList.toggle("oculto", !on);

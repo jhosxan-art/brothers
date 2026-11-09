@@ -314,12 +314,20 @@ window.Factura = {
       const deliveryPrice = deliveryBase();
       const totalDelivery = deliveryPrice + extraErrand;
       const prioridad = prioridadActual();
-      const grandTotal = subtotal + totalDelivery + prioridad;
+      const ivasMonto = ivasExtrasActual() * IVA_VALOR;
+      const grandTotal = subtotal + totalDelivery + prioridad + ivasMonto;
       pintarIvasExtras();
       guardarBorrador();
       document.getElementById('subtotal').textContent = `C$ ${subtotal.toFixed(2)}`;
       document.getElementById('deliveryCost').textContent = `C$ ${totalDelivery.toFixed(2)}`;
       document.getElementById('grandTotal').textContent = `C$ ${grandTotal.toFixed(2)}`;
+      const filaIva = document.getElementById('fxIvaTotFila');
+      if (filaIva) {
+          const k = ivasExtrasActual();
+          filaIva.style.display = ivasMonto > 0 ? 'flex' : 'none';
+          document.getElementById('fxIvaTotTxt').textContent = '🧮 ' + (k === 1 ? '1 IVA extra' : k + ' IVAs extras');
+          document.getElementById('fxIvaTotMonto').textContent = '+' + formatMoney(ivasMonto);
+      }
       const filaPrio = document.getElementById('fxPrioFila');
       if (filaPrio) {
           filaPrio.style.display = prioridad > 0 ? 'flex' : 'none';
@@ -371,7 +379,8 @@ window.Factura = {
       const deliveryPrice = deliveryBase();
       const totalDelivery = r2(deliveryPrice + extraErrand);
       const prioridad = prioridadActual();
-      const totalBase = r2(subtotal + totalDelivery);
+      const ivasK = ivasExtrasActual(), ivasMonto = r2(ivasK * IVA_VALOR);
+      const totalBase = r2(subtotal + totalDelivery + ivasMonto);
       const grandTotal = r2(totalBase + prioridad);
 
       invoiceHTML += '<div class="invoice-divider"></div>';
@@ -379,6 +388,7 @@ window.Factura = {
       invoiceHTML += `<tr><td>Subtotal:</td><td>C$ ${subtotal.toFixed(2)}</td></tr>`;
       invoiceHTML += `<tr><td>Delivery base:</td><td>C$ ${deliveryPrice.toFixed(2)}</td></tr>`;
       if (extraErrand > 0) { invoiceHTML += `<tr><td>➕ Mandado Extra:</td><td>C$ ${extraErrand.toFixed(2)}</td></tr>`; }
+      if (ivasMonto > 0) { invoiceHTML += `<tr><td>🧮 ${ivasK === 1 ? '1 IVA extra' : ivasK + ' IVAs extras'}:</td><td>C$ ${ivasMonto.toFixed(2)}</td></tr>`; }
       if (prioridad > 0) { invoiceHTML += `<tr><td>⚡ Prioridad:</td><td>C$ ${prioridad.toFixed(2)}</td></tr>`; }
       invoiceHTML += `<tr class="total-row"><td>TOTAL:</td><td>C$ ${grandTotal.toFixed(2)}</td></tr>`;
       invoiceHTML += '</table>';
@@ -392,6 +402,7 @@ window.Factura = {
       invoiceText += `Productos: C$ ${subtotal.toFixed(2)}\n`;
       invoiceText += `Delivery base: C$ ${deliveryPrice.toFixed(2)}\n`;
       if (extraErrand > 0) invoiceText += `➕ Mandado Extra: C$ ${extraErrand.toFixed(2)}\n`;
+      if (ivasMonto > 0) invoiceText += `🧮 ${ivasK === 1 ? '1 IVA extra' : ivasK + ' IVAs extras'}: C$ ${ivasMonto.toFixed(2)}\n`;
       if (prioridad > 0) invoiceText += `⚡ Prioridad: C$ ${prioridad.toFixed(2)}\n`;
       invoiceText += `*TOTAL: C$ ${grandTotal.toFixed(2)}*\n`;
       invoiceText += `*CÓDIGO DE RETIRO: ${pickupCode}*\n`;
@@ -409,7 +420,7 @@ window.Factura = {
           token, pedido: pickupCode, cliente: customerName, tel: '', texto: invoiceText, total: totalBase, totalFinal: grandTotal, delivery: totalDelivery, link,
           productos: products.map((p) => ({ nombre: String(p.name), precio: Number(p.price) || 0 })),
           subtotal: subtotal, deliveryBase: deliveryPrice, mandadoExtra: extraErrand,
-          prioridad, ivasExtras: ivasExtrasActual(), deposito: depositPaid, deSistema: enPedido, deChat: enChat, chatId: enChat ? chatDestino.solicitudId : '', enlaceYaEnviado: sinEnlace, enviada: false
+          prioridad, ivasExtras: ivasK, ivaExtraMonto: ivasMonto, deposito: depositPaid, deSistema: enPedido, deChat: enChat, chatId: enChat ? chatDestino.solicitudId : '', enlaceYaEnviado: sinEnlace, enviada: false
       };
 
       const yaContada = enPedido && facturasContadas.has(token);

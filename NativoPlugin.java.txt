@@ -4,7 +4,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -17,6 +20,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -35,7 +39,7 @@ import java.util.regex.Pattern;
 
 /*
  * Funciones nativas de Brother's Deliverys (solo Android):
- *  - Burbuja flotante cuando el repartidor sale de la app (toque = menu: chat, nueva factura, ver ubicacion)
+ *  - Burbuja flotante con el logo de la app cuando el repartidor sale de ella (toque = menu: chat y ubicacion SOLO con pedido, nueva factura, abrir la app)
  *  - Pedir permiso de "mostrar sobre otras apps" y exencion de ahorro de bateria
  *  - Recibir ubicaciones/enlaces compartidos desde WhatsApp, Google Maps, Waze, etc.
  *  - Resolver enlaces cortos (maps.app.goo.gl) para sacar las coordenadas
@@ -44,6 +48,8 @@ import java.util.regex.Pattern;
 public class NativoPlugin extends Plugin {
 
     private static boolean habilitada = false;
+    private static boolean hayPedido = false;
+    private View puntoPedido;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private WindowManager wm;
     private View burbuja;
@@ -175,6 +181,19 @@ public class NativoPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void conPedido(PluginCall call) {
+        Boolean a = call.getBoolean("activo", false);
+        hayPedido = a != null && a;
+        ui.post(new Runnable() {
+            @Override
+            public void run() {
+                if (puntoPedido != null) puntoPedido.setVisibility(hayPedido ? View.VISIBLE : View.GONE);
+            }
+        });
+        call.resolve();
+    }
+
+    @PluginMethod
     public void resolverEnlace(final PluginCall call) {
         final String u = call.getString("url");
         if (u == null) {
@@ -225,26 +244,56 @@ public class NativoPlugin extends Plugin {
         return Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
     }
 
+    private GradientDrawable ovalo(int color) {
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(color);
+        return g;
+    }
+
+    /* Logo de la app dentro de un circulo (el mismo icono del launcher) */
+    private ImageView logoApp(Context ctx, int colorFondo) {
+        ImageView logo = new ImageView(ctx);
+        try {
+            Drawable ic = ctx.getPackageManager().getApplicationIcon(ctx.getPackageName());
+            logo.setImageDrawable(ic);
+        } catch (Exception ignored) {
+        }
+        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        logo.setBackground(ovalo(colorFondo));
+        logo.setClipToOutline(true);
+        return logo;
+    }
+
     private void mostrarBurbuja() {
         if (burbuja != null) return;
         try {
             final Context ctx = getContext().getApplicationContext();
             wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
             final float d = ctx.getResources().getDisplayMetrics().density;
-            int px = (int) (60 * d);
+            int px = (int) (62 * d);
 
             FrameLayout caja = new FrameLayout(ctx);
-            GradientDrawable fondo = new GradientDrawable();
-            fondo.setShape(GradientDrawable.OVAL);
-            fondo.setColor(Color.parseColor("#3DB8F5"));
-            fondo.setStroke((int) (3 * d), Color.WHITE);
+            GradientDrawable fondo = ovalo(Color.WHITE);
+            fondo.setStroke((int) (3 * d), Color.parseColor("#3DB8F5"));
             caja.setBackground(fondo);
-            caja.setElevation(12f);
-            TextView t = new TextView(ctx);
-            t.setText("\uD83D\uDEF5");
-            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 28);
-            t.setGravity(Gravity.CENTER);
-            caja.addView(t, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            caja.setElevation(14f);
+
+            ImageView logo = logoApp(ctx, Color.WHITE);
+            FrameLayout.LayoutParams lpLogo = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+            int m = (int) (3 * d);
+            lpLogo.setMargins(m, m, m, m);
+            caja.addView(logo, lpLogo);
+
+            /* Punto verde: aparece solo cuando el repartidor anda con un pedido */
+            View punto = new View(ctx);
+            GradientDrawable verde = ovalo(Color.parseColor("#22C55E"));
+            verde.setStroke((int) (2 * d), Color.WHITE);
+            punto.setBackground(verde);
+            FrameLayout.LayoutParams lpPunto = new FrameLayout.LayoutParams((int) (16 * d), (int) (16 * d), Gravity.TOP | Gravity.END);
+            caja.addView(punto, lpPunto);
+            punto.setVisibility(hayPedido ? View.VISIBLE : View.GONE);
+            puntoPedido = punto;
 
             lp = new WindowManager.LayoutParams(px, px, tipoVentana(),
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -269,6 +318,7 @@ public class NativoPlugin extends Plugin {
                             tx0 = e.getRawX();
                             ty0 = e.getRawY();
                             movido = false;
+                            v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(90).start();
                             return true;
                         case MotionEvent.ACTION_MOVE:
                             int dx = (int) (e.getRawX() - tx0);
@@ -284,17 +334,25 @@ public class NativoPlugin extends Plugin {
                             }
                             return true;
                         case MotionEvent.ACTION_UP:
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
                             if (!movido) alternarMenu();
+                            return true;
+                        case MotionEvent.ACTION_CANCEL:
+                            v.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
                             return true;
                         default:
                             return false;
                     }
                 }
             });
+            caja.setScaleX(0f);
+            caja.setScaleY(0f);
             wm.addView(caja, lp);
+            caja.animate().scaleX(1f).scaleY(1f).setDuration(220).start();
             burbuja = caja;
         } catch (Exception e) {
             burbuja = null;
+            puntoPedido = null;
         }
     }
 
@@ -310,11 +368,12 @@ public class NativoPlugin extends Plugin {
                     }
                 }
                 burbuja = null;
+                puntoPedido = null;
             }
         });
     }
 
-    /* ---------- Menu pequeno de la burbuja ---------- */
+    /* ---------- Menu de la burbuja ---------- */
 
     private void alternarMenu() {
         if (menu != null) {
@@ -328,15 +387,53 @@ public class NativoPlugin extends Plugin {
             caja.setOrientation(LinearLayout.VERTICAL);
             GradientDrawable fondo = new GradientDrawable();
             fondo.setColor(Color.WHITE);
-            fondo.setCornerRadius(16 * d);
+            fondo.setCornerRadius(22 * d);
+            fondo.setStroke((int) (1 * d), Color.parseColor("#E3EAF0"));
             caja.setBackground(fondo);
-            caja.setElevation(14f);
-            int p = (int) (6 * d);
+            caja.setElevation(18f);
+            int p = (int) (8 * d);
             caja.setPadding(p, p, p, p);
-            agregarOpcion(caja, "\uD83D\uDCAC  Chat al cliente", "chat", d);
-            agregarOpcion(caja, "\uD83E\uDDFE  Nueva factura", "factura", d);
-            agregarOpcion(caja, "\uD83D\uDCCD  Ver ubicaci\u00F3n", "ubicacion", d);
-            agregarOpcion(caja, "\uD83D\uDEF5  Abrir la app", "abrir", d);
+
+            /* Cabecera: logo + nombre + estado */
+            LinearLayout cab = new LinearLayout(ctx);
+            cab.setOrientation(LinearLayout.HORIZONTAL);
+            cab.setGravity(Gravity.CENTER_VERTICAL);
+            cab.setPadding((int) (8 * d), (int) (6 * d), (int) (8 * d), (int) (10 * d));
+            ImageView mini = logoApp(ctx, Color.WHITE);
+            cab.addView(mini, new LinearLayout.LayoutParams((int) (38 * d), (int) (38 * d)));
+            LinearLayout col = new LinearLayout(ctx);
+            col.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams lpCol = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            lpCol.setMargins((int) (10 * d), 0, 0, 0);
+            TextView titulo = new TextView(ctx);
+            titulo.setText("Brother\u2019s Deliverys");
+            titulo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            titulo.setTypeface(Typeface.DEFAULT_BOLD);
+            titulo.setTextColor(Color.parseColor("#0E141B"));
+            TextView estado = new TextView(ctx);
+            estado.setText(hayPedido ? "\u25CF Con pedido en curso" : "\u25CB Sin pedidos activos");
+            estado.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            estado.setTypeface(Typeface.DEFAULT_BOLD);
+            estado.setTextColor(Color.parseColor(hayPedido ? "#16A34A" : "#6B7785"));
+            col.addView(titulo);
+            col.addView(estado);
+            cab.addView(col, lpCol);
+            caja.addView(cab);
+
+            View linea = new View(ctx);
+            linea.setBackgroundColor(Color.parseColor("#EDF1F5"));
+            LinearLayout.LayoutParams lpLinea = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (int) (1 * d));
+            lpLinea.setMargins((int) (6 * d), 0, (int) (6 * d), (int) (4 * d));
+            caja.addView(linea, lpLinea);
+
+            /* Chat y ubicacion solo existen mientras el repartidor anda con un pedido */
+            if (hayPedido) {
+                agregarFila(caja, "\uD83D\uDCAC", "Chat al cliente", "#25D366", "chat", d);
+                agregarFila(caja, "\uD83D\uDCCD", "Ver ubicaci\u00F3n", "#0A86C9", "ubicacion", d);
+            }
+            agregarFila(caja, "\uD83E\uDDFE", "Nueva factura", "#F59E0B", "factura", d);
+            agregarFila(caja, "\uD83D\uDE80", "Abrir la app", "#64748B", "abrir", d);
+
             caja.setOnTouchListener(new View.OnTouchListener() {
                 @Override
                 public boolean onTouch(View v, MotionEvent e) {
@@ -345,16 +442,24 @@ public class NativoPlugin extends Plugin {
                 }
             });
 
+            int anchoMenu = (int) (248 * d);
             WindowManager.LayoutParams mp = new WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, tipoVentana(),
+                    anchoMenu, WindowManager.LayoutParams.WRAP_CONTENT, tipoVentana(),
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
                     PixelFormat.TRANSLUCENT);
             mp.gravity = Gravity.TOP | Gravity.START;
-            mp.x = lp.x + (int) (68 * d);
+            mp.x = lp.x + (int) (70 * d);
             mp.y = lp.y;
             int ancho = ctx.getResources().getDisplayMetrics().widthPixels;
-            if (mp.x + (int) (200 * d) > ancho) mp.x = Math.max(0, lp.x - (int) (200 * d));   // si no cabe a la derecha, se abre a la izquierda
+            int alto = ctx.getResources().getDisplayMetrics().heightPixels;
+            if (mp.x + anchoMenu > ancho) mp.x = Math.max(0, lp.x - anchoMenu - (int) (8 * d));   // si no cabe a la derecha, se abre a la izquierda
+            int altoMenu = (int) ((hayPedido ? 270 : 190) * d);
+            if (mp.y + altoMenu > alto) mp.y = Math.max(0, alto - altoMenu - (int) (24 * d));
+            caja.setAlpha(0f);
+            caja.setScaleX(0.9f);
+            caja.setScaleY(0.9f);
             wm.addView(caja, mp);
+            caja.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150).start();
             menu = caja;
             cierreMenu = new Runnable() {
                 @Override
@@ -362,28 +467,52 @@ public class NativoPlugin extends Plugin {
                     quitarMenuYa();
                 }
             };
-            ui.postDelayed(cierreMenu, 8000);
+            ui.postDelayed(cierreMenu, 9000);
         } catch (Exception e) {
             menu = null;
         }
     }
 
-    private void agregarOpcion(LinearLayout caja, String texto, final String accion, float d) {
-        TextView t = new TextView(caja.getContext());
+    private void agregarFila(LinearLayout caja, String emoji, String texto, String colorHex, final String accion, float d) {
+        Context ctx = caja.getContext();
+        LinearLayout fila = new LinearLayout(ctx);
+        fila.setOrientation(LinearLayout.HORIZONTAL);
+        fila.setGravity(Gravity.CENTER_VERTICAL);
+        fila.setPadding((int) (8 * d), (int) (8 * d), (int) (10 * d), (int) (8 * d));
+
+        GradientDrawable pulsado = new GradientDrawable();
+        pulsado.setColor(Color.parseColor("#EAF5FD"));
+        pulsado.setCornerRadius(14 * d);
+        StateListDrawable estados = new StateListDrawable();
+        estados.addState(new int[]{android.R.attr.state_pressed}, pulsado);
+        estados.addState(new int[]{}, new GradientDrawable());
+        fila.setBackground(estados);
+        fila.setClickable(true);
+
+        TextView insignia = new TextView(ctx);
+        insignia.setText(emoji);
+        insignia.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        insignia.setGravity(Gravity.CENTER);
+        insignia.setBackground(ovalo(Color.parseColor(colorHex)));
+        fila.addView(insignia, new LinearLayout.LayoutParams((int) (40 * d), (int) (40 * d)));
+
+        TextView t = new TextView(ctx);
         t.setText(texto);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setTextColor(Color.parseColor("#0E141B"));
-        int h = (int) (14 * d);
-        int v = (int) (12 * d);
-        t.setPadding(h, v, h, v);
-        t.setOnClickListener(new View.OnClickListener() {
+        LinearLayout.LayoutParams lpT = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        lpT.setMargins((int) (12 * d), 0, 0, 0);
+        fila.addView(t, lpT);
+
+        fila.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 quitarMenuYa();
                 abrirApp(accion);
             }
         });
-        caja.addView(t);
+        caja.addView(fila, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
     }
 
     private void quitarMenuYa() {

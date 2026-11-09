@@ -116,8 +116,9 @@ const SubFactura = (() => {
      P_base  = costo del DELIVERY base (NO incluye el costo de los productos, ni mandados extra, ni prioridad)
      E       = mandados extra de delivery (botón +C$10/+C$20, envío extra de la subfactura, extras del admin);
                el costo de los productos/compras NUNCA entra en la contabilidad
-     F       = deducción fija = (7 si P_base < 200 · 14 si 200 ≤ P_base ≤ 400 · 28 si P_base > 400)
-               + IVAs extras × 7   (cada IVA extra vale C$ 7 y se indica en "Crear Factura")
+     F       = deducción fija = (0 si P_base < 42 · 7 si 42 ≤ P_base < 200 · 14 si 200 ≤ P_base ≤ 400 · 28 si P_base > 400)
+               + IVAs extras × 7   (cada IVA extra vale C$ 7 y se indica en "Crear Factura"; SIEMPRE se deducen,
+                                    incluso cuando el delivery es menor a C$ 42 y no hay deducción fija)
      R_base  = P_base − F            (mínimo 0)
      Bolsa   = R_base + E
      Repartidor (70 %)  = Bolsa × 0.70
@@ -132,8 +133,11 @@ const Contabilidad = (() => {
   const cortar = (s, k) => String(s == null ? "" : s).slice(0, k);
   const registradas = new Set();
 
+  /* Delivery menor a este monto: no se aplica la deducción fija (los IVAs extras igual se deducen) */
+  const SIN_DEDUCCION_MENOR_A = 42;
   function fijo(pBase) {
     const p = n(pBase);
+    if (p < SIN_DEDUCCION_MENOR_A) return 0;
     if (p < 200) return 7;
     if (p <= 400) return 14;
     return 28;
@@ -313,7 +317,7 @@ const PanelContable = (() => {
     const cal = h("div", "pc-calculo");
     cal.appendChild(fila("Delivery base", dinero(x.base)));
     const ivM = n(x.ivasMonto), fBase = x.fijoBase != null ? n(x.fijoBase) : Math.max(0, n(x.fijo) - ivM);
-    cal.appendChild(fila(ivM > 0 ? "Deducción fija por rango" : "Deducción fija", "− " + dinero(fBase)));
+    cal.appendChild(fila(n(x.base) > 0 && n(x.base) < 42 ? "Sin deducción fija (delivery menor a C$ 42)" : (ivM > 0 ? "Deducción fija por rango" : "Deducción fija"), "− " + dinero(fBase)));
     if (ivM > 0) {
       cal.appendChild(fila("IVAs extras (" + n(x.ivasExtras) + " × C$ 7)", "− " + dinero(ivM)));
       cal.appendChild(fila("Deducción fija total", "− " + dinero(x.fijo)));
