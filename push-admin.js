@@ -55,7 +55,7 @@ const PushAdmin = (() => {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
         body: JSON.stringify({
-          token: tk, titulo: recorta(a.titulo, 80), cuerpo: recorta(a.cuerpo, 240), canal: a.canal || "pedidos",
+          urgency: "high", ttl: 86400, token: tk, titulo: recorta(a.titulo, 80), cuerpo: recorta(a.cuerpo, 240), canal: a.canal || "pedidos",
           data: Object.assign({ tipo: a.tipo }, a.data || {})
         })
       });
@@ -153,7 +153,7 @@ const PushAdmin = (() => {
     const r = await fetch(URL_PUSH, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
-      body: JSON.stringify(cuerpo)
+      body: JSON.stringify(Object.assign({ urgency: "high", ttl: 86400 }, cuerpo))
     });
     let j = {}; try { j = await r.json(); } catch (_) {}
     return { ok: !!(r.ok && j && j.ok), code: j && j.code, error: (j && j.error) || ("error " + r.status) };
@@ -194,4 +194,66 @@ const PushAdmin = (() => {
     }
   }
   return { enviar, pedidoAsignado, mensaje, guia, punto, configurado, whatsappPedido, solicitud };
+})();
+
+/* ============================================================
+   FASE 2 (push) · SUSCRIPCIÓN FCM WEB del administrador (navegador / PWA)
+   - Pide permiso de notificaciones, registra sw.js y obtiene el token FCM con la clave VAPID.
+   - Guarda el token en admin_tokens/{uid}/{clave} (reglas ya existentes) para que PushAdmin.solicitud() y el Worker
+     lo usen; así el administrador recibe las alertas con la app minimizada.
+   - Clave VAPID: Firebase Console → Configuración del proyecto → Cloud Messaging → Certificados push web.
+     Pégala en admin.html (window.FCM_VAPID_KEY).
+   ============================================================ */
+const PushWeb = (() => {
+  let uidAct = null, ocupado = false, avisoVapid = false, gestoPuesto = false;
+  const vapid = () => String(window.FCM_VAPID_KEY || ((firebase.app().options || {}).vapidKey) || "").trim();
+  const soporta = () => {
+    try {
+      return "serviceWorker" in navigator && "Notification" in window && "PushManager" in window && !!firebase.messaging &&
+        (typeof firebase.messaging.isSupported !== "function" || firebase.messaging.isSupported());
+    } catch (_) { return false; }
+  };
+  async function obtener() {
+    const llave = vapid();
+    if (!llave || /PEGA/i.test(llave)) {
+      if (!avisoVapid) { avisoVapid = true; console.warn("PushWeb: falta la clave VAPID (window.FCM_VAPID_KEY en admin.html)."); try { toast("⚠️ Falta la clave VAPID de Firebase para activar las alertas push del navegador."); } catch (_) {} }
+      return null;
+    }
+    const reg = (await navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => null)) || window.__swAdmin || null;
+    await navigator.serviceWorker.ready;
+    return firebase.messaging().getToken({ vapidKey: llave, serviceWorkerRegistration: reg || (await navigator.serviceWorker.ready) });
+  }
+  async function guardar(uid, token) {
+    adminPushUid = uid;
+    adminPushClave = claveDeToken(token);
+    await db.ref("admin_tokens/" + uid + "/" + adminPushClave).set({ token, ts: firebase.database.ServerValue.TIMESTAMP, plataforma: "web" });
+  }
+  async function registrar(uid) {
+    uidAct = uid || uidAct;
+    if (!uidAct || ocupado || !soporta()) return false;
+    ocupado = true;
+    try {
+      if (Notification.permission === "denied") { try { toast("Activa las notificaciones del navegador para recibir las alertas de pedidos."); } catch (_) {} return false; }
+      if (Notification.permission === "default") { esperarGesto(); return false; }   // el navegador exige un toque para pedir permiso
+      const t = await obtener();
+      if (!t) return false;
+      await guardar(uidAct, t);
+      return true;
+    } catch (e) {
+      console.warn("PushWeb:", e && e.message ? e.message : e);
+      return false;
+    } finally { ocupado = false; }
+  }
+  function esperarGesto() {
+    if (gestoPuesto) return; gestoPuesto = true;
+    const pedir = async () => {
+      ["pointerdown", "click", "keydown"].forEach((ev) => document.removeEventListener(ev, pedir, true));
+      gestoPuesto = false;
+      try { await Notification.requestPermission(); } catch (_) {}
+      if (Notification.permission === "granted") registrar(uidAct);
+    };
+    ["pointerdown", "click", "keydown"].forEach((ev) => document.addEventListener(ev, pedir, { capture: true, once: false, passive: true }));
+  }
+  window.addEventListener("push-admin-renovar", () => { registrar(uidAct); });
+  return { registrar, soporta };
 })();

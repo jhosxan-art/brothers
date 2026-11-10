@@ -1281,6 +1281,13 @@ const SolicitudesAdmin = (() => {
     try { irAPestana("panelSolicitudes"); } catch (_) {}
     setTimeout(() => { if (lista[id]) abrirVisor(id); }, 150);
   }
+  window.__irASolicitud = irASolicitud;   // lo usa el Service Worker (sw.js) al tocar una notificación push
+  /* FASE 2 (push) · el Service Worker avisa que llegó un push (app abierta, minimizada o en segundo plano): voz + refresco. */
+  const TIPOS_VOZ_PUSH = ["sol_nuevo", "pedido_whatsapp", "whatsapp", "mensaje_repartidor", "chat_repartidor", "mensaje", "pedido"];
+  window.addEventListener("push-admin-recibido", (ev) => {
+    const d = (ev && ev.detail) || {};
+    if (TIPOS_VOZ_PUSH.indexOf(String(d.tipo || "sol_nuevo")) !== -1) { try { Voz.alertaPedido(); } catch (_) {} }
+  });
   async function notificarLocal(titulo, cuerpo, id, tipo) {
     try {
       const LN = typeof adminPlug === "function" ? adminPlug("LocalNotifications") : null;
@@ -1322,7 +1329,8 @@ const SolicitudesAdmin = (() => {
       const e = nuevos[nuevos.length - 1], p = d.pedido || {};
       const por = d.canceladoPor || d.motivoCancelacion || "";
       if ((e.t === "entregado" || e.t === "cancelado") && (d.forzadoPorAdmin || por === "admin")) return;   // lo hizo el propio admin
-      const texto = Voz.solicitudEvento(e.t, { cliente: cortar(d.nombre || "Cliente", 30), repartidor: cortar(d.repartidorNombre || "", 30), quiere: cortar(p.quiere || "", 80), origen: cortar(p.origen || "", 50), por });
+      const args = { cliente: cortar(d.nombre || "Cliente", 30), repartidor: cortar(d.repartidorNombre || "", 30), quiere: cortar(p.quiere || "", 80), origen: cortar(p.origen || "", 50), por };
+      const texto = e.t === "nuevo" ? (Voz.alertaPedido(), Voz.FRASES.solicitudNueva(args.cliente, args.quiere, args.origen)) : Voz.solicitudEvento(e.t, args);   // nuevo → "Hay una solicitud de pedido"
       if (typeof toast === "function") toast(TITULO_EV[e.t].slice(0, 2) + " " + texto);
       notificarLocal(TITULO_EV[e.t], texto, k, e.t);
       if (typeof PushAdmin !== "undefined" && PushAdmin.solicitud) PushAdmin.solicitud(e.t, texto, k);

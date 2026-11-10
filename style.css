@@ -1532,3 +1532,54 @@ body.admin nav.tabs button { min-width: 0; }
 @media (min-width: 1920px) {
   body.admin #panelChats, body.admin #panelEquipo, body.admin #panelPedidos, body.admin #panelSolicitudes { font-size: 17px; }
 }
+
+/* ============================================================
+   FASE 3 · CONSOLIDACIÓN FINAL DEL ECOSISTEMA ADMIN
+   Responsivo universal (celulares, plegables, tablets, laptops y TV) + PWA instalada + push/voz.
+   Va al final del archivo para ganar a las reglas anteriores sin tocarlas.
+   ============================================================ */
+html, body.admin { max-width: 100%; overflow-x: hidden; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body.admin { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); overscroll-behavior-y: contain; }
+@media (display-mode: standalone), (display-mode: minimal-ui) {
+  body.admin { padding-top: env(safe-area-inset-top, 0px); }
+}
+/* Panel de solicitudes: jamás scroll horizontal; el texto largo se parte */
+body.admin #panelSolicitudes, body.admin #panelSolicitudes * { max-width: 100%; box-sizing: border-box; }
+body.admin #panelSolicitudes { overflow-x: hidden; }
+body.admin #panelSolicitudes :is(p, span, small, b, strong, h3, h4, label, button) { overflow-wrap: anywhere; word-break: break-word; }
+body.admin #panelSolicitudes :is(.sa-barra, .sa-filtros, .sa-fila, .sa-acciones) { flex-wrap: wrap; min-width: 0; }
+body.admin #panelSolicitudes img, body.admin #panelSolicitudes svg { max-width: 100%; height: auto; }
+/* Chat Messenger: las burbujas y fotos nunca desbordan */
+.chat.messenger .burbuja, .chat.messenger .burbuja p { overflow-wrap: anywhere; min-width: 0; }
+.chat.messenger .foto-chat { max-width: 100%; height: auto; }
+/* Toques cómodos en pantallas táctiles y foco visible para control remoto de TV */
+@media (pointer: coarse) { body.admin :is(button, .mini, summary, nav.tabs button) { min-height: 44px; } }
+body.admin :is(button, a, summary, input, select, textarea):focus-visible { outline: 3px solid var(--celeste-prof, #1E88C7); outline-offset: 2px; }
+/* Plegables y pantallas muy angostas */
+@media (max-width: 320px) {
+  body.admin { font-size: 14px; }
+  body.admin .tarjeta-rep { padding: 8px; gap: 8px; }
+}
+/* Tablets */
+@media (min-width: 768px) and (max-width: 1099px) {
+  body.admin #panelChats, body.admin #panelEquipo, body.admin #panelPedidos, body.admin #panelSolicitudes { padding-inline: 18px; }
+}
+/* Laptops */
+@media (min-width: 1100px) {
+  body.admin #panelChats, body.admin #panelEquipo, body.admin #panelSolicitudes { max-width: 1100px; margin-inline: auto; width: 100%; }
+}
+/* TV / pantallas grandes (a distancia: letra y botones más grandes) */
+@media (min-width: 1920px) {
+  body.admin { font-size: 18px; }
+  body.admin :is(button, .mini, nav.tabs button) { min-height: 56px; font-size: 1.05em; }
+  body.admin .brujula { transform: scale(1.25); transform-origin: left bottom; }
+}
+@media (min-width: 2560px) {
+  body.admin { font-size: 22px; }
+  body.admin #panelChats, body.admin #panelEquipo, body.admin #panelSolicitudes { max-width: 1600px; }
+}
+/* Móvil horizontal con poca altura */
+@media (max-height: 500px) and (orientation: landscape) {
+  body.admin nav.tabs button { min-height: 38px; }
+}
+@media (prefers-reduced-motion: reduce) { body.admin * { scroll-behavior: auto !important; } }

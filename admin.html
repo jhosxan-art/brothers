@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#3DB8F5">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Brother’s Deliverys — Administrador</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -478,6 +483,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+  <script>window.FCM_VAPID_KEY = "PEGA-AQUI-TU-CLAVE-VAPID";   // Firebase Console → Cloud Messaging → Certificados push web</script>
   <script>window.NOMBRE_APP = "admin";   // sesión independiente de la del repartidor</script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
@@ -490,5 +497,54 @@
   <script src="admin.js"></script>
   <script src="push-admin.js"></script>
   <script src="ordenes-admin.js"></script>
+  <script>
+    /* ---- FASE 1 · Service Worker de push + redirección inteligente al panel de Solicitudes ---- */
+    (function () {
+      var abriendo = false;
+      function irAlPanel(datos) {
+        if (abriendo) return; abriendo = true;
+        var id = datos && (datos.solicitud || datos.ordenId) || "";
+        var intentos = 0;
+        (function intentar() {
+          intentos++;
+          var app = document.getElementById("vistaApp");
+          if (app && app.classList.contains("oculto") && intentos < 40) return setTimeout(intentar, 500);   // espera el inicio de sesión
+          try { if (typeof irAPestana === "function") irAPestana("panelSolicitudes"); } catch (_) {}
+          if (id && typeof window.__irASolicitud === "function") {
+            setTimeout(function () { try { window.__irASolicitud(id); } catch (_) {} }, 400);
+            setTimeout(function () {
+              var m = document.getElementById("modalSolicitud");
+              if (m && m.classList.contains("oculto")) { try { window.__irASolicitud(id); } catch (_) {} }
+              abriendo = false;
+            }, 2500);
+          } else abriendo = false;
+        })();
+      }
+      window.addEventListener("load", function () {
+        var q = new URLSearchParams(location.search);
+        if (q.get("push")) {
+          var d = { solicitud: q.get("push") === "sol" ? q.get("id") || "" : "", ordenId: q.get("push") === "orden" ? q.get("id") || "" : "" };
+          try { history.replaceState(null, "", location.pathname); } catch (_) {}
+          irAlPanel(d);
+        }
+      });
+      if (!("serviceWorker" in navigator)) return;
+      navigator.serviceWorker.addEventListener("message", function (e) {
+        var m = e.data || {};
+        if (m.tipo === "PUSH_ABRIR") irAlPanel(m.datos);
+        else if (m.tipo === "PUSH_RECIBIDO") window.dispatchEvent(new CustomEvent("push-admin-recibido", { detail: m.datos || {} }));
+        else if (m.tipo === "PUSH_RENOVAR") window.dispatchEvent(new CustomEvent("push-admin-renovar"));
+      });
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("sw.js", { scope: "./" }).then(function (reg) {
+          window.__swAdmin = reg;
+          reg.addEventListener("updatefound", function () {
+            var nw = reg.installing;
+            if (nw) nw.addEventListener("statechange", function () { if (nw.state === "installed" && navigator.serviceWorker.controller) nw.postMessage({ tipo: "SKIP_WAITING" }); });
+          });
+        }).catch(function (err) { console.warn("SW admin:", err && err.message ? err.message : err); });
+      });
+    })();
+  </script>
 </body>
 </html>

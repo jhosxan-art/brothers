@@ -203,6 +203,7 @@ const claveDeToken = (t) => String(t || "").replace(/[.#$\[\]\/]/g, "_").slice(-
 function irAPestana(id) { const b = document.querySelector('.tabs button[data-tab="' + id + '"]'); if (b) b.click(); }
 async function registrarPushAdmin(uid) {
   const PN = adminPlug("PushNotifications");
+  if (!PN && uid && !adminEsNativo() && typeof PushWeb !== "undefined") { PushWeb.registrar(uid); return; }   // FASE 2 (push): navegador/PWA → FCM web
   if (!PN || !uid) return;
   adminPushUid = uid;
   try {

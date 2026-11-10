@@ -1,0 +1,25 @@
+{
+  "name": "Brother’s Deliverys — Administrador",
+  "short_name": "Brothers Admin",
+  "description": "Panel del administrador: pedidos, repartidores y alertas push en tiempo real.",
+  "id": "./admin.html",
+  "start_url": "./admin.html?origen=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "lang": "es",
+  "dir": "ltr",
+  "background_color": "#FFFFFF",
+  "theme_color": "#3DB8F5",
+  "categories": ["business", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Solicitudes", "short_name": "Solicitudes", "url": "./admin.html?push=sol", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}
