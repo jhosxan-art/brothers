@@ -25,6 +25,7 @@
   "use strict";
 
   const RAIZ = "solicitudes_entrantes";
+  const URL_AVISO_ADMIN = "https://brothers-push.jhosxan.workers.dev";   // Worker de Cloudflare: avisa por push al administrador al instante
   const RAIZ_CLIENTES = "clientes";
   const CLAVE_LOCAL = "brothers_cliente_v1";
   const CLAVE_ULTIMA_DIR = "brothers_ultima_direccion";
@@ -272,6 +273,20 @@
       const { tipo, retiro, ...anterior } = pedido;
       await refSolicitud.set({ ...base, pedido: anterior });
     }
+    avisarServidorSolicitud();
+  }
+
+  /* Push INSTANTÁNEO al administrador (app cerrada / celular en reposo). Si falla no pasa nada: el Worker también revisa cada minuto. */
+  function avisarServidorSolicitud() {
+    try {
+      if (!perfil || !perfil.solicitudId) return;
+      fetch(URL_AVISO_ADMIN, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "solicitud_nueva", solicitud: perfil.solicitudId }),
+        keepalive: true
+      }).catch(() => {});
+    } catch (_) {}
   }
 
   function entrarAlChat() {

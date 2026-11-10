@@ -169,6 +169,7 @@ const PushAdmin = (() => {
   /* Nunca lanza error y nunca muestra toast (el aviso ya salió por voz/notificación local): devuelve true/false. */
   async function solicitud(evento, texto, id) {
     try {
+      if (evento === "nuevo") return false;   // el pedido NUEVO lo avisa ahora el servidor (Worker: cron + solicitud_nueva); así no llega repetido
       const ev = EVENTOS_SOL[evento]; if (!ev || !configurado() || !id) return false;
       const clave = "sol|" + id + "|" + evento;
       if (ultimos[clave] && Date.now() - ultimos[clave] < 60000) return false;   // un solo aviso por solicitud y evento
