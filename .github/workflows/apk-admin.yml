@@ -31,6 +31,9 @@ jobs:
         run: |
           mkdir -p www
           cp *.html *.css *.js www/
+          # Push del Admin: manifest + iconos de las notificaciones (sw.js ya se copia con *.js)
+          cp manifest.json www/
+          cp icon-192.png icon-512.png icon-maskable-512.png badge-96.png www/ 2>/dev/null || echo "::warning::Faltan iconos PNG en la raiz del repositorio (icon-192.png, icon-512.png, icon-maskable-512.png, badge-96.png)."
           cp admin.html www/index.html
           # La configuración de Capacitor del Admin reemplaza (solo en esta máquina de GitHub) a la del repartidor
           cp capacitor.config.admin.json capacitor.config.json
@@ -97,7 +100,7 @@ jobs:
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p, encoding='utf-8').read()
-          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK", "CAMERA", "REQUEST_INSTALL_PACKAGES", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE", "FOREGROUND_SERVICE_DATA_SYNC"]
+          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK", "USE_FULL_SCREEN_INTENT", "CAMERA", "REQUEST_INSTALL_PACKAGES", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE", "FOREGROUND_SERVICE_DATA_SYNC"]
           add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if 'android.permission.%s"' % x not in s)
           if 'android.hardware.camera' not in s:
               add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
