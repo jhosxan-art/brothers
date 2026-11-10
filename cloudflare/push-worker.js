@@ -1,6 +1,13 @@
 /* ============================================================
    PUSH-WORKER · Cloudflare Worker (plan gratuito) de Brother’s Deliverys
-   Un solo Worker, cuatro funciones (campo "accion" del JSON que recibe por POST):
+   Un solo Worker, cinco funciones (campo "accion" del JSON que recibe por POST) + REVISIÓN AUTOMÁTICA cada minuto:
+
+   0) NUEVO · Cron (scheduled): cada minuto busca en solicitudes_entrantes los pedidos "nuevo" que aún no se han avisado y
+        manda push de ALTA PRIORIDAD a todos los administradores, aunque su app esté cerrada o el celular en reposo.
+        Activar en Cloudflare: Workers → tu Worker → Settings → Triggers → Cron Triggers → Add → expresión  * * * * *
+   5) NUEVO · "solicitud_nueva"   CLIENTE → ADMIN      Aviso INSTANTÁNEO (sin esperar al cron). Sin sesión: el Worker comprueba en
+        Firebase que la solicitud existe y está "nuevo", y la marca (avisoAdmin) para avisar una sola vez.
+        Cuerpo:   { accion: "solicitud_nueva", solicitud: "sol_xxxxxxxx" }
 
    1) (sin accion / "push")  ADMIN → REPARTIDOR   Aviso push al celular de un repartidor.
         Cabecera: Authorization: Bearer <sesión de Firebase del administrador>
@@ -135,8 +142,9 @@ async function enviarFCM(env, token, { titulo, cuerpo, canal, data }) {
       token,
       notification: { title: titulo, body: cuerpo },
       data,
+      webpush: { headers: { Urgency: "high", TTL: "86400" } },   // navegador / PWA del admin: entrega inmediata aunque el equipo esté en reposo
       android: {
-        priority: "HIGH", ttl: "3600s",
+        priority: "HIGH", ttl: "86400s",
         notification: { channel_id: canal, sound: "default", default_sound: true, default_vibrate_timings: true, notification_priority: "PRIORITY_MAX", visibility: "PUBLIC" }
       }
     } })
@@ -255,6 +263,62 @@ async function accionClienteAbrio(b, env) {
   return json(r, r.ok ? 200 : 502);
 }
 
+/* ---------- NUEVO · Pedidos nuevos de clientes → push a los administradores (servidor, app cerrada) ---------- */
+const EDAD_MAXIMA_MS = 3 * 60 * 60 * 1000;   // no se avisan solicitudes más viejas de 3 horas (evita avalanchas)
+
+/* Marca atómica: solo UN proceso (cron o aviso instantáneo) logra avisar cada solicitud. Devuelve true si le tocó avisar. */
+async function marcarAvisoSolicitud(env, id) {
+  const acceso = await tokenGoogle(env);
+  const url = dbBase(env) + "/solicitudes_entrantes/" + id + "/avisoAdmin.json?access_token=" + encodeURIComponent(acceso);
+  const g = await fetch(url, { headers: { "X-Firebase-ETag": "true" } });
+  if (!g.ok) return false;
+  const etag = g.headers.get("ETag");
+  const previo = await g.json();
+  if (previo !== null) return false;
+  const p = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json", "if-match": etag || "null_etag" }, body: JSON.stringify(Date.now()) });
+  return p.ok;
+}
+async function avisarSolicitudNueva(env, id, d) {
+  const p = (d && d.pedido) || {};
+  const nombre = recorta((d && d.nombre) || "Cliente", 40);
+  const quiere = recorta(p.quiere || "", 160);
+  const cuerpo = quiere ? quiere + (p.origen ? " · de " + recorta(p.origen, 60) : "") : "Hay una solicitud de pedido";
+  return avisarAdmins(env, { titulo: "📥 " + nombre, cuerpo, data: { tipo: "sol_nuevo", solicitud: id, nombre, quiere: recorta(p.quiere || "", 120) } });
+}
+async function procesarSolicitud(env, id) {
+  const d = await dbLeer(env, "solicitudes_entrantes/" + encodeURIComponent(id));
+  if (!d || typeof d !== "object") return { ok: false, error: "Esa solicitud no existe" };
+  if (d.estado !== "nuevo" || d.repartidorUid) return { ok: true, omitido: true };
+  const t = Number(d.creado || d.ts) || 0;
+  if (t && Date.now() - t > EDAD_MAXIMA_MS) return { ok: true, omitido: true };
+  if (!(await marcarAvisoSolicitud(env, id))) return { ok: true, yaAvisado: true };
+  return avisarSolicitudNueva(env, id, d);
+}
+/* Cron: revisa todas las solicitudes "nuevo" (la base tiene índice por "estado") */
+async function revisarSolicitudesNuevas(env) {
+  const acceso = await tokenGoogle(env);
+  const q = "?orderBy=" + encodeURIComponent('"estado"') + "&equalTo=" + encodeURIComponent('"nuevo"') + "&limitToLast=50&access_token=" + encodeURIComponent(acceso);
+  const r = await fetch(dbBase(env) + "/solicitudes_entrantes.json" + q);
+  if (!r.ok) throw new Error("Base de datos: error " + r.status + " al buscar solicitudes nuevas");
+  const todas = (await r.json()) || {};
+  let avisadas = 0;
+  for (const [id, d] of Object.entries(todas)) {
+    if (!d || typeof d !== "object" || d.avisoAdmin || d.repartidorUid) continue;
+    if (!/^sol_[A-Za-z0-9_-]{8,64}$/.test(id)) continue;
+    const res = await procesarSolicitud(env, id);
+    if (res && res.ok && !res.omitido && !res.yaAvisado) avisadas++;
+  }
+  return avisadas;
+}
+
+/* 5) El cliente acaba de crear su solicitud → aviso instantáneo a los administradores */
+async function accionSolicitudNueva(b, env) {
+  const id = String(b.solicitud || "");
+  if (!/^sol_[A-Za-z0-9_-]{8,64}$/.test(id)) return json({ ok: false, error: "Solicitud no válida" }, 400);
+  const r = await procesarSolicitud(env, id);
+  return json(r, r.ok ? 200 : 502);
+}
+
 /* 1) y 2): solo administradores */
 async function accionAdmin(b, idToken, env) {
   const uid = await uidDeSesion(idToken, env);
@@ -276,6 +340,10 @@ async function accionAdmin(b, idToken, env) {
 }
 
 export default {
+  /* Cron Trigger (cada minuto): pedidos nuevos de clientes → push a los administradores aunque su app esté cerrada */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(revisarSolicitudesNuevas(env).catch((e) => console.warn("cron solicitudes:", e && e.message ? e.message : e)));
+  },
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (req.method !== "POST") return json({ ok: false, error: "Solo POST" }, 405);
@@ -283,6 +351,7 @@ export default {
       const idToken = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
       const b = await req.json().catch(() => ({}));
       if (b.accion === "cliente_abrio") return await accionClienteAbrio(b, env);   // sin sesión: el cliente no inicia sesión
+      if (b.accion === "solicitud_nueva") return await accionSolicitudNueva(b, env);   // sin sesión: se valida contra Firebase
       if (b.accion === "admin_chat") return await accionAdminChat(b, idToken, env);
       return await accionAdmin(b, idToken, env);
     } catch (err) {
