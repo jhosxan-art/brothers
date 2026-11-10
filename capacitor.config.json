@@ -1,6 +1,10 @@
 {
-  "appId": "com.brothers.deliverys",
-  "appName": "Brothers Repartidor",
+  "appId": "com.brothers.admin",
+  "appName": "Brothers Admin",
   "webDir": "www",
-  "server": { "androidScheme": "https" }
+  "server": { "androidScheme": "https" },
+  "plugins": {
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] }
+  }
 }
+
