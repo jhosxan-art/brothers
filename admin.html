@@ -358,7 +358,15 @@
           <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoRend"><span>📊 Rendimiento e ingresos</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
         </div>
         <div class="eq-cuerpo" id="cuerpoRend"><div class="eq-cuerpo-in">
-          <label>Periodo <select id="rendRango"><option value="1">Hoy</option><option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="0">Todo el tiempo</option></select></label>
+          <div class="rd-periodo" id="rendPeriodo">
+            <button id="rendPrev" class="rd-flecha" type="button" aria-label="Periodo anterior">‹</button>
+            <button id="rendPeriodoBtn" class="rd-per-btn" type="button" aria-haspopup="dialog" aria-label="Elegir periodo y fecha">
+              <span class="rd-per-ico" aria-hidden="true">📅</span>
+              <span class="rd-per-txt"><small id="rendPeriodoModo">Mes</small><strong id="rendPeriodoTxt">…</strong></span>
+              <span class="rd-per-caret" aria-hidden="true">▾</span>
+            </button>
+            <button id="rendNext" class="rd-flecha" type="button" aria-label="Periodo siguiente">›</button>
+          </div>
           <div id="rendLista" class="acciones" style="margin:10px 0"></div>
         </div></div>
       </section>

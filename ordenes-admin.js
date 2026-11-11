@@ -1,4 +1,30 @@
 /* ============================================================
+   CAPAS DEL MAPA · los panes personalizados (negocios, clientes, zonas…) deben vivir en el MISMO contenedor que los
+   panes estándar (markerPane, popupPane). Con el plugin de rotación ese contenedor es el panel que gira; si un pane
+   se crea fuera de él, su z-index se compara contra TODO el conjunto y los negocios quedaban encima de los
+   repartidores y de los globos de información. Aquí se reubican y se fuerza el contenedor correcto para los futuros.
+   ============================================================ */
+function anclarPanesMapa() {
+  try {
+    if (typeof mapa === "undefined" || !mapa || typeof mapa.getPane !== "function") return;
+    const mk = mapa.getPane("markerPane");
+    if (!mk || !mk.parentNode) return;
+    const cont = mk.parentNode;
+    if (!mapa._anclaPanes) {
+      mapa._anclaPanes = true;
+      const crear = mapa.createPane;
+      mapa.createPane = function (nombre, contenedor) { return crear.call(this, nombre, contenedor || cont); };
+    }
+    Object.keys(mapa._panes || {}).forEach((k) => {
+      if (k.indexOf("pane") !== 0) return;
+      const p = mapa._panes[k];
+      if (p && p.parentNode !== cont) cont.appendChild(p);
+    });
+  } catch (_) {}
+}
+setInterval(anclarPanesMapa, 2000);
+
+/* ============================================================
    ORDENES-ADMIN · Panel del administrador (Fases 2, 3 y 4 unificadas)
    FASE ÚNICA: se añade el módulo EQUIPO que reemplaza a pintarEquipo()
    con un renderizado robusto, redundante y auto-recuperable.
@@ -41,6 +67,7 @@ const PedidosAdmin = (() => {
   // aunque Leaflet reposicione los íconos (zoom, movimiento, actualización en vivo).
   let obsCapas = null;
   function ordenarCapasMapa() {
+    anclarPanesMapa();
     const pane = document.querySelector(".leaflet-marker-pane");
     if (!pane) return;
     pane.querySelectorAll(".leaflet-marker-icon.neg-ico").forEach((m) => {
@@ -2179,6 +2206,7 @@ const ClientesMapa = (() => {
     pane("paneZonas", 350, true);
     pane("paneNegocios", 450);     // los negocios siempre por debajo de clientes, repartidores y tarjetas
     pane("paneClientes", 560);
+    anclarPanesMapa();
     quitarZoom();
   }
   function quitarZoom() {
@@ -2385,7 +2413,7 @@ const ZonasMapa = (() => {
   function quitarCapas() { Object.keys(capas).forEach((id) => { try { mapa.removeLayer(capas[id]); } catch (_) {} delete capas[id]; }); }
   function pintar() {
     if (typeof mapa === "undefined" || !mapa) return;
-    if (!mapa.getPane("paneZonas")) { const pz = mapa.createPane("paneZonas"); pz.style.zIndex = "350"; pz.style.pointerEvents = "none"; }
+    if (!mapa.getPane("paneZonas")) { const pz = mapa.createPane("paneZonas"); pz.style.zIndex = "350"; pz.style.pointerEvents = "none"; anclarPanesMapa(); }
     quitarCapas();
     if (!visibles) return;
     Object.entries(zonas).forEach(([id, z]) => {
@@ -2601,13 +2629,43 @@ const RendimientoEquipo = (() => {
   const dinero = (n) => "C$ " + r2(n).toFixed(2);
   const PCT_BROTHERS = 0.3, IVA = 7;
   const refs = {}, datos = {};        // uid → ref / registros
-  let rango = 30, timer = null, tPintar = null, activo = false;
+  let modo = "mes", ref = null, timer = null, tPintar = null, activo = false;   // modo: dia | semana | quincena | mes | total
 
-  const desdeFecha = () => {
-    if (!rango) return "";
-    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (rango - 1));
-    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-  };
+  /* ---------- Periodo: fechas locales (sin desfase de zona horaria) ---------- */
+  const pad = (n) => String(n).padStart(2, "0");
+  const clave = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  const parse = (t) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t || ""); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+  const hoyD = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+  const suma = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const finMes = (d) => new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  ref = hoyD();
+
+  /* Tramo de fechas que contiene la fecha de referencia: semana de lunes a domingo, quincena 1–15 / 16–fin de mes. */
+  function limites(m, r) {
+    if (m === "total") return { desde: "", hasta: "" };
+    if (m === "dia") return { desde: clave(r), hasta: clave(r) };
+    if (m === "semana") { const ini = suma(r, -((r.getDay() + 6) % 7)); return { desde: clave(ini), hasta: clave(suma(ini, 6)) }; }
+    const y = r.getFullYear(), mo = r.getMonth();
+    if (m === "quincena") return r.getDate() <= 15 ? { desde: clave(new Date(y, mo, 1)), hasta: clave(new Date(y, mo, 15)) } : { desde: clave(new Date(y, mo, 16)), hasta: clave(finMes(r)) };
+    return { desde: clave(new Date(y, mo, 1)), hasta: clave(finMes(r)) };
+  }
+  function mover(m, r, dir) {
+    if (m === "dia") return suma(r, dir);
+    if (m === "semana") return suma(r, 7 * dir);
+    const y = r.getFullYear(), mo = r.getMonth();
+    if (m === "quincena") { if (r.getDate() <= 15) return dir > 0 ? new Date(y, mo, 16) : new Date(y, mo - 1, 16); return dir > 0 ? new Date(y, mo + 1, 1) : new Date(y, mo, 1); }
+    if (m === "mes") return new Date(y, mo + dir, 1);
+    return r;
+  }
+  const corto = (d) => d.toLocaleDateString("es", { day: "numeric", month: "short" }).replace(/\./g, "");
+  function etiqueta(m, r) {
+    const l = limites(m, r), a = parse(l.desde), b = parse(l.hasta);
+    if (m === "total") return { modo: "Total", txt: "Todo el tiempo" };
+    if (m === "dia") return { modo: clave(r) === clave(hoyD()) ? "Hoy" : "Día", txt: r.toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short", year: "numeric" }).replace(/\./g, "") };
+    if (m === "semana") return { modo: "Semana", txt: corto(a) + " – " + corto(b) + " " + b.getFullYear() };
+    if (m === "quincena") return { modo: (r.getDate() <= 15 ? "1ª" : "2ª") + " quincena", txt: corto(a) + " – " + corto(b) + " " + b.getFullYear() };
+    return { modo: "Mes", txt: r.toLocaleDateString("es", { month: "long", year: "numeric" }) };
+  }
   const fuenteDe = (o) => (o === "manual" ? "wa" : o === "chat" ? "app" : "admin");   // admin + invitado → Admin
 
   function calcular(recs) {
@@ -2663,8 +2721,8 @@ const RendimientoEquipo = (() => {
 
   function suscribir(uid) {
     if (refs[uid]) return;
-    const d = desdeFecha();
-    const q = d ? db.ref("contabilidad/" + uid).orderByChild("fecha").startAt(d) : db.ref("contabilidad/" + uid);
+    const l = limites(modo, ref);
+    const q = l.desde ? db.ref("contabilidad/" + uid).orderByChild("fecha").startAt(l.desde).endAt(l.hasta) : db.ref("contabilidad/" + uid);
     refs[uid] = q;
     q.on("value", (s) => { datos[uid] = s.val() || {}; pedirPintar(); }, () => { datos[uid] = {}; pedirPintar(); });
   }
@@ -2679,8 +2737,60 @@ const RendimientoEquipo = (() => {
   function iniciar() { activo = true; sincronizar(); clearInterval(timer); timer = setInterval(sincronizar, 5000); }
   function detener() { activo = false; clearInterval(timer); soltarTodo(); const c = g("rendLista"); if (c) c.innerHTML = ""; }
 
-  const sel = g("rendRango");
-  if (sel) sel.addEventListener("change", () => { rango = Number(sel.value) || 0; soltarTodo(); sincronizar(); });
+  /* ---------- Selector de periodo (barra con flechas + ventana con calendario) ---------- */
+  function pintarPeriodo() {
+    const e = etiqueta(modo, ref), l = limites(modo, ref);
+    const t = g("rendPeriodoTxt"), m = g("rendPeriodoModo"), pv = g("rendPrev"), nx = g("rendNext");
+    if (t) t.textContent = e.txt; if (m) m.textContent = e.modo;
+    if (pv) pv.disabled = modo === "total";
+    if (nx) nx.disabled = modo === "total" || l.hasta >= clave(hoyD());   // no hay datos del futuro
+  }
+  function aplicar(m, r) { modo = m; ref = r; pintarPeriodo(); soltarTodo(); sincronizar(); }
+
+  function abrirVentana() {
+    if (typeof modal !== "function") return;
+    let sm = modo, sr = new Date(ref);
+    modal(`<div class="rd-sheet" role="group" aria-label="Elegir periodo">
+      <h2>📅 Periodo de ingresos</h2>
+      <div class="rd-chips" id="rdChips">
+        <button type="button" class="rd-chip" data-m="hoy">Hoy</button>
+        <button type="button" class="rd-chip" data-m="semana">Semana</button>
+        <button type="button" class="rd-chip" data-m="quincena">Quincena</button>
+        <button type="button" class="rd-chip" data-m="mes">Mes</button>
+        <button type="button" class="rd-chip" data-m="total">Total</button>
+      </div>
+      <label class="rd-fecha-campo">Fecha en el calendario<input id="rdFecha" type="date"></label>
+      <div class="rd-resumen" id="rdResumen" role="status" aria-live="polite"></div>
+      <div class="rd-sheet-acc"><button id="rdCancelar" type="button" class="oscuro">Cancelar</button><button id="rdVer" type="button" class="primario">Ver datos</button></div>
+    </div>`);
+    const fecha = g("rdFecha"), resumen = g("rdResumen");
+    function pintarVentana() {
+      const hoyAct = sm === "dia" && clave(sr) === clave(hoyD());
+      g("rdChips").querySelectorAll(".rd-chip").forEach((b) => {
+        const on = b.dataset.m === "hoy" ? hoyAct : b.dataset.m === sm;
+        b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
+      });
+      fecha.value = clave(sr); fecha.disabled = sm === "total";
+      const e = etiqueta(sm, sr);
+      resumen.innerHTML = sm === "total" ? "Se sumarán <b>todos</b> los pedidos registrados." : "Se mostrará: <b>" + esc(e.modo) + " · " + esc(e.txt) + "</b>";
+    }
+    g("rdChips").addEventListener("click", (ev) => {
+      const b = ev.target.closest(".rd-chip"); if (!b) return;
+      if (b.dataset.m === "hoy") { sm = "dia"; sr = hoyD(); } else sm = b.dataset.m;
+      pintarVentana();
+    });
+    fecha.addEventListener("change", () => { const d = parse(fecha.value); if (d) { sr = d; if (sm === "total") sm = "mes"; } pintarVentana(); });
+    g("rdCancelar").onclick = () => { try { cerrarModal(); } catch (_) {} };
+    g("rdVer").onclick = () => { try { cerrarModal(); } catch (_) {} aplicar(sm, sr); };
+    pintarVentana();
+  }
+  (function enlazarPeriodo() {
+    const b = g("rendPeriodoBtn"), pv = g("rendPrev"), nx = g("rendNext");
+    if (b) b.addEventListener("click", abrirVentana);
+    if (pv) pv.addEventListener("click", () => { if (modo !== "total") aplicar(modo, mover(modo, ref, -1)); });
+    if (nx) nx.addEventListener("click", () => { if (!nx.disabled) aplicar(modo, mover(modo, ref, 1)); });
+    pintarPeriodo();
+  })();
   if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
   return { iniciar, detener, calcular };
 })();

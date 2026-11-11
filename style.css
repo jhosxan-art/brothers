@@ -1738,3 +1738,43 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
   .sa-cortina-n { min-width: 28px; height: 28px; line-height: 28px; font-size: 15px; }
   .cb-txt strong { font-size: 18px; } .cb-txt small { font-size: 16px; }
 }
+
+/* ============================================================
+   Rendimiento e ingresos · selector de periodo + ventana con calendario
+   ============================================================ */
+.rd-periodo { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
+.rd-flecha { flex: none; width: 46px; min-height: 52px; padding: 0; border-radius: 14px; border: 1.5px solid var(--linea); background: #fff; color: var(--tinta); font-size: 26px; font-weight: 800; line-height: 1; display: grid; place-items: center; cursor: pointer; }
+.rd-flecha:active:not(:disabled) { transform: scale(.96); }
+.rd-flecha:disabled { opacity: .35; cursor: not-allowed; }
+.rd-per-btn { flex: 1; min-width: 0; min-height: 52px; padding: 6px 14px; border-radius: 14px; border: 1.5px solid var(--celeste); background: var(--celeste-suave); color: var(--tinta); display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer; }
+.rd-per-ico { flex: none; font-size: 20px; }
+.rd-per-txt { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
+.rd-per-txt small { font-size: 12px; font-weight: 700; color: var(--texto2); }
+.rd-per-txt strong { font-size: 15.5px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-per-txt strong::first-letter { text-transform: uppercase; }
+.rd-per-caret { flex: none; font-size: 14px; color: var(--celeste-prof); }
+.rd-sheet { display: grid; gap: 14px; text-align: left; }
+.rd-sheet h2 { font-size: 20px; font-weight: 800; }
+.rd-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
+.rd-chip { min-width: 0; height: 44px; padding: 0 10px; border-radius: 22px; border: 1.5px solid var(--linea); background: #fff; color: var(--tinta); font-size: 14px; font-weight: 800; cursor: pointer; }
+.rd-chip.on { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.rd-fecha-campo { display: grid; gap: 6px; font-size: 13px; font-weight: 800; }
+.rd-fecha-campo input[type="date"] { width: 100%; height: 50px; padding: 0 12px; border-radius: 14px; font-size: 16px; }
+.rd-fecha-campo input[type="date"]:disabled { opacity: .45; }
+.rd-resumen { padding: 10px 12px; border-radius: 12px; background: var(--celeste-suave); font-size: 13.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.rd-sheet-acc { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; }
+.rd-sheet-acc button { height: 48px; border-radius: 14px; font-size: 15px; font-weight: 800; }
+#modalAdmin:has(.rd-sheet) { align-items: end; }
+#modalAdmin:has(.rd-sheet) .modal-rep-caja { max-width: 520px; border-radius: 22px 22px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+@media (min-width: 768px) { #modalAdmin:has(.rd-sheet) { align-items: center; } #modalAdmin:has(.rd-sheet) .modal-rep-caja { border-radius: 22px; padding-bottom: 24px; } }
+@media (min-width: 1800px) { .rd-per-btn, .rd-flecha { min-height: 64px; } .rd-per-txt strong { font-size: 19px; } .rd-chip { height: 52px; font-size: 17px; } }
+
+/* ===== Orden definitivo de capas del mapa del administrador =====
+   zonas < negocios < clientes < marcadores (repartidores, tarjetas) < globos de información */
+.leaflet-paneZonas-pane { z-index: 350 !important; }
+.leaflet-paneNegocios-pane { z-index: 450 !important; }
+.leaflet-paneClientes-pane { z-index: 560 !important; }
+.leaflet-marker-pane { z-index: 600 !important; }
+.leaflet-tooltip-pane { z-index: 650 !important; }
+.leaflet-popup-pane { z-index: 900 !important; }
+
