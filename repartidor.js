@@ -139,7 +139,7 @@ const ActualizacionApp = (() => {
 ActualizacionApp.vigilar();
 auth.onAuthStateChanged((u) => { if (u) ActualizacionApp.vigilar(); });
 
-const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
+const WORKER_URL_BROTHERS = "https://brothers-push.jhosxan.workers.dev";   // mismo Worker que push-admin.js
 const PRIORIDAD_EXTRA = 10;
 const sumaExtras = (o) => (o && typeof o === "object" ? Object.values(o).reduce((t, e) => t + (Number(e && e.monto) || 0), 0) : 0);
 

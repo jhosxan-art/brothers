@@ -61,6 +61,7 @@ const PedidosAdmin = (() => {
   function quitarTemp() { if (tempMarca && mapa) { mapa.removeLayer(tempMarca); } tempMarca = null; }
 
   function clickMapa(ll) {
+    if (typeof ZonasMapa !== "undefined" && ZonasMapa.capturar(ll)) return;   // modo dibujo de zonas: el toque es un vértice
     if (busqAbierta || Date.now() - popupCerrado < 350) return;
     if (!el("modalAdmin").classList.contains("oculto")) return;
     cancelarClick();
@@ -564,8 +565,8 @@ const PedidosAdmin = (() => {
         const antes = (resInv[t] && resInv[t].ts) || 0;
         if (r.ultimoDe === "repartidor" && (r.ts || 0) > antes) {
           if (chatInvAbierto !== t) sinLeerInv[t] = (sinLeerInv[t] || 0) + 1;
-          const txt = `💬 ${r.repartidor || "Invitado"} (pedido ${r.pedido || ""}): ${r.ultimo || ""}`;
-          toast(txt); O.hablar("Mensaje del repartidor invitado " + (r.repartidor || ""));
+          try { ChatBandeja.aviso({ clave: "inv:" + t, uid: O.uidInvitado(t), nombre: (r.repartidor || "Invitado") + " · pedido " + (r.pedido || ""), texto: r.ultimo || "", abrir: () => chatInvitado(O.uidInvitado(t)) }); } catch (_) {}
+          O.hablar("Mensaje del repartidor invitado " + (r.repartidor || ""));
         }
       });
       primeraInv = false; resInv = n; pintarOrdenes();
@@ -678,7 +679,16 @@ const PedidosAdmin = (() => {
     return lista.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   }
 
+  let facturaDesdeLista = false;   // true cuando el detalle se abrió desde la lista "Facturas en ruta" (atrás → lista)
+  function volverALista() {
+    if (!facturaDesdeLista) return false;
+    const m = el("modalAdmin");
+    if (!m || m.classList.contains("oculto") || !el("fvVolver")) return false;
+    abrirFacturasEnRuta();
+    return true;
+  }
   function abrirFacturasEnRuta() {
+    facturaDesdeLista = false;
     const l = facturasEnRuta();
     modal(`<div class="fv-caja"><h2>🧾 Facturas en ruta</h2>
       <p class="ayuda"><span class="fv-vivo">${l.length} activa${l.length === 1 ? "" : "s"}</span> · Toca una para ver el detalle completo.</p>
@@ -686,7 +696,7 @@ const PedidosAdmin = (() => {
       <button id="fvCerrar" class="oscuro" type="button">Cerrar</button></div>`);
     el("fvCerrar").onclick = cerrarModal;
     el("modalCaja").querySelector(".fv-lista-pedidos").onclick = (e) => {
-      const b = e.target.closest("button[data-fk]"); if (b) abrirDetalleFactura(b.dataset.fk);
+      const b = e.target.closest("button[data-fk]"); if (b) abrirDetalleFactura(b.dataset.fk, true);
     };
   }
 
@@ -717,7 +727,7 @@ const PedidosAdmin = (() => {
   }
   const bannerFv = (tit, sub) => `<div class="fv-banner"><b>${esc(tit)}</b><small>${esc(sub)}</small></div>`;
 
-  function abrirDetalleFactura(k) {
+  function abrirDetalleFactura(k, desdeLista) {
     const tipo = String(k).slice(0, 1), id = String(k).slice(2);
     let cuerpo = "";
     if (tipo === "o") {
@@ -746,6 +756,7 @@ const PedidosAdmin = (() => {
     modal(`<div class="fv-caja"><h2>🧾 Detalle de factura</h2><div class="fv-resumen">${cuerpo}</div>
       <button id="fvEntregar" class="primario" type="button">✅ Marcar como entregada</button>
       <button id="fvVolver" type="button">← Volver a la lista</button><button id="fvCerrar2" class="oscuro" type="button">Cerrar</button></div>`);
+    facturaDesdeLista = !!desdeLista;
     el("fvEntregar").onclick = () => marcarEntregadaFactura(k);
     el("fvVolver").onclick = abrirFacturasEnRuta;
     el("fvCerrar2").onclick = cerrarModal;
@@ -937,6 +948,7 @@ const PedidosAdmin = (() => {
       if (!primera) avisarCambios(nuevo);
       primera = false; ordenes = nuevo;
       pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista(); pedirRutas();
+      try { ClientesMapa.pedirPintar(); } catch (_) {}
     }, () => { el("listaPedidos").innerHTML = '<p class="ayuda">Sin permiso para leer "ordenes". Revisa las reglas de Firebase.</p>'; });
   }
   function detener() {
@@ -952,7 +964,9 @@ const PedidosAdmin = (() => {
     iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado,
     invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "",
     forzarEstadoOrden, asignarManual,
-    abrirFacturasEnRuta, abrirFacturaUid, verRecorrido, recorridoInv
+    abrirFacturasEnRuta, abrirFacturaUid, verRecorrido, recorridoInv, volverALista,
+    ordenesActivas: () => Object.entries(ordenes).filter(([, o]) => o && typeof o === "object" && activa(o)),
+    codigo: cod
   };
 })();
 
@@ -1212,7 +1226,7 @@ const CortinasEquipo = (() => {
 const SolicitudesAdmin = (() => {
   const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos", RAIZ_CLIENTES = "clientes", PANEL = "panelSolicitudes";
   const g = (id) => document.getElementById(id);
-  let consulta = null, lista = {}, filtro = "todos", fecha = "", visorId = null, consultaMsgs = null, ultDia = null;
+  let consulta = null, lista = {}, filtro = "todos", fecha = "", visorId = null, consultaMsgs = null, ultDia = null, origenVisor = "";
   let refUbic = null, ubic = {};
   let refLeidos = null, refUltimaDir = null, lect = {}, ultimaDirCliente = null;
   let mapa = null, marcaCli = null, marcaRep = null, linea = null, encuadrado = false;
@@ -1224,6 +1238,17 @@ const SolicitudesAdmin = (() => {
   const fin = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
   const estadoDe = (d) => (fin(d) ? d.estado : d.repartidorUid ? "atendido" : "nuevo");
   const dinero = (n) => "C$ " + (Number(n) || 0).toFixed(2);
+  const hoyClave = () => { const t = new Date(); return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); };
+  const CLAVE_CORTINA = "admin_solicitudes_cortina";
+  let cortinaAbierta = true; try { cortinaAbierta = localStorage.getItem(CLAVE_CORTINA) !== "0"; } catch (_) {}
+  function aplicarCortina() {
+    const p = g(PANEL), b = g("saCortina"); if (!p || !b) return;
+    p.classList.toggle("sa-min", !cortinaAbierta);
+    b.setAttribute("aria-expanded", String(cortinaAbierta));
+    b.querySelector(".sa-cortina-txt").textContent = cortinaAbierta ? "Minimizar" : "Mostrar";
+    const lista = g("saLista"); if (lista && "inert" in lista) lista.inert = !cortinaAbierta;
+  }
+  function contarCortina(n) { const c = g("saCortinaN"); if (c) c.textContent = String(n); }
   const horaDe = (ts) => new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
   const cortar = (s, n) => String(s == null ? "" : s).slice(0, n);
   const okLL = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180;
@@ -1279,7 +1304,7 @@ const SolicitudesAdmin = (() => {
   let notifOyente = false;
   function irASolicitud(id) {
     try { irAPestana("panelSolicitudes"); } catch (_) {}
-    setTimeout(() => { if (lista[id]) abrirVisor(id); }, 150);
+    setTimeout(() => { if (lista[id]) abrirVisor(id, PANEL); }, 150);
   }
   window.__irASolicitud = irASolicitud;   // lo usa el Service Worker (sw.js) al tocar una notificación push
   /* FASE 2 (push) · el Service Worker avisa que llegó un push (app abierta, minimizada o en segundo plano): voz + refresco. */
@@ -1362,7 +1387,7 @@ const SolicitudesAdmin = (() => {
     if (refLeidos) { refLeidos.off(); refLeidos = null; }
     if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
     lect = {}; ultimaDirCliente = null;
-    cerrarVisor();
+    limpiarVisor();
     lista = {}; ubic = {}; sel.clear();
     pintar();
   }
@@ -1398,6 +1423,7 @@ const SolicitudesAdmin = (() => {
     
     const vis = visibles();
     pintarHerramientas(vis);
+    contarCortina(vis.length);
     if (!vis.length) {
       caja.appendChild(el("div", "sa-vacio", !todas.length ? "Todavía no hay solicitudes." : "No hay solicitudes con este filtro."));
       return;
@@ -1429,7 +1455,7 @@ const SolicitudesAdmin = (() => {
 
       const acc = el("div", "sa-acc");
       const b = el("button", "oscuro", "👁 Ver");
-      b.type = "button"; b.addEventListener("click", () => abrirVisor(k));
+      b.type = "button"; b.addEventListener("click", () => abrirVisor(k, PANEL));
       acc.appendChild(b);
 
       // Estados finales (Entregado / Cancelado): NO se muestran botones de forzar ni cancelar.
@@ -1541,8 +1567,10 @@ const SolicitudesAdmin = (() => {
   
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
-  function abrirVisor(id) {
-    cerrarVisor();
+  const tabActivaSA = () => { const b = document.querySelector(".tabs button.activa"); return b ? b.dataset.tab : "panelMapa"; };
+  function abrirVisor(id, origen) {
+    limpiarVisor();
+    origenVisor = origen || tabActivaSA();   // pestaña a la que se regresa al cerrar (Mapa o Solicitudes)
     visorId = id; ultDia = null; vistos.clear();
     g("saMsgs").textContent = "";
     g("saMapaCaja").classList.add("oculto");
@@ -1600,7 +1628,21 @@ const SolicitudesAdmin = (() => {
     });
   }
 
+  /* Cierra el visor y regresa a la pantalla desde donde se abrió (bandeja de Solicitudes o Mapa). */
   function cerrarVisor() {
+    const estaba = !!visorId, destino = origenVisor;
+    limpiarVisor();
+    if (estaba && destino && tabActivaSA() !== destino) setTimeout(() => { try { irAPestana(destino); } catch (_) {} }, 0);
+  }
+  /* Atrás dentro del visor: primero pliega el mapa espectador; después cierra el visor. */
+  function atrasVisor() {
+    if (!visorId) return false;
+    const caja = g("saMapaCaja");
+    if (caja && !caja.classList.contains("oculto")) { caja.classList.add("oculto"); g("saMapaBtn").setAttribute("aria-expanded", "false"); return true; }
+    cerrarVisor();
+    return true;
+  }
+  function limpiarVisor() {
     if (consultaMsgs) { consultaMsgs.off(); consultaMsgs = null; }
     if (refLeidos) { refLeidos.off(); refLeidos = null; }
     if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
@@ -1768,8 +1810,13 @@ const SolicitudesAdmin = (() => {
       g("saFiltros").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
       pintar();
     });
+    fecha = hoyClave(); g("saFecha").value = fecha;   // por defecto: pedidos de hoy
     g("saFecha").addEventListener("change", () => { fecha = g("saFecha").value || ""; pintar(); });
+    const cort = g("saCortina");
+    if (cort) cort.addEventListener("click", () => { cortinaAbierta = !cortinaAbierta; try { localStorage.setItem(CLAVE_CORTINA, cortinaAbierta ? "1" : "0"); } catch (_) {} aplicarCortina(); });
+    aplicarCortina();
     g("saFechaLimpiar").addEventListener("click", () => { fecha = ""; g("saFecha").value = ""; pintar(); });
+    g("saFechaLimpiar").textContent = "Todas";
     g("saSelTodas").addEventListener("change", () => {
       const finV = visibles().filter((k) => fin(lista[k]));
       finV.forEach((k) => { if (g("saSelTodas").checked) sel.add(k); else sel.delete(k); });
@@ -1791,7 +1838,7 @@ const SolicitudesAdmin = (() => {
     if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
   }
   const activas = () => Object.entries(lista).filter(([, d]) => d && typeof d === "object" && d.repartidorUid && !fin(d));
-  return { iniciar, detener, forzarEstadoSolicitud, activas };
+  return { iniciar, detener, forzarEstadoSolicitud, activas, abrirVisor, cerrarVisor, atras: atrasVisor, visorAbierto: () => !!visorId };
 })();
 
 
@@ -1862,12 +1909,23 @@ const Brujula = (() => {
 const ChatMessenger = (() => {
   let ctx = null, obs = null, prog = false;
   const foto = (uid) => { const f = typeof fotosCache !== "undefined" ? fotosCache[uid] : ""; return f && typeof f === "string" && f.indexOf("data:image/") === 0 ? f : ""; };
-  function avatar(clase) {
+  /* Contexto del chat abierto: primero el chat con un repartidor del equipo (chatEqAbierto, de admin.js);
+     si no hay, el del repartidor invitado que fijó abrirChatInv(). */
+  function contexto() {
+    try {
+      if (typeof chatEqAbierto !== "undefined" && chatEqAbierto) {
+        const n = typeof nombreUid === "function" ? nombreUid(chatEqAbierto) : "";
+        return { uid: chatEqAbierto, nombre: n || "Repartidor" };
+      }
+    } catch (_) {}
+    return ctx;
+  }
+  function avatar(clase, cx) {
     const s = document.createElement("span");
     s.className = clase;
-    const f = ctx && foto(ctx.uid);
+    const f = cx && foto(cx.uid);
     if (f) { s.style.backgroundImage = "url('" + f + "')"; s.classList.add("con-foto"); }
-    else s.textContent = String((ctx && ctx.nombre) || "R").trim().charAt(0).toUpperCase() || "R";
+    else s.textContent = String((cx && cx.nombre) || "R").trim().charAt(0).toUpperCase() || "R";
     return s;
   }
   function decorar() {
@@ -1875,18 +1933,26 @@ const ChatMessenger = (() => {
     const c = document.querySelector("body.admin .chat");
     if (!c) return;
     c.classList.add("messenger");
-    if (!ctx) return;
+    const cx = contexto();
+    if (!cx) return;
     const barra = c.querySelector(".chat-barra");
     if (barra) {
       const previo = barra.querySelector(".msg-av-cab");
-      if (!previo || previo.dataset.uid !== ctx.uid) {
+      const f = foto(cx.uid);
+      if (!previo || previo.dataset.uid !== cx.uid || (!!f) !== previo.classList.contains("con-foto")) {
         if (previo) previo.remove();
-        const a = avatar("msg-av msg-av-cab"); a.dataset.uid = ctx.uid;
+        const a = avatar("msg-av msg-av-cab", cx); a.dataset.uid = cx.uid;
         const atras = barra.querySelector(".chat-atras");
         if (atras && atras.nextSibling) barra.insertBefore(a, atras.nextSibling); else barra.insertBefore(a, barra.firstChild);
       }
     }
-    c.querySelectorAll(".burbuja.ajena:not([data-av])").forEach((b) => { b.dataset.av = "1"; b.classList.add("con-av"); b.appendChild(avatar("msg-av")); });
+    /* Burbujas del repartidor: si cambió el chat abierto o llegó la foto, se rehace el avatar de cada burbuja. */
+    c.querySelectorAll(".burbuja.ajena").forEach((b) => {
+      const av = b.querySelector(":scope > .msg-av");
+      if (av && b.dataset.av === cx.uid && (!!foto(cx.uid)) === av.classList.contains("con-foto")) return;
+      if (av) av.remove();
+      b.dataset.av = cx.uid; b.classList.add("con-av"); b.appendChild(avatar("msg-av", cx));
+    });
   }
   const pedir = () => { if (!prog) { prog = true; requestAnimationFrame(decorar); } };
   function iniciar() {
@@ -2034,4 +2100,607 @@ const ActualizacionAdmin = (() => {
   vigilar();
   if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) vigilar(); });
   return { vigilar, lanzar, evaluar };
+})();
+
+
+/* ============================================================
+   FASE 1 · NAVEGACIÓN CONTEXTUAL HACIA ATRÁS (pila SPA)
+   admin.html envuelve Atras.iniciar para que esta capa corra justo después de la cámara/chat:
+     · Chat con repartidor            → bandeja de Chats
+     · Detalle de factura (lista)     → lista "Facturas en ruta" → Mapa
+     · Factura/panel de cliente (Mapa)→ Mapa
+     · Visor de solicitud (lectura)   → mapa espectador plegado → bandeja de Solicitudes (o Mapa si se abrió desde él)
+     · Dibujo de zonas                → cancela el dibujo
+   El resto de capas (modales, popups, búsqueda, pestañas…) sigue en la lista original de admin.js.
+   ============================================================ */
+const NavAdmin = (() => {
+  const g = (id) => document.getElementById(id);
+  const tabActiva = () => { const b = document.querySelector(".tabs button.activa"); return b ? b.dataset.tab : "panelMapa"; };
+  function irA(tab) { if (tab && tabActiva() !== tab) { try { irAPestana(tab); } catch (_) {} } }
+
+  /* Todo chat administrador ↔ repartidor (equipo o invitado) regresa a la bandeja de Chats al cerrarse. */
+  if (typeof Chat !== "undefined" && Chat && Chat.iniciar && !Chat.__navAdmin) {
+    const original = Chat.iniciar;
+    Chat.iniciar = function (o) {
+      o = o || {};
+      if (o.yo === "admin") {
+        const previo = o.alCerrar;
+        o.alCerrar = function () {
+          try { if (previo) previo.apply(this, arguments); }
+          finally { setTimeout(() => irA("panelChats"), 0); }
+        };
+      }
+      return original.call(this, o);
+    };
+    Chat.__navAdmin = true;
+  }
+
+  function atras() {
+    try { if (ZonasMapa.atras()) return true; } catch (_) {}
+    const modal = g("modalAdmin");
+    if (modal && !modal.classList.contains("oculto")) {
+      try { if (PedidosAdmin.volverALista()) return true; } catch (_) {}
+      return false;   // cualquier otro modal: lo cierra la lista original (y se regresa a la pantalla de abajo)
+    }
+    try { if (SolicitudesAdmin.atras()) return true; } catch (_) {}
+    try { if (ClientesMapa.atras()) return true; } catch (_) {}
+    return false;
+  }
+  return { atras, irA, tabActiva };
+})();
+
+
+/* ============================================================
+   FASE 1 · CLIENTES EN VIVO EN EL MAPA
+   Un ícono con el nombre del cliente en su ubicación GPS por cada pedido activo
+   (app cliente, WhatsApp / factura manual del repartidor, o pedido creado por el admin).
+   Al tocarlo: panel flotante con repartidor asignado, Factura y Espectar Chat.
+   Capas (de abajo hacia arriba): zonas 350 · rutas 400 · negocios 450 · clientes 560 · repartidores 600 · tarjetas 700.
+   ============================================================ */
+const ClientesMapa = (() => {
+  const g = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const hayNum = (n) => typeof n === "number" && isFinite(n);
+  const num = (n) => (hayNum(n) ? n : Number(n) || 0);
+  const r2 = (n) => Math.round(num(n) * 100) / 100;
+  const dinero = (n) => "C$ " + r2(n).toFixed(2);
+  const llOk = (p) => !!p && hayNum(p.lat) && hayNum(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180;
+  const arr = (x) => (Array.isArray(x) ? x : Object.values(x || {})).filter((p) => p && typeof p === "object");
+  const nomRep = (uid) => { try { return uid ? nombreUid(uid) : ""; } catch (_) { return ""; } };
+  let items = {}, marcas = {}, abierto = null, tPintar = null, listo = false;
+
+  /* ---------- capas y limpieza de controles del mapa ---------- */
+  function preparar() {
+    const pane = (nombre, z, sinEventos) => {
+      const p = mapa.getPane(nombre) || mapa.createPane(nombre);
+      p.style.zIndex = String(z);
+      if (sinEventos) p.style.pointerEvents = "none";
+    };
+    pane("paneZonas", 350, true);
+    pane("paneNegocios", 450);     // los negocios siempre por debajo de clientes, repartidores y tarjetas
+    pane("paneClientes", 560);
+    quitarZoom();
+  }
+  function quitarZoom() {
+    try { if (mapa.zoomControl) mapa.removeControl(mapa.zoomControl); } catch (_) {}
+    document.querySelectorAll("#mapaAdmin .leaflet-control-zoom").forEach((e) => e.remove());
+  }
+
+  /* ---------- fuentes de datos ---------- */
+  function reunir() {
+    const out = {};
+    const sols = typeof solicitudesMapa !== "undefined" && solicitudesMapa ? solicitudesMapa : {};
+    Object.entries(sols).forEach(([id, s]) => {
+      if (!s || typeof s !== "object" || s.estado === "entregado" || s.estado === "cancelado") return;
+      const p = typeof puntoSolicitud === "function" ? puntoSolicitud(s) : null;
+      if (!llOk(p)) return;
+      const uid = s.repartidorUid || "";
+      out["s:" + id] = { k: "s:" + id, tipo: "s", id, nombre: s.nombre || "Cliente", lat: p.lat, lng: p.lng, uid, rep: uid ? (s.repartidorNombre || nomRep(uid)) : "", est: uid ? "Con pedido" : "Sin atender", fuente: "App cliente", d: s };
+    });
+    const tokens = new Set();
+    PedidosAdmin.ordenesActivas().forEach(([t, o]) => {
+      tokens.add(t);
+      if (!llOk(o.entrega)) return;
+      const a = o.asignacion || {}, uid = a.tipo === "invitado" ? Ordenes.uidInvitado(t) : (a.uid || "");
+      out["o:" + t] = { k: "o:" + t, tipo: "o", id: t, nombre: o.cliente || "Cliente", lat: o.entrega.lat, lng: o.entrega.lng, uid, rep: a.nombre || "", est: (Ordenes.ESTADOS[o.estado] || [""])[0] || "Pedido", fuente: "Pedido admin", d: o };
+    });
+    Object.entries(typeof activos !== "undefined" ? activos : {}).forEach(([t, d]) => {
+      if (!d || d.estado !== "en_ruta" || tokens.has(t) || (d.solicitudId && out["s:" + d.solicitudId])) return;
+      const p = hayNum(d.destLat) && hayNum(d.destLng) ? { lat: d.destLat, lng: d.destLng } : d.cliente;
+      if (!llOk(p)) return;
+      const f = d.factura || {}, uid = d.repartidorUid || "";
+      out["p:" + t] = { k: "p:" + t, tipo: "p", id: t, nombre: d.clienteNombre || f.cliente || "Cliente", lat: p.lat, lng: p.lng, uid, rep: d.repartidorNombre || nomRep(uid), est: "En ruta", fuente: d.sinFactura ? "WhatsApp (sin factura)" : "WhatsApp / factura manual", d };
+    });
+    return out;
+  }
+
+  /* ---------- marcadores ---------- */
+  function icono(it) {
+    const em = it.fuente.indexOf("WhatsApp") === 0 ? "💬" : "👤";
+    return L.divIcon({
+      className: "cm-wrap",
+      html: `<div class="cm-pin ${it.uid ? "tomado" : "nuevo"}"><span>${em}</span></div><span class="cm-etq">${esc(it.nombre)}</span>`,
+      iconSize: [40, 40], iconAnchor: [20, 20]
+    });
+  }
+  function pedirPintar() { if (tPintar) return; tPintar = setTimeout(() => { tPintar = null; try { pintar(); } catch (e) { console.warn("[clientes mapa]", e); } }, 120); }
+  function pintar() {
+    if (!listo || typeof mapa === "undefined" || !mapa) return;
+    items = reunir();
+    const ver = new Set();
+    Object.values(items).forEach((it) => {
+      if (it.uid && typeof ocultos !== "undefined" && ocultos.has(it.uid)) return;   // repartidor oculto → tampoco se ven sus clientes
+      ver.add(it.k);
+      const clave = [it.nombre, it.uid ? 1 : 0, it.fuente].join("|");
+      let m = marcas[it.k];
+      if (!m) {
+        m = marcas[it.k] = L.marker([it.lat, it.lng], { icon: icono(it), pane: "paneClientes", keyboard: false, riseOnHover: false }).addTo(mapa);
+        m._k = it.k; m._clave = clave;
+        m.on("click", () => abrir(m._k));
+      } else {
+        m.setLatLng([it.lat, it.lng]);
+        if (m._clave !== clave) { m.setIcon(icono(it)); m._clave = clave; }
+      }
+    });
+    Object.keys(marcas).forEach((k) => { if (!ver.has(k)) { try { mapa.removeLayer(marcas[k]); } catch (_) {} delete marcas[k]; } });
+    if (abierto) { if (ver.has(abierto)) pintarPanel(); else cerrar(); }
+  }
+  function limpiar() {
+    Object.keys(marcas).forEach((k) => { try { if (mapa) mapa.removeLayer(marcas[k]); } catch (_) {} delete marcas[k]; });
+    items = {}; cerrar();
+  }
+
+  /* ---------- panel flotante ---------- */
+  function detalle(it) {
+    if (it.tipo === "s") { const p = it.d.pedido || {}; return p.quiere ? `<div class="cm-det">🛍️ ${esc(p.quiere)}${p.origen ? " · de " + esc(p.origen) : ""}</div>` : ""; }
+    if (it.tipo === "o") { const o = it.d; return `<div class="cm-det">📦 ${esc(PedidosAdmin.codigo(o.codigo))}${o.paquete ? " · " + esc(o.paquete) : ""}</div>`; }
+    return it.d.pedido ? `<div class="cm-det">📦 Pedido ${esc(it.d.pedido)}</div>` : "";
+  }
+  function pintarPanel() {
+    const it = items[abierto], c = g("panelCliente");
+    if (!it || !c) return;
+    const av = it.uid ? `<span class="avatar cm-av" data-av="${esc(it.uid)}">${typeof RIDER_SVG !== "undefined" ? RIDER_SVG : "🛵"}</span>` : '<span class="cm-av cm-sin">🛵</span>';
+    c.innerHTML = `<div class="cm-cab"><span class="cm-ini">${esc((it.nombre || "C").charAt(0).toUpperCase())}</span>
+        <div class="cm-tit"><strong>${esc(it.nombre)}</strong><small>${esc(it.fuente)} · ${esc(it.est)}</small></div>
+        <button type="button" class="cm-x" data-cm="cerrar" aria-label="Cerrar panel">✕</button></div>
+      <div class="cm-rep">${av}<div><small>Repartidor asignado</small><strong>${it.rep ? esc(it.rep) : "Sin asignar todavía"}</strong></div></div>
+      ${detalle(it)}
+      <div class="cm-acc"><button type="button" class="cm-btn pri" data-cm="factura">🧾 Factura</button><button type="button" class="cm-btn" data-cm="chat">👁 Espectar Chat</button></div>`;
+    c.classList.remove("oculto");
+    try { aplicarFotosAvatares(); } catch (_) {}
+  }
+  function abrir(k) {
+    if (!items[k]) return;
+    abierto = k; pintarPanel();
+    try { mapa.panTo([items[k].lat, items[k].lng], { animate: true }); } catch (_) {}
+  }
+  function cerrar() { abierto = null; const c = g("panelCliente"); if (c) { c.classList.add("oculto"); c.innerHTML = ""; } }
+  function atras() {
+    if (!abierto || NavAdmin.tabActiva() !== "panelMapa") return false;
+    cerrar(); return true;
+  }
+
+  /* ---------- factura: productos · delivery · mandados extra · total general ---------- */
+  function desdeFactura(f, extraAparte) {
+    const prods = arr(f.productos);
+    let prod = 0, ex = 0;
+    prods.forEach((p) => { const m = num(p.precio); if (String(p.nombre || "").indexOf("➕") === 0) ex += m; else prod += m; });
+    if (!prods.length && hayNum(f.subtotal)) prod = f.subtotal;
+    const mand = num(f.mandadoExtra);
+    const deliv = hayNum(f.deliveryBase) ? f.deliveryBase : Math.max(0, num(f.delivery) - mand);
+    ex += mand + num(extraAparte);
+    const otros = num(f.prioridad) + num(f.ivaExtraMonto);
+    const base = hayNum(f.totalFinal) ? f.totalFinal : hayNum(f.total) ? f.total : prod + deliv + ex + otros;
+    return { prod, deliv, ex, otros, total: r2(base + num(extraAparte)) };
+  }
+  const sumaExtras = (ex) => arr(ex).reduce((t, x) => t + num(x.monto), 0);
+  function resumen(it) {
+    if (it.tipo === "s") { const ff = it.d.facturaFinal; return ff && typeof ff === "object" ? desdeFactura(ff, 0) : null; }
+    if (it.tipo === "p") { const f = it.d.detalle || it.d.factura; return f && typeof f === "object" && (hayNum(f.total) || hayNum(f.totalFinal) || arr(f.productos).length) ? desdeFactura(f, sumaExtras(it.d.extras)) : null; }
+    const o = it.d, ped = typeof activos !== "undefined" ? activos[it.id] : null;
+    const f = ped && (ped.detalle || ped.factura);
+    if (f && typeof f === "object" && (hayNum(f.total) || hayNum(f.totalFinal))) return desdeFactura(f, sumaExtras(ped.extras));
+    const k = Ordenes.cobro(o, ped);
+    return { prod: k.pagado, deliv: k.delivery, ex: k.extras, otros: k.prio, total: k.total };
+  }
+  function abrirFactura() {
+    const it = items[abierto]; if (!it) return;
+    const r = resumen(it), fila = (t, v, c) => `<div class="fv-fila${c ? " " + c : ""}"><span>${t}</span><b>${dinero(v)}</b></div>`;
+    const cuerpo = r
+      ? `<div class="fv-bloque">${fila("🛍️ Total de productos", r.prod)}${fila("🛵 Delivery", r.deliv)}${fila("➕ Mandados extras", r.ex, r.ex > 0 ? "fv-ex" : "")}${r.otros > 0 ? fila("⚡ Prioridad / IVA extra", r.otros, "fv-pri") : ""}<div class="fv-total"><span>Total General</span><b>${dinero(r.total)}</b></div></div>`
+      : '<div class="fv-bloque"><div class="fv-fila"><span>Todavía no hay factura: el repartidor aún no la envía.</span></div></div>';
+    modal(`<div class="fv-caja"><h2>🧾 Factura</h2>
+      <div class="fv-resumen"><div class="fv-banner"><b>${esc(it.nombre)}</b><small>🛵 ${esc(it.rep || "Sin asignar")} · ${esc(it.fuente)}</small></div>${cuerpo}</div>
+      <button id="cmFvCerrar" class="oscuro" type="button">Cerrar</button></div>`);
+    g("cmFvCerrar").onclick = cerrarModal;
+  }
+
+  /* ---------- espectar chat (solo lectura) ---------- */
+  function espectar() {
+    const it = items[abierto]; if (!it) return;
+    if (it.tipo === "s") return SolicitudesAdmin.abrirVisor(it.id, "panelMapa");
+    try { if (typeof ChatMessenger !== "undefined") ChatMessenger.limpiar(); } catch (_) {}
+    const cod = it.tipo === "o" ? PedidosAdmin.codigo(it.d.codigo) : (it.d.pedido || "—");
+    Chat.iniciar({
+      token: it.id, soloLectura: true, puedeBorrar: true, pedido: cod, nombreRepartidor: it.rep, nombreCliente: it.nombre,
+      titulo: () => "Pedido " + cod + " · " + it.nombre,
+      subtitulo: () => (it.rep ? "Repartidor: " + it.rep : "Sin repartidor") + " · modo lectura"
+    });
+    Chat.abrir();
+  }
+
+  function iniciar() {
+    if (listo) { pedirPintar(); return; }
+    if (typeof mapa === "undefined" || !mapa) { setTimeout(iniciar, 600); return; }
+    listo = true;
+    preparar();
+    const panel = g("panelCliente");
+    if (panel) panel.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-cm]"); if (!b) return;
+      const a = b.dataset.cm;
+      if (a === "cerrar") cerrar(); else if (a === "factura") abrirFactura(); else if (a === "chat") espectar();
+    });
+    document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tab !== "panelMapa") cerrar(); }));
+    setInterval(pedirPintar, 4000);
+    pedirPintar();
+  }
+
+  /* El pin rojo/azul antiguo de solicitudes (admin.js) se reemplaza por este marcador unificado; las líneas guía se conservan. */
+  if (typeof pintarSolicitudesMapa === "function" && !window.__pintarSolEnvuelto) {
+    const original = pintarSolicitudesMapa;
+    window.__pintarSolEnvuelto = true;
+    window.pintarSolicitudesMapa = function () {
+      original.apply(this, arguments);
+      try {
+        Object.keys(marcasSolicitud).forEach((id) => { try { mapa.removeLayer(marcasSolicitud[id]); } catch (_) {} delete marcasSolicitud[id]; });
+        pedirPintar();
+      } catch (_) {}
+    };
+  }
+
+  if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else limpiar(); });
+  return { iniciar, pedirPintar, pintar, abrir, cerrar, atras, quitarZoom };
+})();
+
+
+/* ============================================================
+   FASE 1 · POLÍGONOS DE BARRIOS, REPARTOS Y COMARCAS
+   Vectores sutiles casi translúcidos (no capturan toques). Se guardan en Firebase (nodo "zonas"),
+   se dibujan tocando el mapa o se importan de OpenStreetMap para la vista actual.
+   ============================================================ */
+const ZonasMapa = (() => {
+  const g = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const COLOR = { barrio: "#2E86DE", reparto: "#8E44AD", comarca: "#1E9B5A" };
+  const TIPO = { barrio: "Barrio", reparto: "Reparto", comarca: "Comarca" };
+  const CLAVE_VER = "admin_zonas_visibles";
+  let ref = null, zonas = {}, capas = {}, visibles = true, dib = null, capaDib = null;
+  try { visibles = localStorage.getItem(CLAVE_VER) !== "0"; } catch (_) {}
+
+  const puntosDe = (z) => (Array.isArray(z && z.puntos) ? z.puntos : Object.values((z && z.puntos) || {})).filter((p) => p && isFinite(p.lat) && isFinite(p.lng));
+  function centro(pts) {
+    let la = 0, ln = 0; pts.forEach((p) => { la += p.lat; ln += p.lng; });
+    return [la / pts.length, ln / pts.length];
+  }
+  function quitarCapas() { Object.keys(capas).forEach((id) => { try { mapa.removeLayer(capas[id]); } catch (_) {} delete capas[id]; }); }
+  function pintar() {
+    if (typeof mapa === "undefined" || !mapa) return;
+    if (!mapa.getPane("paneZonas")) { const pz = mapa.createPane("paneZonas"); pz.style.zIndex = "350"; pz.style.pointerEvents = "none"; }
+    quitarCapas();
+    if (!visibles) return;
+    Object.entries(zonas).forEach(([id, z]) => {
+      const pts = puntosDe(z); if (pts.length < 3) return;
+      const color = z.color || COLOR[z.tipo] || COLOR.barrio, grupo = L.layerGroup();
+      L.polygon(pts.map((p) => [p.lat, p.lng]), { pane: "paneZonas", color, weight: 1.2, opacity: .45, fillColor: color, fillOpacity: .06, interactive: false, lineJoin: "round" }).addTo(grupo);
+      L.marker(centro(pts), { pane: "paneZonas", interactive: false, keyboard: false, icon: L.divIcon({ className: "zn-wrap", html: `<span class="zn-etq" style="color:${color}">${esc(z.nombre || "")}</span>`, iconSize: [0, 0] }) }).addTo(grupo);
+      grupo.addTo(mapa); capas[id] = grupo;
+    });
+  }
+  function iniciar() {
+    if (typeof mapa === "undefined" || !mapa) return setTimeout(iniciar, 600);
+    if (ref) ref.off();
+    ref = db.ref("zonas");
+    ref.on("value", (s) => { zonas = s.val() || {}; pintar(); }, () => { zonas = {}; pintar(); });
+  }
+  function detener() { if (ref) { ref.off(); ref = null; } zonas = {}; quitarCapas(); cancelarDibujo(true); }
+
+  /* ---------- gestor ---------- */
+  function abrirGestor() {
+    const ids = Object.keys(zonas).sort((a, b) => String(zonas[a].nombre || "").localeCompare(String(zonas[b].nombre || "")));
+    modal(`<div class="zn-gestor"><h2>🗺️ Zonas del mapa</h2>
+      <p class="ayuda">Barrios, repartos y comarcas se dibujan como áreas casi transparentes para ubicarte mejor.</p>
+      <label class="zn-ver"><input id="znVer" type="checkbox" ${visibles ? "checked" : ""}> Mostrar zonas en el mapa</label>
+      <div class="zn-acc"><button id="znNueva" class="primario" type="button">✏️ Dibujar zona nueva</button><button id="znOSM" type="button">📥 Importar de OpenStreetMap (vista actual)</button></div>
+      <div id="znMsg" class="estado oculto" role="status"></div>
+      <div class="zn-lista">${ids.length ? ids.map((id) => `<div class="zn-fila"><i style="background:${esc(zonas[id].color || COLOR[zonas[id].tipo] || COLOR.barrio)}"></i><span><strong>${esc(zonas[id].nombre || "Sin nombre")}</strong><small>${esc(TIPO[zonas[id].tipo] || "Zona")} · ${puntosDe(zonas[id]).length} puntos</small></span><button type="button" class="mini peligro" data-zdel="${esc(id)}" aria-label="Eliminar zona">🗑</button></div>`).join("") : '<p class="ayuda">Aún no hay zonas. Dibuja una o impórtalas.</p>'}</div>
+      <button id="znCerrar" class="oscuro" type="button">Cerrar</button></div>`);
+    g("znCerrar").onclick = cerrarModal;
+    g("znVer").onchange = (e) => { visibles = e.target.checked; try { localStorage.setItem(CLAVE_VER, visibles ? "1" : "0"); } catch (_) {} pintar(); };
+    g("znNueva").onclick = formularioNueva;
+    g("znOSM").onclick = importarOSM;
+    g("modalCaja").querySelector(".zn-lista").onclick = (e) => {
+      const b = e.target.closest("button[data-zdel]"); if (!b) return;
+      const z = zonas[b.dataset.zdel]; if (!z) return;
+      if (!confirm("¿Eliminar la zona “" + (z.nombre || "") + "”?")) return;
+      db.ref("zonas/" + b.dataset.zdel).remove().then(() => setTimeout(abrirGestor, 250)).catch((err) => toast("No se pudo eliminar: " + err.message));
+    };
+  }
+  function msgGestor(t, error) { const m = g("znMsg"); if (!m) return; m.textContent = t || ""; m.className = "estado" + (error ? " error" : "") + (t ? "" : " oculto"); }
+
+  /* ---------- importar de OpenStreetMap ---------- */
+  async function importarOSM() {
+    const b = mapa.getBounds(), caja = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
+    if (mapa.getZoom() < 12) return msgGestor("Acerca el mapa (zoom 12 o más) para importar solo tu zona.", true);
+    msgGestor("Buscando zonas en OpenStreetMap…");
+    const consulta = `[out:json][timeout:25];(way["place"~"^(suburb|neighbourhood|quarter|village|hamlet|locality)$"](${caja});way["landuse"="residential"]["name"](${caja}););out geom 80;`;
+    const ctl = typeof AbortController !== "undefined" ? new AbortController() : null, t = setTimeout(() => { try { ctl && ctl.abort(); } catch (_) {} }, 28000);
+    try {
+      const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(consulta), headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: ctl ? ctl.signal : undefined });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json(), upd = {};
+      (j.elements || []).forEach((el) => {
+        const geo = (el.geometry || []).map((p) => ({ lat: +p.lat.toFixed(6), lng: +p.lon.toFixed(6) })), tags = el.tags || {};
+        if (el.type !== "way" || geo.length < 4 || !tags.name) return;
+        const pl = tags.place || "", tipo = /village|hamlet|locality/.test(pl) ? "comarca" : /suburb|neighbourhood|quarter/.test(pl) ? "barrio" : "reparto";
+        upd["osm_" + el.id] = { nombre: String(tags.name).slice(0, 60), tipo, puntos: geo.slice(0, geo.length - 1), fuente: "osm", creado: firebase.database.ServerValue.TIMESTAMP };
+      });
+      const n = Object.keys(upd).length;
+      if (!n) return msgGestor("OpenStreetMap no tiene zonas con nombre aquí. Usa “Dibujar zona nueva”.", true);
+      await db.ref("zonas").update(upd);
+      msgGestor("✓ " + n + " zona" + (n === 1 ? "" : "s") + " importada" + (n === 1 ? "" : "s") + ".");
+      setTimeout(abrirGestor, 900);
+    } catch (e) { msgGestor("No se pudo importar: " + (e && e.name === "AbortError" ? "tiempo agotado" : (e.message || e)), true); }
+    finally { clearTimeout(t); }
+  }
+
+  /* ---------- dibujo manual ---------- */
+  function formularioNueva() {
+    modal(`<div class="zn-gestor"><h2>✏️ Zona nueva</h2>
+      <label>Nombre <input id="znNombre" maxlength="60" autocomplete="off" placeholder="Ej. Barrio San Antonio"></label>
+      <label>Tipo <select id="znTipo"><option value="barrio">Barrio</option><option value="reparto">Reparto</option><option value="comarca">Comarca</option></select></label>
+      <div id="znMsg" class="estado oculto" role="status"></div>
+      <button id="znEmpezar" class="primario" type="button">Marcar esquinas en el mapa</button>
+      <button id="znVolver" type="button">← Volver</button></div>`);
+    g("znVolver").onclick = abrirGestor;
+    g("znEmpezar").onclick = () => {
+      const nombre = g("znNombre").value.trim();
+      if (!nombre) return msgGestor("Escribe el nombre de la zona.", true);
+      cerrarModal(); empezarDibujo(nombre, g("znTipo").value);
+    };
+  }
+  function barra(texto) {
+    const b = g("barraZona"); if (!b) return;
+    b.classList.toggle("oculto", !dib);
+    if (dib) { g("znTxt").textContent = texto || ""; g("znOk").disabled = dib.pts.length < 3; g("znUndo").disabled = !dib.pts.length; }
+  }
+  function empezarDibujo(nombre, tipo) {
+    dib = { nombre, tipo, pts: [] };
+    if (!capaDib) capaDib = L.layerGroup().addTo(mapa);
+    redibujar();
+    try { NavAdmin.irA("panelMapa"); } catch (_) {}
+  }
+  function redibujar() {
+    if (!capaDib) return;
+    capaDib.clearLayers();
+    if (!dib) return barra();
+    const ll = dib.pts.map((p) => [p.lat, p.lng]), color = COLOR[dib.tipo] || COLOR.barrio;
+    if (ll.length >= 3) L.polygon(ll, { color, weight: 2, fillColor: color, fillOpacity: .12, interactive: false }).addTo(capaDib);
+    else if (ll.length === 2) L.polyline(ll, { color, weight: 2, interactive: false }).addTo(capaDib);
+    ll.forEach((p) => L.circleMarker(p, { radius: 5, color: "#fff", weight: 2, fillColor: color, fillOpacity: 1, interactive: false }).addTo(capaDib));
+    barra(`${dib.nombre}: ${dib.pts.length} punto${dib.pts.length === 1 ? "" : "s"} · toca el mapa para añadir esquinas`);
+  }
+  function capturar(ll) {
+    if (!dib) return false;
+    dib.pts.push({ lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) });
+    redibujar(); return true;
+  }
+  function deshacer() { if (dib && dib.pts.length) { dib.pts.pop(); redibujar(); } }
+  function cancelarDibujo(silencio) {
+    if (!dib) return false;
+    dib = null; if (capaDib) capaDib.clearLayers();
+    barra(); if (!silencio) toast("Dibujo de zona cancelado");
+    return true;
+  }
+  async function guardarDibujo() {
+    if (!dib || dib.pts.length < 3) return toast("Marca al menos 3 esquinas.");
+    const z = { nombre: dib.nombre, tipo: dib.tipo, puntos: dib.pts, creado: firebase.database.ServerValue.TIMESTAMP };
+    try { await db.ref("zonas").push(z); cancelarDibujo(true); toast("Zona guardada ✓"); }
+    catch (e) { toast("No se pudo guardar: " + (e.code || e.message)); }
+  }
+  function atras() { return cancelarDibujo(false); }
+
+  (function enlazar() {
+    const b = g("btnZonas"); if (b) b.onclick = abrirGestor;
+    const u = g("znUndo"), o = g("znOk"), c = g("znCancel");
+    if (u) u.onclick = deshacer; if (o) o.onclick = guardarDibujo; if (c) c.onclick = () => cancelarDibujo(false);
+  })();
+  if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
+  return { iniciar, detener, capturar, atras, abrirGestor };
+})();
+
+
+/* ============================================================
+   FASE 2 · AVISOS DE CHAT INTEGRADOS EN LA BANDEJA
+   El mensaje nuevo de un repartidor aparece dentro de la bandeja de Chats (arriba de la lista),
+   con su foto de perfil, y no como aviso flotante en la esquina. Si el admin está en otra pestaña,
+   la pestaña "Chats" muestra el contador y el aviso lo espera en la bandeja.
+   ============================================================ */
+const ChatBandeja = (() => {
+  const g = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const avisos = new Map();   // clave → { uid, nombre, texto, n, abrir, ts }
+  let ref = null, primera = true, previo = {};
+
+  function pintar() {
+    const caja = g("bannerChatBandeja"), badge = g("chatsBadge");
+    const total = [...avisos.values()].reduce((t, a) => t + a.n, 0);
+    if (badge) { badge.textContent = String(total); badge.classList.toggle("oculto", !total); }
+    if (!caja) return;
+    const lista = [...avisos.entries()].sort((a, b) => b[1].ts - a[1].ts).slice(0, 4);
+    caja.innerHTML = lista.map(([k, a]) => `<div class="cb-aviso" data-k="${esc(k)}" role="button" tabindex="0" aria-label="Abrir chat con ${esc(a.nombre)}">
+        <span class="avatar" data-av="${esc(a.uid)}">${typeof RIDER_SVG !== "undefined" ? RIDER_SVG : "🛵"}</span>
+        <div class="cb-txt"><strong>${esc(a.nombre)}</strong><small>${esc(a.texto || "Mensaje nuevo")}</small></div>
+        ${a.n > 1 ? `<span class="cb-mas">${a.n}</span>` : ""}
+        <button type="button" class="cb-x" data-x="${esc(k)}" aria-label="Descartar aviso">✕</button></div>`).join("");
+    try { aplicarFotosAvatares(); } catch (_) {}
+  }
+  function aviso(a) {
+    const previoA = avisos.get(a.clave);
+    avisos.set(a.clave, { uid: a.uid, nombre: a.nombre, texto: a.texto, abrir: a.abrir, n: (previoA ? previoA.n : 0) + 1, ts: Date.now() });
+    pintar();
+  }
+  function quitar(k) { if (avisos.delete(k)) pintar(); }
+
+  function escuchar() {
+    if (ref) ref.off();
+    primera = true; previo = {};
+    ref = db.ref("chatsEquipoResumen");
+    ref.on("value", (s) => {
+      const n = s.val() || {};
+      Object.entries(n).forEach(([uid, r]) => {
+        if (!primera && r.ultimoDe === "repartidor" && (r.ts || 0) > ((previo[uid] && previo[uid].ts) || 0) && (typeof chatEqAbierto === "undefined" || chatEqAbierto !== uid)) {
+          aviso({ clave: "eq:" + uid, uid, nombre: nombreUid(uid), texto: r.ultimo || "", abrir: () => abrirChatRep(uid) });
+        }
+        if (r.ultimoDe === "admin") quitar("eq:" + uid);   // ya respondiste: el aviso deja de tener sentido
+      });
+      primera = false; previo = n;
+    }, () => {});
+  }
+  function detener() { if (ref) { ref.off(); ref = null; } avisos.clear(); pintar(); }
+
+  const caja = g("bannerChatBandeja");
+  if (caja) {
+    const abrirDe = (e) => {
+      const x = e.target.closest("[data-x]");
+      if (x) { quitar(x.dataset.x); return; }
+      const f = e.target.closest(".cb-aviso"); if (!f) return;
+      const a = avisos.get(f.dataset.k); quitar(f.dataset.k);
+      if (a && a.abrir) a.abrir();
+    };
+    caja.addEventListener("click", abrirDe);
+    caja.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("cb-aviso")) { e.preventDefault(); abrirDe(e); } });
+  }
+  if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) escuchar(); else detener(); });
+  return { aviso, quitar };
+})();
+
+
+/* ============================================================
+   FASE 2 · RENDIMIENTO E INGRESOS POR REPARTIDOR (pestaña Equipo)
+   Fuente: contabilidad/{uid}/* (un registro por pedido cobrado, sin importar el origen).
+   Modelo: deducción fija por pedido (C$ 7 / 14 / 21 según el rango de precio + C$ 7 por cada IVA extra)
+           → remanente (bolsa) → 30 % para Brother’s y 70 % para el repartidor.
+   Entregar a Brother’s = Σ deducciones fijas + Σ 30 % de comisión (todas las fuentes unidas).
+   ============================================================ */
+const RendimientoEquipo = (() => {
+  const g = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const hayNum = (n) => typeof n === "number" && isFinite(n);
+  const num = (n) => (hayNum(n) ? n : Number(n) || 0);
+  const r2 = (n) => Math.round(num(n) * 100) / 100;
+  const dinero = (n) => "C$ " + r2(n).toFixed(2);
+  const PCT_BROTHERS = 0.3, IVA = 7;
+  const refs = {}, datos = {};        // uid → ref / registros
+  let rango = 30, timer = null, tPintar = null, activo = false;
+
+  const desdeFecha = () => {
+    if (!rango) return "";
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (rango - 1));
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  };
+  const fuenteDe = (o) => (o === "manual" ? "wa" : o === "chat" ? "app" : "admin");   // admin + invitado → Admin
+
+  function calcular(recs) {
+    const t = { n: 0, admin: 0, wa: 0, app: 0, bruto: 0, fijo: 0, ivaN: 0, ivaMonto: 0, d7: 0, d14: 0, d21: 0, dOtro: 0, bolsa: 0, brothers30: 0, rep70: 0 };
+    recs.forEach((r) => {
+      if (!r || typeof r !== "object") return;
+      const fijo = num(r.fijo), bruto = num(r.bruto);
+      const bolsa = hayNum(r.bolsa) ? r.bolsa : Math.max(0, bruto - fijo);
+      const ivaMonto = num(r.ivasMonto) || num(r.ivasExtras) * IVA;
+      const base = hayNum(r.fijoBase) ? r.fijoBase : Math.max(0, fijo - ivaMonto);
+      const com = r2(bolsa * PCT_BROTHERS);
+      t.n++; t[fuenteDe(r.origen)]++;
+      t.bruto += bruto; t.fijo += fijo; t.bolsa += bolsa; t.brothers30 += com; t.rep70 += r2(bolsa - com);
+      t.ivaMonto += ivaMonto; t.ivaN += Math.round(ivaMonto / IVA);
+      const b = Math.round(base);
+      if (b === 7) t.d7++; else if (b === 14) t.d14++; else if (b === 21) t.d21++; else t.dOtro++;
+    });
+    t.entregar = r2(t.fijo + t.brothers30);
+    return t;
+  }
+
+  function tarjeta(titulo, sub, uid, t, esTotal) {
+    const av = uid ? `<span class="avatar" data-av="${esc(uid)}">${typeof RIDER_SVG !== "undefined" ? RIDER_SVG : "🛵"}</span>` : '<span class="avatar" aria-hidden="true">👥</span>';
+    const conteo = [t.d7 ? `C$ 7 × ${t.d7}` : "", t.d14 ? `C$ 14 × ${t.d14}` : "", t.d21 ? `C$ 21 × ${t.d21}` : "", t.dOtro ? `otras × ${t.dOtro}` : "", t.ivaN ? `IVA extra (C$ 7) × ${t.ivaN}` : ""].filter(Boolean).join(" · ") || "Sin deducciones";
+    return `<div class="rd-tarjeta${esTotal ? " total" : ""}">
+      <div class="rd-cab">${av}<div><strong>${esc(titulo)}</strong><small>${esc(sub)}</small></div><span class="rd-n" title="Pedidos realizados">${t.n}</span></div>
+      <div class="rd-orig"><div><b>${t.admin}</b><small>🛡️ Admin</small></div><div><b>${t.wa}</b><small>💬 WhatsApp / Factura manual</small></div><div><b>${t.app}</b><small>📱 App Cliente</small></div></div>
+      <div class="rd-filas">
+        <div class="rd-fila"><span>Ingresos brutos (delivery + mandados)</span><b>${dinero(t.bruto)}</b></div>
+        <div class="rd-fila"><span>− Deducciones fijas</span><b>${dinero(t.fijo)}</b></div>
+        <div class="rd-fila sub"><span>${esc(conteo)}</span></div>
+        <div class="rd-fila fuerte"><span>Remanente a repartir</span><b>${dinero(t.bolsa)}</b></div>
+        <div class="rd-fila"><span>30 % comisión Brother’s</span><b>${dinero(t.brothers30)}</b></div>
+        <div class="rd-fila"><span>70 % neto del repartidor</span><b>${dinero(t.rep70)}</b></div>
+      </div>
+      <div class="rd-entrega"><span>💵 Entregar a Brother’s<br><small>Deducciones fijas + 30 % acumulado</small></span><b>${dinero(t.entregar)}</b></div>
+    </div>`;
+  }
+
+  function pintar() {
+    const caja = g("rendLista"); if (!caja) return;
+    const uids = Object.keys(typeof registrados !== "undefined" ? registrados : {}).sort((a, b) => nombreUid(a).localeCompare(nombreUid(b)));
+    if (!uids.length) { caja.innerHTML = '<div class="rd-vacio">Aún no hay repartidores en el equipo.</div>'; return; }
+    const todos = [], tarjetas = uids.map((uid) => {
+      const recs = Object.values(datos[uid] || {}); todos.push(...recs);
+      return tarjeta(nombreUid(uid), recs.length ? "Pedidos realizados en el periodo" : "Sin pedidos en el periodo", uid, calcular(recs), false);
+    });
+    const total = tarjeta("Total del equipo", "Todas las fuentes unificadas", "", calcular(todos), true);
+    caja.innerHTML = total + tarjetas.join("");
+    try { aplicarFotosAvatares(); } catch (_) {}
+  }
+  function pedirPintar() { if (tPintar) return; tPintar = setTimeout(() => { tPintar = null; pintar(); }, 150); }
+
+  function suscribir(uid) {
+    if (refs[uid]) return;
+    const d = desdeFecha();
+    const q = d ? db.ref("contabilidad/" + uid).orderByChild("fecha").startAt(d) : db.ref("contabilidad/" + uid);
+    refs[uid] = q;
+    q.on("value", (s) => { datos[uid] = s.val() || {}; pedirPintar(); }, () => { datos[uid] = {}; pedirPintar(); });
+  }
+  function soltarTodo() { Object.keys(refs).forEach((u) => { try { refs[u].off(); } catch (_) {} delete refs[u]; }); Object.keys(datos).forEach((u) => delete datos[u]); }
+  function sincronizar() {
+    if (!activo || typeof registrados === "undefined") return;
+    const uids = Object.keys(registrados);
+    uids.forEach(suscribir);
+    Object.keys(refs).forEach((u) => { if (uids.indexOf(u) < 0) { try { refs[u].off(); } catch (_) {} delete refs[u]; delete datos[u]; } });
+    pedirPintar();
+  }
+  function iniciar() { activo = true; sincronizar(); clearInterval(timer); timer = setInterval(sincronizar, 5000); }
+  function detener() { activo = false; clearInterval(timer); soltarTodo(); const c = g("rendLista"); if (c) c.innerHTML = ""; }
+
+  const sel = g("rendRango");
+  if (sel) sel.addEventListener("change", () => { rango = Number(sel.value) || 0; soltarTodo(); sincronizar(); });
+  if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
+  return { iniciar, detener, calcular };
+})();
+
+
+/* ============================================================
+   FASE 3 · ALERTAS PUSH DE ALTA PRIORIDAD (lado página) + VOZ
+   sw.js muestra el banner (pantalla encendida, vibración) con la app cerrada o en segundo plano y avisa a la página
+   (PUSH_RECIBIDO). Con la app abierta: vibración + voz "Hay una solicitud de pedido".
+   ============================================================ */
+const AlertasPush = (() => {
+  const FRASE = "Hay una solicitud de pedido";
+  try {
+    if (typeof Voz !== "undefined" && Voz && typeof Voz.alertaPedido !== "function") {
+      Voz.alertaPedido = () => {
+        try { if (typeof Voz.hablar === "function") return Voz.hablar(FRASE, { forzar: true }); } catch (_) {}
+        try { const u = new SpeechSynthesisUtterance(FRASE); u.lang = "es-MX"; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (_) {}
+      };
+    }
+  } catch (_) {}
+  window.addEventListener("push-admin-recibido", () => { try { if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 500]); } catch (_) {} });
+  return { FRASE };
 })();

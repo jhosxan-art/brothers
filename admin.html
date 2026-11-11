@@ -262,6 +262,7 @@
           <button id="btnVerNegocios" class="herr on" type="button" aria-label="Mostrar u ocultar negocios"><b>🏪</b><small>Negocios</small></button>
           <button id="btnPolicia" class="herr" type="button" aria-label="Reportar policía"><b>🚨</b><small>Policía</small></button>
           <button id="btnOcultar" class="herr" type="button" aria-label="Elegir qué repartidores se ven en el mapa"><b>👁</b><small>Repartidores</small></button>
+          <button id="btnZonas" class="herr" type="button" aria-label="Zonas: barrios, repartos y comarcas"><b>🗺️</b><small>Zonas</small></button>
           <button id="btnNegocio" class="herr" type="button" aria-label="Agregar negocio"><b>➕</b><small>Agregar</small></button>
           <button id="btnIconoMas" class="herr" type="button" aria-label="Iconos de repartidor más grandes"><b>🛵＋</b><small>Más grande</small></button>
           <button id="btnIconoMenos" class="herr" type="button" aria-label="Iconos de repartidor más pequeños"><b>🛵－</b><small>Más chico</small></button>
@@ -277,6 +278,13 @@
             <button id="btnGuiaQuitar" class="mini peligro oculto" type="button">Quitar guía</button>
             <button id="btnGuiaCancelar" class="mini" type="button">Cancelar</button>
           </div>
+        </div>
+        <!-- FASE 1 · Panel flotante del cliente (repartidor asignado · Factura · Espectar Chat) -->
+        <div id="panelCliente" class="panel-cliente oculto" role="dialog" aria-label="Datos del cliente"></div>
+        <!-- FASE 1 · Barra del modo "dibujar zona" -->
+        <div id="barraZona" class="barra-zona oculto" role="toolbar" aria-label="Dibujar zona">
+          <span id="znTxt"></span>
+          <div class="barra-zona-acc"><button id="znUndo" type="button">↶ Deshacer</button><button id="znOk" class="ok" type="button">✔ Guardar</button><button id="znCancel" type="button">✕ Cancelar</button></div>
         </div>
         <div id="toastAdmin" class="toast-admin oculto" role="status"></div>
         <!-- FASE 2 · Brújula: apunta al norte real; al tocarla se desbloquea el mapa (mover y girar con los dedos) -->
@@ -294,6 +302,8 @@
         <button id="btnSelEnviar" class="mini pri oculto" type="button">✉️ Enviar</button>
         <button id="btnSelBorrar" class="mini peligro oculto" type="button">🗑 Eliminar…</button>
       </div>
+      <!-- FASE 2 · Avisos de mensaje nuevo integrados en la bandeja (con foto del repartidor) -->
+      <div id="bannerChatBandeja" class="cb-bandeja" role="status" aria-live="polite"></div>
       <div id="listaChats" class="acciones"></div>
     </section>
 
@@ -342,6 +352,17 @@
         </div></div>
       </section>
 
+      <!-- FASE 2 · Rendimiento e ingresos por repartidor (cortina) -->
+      <section class="eq-mod" id="modRend">
+        <div class="eq-cab">
+          <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoRend"><span>📊 Rendimiento e ingresos</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
+        </div>
+        <div class="eq-cuerpo" id="cuerpoRend"><div class="eq-cuerpo-in">
+          <label>Periodo <select id="rendRango"><option value="1">Hoy</option><option value="7">Últimos 7 días</option><option value="30" selected>Últimos 30 días</option><option value="0">Todo el tiempo</option></select></label>
+          <div id="rendLista" class="acciones" style="margin:10px 0"></div>
+        </div></div>
+      </section>
+
       <!-- 4) Calificaciones de clientes (cortina) -->
       <section class="eq-mod" id="modCalif">
         <div class="eq-cab">
@@ -386,7 +407,10 @@
     </section>
 
     <section id="panelSolicitudes" class="oculto">
-      <h2>Solicitudes entrantes</h2>
+      <div class="sa-cab-sol">
+        <h2>Solicitudes entrantes</h2>
+        <button id="saCortina" class="sa-cortina" type="button" aria-expanded="true" aria-controls="saLista" aria-label="Minimizar o mostrar los pedidos"><span class="sa-cortina-txt">Minimizar</span><span id="saCortinaN" class="sa-cortina-n">0</span><span class="sa-cortina-flecha" aria-hidden="true"></span></button>
+      </div>
       <div id="saResumen" class="sa-resumen"></div>
       <div id="saServicio" class="sa-servicio oculto" aria-label="Repartidores con pedido"></div>
       <div class="sa-filtros" id="saFiltros">
@@ -454,7 +478,7 @@
 
     <nav class="tabs">
       <button class="activa" data-tab="panelMapa">Mapa</button>
-      <button data-tab="panelChats">Chats</button>
+      <button data-tab="panelChats">Chats<span id="chatsBadge" class="badge-nav rojo oculto">0</span></button>
       <button data-tab="panelEquipo">Equipo</button>
       <button data-tab="panelPedidos">Crear Pedido</button>
       <button data-tab="panelSolicitudes">Solicitudes<span id="saBadge" class="sa-badge oculto">0</span></button>
@@ -489,6 +513,18 @@
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
   <script src="atras.js"></script>
+  <script>
+    /* FASE 1 · Navegación contextual: inserta la capa NavAdmin (ordenes-admin.js) justo después de la cámara/chat
+       en la lista de "atrás" que define admin.js, sin tocar el resto de capas. */
+    (function () {
+      var iniciar = Atras.iniciar;
+      Atras.iniciar = function (lista) {
+        var capas = lista.slice();
+        capas.splice(1, 0, function () { return typeof NavAdmin !== "undefined" && NavAdmin.atras(); });
+        return iniciar(capas);
+      };
+    })();
+  </script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>
@@ -504,13 +540,14 @@
       function irAlPanel(datos) {
         if (abriendo) return; abriendo = true;
         var id = datos && (datos.solicitud || datos.ordenId) || "";
+        var esChat = !!(datos && /mensaje|chat/i.test(String(datos.tipo || "")) && !datos.solicitud);
         var intentos = 0;
         (function intentar() {
           intentos++;
           var app = document.getElementById("vistaApp");
           if (app && app.classList.contains("oculto") && intentos < 40) return setTimeout(intentar, 500);   // espera el inicio de sesión
-          try { if (typeof irAPestana === "function") irAPestana("panelSolicitudes"); } catch (_) {}
-          if (id && typeof window.__irASolicitud === "function") {
+          try { if (typeof irAPestana === "function") irAPestana(esChat ? "panelChats" : "panelSolicitudes"); } catch (_) {}
+          if (!esChat && id && typeof window.__irASolicitud === "function") {
             setTimeout(function () { try { window.__irASolicitud(id); } catch (_) {} }, 400);
             setTimeout(function () {
               var m = document.getElementById("modalSolicitud");
@@ -523,7 +560,7 @@
       window.addEventListener("load", function () {
         var q = new URLSearchParams(location.search);
         if (q.get("push")) {
-          var d = { solicitud: q.get("push") === "sol" ? q.get("id") || "" : "", ordenId: q.get("push") === "orden" ? q.get("id") || "" : "" };
+          var d = { tipo: q.get("push") === "chat" ? "chat" : "", solicitud: q.get("push") === "sol" ? q.get("id") || "" : "", ordenId: q.get("push") === "orden" ? q.get("id") || "" : "" };
           try { history.replaceState(null, "", location.pathname); } catch (_) {}
           irAlPanel(d);
         }
