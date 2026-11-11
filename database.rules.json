@@ -247,6 +247,11 @@
       }
     },
 
+    "cobrosAdmin": {
+      ".read": "auth != null",
+      "$uid": { ".write": "auth != null" }
+    },
+
     "guias": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$uid": {
@@ -325,6 +330,14 @@
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$id": {
         ".validate": "newData.hasChildren(['nombre', 'lat', 'lng'])"
+      }
+    },
+
+    "zonas": {
+      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$id": {
+        ".validate": "newData.hasChildren(['nombre', 'tipo', 'puntos']) && newData.child('nombre').isString() && newData.child('nombre').val().length <= 60 && (newData.child('tipo').val() == 'barrio' || newData.child('tipo').val() == 'reparto' || newData.child('tipo').val() == 'comarca')"
       }
     },
 
