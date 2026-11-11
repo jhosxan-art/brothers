@@ -10,7 +10,7 @@
    ============================================================ */
 "use strict";
 
-const SW_VERSION = "admin-push-v1.1.0";
+const SW_VERSION = "admin-push-v1.2.0";
 const PUSH_CONFIG = Object.freeze({ urgency: "high", ttl: 86400 });
 const PANEL_URL = "./admin.html";
 const ICONO = "./icon-192.png";
@@ -42,10 +42,14 @@ function leerPayload(event) {
   };
 }
 
+/* Mensaje de un repartidor (no es un pedido): el banner abre la bandeja de Chats */
+const TIPOS_CHAT = ["mensaje_repartidor", "chat_repartidor", "mensaje", "chat"];
+function esChat(p) { return !p.solicitud && TIPOS_CHAT.indexOf(String(p.tipo || "")) !== -1; }
+
 /* ---------- URL de destino: siempre el panel de gestión del Administrador ---------- */
 function urlDestino(p) {
   const u = new URL(p.url || PANEL_URL, self.registration.scope);
-  u.searchParams.set("push", p.ordenId && !p.solicitud ? "orden" : "sol");
+  u.searchParams.set("push", esChat(p) ? "chat" : p.ordenId && !p.solicitud ? "orden" : "sol");
   if (p.solicitud) u.searchParams.set("id", p.solicitud);
   else if (p.ordenId) u.searchParams.set("id", p.ordenId);
   u.searchParams.set("t", String(Date.now()));
@@ -69,10 +73,9 @@ self.addEventListener("push", (event) => {
     timestamp: Date.now(),
     dir: "auto",
     lang: "es",
-    actions: [
-      { action: "ver", title: "👁️ Ver pedido" },
-      { action: "asignar", title: "🛵 Asignar / Enlace" }
-    ],
+    actions: esChat(p)
+      ? [{ action: "ver", title: "💬 Abrir chat" }]
+      : [{ action: "ver", title: "👁️ Ver pedido" }, { action: "asignar", title: "🛵 Asignar / Enlace" }],
     data: { tipo: p.tipo, solicitud: p.solicitud, ordenId: p.ordenId, url: urlDestino(p), urgency: PUSH_CONFIG.urgency, ttl: PUSH_CONFIG.ttl, ts: Date.now() }
   };
   if (p.imagen) opciones.image = p.imagen;
