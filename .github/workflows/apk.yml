@@ -12,6 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Repositorio compartido: cada app tiene su carpeta de configuración (config/repartidor y config/admin).
+      # Aquí se copian a la raíz SOLO dentro de esta compilación, para que nunca se pisen entre apps.
+      - name: Configuración del repartidor (paquete y Firebase)
+        run: |
+          for f in capacitor.config.json google-services.json; do
+            if [ ! -f "config/repartidor/$f" ]; then
+              echo "::error::Falta config/repartidor/$f en el repositorio."
+              exit 1
+            fi
+            cp "config/repartidor/$f" "$f"
+          done
+          grep -n '"appId"' capacitor.config.json
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
