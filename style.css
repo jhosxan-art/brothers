@@ -1367,8 +1367,8 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
 #listaEquipo .tarjeta-rep .avatar.con-foto { padding: 0; background-color: transparent; border-color: var(--celeste-prof); }
 
 /* ---- 3 y 4) Listas de facturas y calificaciones en rejilla ---- */
-#statsDia, #califLista { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); align-items: start; }
-#statsDia > .stats-total, #califLista > .stats-total, #statsDia > .ayuda, #califLista > .ayuda { grid-column: 1 / -1; }
+#califLista { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); align-items: start; }
+#califLista > .stats-total, #califLista > .ayuda { grid-column: 1 / -1; }
 
 /* ---- Módulos con cortina (minimizar / maximizar) ---- */
 #panelEquipo .eq-mod { min-width: 0; background: #fff; border: 1px solid var(--linea); border-radius: 22px; padding: 6px 16px; }

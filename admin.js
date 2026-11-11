@@ -687,22 +687,17 @@ async function marcarEntregado(token) {
 }
 
 let refStats = null, facturasHoy = 0;
+/* El conteo de facturas de hoy alimenta el contador del mapa (🧾). La sección "Facturas del día" del panel Equipo ya no existe. */
 function cargarStats() {
   if (refStats) refStats.off();
-  const dia = $("diaStats").value || Dia.clave();
+  const dia = Dia.clave();
   refStats = db.ref("estadisticas/" + dia);
-  refStats.on("value", (s) => pintarStats(s.val() || {}, dia), (e) => { $("statsDia").innerHTML = `<p class="ayuda">No se pudieron leer las facturas: ${esc(e.message)}</p>`; });
+  refStats.on("value", (s) => pintarStats(s.val() || {}), () => {});
 }
-function pintarStats(d, dia) {
-  const uids = [...new Set([...Object.keys(registrados), ...Object.keys(d)])];
-  const filas = uids.map((uid) => { const x = d[uid] || {}; return { nombre: x.nombre || nombreUid(uid), f: x.facturas || 0, t: x.total || 0, del: x.delivery || 0 }; }).sort((a, b) => b.f - a.f || a.nombre.localeCompare(b.nombre));
-  const tf = filas.reduce((n, x) => n + x.f, 0), tt = filas.reduce((n, x) => n + x.t, 0), td = filas.reduce((n, x) => n + x.del, 0);
-  if (dia === Dia.clave()) { facturasHoy = tf; pintarLista(); }
-  const money = (n) => "C$ " + (Math.round(n * 100) / 100).toFixed(2);
-  $("statsDia").innerHTML = `<div class="stats-total"><b>${tf}</b> factura${tf === 1 ? "" : "s"} ${dia === Dia.clave() ? "hoy" : "el " + esc(dia)}<br>Delivery ${money(td)} · Ventas ${money(tt)}</div>` +
-    filas.map((x) => `<div class="stats-fila"><div><strong>${esc(x.nombre)}</strong><small>Delivery ${money(x.del)} · Ventas ${money(x.t)}</small></div><b class="n">${x.f}</b></div>`).join("");
+function pintarStats(d) {
+  facturasHoy = Object.values(d).reduce((n, x) => n + ((x && Number(x.facturas)) || 0), 0);
+  pintarLista();
 }
-$("diaStats").onchange = cargarStats;
 
 $("formBusq").onsubmit = async (e) => {
   e.preventDefault();
@@ -981,7 +976,7 @@ function iniciarMonitoreo() {
   refUbic.on("child_changed", (s) => { ubic[s.key] = s.val(); pintarMarcador(s.key); pintarClientes(); pintarLista(); pintarRutas(); });
   refUbic.on("child_removed", (s) => { delete ubic[s.key]; quitarMarcador(s.key); pintarLista(); pintarRutas(); });
 
-  $("diaStats").value = Dia.clave(); cargarStats(); cargarCalif();
+  cargarStats(); cargarCalif();
 
   refLugares = db.ref("lugares");
   refLugares.on("value", (s) => { lugares = s.val() || {}; pintarLugares(); }, fallo);
