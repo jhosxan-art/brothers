@@ -14,28 +14,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 📁 Copiar y validar configuración de Admin
+      # Repositorio compartido: configuración aislada en config/admin
+      - name: Configuración del admin (paquete y Firebase)
         run: |
-          if [ ! -d "config/admin" ]; then
-            echo "❌ Error: La carpeta config/admin no existe en el repositorio."
-            exit 1
-          fi
-          echo "📂 Copiando archivos de configuración desde config/admin a la raíz..."
-          cp -r config/admin/. . || { echo "❌ Error al copiar los archivos de configuración de admin"; exit 1; }
-          
-          # Verificación de archivos esenciales
-          if [ -f "google-services.json" ]; then
-            echo "✅ google-services.json copiado correctamente."
-          else
-            echo "❌ Error: No se encontró google-services.json en config/admin."
-            exit 1
-          fi
-          if [ -f "capacitor.config.json" ]; then
-            echo "✅ capacitor.config.json copiado correctamente."
-          else
-            echo "❌ Error: No se encontró capacitor.config.json en config/admin."
-            exit 1
-          fi
+          for f in capacitor.config.json google-services.json; do
+            if [ ! -f "config/admin/$f" ]; then
+              echo "::error::Falta config/admin/$f en el repositorio."
+              exit 1
+            fi
+            cp "config/admin/$f" "$f"
+          done
+          grep -n '"appId"' capacitor.config.json
 
       - uses: actions/setup-node@v4
         with:
@@ -58,13 +47,11 @@ jobs:
           cp manifest.json www/
           cp icon-192.png icon-512.png icon-maskable-512.png badge-96.png www/ 2>/dev/null || echo "::warning::Faltan iconos PNG en la raiz del repositorio (icon-192.png, icon-512.png, icon-maskable-512.png, badge-96.png)."
           cp admin.html www/index.html
-          # Nota: capacitor.config.json ya fue copiado automáticamente a la raíz desde config/admin/
 
       - name: Instalar dependencias
         run: npm install --legacy-peer-deps
 
-      # Plugins de: instalar la actualización desde la app (file-opener) y mantener la app activa (background-mode).
-      # Si alguno no se puede instalar, la compilación continúa y esa función queda desactivada (aviso amarillo en el log).
+      # Plugins de actualización automática y segundo plano específicos para el Admin
       - name: Plugins de actualización automática y segundo plano
         run: |
           A='@capacitor-community/file-opener@^6'
@@ -73,7 +60,7 @@ jobs:
             || { npm install --legacy-peer-deps --save "$A" || echo "::warning::No se pudo instalar file-opener: la app abrirá el APK en el navegador."; \
                  npm install --legacy-peer-deps --save "$B" || echo "::warning::No se pudo instalar background-mode: no habrá modo de segundo plano."; }
 
-      # La versión que la app cree tener es el número de esta compilación: en "Lanzar actualización" publicas ese mismo número.
+      # Versión de la compilación para el panel de administración
       - name: Versión de esta compilación
         run: |
           N=${{ github.run_number }}
@@ -87,23 +74,21 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, shutil, sys
-          origen = 'google-services.json'
-          if not os.path.exists(origen):
+          if not os.path.exists('google-services.json'):
               print('::error::Falta google-services.json en la raiz del repositorio.')
               sys.exit(1)
           pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
-          gs = json.load(open(origen, encoding='utf-8'))
+          gs = json.load(open('google-services.json', encoding='utf-8'))
           nombres = [c['client_info']['android_client_info']['package_name'] for c in gs.get('client', [])]
           if pkg not in nombres:
               print('::error::google-services.json es de otra app (%s). Debe ser de %s.' % (nombres, pkg))
               sys.exit(1)
-          shutil.copy(origen, 'android/app/google-services.json')
+          shutil.copy('google-services.json', 'android/app/google-services.json')
           print('google-services.json listo para', pkg)
           PY
 
       - name: Generar iconos
         run: |
-          # Si existen los iconos específicos de admin en la carpeta assets, los mapeamos para la compilación
           if [ -f assets/icon-admin-only.png ]; then
             cp assets/icon-admin-only.png assets/icon-only.png
           fi
@@ -113,7 +98,6 @@ jobs:
           if [ -f assets/icon-admin-background.png ]; then
             cp assets/icon-admin-background.png assets/icon-background.png
           fi
-          # Si existe una carpeta assets-admin alternativa, también la soportamos
           if [ -d assets-admin ]; then rm -rf assets && cp -r assets-admin assets; fi
           npx --yes @capacitor/assets generate --android
 
@@ -127,21 +111,20 @@ jobs:
           if 'android.hardware.camera' not in s:
               add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
           s = s.replace('<application', add + '    <application', 1)
-          # Canal por defecto de las push del Admin: ventana emergente con sonido (la app lo crea con este mismo nombre: "admin")
           meta = '        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="admin" />\n'
           if 'default_notification_channel_id' not in s:
               s = s.replace('</application>', meta + '    </application>', 1)
           open(p, 'w', encoding='utf-8').write(s)
           PY
 
-      # Firma con una llave PROPIA y fija: así Android permite actualizar sobre la app instalada sin desinstalar.
+      # Firma con la llave fija y estable
       - name: Firma estable y número de versión
         run: |
           python3 - <<'PY'
           import os, re, sys
           ws = os.environ['GITHUB_WORKSPACE']
           if not (os.path.exists('admin-release.keystore') and os.path.exists('admin-release.properties')):
-              print('::error::Faltan admin-release.keystore y admin-release.properties en la raiz del repositorio. Ejecuta una vez el flujo "Crear llave de firma del Admin", descarga el ZIP y sube esos 2 archivos a la raiz del repositorio.')
+              print('::error::Faltan admin-release.keystore y admin-release.properties en la raiz del repositorio.')
               sys.exit(1)
           props = {}
           for linea in open('admin-release.properties', encoding='utf-8'):
@@ -178,7 +161,6 @@ jobs:
           name: APK-Admin
           path: brothers-admin-v${{ github.run_number }}.apk
 
-      # Enlace DIRECTO del APK (lo que pegas en "Lanzar actualización"). Funciona sin iniciar sesión si el repositorio es público.
       - name: Publicar APK en Releases
         uses: softprops/action-gh-release@v2
         with:
