@@ -8,6 +8,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:985252496445:android:020214676d1c21ddb39654",
+        "android_client_info": {
+          "package_name": "com.brothers.admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANnq4gZ-W6eGSUFinYJ1f9a_OR2PuyPRA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:985252496445:android:8dc3c07bdff07ceeb39654",
         "android_client_info": {
           "package_name": "com.brothers.deliverys"
