@@ -96,7 +96,8 @@
     #vistaChats .cn-msgs > * { flex-shrink: 0; }
     #vistaChats .cn-b.fac { margin: 4px 0; }
     #vistaChats .cn-b.foto { padding: 4px 4px 5px; }
-    #vistaChats .cn-b.foto img { display: block; width: 240px; max-width: 100%; min-height: 80px; height: auto; border-radius: 10px; background: #F2F4F6; }
+    #vistaChats .cn-b.foto img { display: block; width: 240px; max-width: 100%; min-height: 80px; height: auto; object-fit: contain; border-radius: 10px; background: transparent; }
+    #vistaChats .cn-b.foto, #vistaChats .cn-b.foto.yo { background: transparent; box-shadow: none; border: 0; }
     #vistaChats .cn-b.foto .cn-h { padding: 0 6px; }
     #vistaChats .cn-cab button.cn-ico { width: 40px; padding: 0; font-size: 18px; background: #E8F6FE; border-color: #E8F6FE; }
     #vistaChats .cn-resumen { flex: none; padding: 8px 12px; background: #FFF8DB; border-bottom: 1px solid #E8DFA8; font-size: 12.5px; font-weight: 600; color: #5A4A00; overflow-wrap: anywhere; }
@@ -339,9 +340,21 @@
         </form>
         <button id="btnVerNegociosRep" class="herr-rep on" type="button" aria-label="Ver u ocultar negocios" aria-pressed="true">🏪</button>
         <button id="btnPolicia" class="herr-rep" type="button" aria-label="Reportar policía">🚨</button>
-        <button id="btnSeguir" class="herr-rep" type="button" aria-label="Seguir mi moto (cámara de navegación)">🧭</button>
         <button id="btnVerTodo" class="herr-rep" type="button" aria-label="Ver todo">⛶</button>
       </div>
+      <div id="brujulaNorte" class="brujula-norte" role="img" aria-label="Brújula: apunta siempre al norte">
+        <svg id="brujulaDial" class="brujula-dial" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="46" fill="#fff" stroke="#D6DDE3" stroke-width="3"/>
+          <circle cx="50" cy="50" r="38" fill="none" stroke="#E8EDF1" stroke-width="1.5"/>
+          <g stroke="#9AA5B1" stroke-width="2" stroke-linecap="round"><path d="M94 50h-6M50 94v-6M6 50h6"/></g>
+          <g stroke="#C9D1D8" stroke-width="1.5" stroke-linecap="round"><path d="M81 19l-4 4M81 81l-4-4M19 81l4-4M19 19l4 4"/></g>
+          <path d="M50 27L59 50H41Z" fill="#E5322D"/>
+          <path d="M50 73L59 50H41Z" fill="#4A5561"/>
+          <circle cx="50" cy="50" r="5" fill="#fff" stroke="#0E141B" stroke-width="2"/>
+          <text x="50" y="22" text-anchor="middle" font-size="16" font-weight="800" fill="#E5322D" font-family="system-ui,sans-serif">N</text>
+        </svg>
+      </div>
+      <button id="btnNavegar" class="btn-navegar" type="button" aria-pressed="false" aria-label="Activar navegación"><span aria-hidden="true">🧭</span><span id="btnNavegarTxt">Navegar</span></button>
       <div id="resBusqRep" class="res-busq oculto"></div>
       <div class="estado chip-gps" id="estadoGps">Obteniendo ubicación…</div>
       <div id="bannerRuta" class="info-ruta oculto"></div>
@@ -361,6 +374,8 @@
       <div id="cnMios"></div>
       <button id="btnCortinaFacturas" class="pc-cortina-btn" type="button" aria-expanded="false" aria-controls="cnRegistro"><span>🧾 Facturas entregadas</span><span class="pc-cortina-flecha" aria-hidden="true">▾</span></button>
       <div id="cnRegistro" class="pc-contenedor oculto" aria-label="Facturas entregadas, resumen financiero y filtros por fecha"></div>
+      <button id="btnCortinaCobros" class="pc-cortina-btn" type="button" aria-expanded="false" aria-controls="cnCobros"><span>🏦 Cobros por transferencia (hoy) <b id="cobrosCnt" class="badge-nav rojo oculto">0</b></span><span class="pc-cortina-flecha" aria-hidden="true">▾</span></button>
+      <div id="cnCobros" class="cobros-caja oculto" aria-label="Entregas pagadas por transferencia pendientes de cobrar al administrador"></div>
     </div>
     <div id="cnConv" class="cn-conv oculto">
       <div class="cn-cab">
@@ -385,7 +400,7 @@
         <button id="cnFoto" class="cn-foto" type="button" aria-label="Tomar foto con la cámara">📷</button>
         <button id="cnGaleria" class="cn-foto" type="button" aria-label="Elegir foto de la galería">🖼️</button>
         <input id="cnInFoto" class="oculto" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
-        <input id="cnInGaleria" class="oculto" type="file" accept="image/*" tabindex="-1" aria-hidden="true">
+        <input id="cnInGaleria" class="oculto" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/*" tabindex="-1" aria-hidden="true">
         <input id="cnInput" maxlength="600" placeholder="Escribe un mensaje" aria-label="Escribe un mensaje al cliente">
         <button class="primario" type="submit" aria-label="Enviar mensaje">➤</button>
       </form>
@@ -421,6 +436,20 @@
   </div>
 
   <button id="solToast" class="oculto" type="button" role="status"><span id="solToastIco" aria-hidden="true">💬</span><div><b id="solToastTit"></b><small id="solToastTxt"></small></div></button>
+
+  <div id="modalPago" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="pagoTitulo">
+    <div class="modal-rep-caja">
+      <div class="gran-check">💰</div>
+      <h2 id="pagoTitulo">Pedido entregado</h2>
+      <p id="pagoCliente"></p>
+      <p id="pagoMonto" class="pago-monto oculto"></p>
+      <p id="pagoNota" class="oculto"></p>
+      <p class="pago-pregunta">¿Cómo pagó el cliente?</p>
+      <button id="btnPagoEfectivo" class="primario pago-btn" type="button">💵 Efectivo</button>
+      <button id="btnPagoTransferencia" class="oscuro pago-btn" type="button">🏦 Transferencia</button>
+      <button id="btnPagoVolver" class="pago-volver" type="button">Volver sin entregar</button>
+    </div>
+  </div>
 
   <div id="modalEntregado" class="modal-rep oculto" role="dialog" aria-modal="true">
     <div class="modal-rep-caja">
@@ -532,13 +561,15 @@
   </div>
 
   <div id="fxModales" class="fx">
-    <div class="popup-overlay" id="depositPromptPopup">
-      <div class="popup-content">
-        <h2>¿Método de Pago?</h2>
-        <p>¿El cliente pagó por depósito?</p>
-        <div style="display: flex; gap: 10px; margin-top: 20px; flex-direction: column;">
-          <button type="button" class="close-popup-btn" style="background-color: #27AE60; color: var(--white); margin-top: 0; font-weight: 700; padding: 13px;" onclick="confirmDeposit(true)">Sí, pagó por depósito</button>
-          <button type="button" class="close-popup-btn" style="background-color: var(--red); color: var(--white); margin-top: 0; font-weight: 700; padding: 13px;" onclick="confirmDeposit(false)">No pagó por depósito</button>
+    <div class="custom-modal-overlay" id="cancelFacturaModal">
+      <div class="custom-modal-box" style="border-top-color: var(--red);">
+        <div class="custom-modal-icon">🧾</div>
+        <h3>Cancelar factura</h3>
+        <p>¿Qué deseas hacer?</p>
+        <div class="fx-cancel-opc">
+          <button type="button" class="custom-modal-btn" onclick="cancelarFacturaNueva()">➕ Crear una nueva</button>
+          <button type="button" class="custom-modal-btn fx-cancel-editar" onclick="cancelarFacturaEditar()">✏️ Editar la actual</button>
+          <button type="button" class="fx-cancel-volver" onclick="cerrarCancelFactura()">Volver</button>
         </div>
       </div>
     </div>
@@ -571,21 +602,19 @@
     <div class="popup-overlay" id="invoicePopup">
       <div class="popup-content">
         <h2>¡Factura Lista!</h2>
-        <p>Tu factura ha sido generada correctamente.</p>
         <div id="generatedInvoiceDisplay"></div>
         <p style="margin-top: 15px; font-weight: bold; color: var(--red); font-size: 0.9em;">¡Importante! Puedes guardar la imagen de la factura.</p>
         <button type="button" class="whatsapp-btn" id="whatsappShareBtn" onclick="enviarFacturaWhatsApp()">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
           Enviar factura por WhatsApp
         </button>
-        <p class="track-note" id="fxTrackNote">Se envía al WhatsApp del negocio, se activa el seguimiento y pasas al mapa.</p>
         <div id="fxEnvioApp" class="fx-envio-app" style="display:none" role="status" aria-live="polite">
           <span id="fxEnvioIcono">⏳</span>
           <div><b id="fxEnvioTitulo">Enviando a la app del cliente…</b><small id="fxEnvioTxt"></small></div>
           <button type="button" id="fxEnvioReintentar" style="display:none" onclick="reintentarEnvioPedido()">Reintentar</button>
         </div>
         <button type="button" class="add-product-btn" style="background-color: var(--sky-blue); margin-top: 10px;" onclick="downloadInvoiceImage()">📥 Guardar Factura en Imagen</button>
-        <button type="button" class="close-popup-btn" onclick="closePopup()">Cerrar</button>
+        <button type="button" class="close-popup-btn" id="btnCancelarFactura" onclick="cancelarFactura()">Cancelar Factura</button>
       </div>
     </div>
   </div>

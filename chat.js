@@ -51,13 +51,13 @@ const Chat = (() => {
         </button>
         <label class="chat-foto" aria-label="Elegir foto de la galería">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-          <input type="file" accept="image/*" id="chatArchivo" hidden>
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/*" id="chatArchivo" hidden>
         </label>
         <input id="chatTexto" type="text" maxlength="600" placeholder="Escribe un mensaje" autocomplete="off">
         <button class="primario" type="submit">Enviar</button>
       </form>`;
     document.body.appendChild(el);
-    el.querySelector(".chat-atras").onclick = cerrar;
+    el.querySelector(".chat-atras").onclick = () => { cerrar(); atras(); };
     q("chatForm").onsubmit = (e) => {
       e.preventDefault();
       const t = q("chatTexto").value.trim();
@@ -165,18 +165,43 @@ const Chat = (() => {
     if (d.length >= 390000) throw new Error("la foto es demasiado grande");
     return d;
   }
+  function tieneAlfa(c) {
+    try {
+      const d = c.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, c.width, c.height).data;
+      for (let i = 3; i < d.length; i += 16) if (d[i] < 250) return true;
+    } catch (_) {}
+    return false;
+  }
+  /* PNG/WebP con canal alfa: se conserva la transparencia (WebP, o PNG si el equipo no lo soporta) */
+  function canvasAAlfa(c) {
+    let d = c.toDataURL("image/webp", 0.85);
+    if (d.indexOf("data:image/webp") !== 0 || d.length > 350000) { const p = c.toDataURL("image/png"); if (d.indexOf("data:image/webp") !== 0 || p.length < d.length) d = p; }
+    if (d.length >= 390000) throw new Error("la foto es demasiado grande");
+    return d;
+  }
   function comprimir(file) {
     return new Promise((ok, fallo) => {
+      const nombre = String(file.name || "");
+      if (!/^image\//.test(file.type) && !/\.(png|jpe?g|webp|gif|bmp)$/i.test(nombre)) return fallo(new Error("el archivo no es una imagen"));
+      const esPng = /png|webp|gif/i.test(file.type) || /\.(png|webp|gif)$/i.test(nombre);
       const img = new Image(), url = URL.createObjectURL(file);
       img.onload = () => {
-        const k = Math.min(1, 900 / Math.max(img.width, img.height));
-        const c = document.createElement("canvas");
-        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url);
-        try { ok(canvasAJpeg(c)); } catch (e) { fallo(e); }
+        let lado = 900, alfa = null, ultimo = null;
+        for (let i = 0; i < 6; i++) {
+          const k = Math.min(1, lado / Math.max(img.width, img.height));
+          const c = document.createElement("canvas");
+          c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+          const cx = c.getContext("2d", { willReadFrequently: true });
+          cx.clearRect(0, 0, c.width, c.height);
+          cx.drawImage(img, 0, 0, c.width, c.height);
+          if (alfa === null) alfa = esPng && tieneAlfa(c);
+          try { return ok(alfa ? canvasAAlfa(c) : canvasAJpeg(c)); } catch (e) { ultimo = e; }
+          lado = Math.round(lado * 0.78);
+        }
+        fallo(ultimo || new Error("la foto es demasiado grande"));
       };
-      img.onerror = () => fallo(new Error("no se pudo leer la imagen"));
+      img.onerror = () => { URL.revokeObjectURL(url); fallo(new Error("no se pudo leer la imagen")); };
       img.src = url;
     });
   }
@@ -287,6 +312,7 @@ const Chat = (() => {
       b.appendChild(quien);
     }
     if (m.foto) {
+      if (!m.texto) b.classList.add("solo-foto");
       const img = document.createElement("img");
       img.className = "foto-chat"; img.alt = "Foto";
       img.onclick = () => img.classList.toggle("grande");
@@ -378,6 +404,8 @@ const Chat = (() => {
     marcarLeido();
     if (!soloLectura) setTimeout(() => q("chatTexto").focus(), 60);
   }
+  /* Atrás hecho por el usuario (flecha del chat o botón del teléfono): permite volver a la bandeja de chats */
+  function atras() { try { if (opciones && typeof opciones.alAtras === "function") opciones.alAtras(); } catch (_) {} }
   function cerrar() {
     abierto = false; if (el) el.classList.add("oculto");
     apagarTypingPropio();
@@ -399,7 +427,7 @@ const Chat = (() => {
   /* Para el botón "atrás": cierra la cámara o el chat si están abiertos */
   function cerrarCapa() {
     if (cam && !cam.classList.contains("oculto")) { pararCamara(); cam.classList.add("oculto"); return true; }
-    if (abierto) { cerrar(); return true; }
+    if (abierto) { cerrar(); atras(); return true; }
     return false;
   }
   return { iniciar, abrir, cerrar, detener, setContexto, pitido, enviarA, cerrarCapa, COLOR_LEIDO, COLOR_ENVIADO };

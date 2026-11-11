@@ -134,7 +134,7 @@ body.admin { display: flex; flex-direction: column; height: 100%; }
 .burbuja .quien { font-size: 12px; font-weight: 800; color: var(--celeste-prof); }
 .burbuja.propia .quien { color: var(--tinta); opacity: .7; }
 .burbuja .hora { font-size: 11px; opacity: .6; justify-self: end; }
-.foto-chat { width: 220px; max-width: 100%; border-radius: 12px; display: block; background: var(--gris); min-height: 60px; }
+.foto-chat { width: 220px; max-width: 100%; border-radius: 12px; display: block; background: transparent; min-height: 60px; object-fit: contain; }
 .foto-chat.grande { width: 100%; }
 .chat-estado { padding: 6px 14px; font-size: 13px; color: var(--texto2); background: #fff; }
 .chat-entrada { display: flex; gap: 8px; align-items: center; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid var(--linea); }
@@ -528,8 +528,6 @@ body.cliente .mf-caja .fac-totales { padding: 4px 18px 12px; }
 body.cliente .mf-caja .mf-cerrar { flex: none; width: auto; margin: 0 18px 18px; }
 .leaflet-marker-icon.rep-yo > :first-child { transform: scale(var(--escala-rep, 1)); transform-origin: 50% 28px; transition: transform .35s ease-out; will-change: transform; }
 @media (prefers-reduced-motion: reduce) { .leaflet-marker-icon.rep-yo > :first-child { transition: none; } }
-#btnSeguir.herr-rep { font-size: 18px; }
-#btnSeguir.herr-rep.on { background: var(--celeste); border-color: var(--celeste-prof); }
 body.cliente .btn-seguir { position: fixed; z-index: 1150; left: 50%; transform: translateX(-50%); top: calc(70px + env(safe-area-inset-top)); width: auto; height: 42px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--tinta); color: #fff; font-size: 14px; font-weight: 800; box-shadow: 0 6px 18px rgba(14,20,27,.4); white-space: nowrap; }
 body.cliente .btn-seguir.oculto { display: none !important; }
 .barra-marca .wake-ind { display: inline-block; margin-left: 4px; font-size: 12px; line-height: 1; vertical-align: baseline; }
@@ -1778,3 +1776,79 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .leaflet-tooltip-pane { z-index: 650 !important; }
 .leaflet-popup-pane { z-index: 900 !important; }
 
+
+/* FASE 1 · PNG con canal alfa: sin fondo detrás de la imagen */
+.chat-lista img, .chat .chat-lista img { background: transparent; object-fit: contain; }
+/* FASE 1 · Cancelar factura: modal con dos opciones */
+.fx-cancel-opc { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.fx-cancel-opc .custom-modal-btn { margin: 0; padding: 13px; font-weight: 700; }
+.fx-cancel-opc .fx-cancel-editar { background: var(--sky-blue); }
+.fx-cancel-volver { border: 0; background: transparent; color: #5B6672; font-weight: 700; font-size: 14px; padding: 8px; cursor: pointer; }
+
+/* FASE 2 · Botón flotante "Navegar" (reemplaza zoom +/-) */
+#mapaRuta .leaflet-control-zoom { display: none !important; }
+.btn-navegar { position: absolute; z-index: 1000; right: 12px; bottom: 14px; display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px; border: 0; border-radius: 24px; background: #0A86C9; color: #fff; font-size: 16px; font-weight: 800; box-shadow: 0 4px 14px rgba(0,0,0,.32); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.btn-navegar:active { transform: scale(.96); }
+.btn-navegar.on { background: #E5322D; }
+.btn-navegar:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+/* FASE 2 · Brújula fija al Norte (esquina superior derecha, solo visual) */
+.mapa-caja .brujula, .leaflet-control-rotate, .leaflet-control-compass { display: none !important; }
+.brujula-norte { position: absolute; z-index: 900; right: 10px; top: 66px; width: 58px; height: 58px; border-radius: 50%; background: rgba(255,255,255,.92); box-shadow: 0 3px 12px rgba(0,0,0,.3), inset 0 0 0 1px rgba(0,0,0,.05); pointer-events: none; display: grid; place-items: center; }
+.brujula-norte .brujula-dial { width: 52px; height: 52px; display: block; transition: transform .3s linear; will-change: transform; }
+@media (min-width: 700px) { .brujula-norte { width: 70px; height: 70px; top: 72px; } .brujula-norte .brujula-dial { width: 64px; height: 64px; } .btn-navegar { height: 54px; font-size: 17px; } }
+@media (prefers-reduced-motion: reduce) { .brujula-norte .brujula-dial { transition: none; } }
+/* FASE 2 · Pago post-entrega y bandeja de cobros */
+.pago-pregunta { font-weight: 800; color: var(--tinta) !important; margin-top: 4px; }
+.pago-monto { font-size: 20px; font-weight: 800; color: var(--tinta) !important; }
+.pago-btn { height: 56px; font-size: 18px; font-weight: 800; border-radius: 16px; }
+.pago-volver { border: 0; background: transparent; color: #5B6672; font-weight: 700; font-size: 14px; padding: 8px; }
+.cobros-caja { display: grid; gap: 8px; margin: 0 0 12px; }
+.cobros-caja.oculto { display: none !important; }
+.cobro-resumen { padding: 10px 12px; border-radius: 12px; background: #FFF4CC; color: #5A4A00; font-size: 14px; font-weight: 800; }
+.cobro-fila { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: #fff; border: 1px solid #E1E6EB; }
+.cobro-fila > div { flex: 1; min-width: 0; display: grid; line-height: 1.25; }
+.cobro-fila strong { font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cobro-fila small { font-size: 12px; font-weight: 600; color: #5B6672; }
+.cobro-fila b { font-size: 15px; font-weight: 800; white-space: nowrap; }
+.cobro-fila button { width: auto; height: 38px; padding: 0 12px; border-radius: 12px; font-size: 13px; font-weight: 800; flex: none; }
+.cobro-fila.cobrado { opacity: .6; }
+
+/* ============================================================
+   FASE 3 · RESPONSIVO UNIVERSAL DEL REPARTIDOR (móvil, tablet y gama baja)
+   ============================================================ */
+#vistaMapa .chip-gps { max-width: calc(100% - 84px); }
+#vistaMapa .aviso-marcar { right: 84px; }
+.modal-rep-caja { max-height: 92dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.cobro-fila, .cobro-resumen { overflow-wrap: anywhere; }
+.btn-navegar, .brujula-norte, .cobro-fila button, .pago-btn { -webkit-tap-highlight-color: transparent; }
+@media (max-width: 360px) {
+  .barra-sup-rep { gap: 4px; }
+  .barra-sup-rep form button, .herr-rep { width: 40px; height: 40px; font-size: 16px; border-radius: 12px; }
+  .brujula-norte { width: 50px; height: 50px; top: 60px; right: 8px; }
+  .brujula-norte .brujula-dial { width: 45px; height: 45px; }
+  .btn-navegar { height: 44px; padding: 0 14px; font-size: 14px; right: 8px; bottom: 10px; }
+  .modal-rep { padding: 12px; }
+  .modal-rep-caja { padding: 18px 14px; }
+  .pago-btn { height: 52px; font-size: 16px; }
+  .cobro-fila { flex-wrap: wrap; }
+  .cobro-fila button { width: 100%; }
+}
+@media (min-width: 700px) {
+  .modal-rep-caja { max-width: 440px; }
+  .cobros-caja { max-width: 720px; }
+  #vistaMapa .chip-gps { max-width: 420px; }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+  .brujula-norte { top: 58px; width: 46px; height: 46px; }
+  .brujula-norte .brujula-dial { width: 41px; height: 41px; }
+  .btn-navegar { height: 42px; bottom: 8px; }
+}
+/* Gama baja: sin transiciones ni sombras costosas en los controles del mapa */
+@media (prefers-reduced-motion: reduce), (max-width: 360px) and (max-resolution: 1.5dppx) {
+  .brujula-norte .brujula-dial { transition: none; will-change: auto; }
+  .btn-navegar, .brujula-norte { box-shadow: 0 2px 6px rgba(0,0,0,.28); }
+}
+
+/* Foto sola (p. ej. PNG con transparencia): la burbuja no pinta fondo */
+.burbuja.solo-foto { background: transparent !important; box-shadow: none !important; border: 0 !important; }
+.chat.messenger .burbuja.solo-foto { background: transparent !important; }

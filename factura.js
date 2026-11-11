@@ -336,11 +336,7 @@ window.Factura = {
   }
   function promptGenerateInvoice() {
       if (products.length === 0) { showCustomAlert('Por favor, agrega al menos un producto.'); return; }
-      document.getElementById('depositPromptPopup').classList.add('show');
-  }
-  function confirmDeposit(isPaid) {
-      depositPaid = isPaid;
-      document.getElementById('depositPromptPopup').classList.remove('show');
+      depositPaid = false;
       generateInvoice();
   }
   let facturaActual = null;
@@ -358,7 +354,7 @@ window.Factura = {
       let invoiceHTML = '<div class="invoice-header-popup">🏍️ BROTHERS DELIVERY</div>';
       invoiceHTML += '<div class="invoice-divider"></div>';
       if (customerName) invoiceHTML += `<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">👤 CLIENTE: ${escHtml(customerName)}</div>`;
-      invoiceHTML += `<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">💳 DEPÓSITO: ${depositPaid ? 'SÍ' : 'NO'}</div>`;
+      if (depositPaid) invoiceHTML += '<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">💳 DEPÓSITO: SÍ</div>';
       invoiceHTML += '<div class="invoice-divider"></div>';
       invoiceHTML += '<div class="invoice-header-popup" style="font-size: 0.95em; margin-top: 8px;">📦 PRODUCTOS</div>';
       invoiceHTML += '<table class="invoice-products-table">';
@@ -393,9 +389,6 @@ window.Factura = {
       invoiceHTML += `<tr class="total-row"><td>TOTAL:</td><td>C$ ${grandTotal.toFixed(2)}</td></tr>`;
       invoiceHTML += '</table>';
       invoiceHTML += `<div style="text-align:center; font-weight:700; color:var(--red); margin-top:10px; font-size:1em;">CÓDIGO DE RETIRO: ${pickupCode}</div>`;
-      if (enChat) { /* sin bloque de seguimiento */ }
-      else if (sinEnlace) invoiceHTML += `<div class="invoice-track"><b>📍 Seguimiento en tiempo real</b>Usa el mismo enlace de seguimiento que ya te enviamos.</div>`;
-      else invoiceHTML += `<div class="invoice-track"><b>📍 Seguimiento en tiempo real</b>Toca el enlace y verás la ubicación de tu paquete en tiempo real.<div class="lnk">${escHtml(link)}</div></div>`;
       invoiceHTML += '<div class="invoice-footer">¡Vuelve a pedir con nosotros cuando quieras! 🚀 Siempre listos para ayudarte 🙌</div>';
 
       invoiceText += `\n${SEP}\n`;
@@ -424,6 +417,7 @@ window.Factura = {
       };
 
       const yaContada = enPedido && facturasContadas.has(token);
+      facturaActual.contada = !yaContada;
       if (!yaContada) {
           if (enPedido) facturasContadas.add(token);
           dailyStats.totalOrders += 1;
@@ -443,6 +437,7 @@ window.Factura = {
       }
 
       document.getElementById('invoicePopup').classList.add('show');
+      etiquetaBotonCancelar(false);
       pintarPopupPedido(enPedido || enChat);
       if (enPedido || enChat) enviarAPedido();
   }
@@ -555,11 +550,11 @@ window.Factura = {
   }
   function pintarPopupPedido(on) {
       document.getElementById('whatsappShareBtn').style.display = on ? 'none' : '';
-      document.getElementById('fxTrackNote').style.display = on ? 'none' : '';
       document.getElementById('fxEnvioApp').style.display = on ? 'flex' : 'none';
   }
   function estadoEnvio(tipo, dato) {
       const g = (id) => document.getElementById(id);
+      etiquetaBotonCancelar(tipo === 'ok');
       g('fxEnvioApp').className = 'fx-envio-app' + (tipo === 'ok' ? ' ok' : tipo === 'error' ? ' error' : '');
       g('fxEnvioReintentar').style.display = tipo === 'error' ? '' : 'none';
       if (tipo === 'enviando') {
@@ -592,6 +587,38 @@ window.Factura = {
       } catch (e) { estadoEnvio('error', e); } finally { enviandoPedido = false; }
   }
   function reintentarEnvioPedido() { enviarAPedido(); }
+  function etiquetaBotonCancelar(enviada) {
+      const b = document.getElementById('btnCancelarFactura');
+      if (b) b.textContent = enviada ? 'Cerrar' : 'Cancelar Factura';
+  }
+  function cancelarFactura() {
+      const f = facturaActual;
+      if (f && f.enviada && (f.deChat || f.deSistema)) { closePopup(); return; }
+      document.getElementById('cancelFacturaModal').classList.add('show');
+  }
+  function cerrarCancelFactura() { document.getElementById('cancelFacturaModal').classList.remove('show'); }
+  function revertirConteoFactura(f) {
+      if (!f || !f.contada) return;
+      dailyStats.totalOrders = Math.max(0, (Number(dailyStats.totalOrders) || 0) - 1);
+      dailyStats.totalEarnings = Math.max(0, r2((Number(dailyStats.totalEarnings) || 0) - (Number(f.delivery) || 0)));
+      localStorage.setItem('brothersDeliveryStats', JSON.stringify(dailyStats));
+      if (f.deSistema) facturasContadas.delete(f.token);
+  }
+  function cancelarFacturaOpcion(nueva) {
+      const f = facturaActual;
+      cerrarCancelFactura();
+      document.getElementById('invoicePopup').classList.remove('show');
+      revertirConteoFactura(f);
+      facturaActual = null; enviandoPedido = false;
+      if (!nueva) { calculateTotal(); return; }
+      if (f && f.deChat && f.chatId) descartarBorradorChat(f.chatId);
+      resetForm();
+      if (pedidoSistema) document.getElementById('customerName').value = pedidoSistema.cliente || '';
+      else if (chatDestino) document.getElementById('customerName').value = chatDestino.cliente || '';
+      pintarModoPedido();
+  }
+  function cancelarFacturaNueva() { cancelarFacturaOpcion(true); }
+  function cancelarFacturaEditar() { cancelarFacturaOpcion(false); }
   function closePopup() {
       const f = facturaActual;
       document.getElementById('invoicePopup').classList.remove('show');
@@ -623,7 +650,7 @@ window.Factura = {
       renderProductList(); calculateTotal();
   }
   document.getElementById('invoicePopup').addEventListener('click', function(e) { if (e.target === this) closePopup(); });
-  document.getElementById('depositPromptPopup').addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
+  document.getElementById('cancelFacturaModal').addEventListener('click', function(e) { if (e.target === this) cerrarCancelFactura(); });
 
   /* FASE 1 · Teclado móvil: auto-scroll del campo activo + altura según visualViewport */
   function iniciarTecladoFactura() {
@@ -684,5 +711,5 @@ window.Factura = {
   toggleExtraErrand(extraErrand); calculateTotal();
   checkAndResetStats(); checkSessionAndLogin(); renderDepositInvoices();
 
-  Object.assign(window, { abrirEnlaceExterno, showCustomAlert, closeCustomAlert, closeCustomConfirm, confirmDeposit, showStats, hideStats, calculateTotal, toggleExtraErrand, cambiarIvasExtras, pintarIvasExtras, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto, reintentarEnvioPedido });
+  Object.assign(window, { abrirEnlaceExterno, showCustomAlert, closeCustomAlert, closeCustomConfirm, cancelarFactura, cancelarFacturaNueva, cancelarFacturaEditar, cerrarCancelFactura, showStats, hideStats, calculateTotal, toggleExtraErrand, cambiarIvasExtras, pintarIvasExtras, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto, reintentarEnvioPedido });
 })();

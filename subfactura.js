@@ -210,6 +210,7 @@ const Contabilidad = (() => {
         base: c.base, extras: c.extras, fijoBase: c.fijoBase, ivasExtras: c.ivasExtras, ivasMonto: c.ivasMonto, fijo: c.fijo, rBase: c.rBase, bolsa: c.bolsa,
         gananciaRepartidor: c.repartidor, comisionEmpresa: c.empresa, bruto: c.bruto,
         prioridad: r2(r.prioridad), sinFactura: !!r.sinFactura,
+        metodoPago: r.metodoPago === "efectivo" || r.metodoPago === "transferencia" ? r.metodoPago : undefined,
         ts: firebase.database.ServerValue.TIMESTAMP, tsLocal: ahora, fecha: fechaISO(ahora), iso: new Date(ahora).toISOString()
       }));
       await ref.set(obj);

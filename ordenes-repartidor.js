@@ -119,10 +119,19 @@ const OrdenAdminRep = (() => {
     if (sinResponder(orden)) return true;   // primero hay que aceptar el pedido
     const estado = b.dataset.oa, sig = O.siguienteRetiro(orden);
     if (estado === "retirado" && !sig) return true;
-    const pregunta = estado === "retirado" ? `¿Confirmas que ya RETIRASTE${sig.p.producto ? " “" + sig.p.producto + "”" : ""}${sig.p.texto ? " en " + sig.p.texto : ""}?` : "¿Confirmas que ENTREGASTE el paquete?";
+    const idPed = id, ordPed = orden;
+    const ejecutar = () => {
+      const trabajo = estado === "retirado" ? O.marcarRetiro(ctx.db, idPed, ordPed, sig.i) : O.marcar(ctx.db, idPed, estado, ordPed);
+      trabajo.then(() => { if (estado === "entregado") ctx.alEntregado(); }).catch((err) => alert("No se pudo actualizar: " + err.message));
+    };
+    if (estado === "entregado") {
+      /* Pago post-entrega obligatorio: Efectivo o Transferencia (la transferencia va a la bandeja de cobros al admin) */
+      Promise.resolve(typeof ctx.pedirPago === "function" ? ctx.pedirPago({ id: idPed, orden: ordPed }) : (confirm("¿Confirmas que ENTREGASTE el paquete?") ? "efectivo" : null)).then((pago) => { if (pago) ejecutar(); });
+      return true;
+    }
+    const pregunta = `¿Confirmas que ya RETIRASTE${sig.p.producto ? " “" + sig.p.producto + "”" : ""}${sig.p.texto ? " en " + sig.p.texto : ""}?`;
     if (!confirm(pregunta)) return true;
-    const trabajo = estado === "retirado" ? O.marcarRetiro(ctx.db, id, orden, sig.i) : O.marcar(ctx.db, id, estado, orden);
-    trabajo.then(() => { if (estado === "entregado") ctx.alEntregado(); }).catch((err) => alert("No se pudo actualizar: " + err.message));
+    ejecutar();
     return true;
   }
   /* Tu posición también llega al cliente de este pedido (pedidos/{token}), igual que en los pedidos con factura */

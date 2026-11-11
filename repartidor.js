@@ -13,6 +13,7 @@ const auth = APP.auth();
 const db = APP.database();
 const $ = (id) => document.getElementById(id);
 const TS = firebase.database.ServerValue.TIMESTAMP;
+const precioDeOrden = (o) => { try { const t = Number(Ordenes.totalDelivery(o)); return Number.isFinite(t) ? t : null; } catch (_) { return null; } };
 
 /* ============================================================
    PANTALLA ACTIVA · Screen Wake Lock
@@ -372,6 +373,30 @@ $("btnSalir").onclick = async () => {
 /* ============================================================
    MAPA
    ============================================================ */
+
+/* ============================================================
+   FASE 2 · BRÚJULA: apunta siempre al Norte geográfico, giro fluido (por el camino más corto)
+   ============================================================ */
+const Brujula = (() => {
+  let acum = 0, timer = null;
+  function pintar() {
+    const el = $("brujulaDial");
+    if (!el || !mapa) return;
+    const b = typeof mapa.getBearing === "function" ? (Number(mapa.getBearing()) || 0) : 0;
+    const d = ((((-b - acum) % 360) + 540) % 360) - 180;
+    if (Math.abs(d) < 0.05) return;
+    acum += d;
+    el.style.transform = "rotate(" + acum.toFixed(2) + "deg)";
+  }
+  function iniciar() {
+    if (!mapa) return;
+    mapa.on("rotate move zoomend", pintar);
+    if (!timer) timer = setInterval(() => { if (vistaActual === "mapa") pintar(); }, 300);
+    pintar();
+  }
+  return { iniciar, pintar };
+})();
+
 function initMapa() {
   if (mapa) return;
   mapa = L.map("mapaRuta", Object.assign({}, GestosMapa.opciones, Camara.opcionesMapa())).setView([12.5700, -87.1311], 14);
@@ -380,7 +405,7 @@ function initMapa() {
     mapa.createPane("paneLugares", base).style.zIndex = 590;
     mapa.createPane("paneYo", base).style.zIndex = 640;
     mapa.getPane("popupPane").style.zIndex = 800; }
-  L.control.zoom({ position: "bottomright", zoomInTitle: "Acercar", zoomOutTitle: "Alejar" }).addTo(mapa);
+  Brujula.iniciar();
   GestosMapa.aplicar(mapa);
   mapa.on("click movestart", cerrarBusquedaRep);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
@@ -422,6 +447,7 @@ const Camara = (() => {
   const SIGNO_ROTACION = 1;
   const MIN_PASO_M = 4;
   const MIN_MS = 900;
+  const CM_PX = 96 / 2.54;
   let prev = null, suave = 0, tieneRumbo = false, ult = 0, ultGesto = 0;
   let modo = "fitbounds";
   const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
@@ -465,11 +491,17 @@ const Camara = (() => {
   function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) e.classList.add("rep-yo"); }
 
   function refrescarBoton() {
-    const b = $("btnSeguir"); if (!b) return;
-    const nav = modo === "navegacion";
-    b.classList.toggle("on", !!seguirme && nav);
-    b.setAttribute("aria-pressed", String(!!seguirme && nav));
-    b.setAttribute("aria-label", nav ? "Cambiar a vista con ambos visibles" : "Seguir mi moto (cámara de navegación)");
+    const b = $("btnNavegar"); if (!b) return;
+    const activo = !!seguirme && modo === "navegacion";
+    b.classList.toggle("on", activo);
+    b.setAttribute("aria-pressed", String(activo));
+    b.setAttribute("aria-label", activo ? "Salir de la navegación" : "Activar navegación");
+    const t = $("btnNavegarTxt"); if (t) t.textContent = activo ? "Salir" : "Navegar";
+  }
+  function salir() {
+    modo = "fitbounds";
+    norte();
+    refrescarBoton();
   }
   function setModo(m) {
     modo = m === "navegacion" ? "navegacion" : "fitbounds";
@@ -503,7 +535,11 @@ const Camara = (() => {
 
     const dist = d && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
     const z = zoomPara(dist), ang = rotable() && tieneRumbo ? suave : 0;
-    const k = mapa.getSize().y / 6;
+    /* Estilo Waze: el ícono del repartidor queda fijo a 2 cm (1 cm CSS = 37.8 px) por encima de la barra "Ocultar pedido / Mostrar panel", siempre avanzando hacia arriba */
+    const H = mapa.getSize().y;
+    let refY = H;
+    try { const mr = mapa.getContainer().getBoundingClientRect(), br = $("barraHoja").getBoundingClientRect(); if (br.height) refY = Math.min(H, Math.max(0, br.top - mr.top)); } catch (_) {}
+    const k = Math.max(40 - H / 2, refY - 2 * CM_PX - H / 2);
     const t = rad(ang), pr = mapa.project([ultimaPos.lat, ultimaPos.lng], z);
     const centro = mapa.unproject(L.point(pr.x + Math.sin(t) * k, pr.y - Math.cos(t) * k), z);
     if (rotable()) { try { mapa.setBearing((SIGNO_ROTACION * ang + 360) % 360); } catch (_) {} }
@@ -515,7 +551,7 @@ const Camara = (() => {
     if (rotable()) { try { mapa.setBearing(0); } catch (_) {} }
     setTimeout(refrescarBoton, 0);
   }
-  return { opcionesMapa, registrar, actualizar, norte, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
+  return { opcionesMapa, registrar, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
 })();
 
 function pintarYo(rumbo) {
@@ -604,16 +640,17 @@ function dibujarOtras() {
   });
 }
 $("btnVerTodo").onclick = () => { seguirme = false; Camara.setModo("fitbounds"); encuadrar(false); Camara.refrescarBoton(); };
-$("btnSeguir").onclick = () => {
-  if (!ultimaPos) return setEstado("Esperando tu ubicación para seguirte…", "error");
-  if (Camara.getModo() === "navegacion") {
-    Camara.setModo("fitbounds");
-    setEstado("🧭 Vista: ambos visibles (moto + cliente)", "ok");
+$("btnNavegar").onclick = () => {
+  if (!ultimaPos) return setEstado("Esperando tu ubicación para navegar…", "error");
+  if (Camara.getModo() === "navegacion" && seguirme) {
+    Camara.salir();
+    seguirme = true;
+    setEstado("🧭 Navegación desactivada", "ok");
   } else {
     Camara.setModo("navegacion");
-    setEstado("🧭 Vista: navegación (cámara girada)", "ok");
+    seguirme = true;
+    setEstado("🧭 Navegación activa · el mapa avanza hacia arriba", "ok");
   }
-  seguirme = true;
   Camara.actualizar(true);
 };
 Camara.refrescarBoton();
@@ -857,8 +894,10 @@ const PedidoRep = (() => {
   async function registrarEntregaAdmin(token, o, fallback) {
     try {
       const p = (await db.ref("pedidos/" + token).once("value")).val() || {};
-      const c = Contabilidad.desdePedido(p, fallback);
-      await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "admin", repartidorNombre: usuario, cliente: o.cliente || "Cliente", pedido: o.codigo || "" }, c));
+      const c = Contabilidad.desdePedido(p, fallback), pago = PagosEntrega[token] || null;
+      delete PagosEntrega[token];
+      CobroEntrega.guardar({ id: token, origen: "admin", cliente: o.cliente || "Cliente", pedido: o.codigo || "", total: fallback }, pago);
+      await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "admin", repartidorNombre: usuario, cliente: o.cliente || "Cliente", pedido: o.codigo || "", metodoPago: pago }, c));
     } catch (_) {}
   }
   const prioridad = () => prio || prioPed;
@@ -925,7 +964,8 @@ const PedidoRep = (() => {
       token: mio, yo: "repartidor", pedido: datos.codigo, nombreRepartidor: usuario, avisos: false,
       titulo: () => "Chat con " + ((datos && datos.cliente) || "el cliente"),
       subtitulo: () => "Pedido " + codigoApp(),
-      alCerrar: () => { if (chatToken === mio) chatToken = null; }
+      alCerrar: () => { if (chatToken === mio) chatToken = null; },
+      alAtras: volverABandeja
     });
     chatToken = mio; noLeidos = 0; pintarBadgeChat();
     Chat.abrir();
@@ -1242,7 +1282,8 @@ function abrirChat(v) {
     token: v.token, yo: "repartidor", pedido: v.pedido, nombreRepartidor: usuario, avisos: false,
     titulo: () => "Chat con " + (v.cliente || "el cliente"),
     subtitulo: () => "Pedido " + etiquetaWA(v),
-    alCerrar: () => { chatToken = null; }
+    alCerrar: () => { chatToken = null; },
+    alAtras: volverABandeja
   });
   chatToken = v.token; v.noLeidos = 0;
   Chat.abrir();
@@ -1257,13 +1298,15 @@ function abrirChatAdmin() {
   Chat.iniciar({
     token: uidActual, yo: "repartidor", ruta: RUTA_EQUIPO, pedido: "Equipo", nombreRepartidor: usuario, avisos: false,
     titulo: () => "Brothers (administración)", subtitulo: () => usuario || "",
-    alCerrar: () => { chatToken = null; }
+    alCerrar: () => { chatToken = null; },
+    alAtras: volverABandeja
   });
   chatToken = "equipo"; noLeidosAdmin = 0; pintarBadgeAdmin();
   Chat.abrir();
 }
 $("btnChatAdmin").onclick = abrirChatAdmin;
 function soltarAdmin() {
+  try { CobroEntrega.soltar(); } catch (_) {}
   Policia.detener();
   if (refAdminChat) { refAdminChat.off(); refAdminChat = null; }
   if (refGuia) { refGuia.off(); refGuia = null; }
@@ -1276,6 +1319,7 @@ function soltarAdmin() {
 function escucharAdmin() {
   soltarAdmin();
   adminListo = false;
+  try { CobroEntrega.escuchar(); } catch (_) {}
   refAdminChat = db.ref(`chatsEquipo/${uidActual}`).limitToLast(1);
   refAdminChat.on("child_added", (s) => {
     if (!adminListo) return;
@@ -1382,7 +1426,7 @@ function aplicarHoja() {
   const n = orden.length + (OrdenAdminRep.activo() ? 1 : 0), res = OrdenAdminRep.resumen();
   const vsel = viajes[seleccionado]; $("barraHojaTxt").textContent = hojaOculta ? "▴ " + (res || (n ? "Mostrar pedido" + (vsel ? " · " + String(nombreDe(vsel)).slice(0, 22) : "") : "Mostrar panel")) : "▾ Ocultar pedido";
   const c = $("barraHojaCnt"); c.textContent = n; c.classList.toggle("oculto", !n);
-  if (mapa) setTimeout(() => mapa.invalidateSize(), 80);
+  if (mapa) setTimeout(() => { mapa.invalidateSize(); if (Camara.getModo() === "navegacion") Camara.actualizar(true); }, 120);
 }
 $("barraHoja").onclick = () => { hojaOculta = !hojaOculta; aplicarHoja(); };
 
@@ -1970,10 +2014,128 @@ function abrirWhatsApp(msg) {
 const mensajeSeguimiento = (v) =>
   `🏍️ Repartidor: ${usuario}\n📦 Pedido ${v.pedido}${v.cliente ? " · " + v.cliente : ""}\n\n` + leyendaEnlace(enlaceDe(v.token));
 
+
+/* ============================================================
+   FASE 2 · PAGO POST-ENTREGA (Efectivo / Transferencia) + BANDEJA DE COBROS AL ADMIN
+   ============================================================ */
+const PagosEntrega = {};
+const CobroEntrega = (() => {
+  let resolver = null, ref = null, refDia = "", datos = {};
+  const moneda = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+  const corto = (s, n) => String(s == null ? "" : s).slice(0, n);
+  function isoDia() {
+    const t = new Date();
+    if (t.getHours() < 8) t.setDate(t.getDate() - 1);
+    return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
+  }
+  const claveSegura = (id) => String(id).replace(/[.#$\[\]\/]/g, "_");
+  /* Modal obligatorio: devuelve "efectivo", "transferencia" o null (si el repartidor decide volver sin entregar) */
+  function pedir(info) {
+    info = info || {};
+    return new Promise((res) => {
+      if (resolver) resolver(null);
+      resolver = res;
+      $("pagoCliente").textContent = info.cliente ? "Pedido de " + corto(info.cliente, 40) : "Pedido";
+      $("pagoNota").textContent = info.nota || "";
+      $("pagoNota").classList.toggle("oculto", !info.nota);
+      $("pagoMonto").textContent = info.total != null ? "Total: " + moneda(info.total) : "";
+      $("pagoMonto").classList.toggle("oculto", info.total == null);
+      $("modalPago").classList.remove("oculto");
+    });
+  }
+  function elegir(metodo) {
+    $("modalPago").classList.add("oculto");
+    const r = resolver; resolver = null;
+    if (r) r(metodo);
+  }
+  const cancelar = () => elegir(null);
+  $("btnPagoEfectivo").onclick = () => elegir("efectivo");
+  $("btnPagoTransferencia").onclick = () => elegir("transferencia");
+  $("btnPagoVolver").onclick = cancelar;
+
+  /* Solo las transferencias entran a la bandeja del día para cobrarlas al admin */
+  function guardar(info, metodo) {
+    if (metodo !== "transferencia" || !uidActual || !info || !info.id) return;
+    const reg = { id: String(info.id), origen: info.origen || "manual", cliente: corto(info.cliente || "Cliente", 40), pedido: corto(info.pedido || "", 30), total: info.total != null ? Number(info.total) || 0 : null, metodo: "transferencia", estado: "pendiente", repartidorNombre: corto(usuario, 60), ts: TS };
+    db.ref("cobrosAdmin/" + uidActual + "/" + isoDia() + "/" + claveSegura(info.id)).set(JSON.parse(JSON.stringify(reg))).catch(() => {});
+  }
+  function escuchar() {
+    if (!uidActual) return;
+    const dia = isoDia();
+    if (ref && refDia === dia) return;
+    soltar();
+    refDia = dia;
+    ref = db.ref("cobrosAdmin/" + uidActual + "/" + dia);
+    ref.on("value", (s) => { datos = s.val() || {}; pintar(); }, () => {});
+  }
+  function soltar() {
+    if (ref) { ref.off(); ref = null; }
+    datos = {}; refDia = "";
+    pintar();
+  }
+  function fila(c) {
+    const f = document.createElement("div");
+    f.className = "cobro-fila" + (c.estado === "cobrado" ? " cobrado" : "");
+    const d = document.createElement("div"), n = document.createElement("strong"), s = document.createElement("small");
+    n.textContent = (c.cliente || "Cliente");
+    const hora = Number(c.ts) ? new Date(Number(c.ts)).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "";
+    s.textContent = [c.pedido ? "Pedido " + c.pedido : "", hora].filter(Boolean).join(" · ");
+    d.appendChild(n); d.appendChild(s);
+    const m = document.createElement("b");
+    m.textContent = c.total != null ? moneda(c.total) : "—";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = c.estado === "cobrado" ? "↩ Deshacer" : "✅ Cobrado";
+    b.addEventListener("click", () => {
+      const ruta = "cobrosAdmin/" + uidActual + "/" + refDia + "/" + claveSegura(c._k);
+      db.ref(ruta).update(c.estado === "cobrado" ? { estado: "pendiente", cobradoTs: null } : { estado: "cobrado", cobradoTs: TS }).catch(() => {});
+    });
+    f.appendChild(d); f.appendChild(m); f.appendChild(b);
+    return f;
+  }
+  function pintar() {
+    const lista = Object.keys(datos).map((k) => Object.assign({ _k: k }, datos[k])).filter((x) => x && x.metodo === "transferencia").sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+    const pend = lista.filter((x) => x.estado !== "cobrado");
+    const bd = $("cobrosCnt");
+    if (bd) { bd.textContent = pend.length; bd.classList.toggle("oculto", !pend.length); }
+    const caja = $("cnCobros");
+    if (!caja) return;
+    caja.textContent = "";
+    if (!lista.length) {
+      const v = document.createElement("div"); v.className = "cn-vacio"; v.textContent = "Hoy no tienes entregas pagadas por transferencia.";
+      caja.appendChild(v); return;
+    }
+    const res = document.createElement("div"); res.className = "cobro-resumen";
+    const sumaPend = pend.reduce((t, x) => t + (Number(x.total) || 0), 0);
+    res.textContent = pend.length ? "Por cobrar al admin: " + moneda(sumaPend) + " · " + pend.length + (pend.length === 1 ? " pedido" : " pedidos") : "✅ Todo cobrado al admin";
+    caja.appendChild(res);
+    lista.forEach((c) => caja.appendChild(fila(c)));
+  }
+  { const bt = $("btnCortinaCobros");
+    if (bt) bt.addEventListener("click", () => {
+      const caja = $("cnCobros"), abrir = caja.classList.contains("oculto");
+      caja.classList.toggle("oculto", !abrir);
+      bt.setAttribute("aria-expanded", String(abrir));
+      bt.classList.toggle("abierta", abrir);
+      if (abrir) { escuchar(); pintar(); }
+    }); }
+  return { pedir, cancelar, guardar, escuchar, soltar, abierto: () => !$("modalPago").classList.contains("oculto") };
+})();
+
+function totalDeViaje(v, token) {
+  try { if (v.esChat || /^sol_/.test(token)) { const t = ChatsEntrantes.totalFactura(token); if (t != null) return t; } } catch (_) {}
+  const f = v.factura, n = f ? Number(f.totalFinal != null ? f.totalFinal : f.total) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
 async function cerrarViaje(token, estadoFinal) {
   const v = viajes[token]; if (!v) return;
   const quien = nombreDe(v);
-  if (!confirm(estadoFinal === "entregado" ? `¿Confirmar la entrega a ${quien}?` : `¿Cancelar el pedido de ${quien}?`)) return;
+  let pago = null;
+  if (estadoFinal === "entregado") {
+    pago = await CobroEntrega.pedir({ id: token, cliente: quien, pedido: v.pedido, total: totalDeViaje(v, token), origen: v.esChat || /^sol_/.test(token) ? "chat" : "manual" });
+    if (!pago) return;
+  } else if (!confirm(`¿Cancelar el pedido de ${quien}?`)) return;
   v.cerrando = true;
   try {
     if (!/^sol_/.test(token)) await db.ref("pedidos/" + token).update({
@@ -1993,19 +2155,21 @@ async function cerrarViaje(token, estadoFinal) {
         : { estado: "cancelado", motivoCancelacion: "repartidor", canceladoTs: TS, repartidorGps: null });
     } catch (_) {}
   }
-  if (estadoFinal === "entregado") registrarEntregaViaje(v, token);
+  if (estadoFinal === "entregado") registrarEntregaViaje(v, token, pago);
   if (v.esChat || /^sol_/.test(token)) { try { ChatsEntrantes.cerrarPedido(token, estadoFinal); } catch (_) {} }
   quitarViaje(token);
   irA("factura");
   if (estadoFinal === "entregado") mostrarEntregado(quien);
 }
 /* FASE 2 · Contabilidad: entrega desde chat (origen "chat") o factura manual (origen "manual") */
-async function registrarEntregaViaje(v, token) {
+async function registrarEntregaViaje(v, token, pago) {
   try {
-    if (v.esChat || /^sol_/.test(token)) { ChatsEntrantes.entregar(token); return; }
+    if (v.esChat || /^sol_/.test(token)) { ChatsEntrantes.entregar(token, pago); return; }
     const p = (await db.ref("pedidos/" + token).once("value")).val() || {};
     const c = Contabilidad.desdePedido(p, 0);
-    await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "manual", repartidorNombre: usuario, cliente: v.cliente || p.clienteNombre || "Cliente", pedido: v.pedido || p.pedido || "" }, c));
+    const cliente = v.cliente || p.clienteNombre || "Cliente", pedido = v.pedido || p.pedido || "";
+    CobroEntrega.guardar({ id: token, origen: "manual", cliente, pedido, total: totalDeViaje(v, token) }, pago);
+    await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "manual", repartidorNombre: usuario, cliente, pedido, metodoPago: pago || null }, c));
   } catch (_) {}
 }
 function mostrarEntregado(quien) {
@@ -2019,15 +2183,22 @@ function mostrarEntregado(quien) {
 $("btnOtraFactura").onclick = () => { $("modalEntregado").classList.add("oculto"); irA("factura"); };
 $("btnVerMapa").onclick = () => { $("modalEntregado").classList.add("oculto"); irA("mapa"); };
 
+/* Atrás desde cualquier chat (cliente de app, administración o conversación de factura manual): siempre a la bandeja de chats */
+function volverABandeja() {
+  try { ChatsEntrantes.cerrarConversacion(); } catch (_) {}
+  if (vistaActual !== "chats") irA("chats");
+  else { try { ChatsEntrantes.alMostrar(); } catch (_) {} }
+}
 Atras.iniciar([
+  () => { if (CobroEntrega.abierto()) { CobroEntrega.cancelar(); return true; } return false; },
   () => Chat.cerrarCapa(),
-  () => { if (typeof ChatsEntrantes !== "undefined" && ChatsEntrantes.abierto && ChatsEntrantes.abierto()) { ChatsEntrantes.cerrarConversacion(); return true; } return false; },
+  () => { if (typeof ChatsEntrantes !== "undefined" && ChatsEntrantes.abierto && ChatsEntrantes.abierto()) { volverABandeja(); return true; } return false; },
   () => { for (const id of ["modalNuevoPedido", "modalSub", "modalFacturaVivo", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
   () => {
     if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
     if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
     if ($("customAlertModal").classList.contains("show")) { closeCustomAlert(); return true; }
-    if ($("depositPromptPopup").classList.contains("show")) { $("depositPromptPopup").classList.remove("show"); return true; }
+    if ($("cancelFacturaModal").classList.contains("show")) { cerrarCancelFactura(); return true; }
     return false;
   },
   () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
@@ -2078,6 +2249,11 @@ $("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder(
 OrdenAdminRep.init({
   db, usuario: () => usuario, uid: () => uidActual,
   alCambiar: () => { renderLista(); try { ChatsEntrantes.marcarConPedido(); } catch (_) {} },
+  pedirPago: async (info) => {
+    const pago = await CobroEntrega.pedir({ id: info.id, cliente: info.orden && info.orden.cliente, pedido: info.orden && info.orden.codigo, total: info.orden ? precioDeOrden(info.orden) : null });
+    if (pago) PagosEntrega[info.id] = pago;
+    return pago;
+  },
   alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
   alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))
 });
@@ -2786,22 +2962,38 @@ const ChatsEntrantes = (() => {
     inp.focus();
   });
   $("cnInput").addEventListener("input", () => { if (abiertoId) marcarTypingPropio(); });
-  if ($("cnVolver")) $("cnVolver").addEventListener("click", cerrarConversacion);
+  if ($("cnVolver")) $("cnVolver").addEventListener("click", volverABandeja);
+  function tieneAlfa(cv) {
+    try {
+      const d = cv.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, cv.width, cv.height).data;
+      for (let i = 3; i < d.length; i += 16) if (d[i] < 250) return true;
+    } catch (_) {}
+    return false;
+  }
   function comprimirImagen(archivo) {
     return new Promise((ok, fallo) => {
-      if (!archivo || !/^image\//.test(archivo.type)) return fallo(new Error("tipo"));
+      const nombre = String((archivo && archivo.name) || "");
+      if (!archivo || (!/^image\//.test(archivo.type) && !/\.(png|jpe?g|webp|gif|bmp)$/i.test(nombre))) return fallo(new Error("tipo"));
+      const esPng = /png/i.test(archivo.type) || /\.png$/i.test(nombre);
       const url = URL.createObjectURL(archivo), img = new Image();
       img.onload = () => {
         URL.revokeObjectURL(url);
-        let lado = 960;
-        for (let i = 0; i < 5; i++) {
+        let lado = 960, alfa = null;
+        for (let i = 0; i < 8; i++) {
           const k = Math.min(1, lado / Math.max(img.width, img.height)), cv = document.createElement("canvas");
           cv.width = Math.max(1, Math.round(img.width * k));
           cv.height = Math.max(1, Math.round(img.height * k));
-          cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-          const salida = cv.toDataURL("image/jpeg", 0.7);
+          const cx = cv.getContext("2d", { willReadFrequently: true });
+          cx.clearRect(0, 0, cv.width, cv.height);
+          cx.drawImage(img, 0, 0, cv.width, cv.height);
+          if (alfa === null) alfa = esPng && tieneAlfa(cv);
+          let salida;
+          if (alfa) {
+            salida = cv.toDataURL("image/webp", 0.85);
+            if (salida.indexOf("data:image/webp") !== 0 || salida.length > MAX_FOTO) { const p = cv.toDataURL("image/png"); if (salida.indexOf("data:image/webp") !== 0 || p.length < salida.length) salida = p; }
+          } else salida = cv.toDataURL("image/jpeg", 0.7);
           if (salida.length <= MAX_FOTO) return ok(salida);
-          lado = Math.round(lado * 0.75);
+          lado = Math.round(lado * 0.78);
         }
         fallo(new Error("grande"));
       };
@@ -2889,8 +3081,8 @@ const ChatsEntrantes = (() => {
     try { const a = JSON.parse(localStorage.getItem(CLAVE_REG) || "[]"); return Array.isArray(a) ? a.filter((x) => x && typeof x === "object") : []; } catch (_) { return []; }
   }
   function escribirRegistro(a) { try { localStorage.setItem(CLAVE_REG, JSON.stringify(a.slice(-300))); } catch (_) {} }
-  function entregar(id) {
-    registrarEntrega(id, lista[id] || {}, leerFacLocal(id));
+  function entregar(id, pago) {
+    registrarEntrega(id, lista[id] || {}, leerFacLocal(id), pago);
     limpiarLocal(id);
   }
   /* Pedido terminado (entregado o cancelado) desde el chat o desde el mapa: se cierra el chat abierto y se quitan
@@ -2903,10 +3095,11 @@ const ChatsEntrantes = (() => {
     if (previoId === id) cerrarPrevia();
     marcarConPedido(); pintarLista(); pintarMapa(); actualizarNav();
   }
-  function registrarEntrega(id, d, reg) {
+  function registrarEntrega(id, d, reg, pago) {
+    CobroEntrega.guardar({ id, origen: "chat", cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", total: reg && reg.actual ? Number(reg.actual.totalFinal) || 0 : null }, pago);
     { /* FASE 2 · Contabilidad unificada (origen "chat"): base = 1.ª factura, extras = mandados acumulados */
       const c = Contabilidad.desdeFacturas(reg && reg.base, reg && reg.actual);
-      Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, ivasExtras: c.ivasExtras, sinFactura: c.sinFactura });
+      Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", metodoPago: pago || null, pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, ivasExtras: c.ivasExtras, sinFactura: c.sinFactura });
     }
     const a = leerRegistro();
     if (a.some((x) => x.id === id)) return;
@@ -2990,13 +3183,14 @@ const ChatsEntrantes = (() => {
     const id = abiertoId, d = id && lista[id];
     if (!mio(d)) return;
     const reg = leerFacLocal(id), nombre = cortar(d.nombre || "el cliente", 40);
-    if (!confirm(reg ? "¿Confirmas que entregaste el pedido de " + nombre + "? El chat se cerrará y quedará solo su factura." : "No enviaste factura a " + nombre + ". ¿Marcar como entregado de todos modos?")) return;
+    const pago = await CobroEntrega.pedir({ id, cliente: nombre, pedido: reg && reg.actual ? reg.actual.pedido : "", total: totalFactura(id), origen: "chat", nota: reg ? "El chat se cerrará y quedará solo su factura." : "No enviaste factura a " + nombre + "; se marcará como entregado de todos modos." });
+    if (!pago) return;
     const btn = $("cnEntregado");
     btn.disabled = true;
     try { await db.ref(RAIZ + "/" + id).update({ estado: "entregado", entregadoTs: TS, repartidorGps: null }); }
     catch (e) { btn.disabled = false; return aviso("No se pudo confirmar la entrega: " + (e.code || e.message)); }
     btn.disabled = false;
-    registrarEntrega(id, d, reg);
+    registrarEntrega(id, d, reg, pago);
     limpiarLocal(id);
     cerrarConversacion();
     delete lista[id].repartidorUid;
