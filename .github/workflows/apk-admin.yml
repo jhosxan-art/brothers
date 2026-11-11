@@ -14,6 +14,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 📁 Copiar y validar configuración de Admin
+        run: |
+          if [ ! -d "config/admin" ]; then
+            echo "❌ Error: La carpeta config/admin no existe en el repositorio."
+            exit 1
+          fi
+          echo "📂 Copiando archivos de configuración desde config/admin a la raíz..."
+          cp -r config/admin/. . || { echo "❌ Error al copiar los archivos de configuración de admin"; exit 1; }
+          
+          # Verificación de archivos esenciales
+          if [ -f "google-services.json" ]; then
+            echo "✅ google-services.json copiado correctamente."
+          else
+            echo "❌ Error: No se encontró google-services.json en config/admin."
+            exit 1
+          fi
+          if [ -f "capacitor.config.json" ]; then
+            echo "✅ capacitor.config.json copiado correctamente."
+          else
+            echo "❌ Error: No se encontró capacitor.config.json en config/admin."
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -35,8 +58,7 @@ jobs:
           cp manifest.json www/
           cp icon-192.png icon-512.png icon-maskable-512.png badge-96.png www/ 2>/dev/null || echo "::warning::Faltan iconos PNG en la raiz del repositorio (icon-192.png, icon-512.png, icon-maskable-512.png, badge-96.png)."
           cp admin.html www/index.html
-          # La configuración de Capacitor del Admin reemplaza (solo en esta máquina de GitHub) a la del repartidor
-          cp capacitor.config.admin.json capacitor.config.json
+          # Nota: capacitor.config.json ya fue copiado automáticamente a la raíz desde config/admin/
 
       - name: Instalar dependencias
         run: npm install --legacy-peer-deps
@@ -65,15 +87,15 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, shutil, sys
-          origen = 'google-services-admin.json'
+          origen = 'google-services.json'
           if not os.path.exists(origen):
-              print('::error::Falta google-services-admin.json en la raiz del repositorio. En Firebase: Configuracion del proyecto > Tus apps > Agregar app Android con el nombre de paquete com.brothers.admin, y sube ese archivo con el nombre google-services-admin.json.')
+              print('::error::Falta google-services.json en la raiz del repositorio.')
               sys.exit(1)
           pkg = json.load(open('capacitor.config.json', encoding='utf-8'))['appId']
           gs = json.load(open(origen, encoding='utf-8'))
           nombres = [c['client_info']['android_client_info']['package_name'] for c in gs.get('client', [])]
           if pkg not in nombres:
-              print('::error::google-services-admin.json es de otra app (%s). Debe ser de %s.' % (nombres, pkg))
+              print('::error::google-services.json es de otra app (%s). Debe ser de %s.' % (nombres, pkg))
               sys.exit(1)
           shutil.copy(origen, 'android/app/google-services.json')
           print('google-services.json listo para', pkg)
