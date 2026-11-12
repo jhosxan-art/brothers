@@ -155,28 +155,5 @@ const OrdenAdminRep = (() => {
     }
     ctx.db.ref("pedidos/" + id).update(ped).catch(() => {});
   }
-  /* FASE 2 · Desglose del pedido para el panel inferior estilo Waze: factura (si se conoce), delivery, IVA, propina y total a cobrar */
-  function desglose() {
-    if (!orden) return null;
-    const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-    const fac = [orden.factura, orden.montoFactura, orden.valorPagado, orden.pagoRestaurante].map((x) => (x && typeof x === "object" ? NaN : Number(x))).find((n) => Number.isFinite(n) && n > 0);
-    const delivery = O.r2 ? O.r2(orden.delivery) : r2(orden.delivery), iva = O.r2 ? O.r2(orden.iva) : r2(orden.iva);
-    const propina = prioridad ? EXTRA_PRI : 0;
-    return { codigo: orden.codigo || "", cliente: orden.cliente || "", entrega: (orden.entrega && orden.entrega.texto) || "", factura: fac == null ? null : fac, delivery, iva, propina, total: r2(baseTotal(orden) + propina) };
-  }
-  function desgloseHtml() {
-    const d = desglose(); if (!d) return "";
-    const fila = (k, v, cls) => `<div class="pw-fila${cls ? " " + cls : ""}"><span>${k}</span><b>${v}</b></div>`;
-    return `<div class="pw-bloque">
-      <div class="pw-tit">🧾 Detalle del pedido</div>
-      ${fila("Pedido", esc(d.codigo) + (d.cliente ? " · " + esc(d.cliente) : ""))}
-      ${d.entrega ? fila("Entrega", esc(d.entrega)) : ""}
-      ${d.factura != null ? fila("Monto de la factura", dinero(d.factura)) : ""}
-      ${fila("Precio del delivery", dinero(d.delivery))}
-      ${d.iva > 0 ? fila("IVA", dinero(d.iva)) : ""}
-      ${d.propina > 0 ? fila("⚡ Propina por prioridad", dinero(d.propina)) : ""}
-      ${fila("Total a cobrar", dinero(d.total), "total")}
-    </div>`;
-  }
-  return { init, seguir, detener, html, alClick, publicar, detallesHtml, responder, resumen, desglose, desgloseHtml, activo: () => !!orden };
+  return { init, seguir, detener, html, alClick, publicar, detallesHtml, responder, resumen, activo: () => !!orden };
 })();

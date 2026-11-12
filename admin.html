@@ -42,6 +42,8 @@
 
     /* ============================================================
        FASE 3 · VISOR REORGANIZADO (footer de acciones fijo)
+       La cabecera solo tiene info; los botones NO tapan el nombre.
+       En móvil, los botones se apilan 2×2 si hace falta.
        ============================================================ */
     #modalSolicitud .sa-caja {
       max-width: 480px;
@@ -101,6 +103,7 @@
       gap: 3px;
     }
 
+    /* ---- FOOTER FIJO con los botones agrupados ---- */
     #modalSolicitud .sa-footer {
       flex: none;
       padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
@@ -246,6 +249,7 @@
       <div class="mapa-caja">
         <div id="mapaAdmin"></div>
         <div id="bannerRuta" class="banner-ruta oculto"></div>
+        <!-- Buscador: ciudades, barrios, direcciones, negocios, coordenadas o enlaces de Google Maps -->
         <div class="buscador">
           <form id="formBusq" autocomplete="off">
             <input id="busq" type="search" placeholder="Buscar ciudad, dirección, negocio o coordenadas" enterkeyhint="search" aria-label="Buscar en el mapa">
@@ -253,6 +257,7 @@
           <div id="resBusq" class="res-busq oculto"></div>
         </div>
         <span id="contador" class="contador chip-mapa">0 en ruta</span>
+        <!-- Herramientas del mapa (columna a la derecha, sin tapar nada) -->
         <div class="barra-herr">
           <button id="btnVerNegocios" class="herr on" type="button" aria-label="Mostrar u ocultar negocios"><b>🏪</b><small>Negocios</small></button>
           <button id="btnPolicia" class="herr" type="button" aria-label="Reportar policía"><b>🚨</b><small>Policía</small></button>
@@ -264,6 +269,7 @@
           <button id="btnFacturasVivo" class="herr" type="button" aria-label="Auditar facturas en curso de los repartidores"><b>🧾</b><small>Facturas</small></button>
           <button id="btnCentrar" class="herr" type="button" aria-label="Ver a todos"><b>⛶</b><small>Ver todos</small></button>
         </div>
+        <!-- Guiar: toca el icono de un repartidor y luego el mapa -->
         <div id="panelGuia" class="panel-guia oculto">
           <div id="guiaTxt"></div>
           <select id="guiaPedido" class="oculto" aria-label="Pedido de la guía"></select>
@@ -273,12 +279,15 @@
             <button id="btnGuiaCancelar" class="mini" type="button">Cancelar</button>
           </div>
         </div>
+        <!-- FASE 1 · Panel flotante del cliente (repartidor asignado · Factura · Espectar Chat) -->
         <div id="panelCliente" class="panel-cliente oculto" role="dialog" aria-label="Datos del cliente"></div>
+        <!-- FASE 1 · Barra del modo "dibujar zona" -->
         <div id="barraZona" class="barra-zona oculto" role="toolbar" aria-label="Dibujar zona">
           <span id="znTxt"></span>
           <div class="barra-zona-acc"><button id="znUndo" type="button">↶ Deshacer</button><button id="znOk" class="ok" type="button">✔ Guardar</button><button id="znCancel" type="button">✕ Cancelar</button></div>
         </div>
         <div id="toastAdmin" class="toast-admin oculto" role="status"></div>
+        <!-- FASE 2 · Brújula: apunta al norte real; al tocarla se desbloquea el mapa (mover y girar con los dedos) -->
         <button id="btnBrujula" class="brujula" type="button" aria-pressed="false" aria-label="Brújula. Toca para desbloquear el mapa y poder girarlo"><svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="#fff" stroke="currentColor" stroke-width="2"/><g id="brAguja"><polygon points="24,5 29,24 19,24" fill="#E5322D"/><polygon points="24,43 29,24 19,24" fill="#8A97A5"/><text x="24" y="17" text-anchor="middle" font-size="8" font-weight="800" fill="#fff">N</text></g><circle cx="24" cy="24" r="2.5" fill="#0E141B"/></svg><small id="brEstado">Bloqueado</small></button>
       </div>
     </section>
@@ -293,11 +302,13 @@
         <button id="btnSelEnviar" class="mini pri oculto" type="button">✉️ Enviar</button>
         <button id="btnSelBorrar" class="mini peligro oculto" type="button">🗑 Eliminar…</button>
       </div>
+      <!-- FASE 2 · Avisos de mensaje nuevo integrados en la bandeja (con foto del repartidor) -->
       <div id="bannerChatBandeja" class="cb-bandeja" role="status" aria-live="polite"></div>
       <div id="listaChats" class="acciones"></div>
     </section>
 
     <section id="panelEquipo" class="oculto">
+      <!-- FASE 3 · Orden: 1) Agregar repartidor · 2) Tu equipo · 3) Facturas del día · 4) Calificaciones -->
       <div class="formulario-equipo eq-nuevo">
         <h2>Agregar repartidor</h2>
         <div class="eq-foto-fila">
@@ -319,6 +330,7 @@
         <button id="btnAgregar" class="primario">Crear repartidor</button>
       </div>
 
+      <!-- 2) Tu equipo (cortina) -->
       <section class="eq-mod" id="modEquipo">
         <div class="equipo-cab eq-cab">
           <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoEquipo"><span>Tu equipo</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
@@ -329,6 +341,7 @@
         </div></div>
       </section>
 
+      <!-- FASE 2 · Rendimiento e ingresos por repartidor (cortina) -->
       <section class="eq-mod" id="modRend">
         <div class="eq-cab">
           <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoRend"><span>📊 Rendimiento e ingresos</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
@@ -347,6 +360,7 @@
         </div></div>
       </section>
 
+      <!-- 4) Calificaciones de clientes (cortina) -->
       <section class="eq-mod" id="modCalif">
         <div class="eq-cab">
           <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoCalif"><span>⭐ Calificaciones de clientes</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
@@ -360,6 +374,7 @@
       <div class="eq-pie" style="margin-top:22px;text-align:center"><button id="btnActiva" class="mini pri" type="button" style="margin-bottom:10px">🔋 Mantener la app activa (sin ahorro de batería)</button><br><button id="btnLanzarUpd" class="mini" type="button" style="opacity:.55">🚀 Lanzar actualización</button></div>
     </section>
 
+    <!-- Pedidos: formulario, asignación (registrado o invitado) y estado en vivo -->
     <section id="panelPedidos" class="oculto">
       <div class="pd-form">
         <h2>Nuevo pedido</h2>
@@ -369,6 +384,7 @@
           <div id="pdLista" class="pdl-lista"></div>
           <div class="pdl-add"><button id="pdAddRetiro" type="button">➕ Otro retiro</button><button id="pdAddEntrega" type="button">➕ Otra entrega o cobro</button></div>
         </div>
+        <!-- Dinero: delivery + IVA base (automático, editable) + IVA extra, todo en una fila -->
         <div class="pd-fila pd-dinero">
           <label>🛵 Delivery <input id="pdDelivery" type="number" inputmode="decimal" min="0" step="0.01" placeholder="C$ 0.00"></label>
           <label class="pd-iva-campo">IVA base <input id="pdIvaBase" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Auto" title="Se calcula solo según el delivery; puedes editarlo"></label>
@@ -414,6 +430,10 @@
       <div id="saLista" class="acciones"></div>
     </section>
 
+    <!-- ============================================================
+         FASE 3 · MODAL DE AUDITORÍA REDISEÑADO
+         Cabecera con info · Cuerpo con pedido + mapa + mensajes · Footer con botones
+         ============================================================ -->
     <div id="modalSolicitud" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="saTitulo">
       <div class="modal-rep-caja sa-caja">
         <div class="sa-cab">
@@ -440,6 +460,7 @@
 
     <div id="modalAdmin" class="modal-rep oculto" role="dialog" aria-modal="true"><div class="modal-rep-caja" id="modalCaja" style="text-align:left"></div></div>
 
+    <!-- NUEVA FASE 3 · Modal de foto de perfil (repartidor registrado e invitado) -->
     <div id="modalFoto" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="fotoTitulo">
       <div class="modal-rep-caja foto-modal">
         <h2 id="fotoTitulo">📷 Foto de perfil</h2>
@@ -461,6 +482,7 @@
     </nav>
   </div>
 
+  <!-- Bloqueo por actualización obligatoria (sin botón de cerrar; se muestra desde JS) -->
   <div id="modalActualizacion" class="upd-fondo oculto" role="alertdialog" aria-modal="true" aria-labelledby="updTitulo" aria-describedby="updNovedades">
     <div class="upd-caja">
       <div class="upd-icono" aria-hidden="true">🚀</div>
@@ -483,8 +505,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
-  <script>window.FCM_VAPID_KEY = "BJeqekVqA_37Sc75uSnVSHiAqqU-WY3LRRvnetF0crQTC-wHzym3tue2eTT3zO9Say16DaXRYEe8X9xNIETVBQA";</script>
-  <script>window.NOMBRE_APP = "admin";</script>
+  <script>window.FCM_VAPID_KEY = "BJeqekVqA_37Sc75uSnVSHiAqqU-WY3LRRvnetF0crQTC-wHzym3tue2eTT3zO9Say16DaXRYEe8X9xNIETVBQA";   // Firebase Console → Cloud Messaging → Certificados push web</script>
+  <script>window.NOMBRE_APP = "admin";   // sesión independiente de la del repartidor</script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
   <script src="atras.js"></script>
@@ -508,7 +530,6 @@
   <script src="admin.js"></script>
   <script src="push-admin.js"></script>
   <script src="ordenes-admin.js"></script>
-  <script src="admin-spa.js"></script>
   <script>
     /* ---- FASE 1 · Service Worker de push + redirección inteligente al panel de Solicitudes ---- */
     (function () {
@@ -521,7 +542,7 @@
         (function intentar() {
           intentos++;
           var app = document.getElementById("vistaApp");
-          if (app && app.classList.contains("oculto") && intentos < 40) return setTimeout(intentar, 500);
+          if (app && app.classList.contains("oculto") && intentos < 40) return setTimeout(intentar, 500);   // espera el inicio de sesión
           try { if (typeof irAPestana === "function") irAPestana(esChat ? "panelChats" : "panelSolicitudes"); } catch (_) {}
           if (!esChat && id && typeof window.__irASolicitud === "function") {
             setTimeout(function () { try { window.__irASolicitud(id); } catch (_) {} }, 400);
