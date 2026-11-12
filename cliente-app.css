@@ -767,3 +767,11 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
 }
 @media (min-width: 700px) { .wa-cliente .wa-btn-barra.wa-btn-atras { height: 46px; padding: 0 22px 0 10px; font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .wa-cliente .wa-btn-barra.wa-btn-atras, .wa-cliente .wa-btn-barra.wa-btn-atras svg { transition: none; } }
+
+/* ---------- Foto de perfil: logo de Brother’s (logo.png) hasta que un repartidor tome el pedido ---------- */
+.wa-cliente .wa-avatar { position: relative; }
+.wa-cliente .wa-avatar img.wa-avatar-logo {
+  position: absolute; inset: 0; width: 100%; height: 100%; padding: 3px; box-sizing: border-box;
+  object-fit: contain; background: #fff; border-radius: 50%;
+}
+.wa-cliente .wa-avatar img.wa-avatar-logo.oculto { display: none !important; }

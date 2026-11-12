@@ -381,8 +381,10 @@
   }
 
   function pintarAvatar(uid, nombre) {
-    const img = $("avatarFoto"), letra = $("avatarLetra");
+    const img = $("avatarFoto"), letra = $("avatarLetra"), logo = $("avatarLogo");
     letra.textContent = uid ? (nombre || "R").charAt(0).toUpperCase() : "B";
+    /* Sin repartidor: logo de Brother’s. Con repartidor: se oculta el logo y aparece su foto (o su inicial). */
+    if (logo) logo.classList.toggle("oculto", !!uid);
     if (!uid) {
       fotoRepUid = null;
       img.classList.add("oculto"); img.removeAttribute("src"); img.alt = "";
