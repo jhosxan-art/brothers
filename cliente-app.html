@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="cliente-app.css">
+  <link rel="stylesheet" href="cliente-app.css?v=20261112">
 </head>
 <body class="wa-cliente">
 
@@ -55,7 +55,7 @@
   <div id="vPedido" class="wa-modal inicio oculto" role="dialog" aria-modal="true" aria-label="Tu pedido">
     <div class="wa-hoja">
       <header class="wa-inicio-barra">
-        <span class="wa-avatar" aria-hidden="true"><b>B</b><img class="wa-avatar-logo" src="logo.png" alt="" onerror="this.remove()"></span>
+        <span class="wa-avatar" style="position:relative" aria-hidden="true"><b>B</b><img class="wa-avatar-logo" style="position:absolute;inset:0;width:100%;height:100%;padding:3px;box-sizing:border-box;object-fit:contain;background:#fff;border-radius:50%" src="logo.png" alt="" onerror="this.remove()"></span>
         <div class="wa-titulos">
           <strong>Brother’s Deliverys</strong>
           <small>en línea</small>
@@ -127,7 +127,7 @@
   <!-- 3) Chat -->
   <section id="vChat" class="wa-chat oculto" aria-label="Conversación con tu repartidor">
     <header class="wa-barra">
-      <span class="wa-avatar" id="avatarRep"><b id="avatarLetra" aria-hidden="true">B</b><img id="avatarLogo" class="wa-avatar-logo" src="logo.png" alt="Brother’s Deliverys" onerror="this.remove()"><img id="avatarFoto" class="oculto" alt=""></span>
+      <span class="wa-avatar" id="avatarRep" style="position:relative"><b id="avatarLetra" aria-hidden="true">B</b><img id="avatarLogo" class="wa-avatar-logo" style="position:absolute;inset:0;width:100%;height:100%;padding:3px;box-sizing:border-box;object-fit:contain;background:#fff;border-radius:50%" src="logo.png" alt="Brother’s Deliverys" onerror="this.remove()"><img id="avatarFoto" class="oculto" alt=""></span>
       <div class="wa-titulos">
         <strong id="tituloChat">Brother’s Deliverys</strong>
         <small id="subChat">Buscando repartidor…</small>
@@ -219,6 +219,6 @@
   <script src="iconos.js"></script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
-  <script src="cliente-app.js"></script>
+  <script src="cliente-app.js?v=20261112"></script>
 </body>
 </html>

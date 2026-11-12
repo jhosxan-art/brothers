@@ -775,3 +775,6 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
   object-fit: contain; background: #fff; border-radius: 50%;
 }
 .wa-cliente .wa-avatar img.wa-avatar-logo.oculto { display: none !important; }
+
+/* El logo siempre tapa por completo la letra de respaldo */
+.wa-cliente .wa-avatar img.wa-avatar-logo.oculto { display: none !important; }
