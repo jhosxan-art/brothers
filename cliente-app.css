@@ -32,8 +32,11 @@ body.wa-cliente {
 .wa-cliente .wa-form-nombre label { font-size: 13px; font-weight: 700; }
 
 /* ---------- Splash inicial ---------- */
-.wa-cliente #vCarga.wa-centro { background: #F0F2F5; }
-.wa-cliente .wa-splash { display: grid; justify-items: center; text-align: center; width: 100%; max-width: 320px; }
+/* Pantalla de carga: blanca y a todo el ancho/alto (sin franjas beige a los lados) */
+.wa-cliente #vCarga.wa-centro {
+  position: fixed; inset: 0; z-index: 5000; width: 100%; max-width: none; margin: 0; background: #fff;
+}
+.wa-cliente #vCarga.wa-centro.oculto { display: none !important; }.wa-cliente .wa-splash { display: grid; justify-items: center; text-align: center; width: 100%; max-width: 320px; }
 .wa-cliente .wa-splash-icono { position: relative; width: 132px; height: 132px; display: grid; place-items: center; margin-bottom: 28px; }
 .wa-cliente .wa-splash-icono::before, .wa-cliente .wa-splash-icono::after {
   content: ""; position: absolute; inset: 0; border-radius: 50%; background: #25D366; opacity: 0;
@@ -45,6 +48,11 @@ body.wa-cliente {
   display: grid; place-items: center; animation: wa-latido 2.4s ease-in-out infinite;
 }
 .wa-cliente .wa-splash h1 { font-size: 26px; font-weight: 800; line-height: 1.15; color: #075E54; }
+/* Logo del negocio (logo.png). Si el archivo no existe, se quita solo y se ve el ícono de respaldo. */
+.wa-cliente .wa-splash-logo {
+  position: absolute; inset: 0; width: 100%; height: 100%; padding: 8%; box-sizing: border-box;
+  object-fit: contain; background: #fff; border-radius: 50%;
+}
 .wa-cliente .wa-splash-msg { margin-top: 8px; font-size: 15px; font-weight: 600; color: #54656F; max-width: 30ch; }
 .wa-cliente .wa-splash-barra { margin-top: 26px; width: 120px; height: 4px; border-radius: 2px; background: #D1D7DB; overflow: hidden; position: relative; }
 .wa-cliente .wa-splash-barra i { position: absolute; top: 0; bottom: 0; left: 0; width: 40%; border-radius: 2px; background: #25D366; animation: wa-barra 1.4s ease-in-out infinite; }
