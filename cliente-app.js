@@ -846,15 +846,53 @@
   });
 
   /* ---------- GPS en tiempo real ---------- */
+  const UA = navigator.userAgent || "";
+  const esIOS = /iPad|iPhone|iPod/.test(UA) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  /* Navegadores internos (WhatsApp, Facebook, Instagram, Messenger, TikTok, Snapchat, Line…): en iPhone bloquean la ubicación. */
+  const esNavInterno = /FBAN|FBAV|FB_IAB|Instagram|Messenger|WhatsApp|TikTok|musical_ly|Snapchat|Line\/|MicroMessenger|GSA\//i.test(UA) ||
+    (esIOS && /AppleWebKit/i.test(UA) && !/Safari\//i.test(UA) && !window.navigator.standalone);
+
+  function estadoPermisoGps() {
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) return Promise.resolve("");
+      return navigator.permissions.query({ name: "geolocation" }).then((r) => r.state || "").catch(() => "");
+    } catch (e) { return Promise.resolve(""); }
+  }
+
+  /* Una lectura de posición. Si el GPS fino tarda o falla (típico en iPhone bajo techo), reintenta con precisión normal. */
   function geoUna() {
     return new Promise((ok) => {
       if (!navigator.geolocation) return ok({ ok: false, code: 0 });
+      const bien = (p) => ok({ ok: true, pos: { lat: redondear(p.coords.latitude), lng: redondear(p.coords.longitude) } });
       navigator.geolocation.getCurrentPosition(
-        (p) => ok({ ok: true, pos: { lat: redondear(p.coords.latitude), lng: redondear(p.coords.longitude) } }),
-        (e) => ok({ ok: false, code: e && e.code }),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        bien,
+        (e) => {
+          const code = e && e.code;
+          if (code === 1) return estadoPermisoGps().then((estado) => ok({ ok: false, code: 1, estado }));
+          navigator.geolocation.getCurrentPosition(
+            bien,
+            (e2) => ok({ ok: false, code: (e2 && e2.code) || code }),
+            { enableHighAccuracy: false, timeout: 20000, maximumAge: 60000 }
+          );
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     });
+  }
+
+  /* Mensaje claro según el caso real: navegador interno, iPhone o Android/otro. */
+  function mensajeBloqueoGps(r) {
+    if (esNavInterno) {
+      return "La ubicación no funciona dentro de esta ventana (WhatsApp, Facebook, Instagram…). Toca los tres puntos o el ícono de compartir y elige «Abrir en Safari». Ahí podrás permitir la ubicación.";
+    }
+    if (esIOS) {
+      return "Tu iPhone tiene la ubicación bloqueada para este sitio. Para arreglarlo:\n" +
+        "1) Ajustes > Privacidad y seguridad > Localización: actívala.\n" +
+        "2) En esa misma pantalla entra a «Sitios web de Safari» y elige «Al usar la app» o «Preguntar».\n" +
+        "3) En Safari toca «AA» (barra de direcciones) > Ajustes del sitio web > Ubicación > Permitir.\n" +
+        "Luego vuelve aquí y toca «Reintentar».";
+    }
+    return "Tu ubicación está bloqueada. Permite la ubicación para este sitio en los ajustes de tu navegador (candado junto a la dirección > Permisos > Ubicación) y toca «Reintentar».";
   }
 
   /* Obliga a tener la ubicación en vivo. Devuelve {lat,lng} o null si la conversación se reinició. */
@@ -872,8 +910,10 @@
         return gpsListo;
       }
       addBot(r.code === 1
-        ? "Tu ubicación está bloqueada. Permite la ubicación para este sitio en los ajustes de tu navegador y toca «Reintentar»."
-        : "No pude obtener tu ubicación. Enciende el GPS de tu celular y toca «Reintentar».");
+        ? mensajeBloqueoGps(r)
+        : (esIOS
+          ? "No pude obtener tu ubicación. Revisa que «Localización» esté activada en Ajustes > Privacidad y seguridad, sal a un lugar con mejor señal y toca «Reintentar»."
+          : "No pude obtener tu ubicación. Enciende el GPS de tu celular y toca «Reintentar»."));
       const c = await opciones(id, [{ clave: "r", texto: "📍 Reintentar ubicación" }, { clave: "x", texto: "↩️ Volver al inicio" }]);
       if (c === "x") { reiniciarConvo(); return null; }
     }
@@ -1403,9 +1443,23 @@
   function iniciarGps() {
     if (watchId !== null || cerrado || !navigator.geolocation) return;
     if (!comparteGps(pedidoActual)) return;
-    watchId = navigator.geolocation.watchPosition(alPosicion, (e) => {
-      if (e && e.code === 1) mostrarError("Activa el permiso de ubicación para que tu repartidor te encuentre.");
-    }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+    let bajoPrecision = false;
+    const alError = (e) => {
+      if (e && e.code === 1) {
+        mostrarError(esNavInterno
+          ? "Abre esta página en Safari para que tu repartidor pueda ver tu ubicación."
+          : (esIOS
+            ? "Activa la ubicación: Ajustes > Privacidad y seguridad > Localización > Sitios web de Safari > «Al usar la app»."
+            : "Activa el permiso de ubicación para que tu repartidor te encuentre."));
+        return;
+      }
+      if (!bajoPrecision && e && (e.code === 2 || e.code === 3)) {
+        bajoPrecision = true;
+        if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        watchId = navigator.geolocation.watchPosition(alPosicion, alError, { enableHighAccuracy: false, maximumAge: 15000, timeout: 30000 });
+      }
+    };
+    watchId = navigator.geolocation.watchPosition(alPosicion, alError, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
   }
   function detenerGps() {
     if (watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId);

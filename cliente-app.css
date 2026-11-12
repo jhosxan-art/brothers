@@ -574,7 +574,7 @@ body.wa-cliente {
   animation: wa-entra .28s ease-out both;
 }
 .wa-cliente .wa-burbuja-bot + .wa-burbuja-bot { animation-delay: .25s; }
-.wa-cliente .wa-burbuja-bot p { font-size: 15.5px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+.wa-cliente .wa-burbuja-bot p { font-size: 15.5px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-line; }
 .wa-cliente .wa-burbuja-bot .wa-hora { display: block; text-align: right; font-size: 11px; font-weight: 500; color: var(--wa-texto2); margin-top: 1px; }
 @keyframes wa-entra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
