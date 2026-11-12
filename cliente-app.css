@@ -744,3 +744,26 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
 .wa-cliente #modalReiniciar .wa-ayuda { font-size: 16px; line-height: 1.4; }
 .wa-cliente button.peligro { background: #D93025; border-color: #D93025; color: #fff; font-weight: 800; }
 .wa-cliente button.peligro:active { background: #B3261E; border-color: #B3261E; }
+
+/* ---------- «Atrás» v2: píldora blanca, llamativa y adaptable ---------- */
+.wa-cliente .wa-btn-barra.wa-btn-atras {
+  height: 42px; padding: 0 18px 0 8px; gap: 6px; border-radius: 21px; border: 0;
+  background: #fff; color: #075E54; font-size: 15px; font-weight: 800; letter-spacing: .2px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25); flex: 0 0 auto; white-space: nowrap;
+  transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+.wa-cliente .wa-btn-barra.wa-btn-atras svg {
+  width: 28px; height: 28px; padding: 4px; border-radius: 50%; background: #25D366; color: #fff; flex: none;
+  transition: transform .15s ease;
+}
+.wa-cliente .wa-btn-barra.wa-btn-atras:active { background: #E7F8EF; transform: scale(.95); box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.wa-cliente .wa-btn-barra.wa-btn-atras:active svg { transform: translateX(-2px); }
+.wa-cliente .wa-btn-barra.wa-btn-atras:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
+/* Pantallas angostas: solo la flecha, para no tapar el nombre */
+@media (max-width: 360px) {
+  .wa-cliente .wa-btn-barra.wa-btn-atras { width: 42px; padding: 0; justify-content: center; }
+  .wa-cliente .wa-btn-barra.wa-btn-atras span { display: none; }
+  .wa-cliente .wa-btn-barra.wa-btn-atras svg { width: 32px; height: 32px; }
+}
+@media (min-width: 700px) { .wa-cliente .wa-btn-barra.wa-btn-atras { height: 46px; padding: 0 22px 0 10px; font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .wa-cliente .wa-btn-barra.wa-btn-atras, .wa-cliente .wa-btn-barra.wa-btn-atras svg { transition: none; } }
