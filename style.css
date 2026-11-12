@@ -386,12 +386,10 @@ label.opcion input { width: 20px; height: 20px; flex: none; }
 .cerrar-res { padding: 10px 14px; background: var(--celeste-suave); color: var(--tinta); font-weight: 800; font-size: 13px; text-align: center; cursor: pointer; position: sticky; top: 0; }
 .panel-guia { right: 70px; }
 .fx .fx-acciones { position: static; z-index: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; padding: 6px 0 4px; background: transparent; }
-/* FASE 1 · Crear Factura: botones dentro del flujo del formulario (nunca flotan sobre los inputs ni sobre el teclado) */
 body.rep #vistaFactura .invoice-container .fx-acciones { position: static !important; inset: auto !important; bottom: auto !important; transform: none !important; }
 body.rep #vistaFactura { height: auto; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
 body.rep #vistaFactura .invoice-container { padding-bottom: calc(16px + env(safe-area-inset-bottom)); transition: padding-bottom .15s ease; }
 body.rep #vistaFactura input, body.rep #vistaFactura select, body.rep #vistaFactura textarea { scroll-margin: 96px 0; }
-/* Teclado virtual abierto: se ocultan los elementos fijos inferiores y se deja holgura para centrar el campo activo */
 body.rep.fx-teclado > #navApp { display: none !important; }
 body.rep.fx-teclado #vistaFactura .invoice-container { padding-bottom: calc(var(--vvh, 100dvh) * .5); }
 @media (prefers-reduced-motion: reduce) { body.rep #vistaFactura { scroll-behavior: auto; } }
@@ -863,10 +861,7 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 
 /* ============================================================
    FASE 4 · BOTONES WHATSAPP-STYLE + RESPONSIVE UNIVERSAL
-   Botones nuevos: Iniciar Entrega, Mandado Extra, Cámara y Galería
    ============================================================ */
-
-/* ---- Base botón WhatsApp verde (Send / Iniciar Entrega) ---- */
 .btn-wa {
   display: inline-flex;
   align-items: center;
@@ -889,8 +884,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 .btn-wa:active { transform: scale(.97); }
 .btn-wa:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
 .btn-wa:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
-
-/* ---- Base botón Mandado Extra (naranja WhatsApp Business) ---- */
 .btn-wa-mandado {
   display: inline-flex;
   align-items: center;
@@ -911,8 +904,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 .btn-wa-mandado:hover { transform: translateY(-1px); }
 .btn-wa-mandado:active { transform: scale(.97); }
 .btn-wa-mandado:focus-visible { outline: 3px solid #F59E0B; outline-offset: 2px; }
-
-/* ---- Base botón icono (Cámara / Galería) ---- */
 .btn-wa-icono {
   width: 46px;
   height: 46px;
@@ -935,14 +926,11 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 .btn-wa-icono:active { transform: scale(.92); }
 .btn-wa-icono:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
 .btn-wa-icono:disabled { opacity: .5; cursor: not-allowed; }
-
-/* ---- Aplicar al HTML existente del chat ---- */
 .cn-cab button,
 .cn-acciones button,
 .cn-comp button {
   transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease;
 }
-
 .cn-cab #cnFacturar {
   background: #0E141B;
   border: 0;
@@ -951,7 +939,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   font-weight: 800;
 }
 .cn-cab #cnFacturar:hover { background: #1a2530; }
-
 .cn-cab #cnMandado {
   background: linear-gradient(135deg, #F59E0B, #D97706);
   border: 0;
@@ -963,7 +950,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 .cn-cab #cnMandado:hover { transform: translateY(-1px); }
 .cn-cab #cnMandado:active { transform: scale(.97); }
 .cn-cab #cnMandado:focus-visible { outline: 3px solid #F59E0B; outline-offset: 2px; }
-
 .cn-comp button.cn-foto {
   background: #E8F6FE;
   border: 0;
@@ -978,7 +964,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 .cn-comp button.cn-foto:active { transform: scale(.92); }
 .cn-comp button.cn-foto:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
 .cn-comp button.cn-foto:disabled { opacity: .5; }
-
 #cnIniciarEntrega,
 .pd-iniciar {
   transition: transform .12s ease, box-shadow .12s ease;
@@ -989,8 +974,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 .pd-iniciar:active { transform: scale(.97); }
 #cnIniciarEntrega:focus-visible,
 .pd-iniciar:focus-visible { outline: 3px solid #25D366; outline-offset: 2px; }
-
-/* ---- Responsive móviles muy pequeños (≤380px) ---- */
 @media (max-width: 380px) {
   .cn-cab { gap: 4px; padding: 6px 8px; }
   .cn-cab #cnFacturar,
@@ -1018,8 +1001,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   }
   .cn-comp input#cnInput { height: 42px; font-size: 15px; }
 }
-
-/* ---- Responsive tablet + desktop (≥768px) ---- */
 @media (min-width: 768px) {
   .cn-cab #cnFacturar,
   .cn-cab #cnMandado {
@@ -1044,8 +1025,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   .cn-comp input#cnInput { height: 50px; font-size: 16px; border-radius: 25px; }
   .cn-comp > button[type="submit"] { width: 50px; height: 50px; }
 }
-
-/* ---- Landscape móvil: compacto pero legible ---- */
 @media (max-height: 500px) and (orientation: landscape) {
   #cnIniciarEntrega,
   .pd-iniciar {
@@ -1055,8 +1034,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
     margin: 4px 0;
   }
 }
-
-/* ---- Accesibilidad: prefers-reduced-motion ---- */
 @media (prefers-reduced-motion: reduce) {
   .btn-wa,
   .btn-wa-mandado,
@@ -1076,7 +1053,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
     transform: none !important;
   }
 }
-
 
 /* ===== FASE 1 · Cabecera sin deformación (chat + salir) ===== */
 .barra-marca { gap: 8px; }
@@ -1103,20 +1079,19 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 #vistaChats .cn-acciones .cn-iniciar:focus-visible { outline: 3px solid #1E9B5A; outline-offset: 2px; }
 #vistaChats .cn-acciones .cn-iniciar-ico { font-size: 17px; line-height: 1; flex: none; }
 
-
-/* ===== FASE 3 · z-index de marcadores del mapa (negocios < clientes < repartidor) ===== */
+/* ===== FASE 3 · z-index de marcadores del mapa ===== */
 .leaflet-paneLugares-pane { z-index: 590; }
 .leaflet-marker-pane { z-index: 600; }
 .leaflet-paneYo-pane { z-index: 640; }
 .leaflet-paneLugares-pane .leaflet-marker-icon { will-change: auto; }
 .leaflet-marker-icon.rep-yo { z-index: 10000 !important; }
 
-/* ===== FASE 1 · Capas del mapa admin: negocios SIEMPRE debajo de repartidores ===== */
+/* ===== FASE 1 · Capas del mapa admin ===== */
 .leaflet-marker-pane .leaflet-marker-icon.neg-ico { z-index: -100000 !important; }
 .leaflet-marker-pane .leaflet-marker-icon.neg-ico:hover { z-index: -99999 !important; }
 #formBusqRep input { width: 100%; }
 
-/* ===== FASE 3 · Layout 50/50 responsivo (Iniciar entrega | Cancelar) ===== */
+/* ===== FASE 3 · Layout 50/50 responsivo ===== */
 #vistaChats .cn-acciones { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
 #vistaChats .cn-acciones > button { flex: 1 1 0; }
 @media (max-width: 360px) {
@@ -1129,7 +1104,7 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
   #vistaChats .cn-acciones button { height: 48px; font-size: 15px; }
 }
 
-/* ===== FASE 3 · Barra flotante "Ocultar / Mostrar pedido" legible ===== */
+/* ===== FASE 3 · Barra flotante "Ocultar / Mostrar pedido" ===== */
 #vistaMapa .hoja-pedidos { padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
 #vistaMapa .hoja-pedidos .pedido-card { gap: 10px; padding: 12px; }
 #vistaMapa .hoja-pedidos .pc-datos { min-width: 0; flex: 1; }
@@ -1147,8 +1122,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 
 /* ============================================================
    FASE 3 · Panel contable "Facturas entregadas"
-   Resumen financiero, filtros por fecha y tarjetas con origen
-   (Chat · Admin · Manual · Invitado). Móvil primero.
    ============================================================ */
 .pc-contenedor { display: grid; gap: 12px; min-width: 0; }
 .pc-tit { font-size: 16px; font-weight: 800; margin: 4px 0 0; }
@@ -1207,10 +1180,6 @@ body.admin .cn-cab small.escribiendo, #vistaChats .cn-cab small.escribiendo { co
 
 /* ============================================================
    FASE 4 · Cierre de estilos
-   - Botones de "Crear Factura" siempre dentro del flujo del formulario
-     (nunca flotan sobre los campos cuando sube el teclado).
-   - Auto-scroll: los campos dejan margen para quedar centrados.
-   - Etiquetas de origen visibles también en listados compactos.
    ============================================================ */
 body.rep #vistaFactura .fx-acciones,
 body.rep #vistaFactura .invoice-container .fx-acciones { position: static !important; inset: auto !important; top: auto !important; right: auto !important; bottom: auto !important; left: auto !important; transform: none !important; width: auto; }
@@ -1326,11 +1295,7 @@ body.admin .tabs button { line-height: 1.1; overflow: hidden; text-overflow: ell
 
 /* ============================================================
    FASE 3 · EQUIPO REORDENADO + CORTINAS + RESPONSIVIDAD UNIVERSAL
-   Orden: Agregar repartidor · Tu equipo · Facturas del día · Calificaciones
-   Dispositivos: celulares (incl. plegables y landscape), tablets, laptops y TV
    ============================================================ */
-
-/* ---- Base fluida y sin desbordes laterales ---- */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body.admin { height: 100dvh; min-height: 100dvh; overflow-x: hidden; }
 #vistaApp, #vistaApp > section { min-width: 0; }
@@ -1340,12 +1305,8 @@ body.admin .mini { min-height: 44px; }
 body.admin .acciones-fila { flex-wrap: wrap; }
 body.admin .stats-fila { flex-wrap: wrap; }
 body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-collapse: collapse; }
-
-/* ---- Panel Equipo: contenedor ---- */
 #panelEquipo { padding-bottom: calc(24px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 #panelEquipo > * { min-width: 0; }
-
-/* ---- 1) Agregar repartidor con foto de perfil ---- */
 .eq-foto-fila { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 12px; border: 1.5px dashed #cfe9f8; border-radius: 18px; background: var(--celeste-suave); }
 .eq-av-xl { flex: none; width: 88px; height: 88px; padding: 6px; margin: 0; border: 3px solid var(--celeste); border-radius: 50%; background: #fff no-repeat center / cover; display: grid; place-items: center; overflow: hidden; cursor: pointer; }
 .eq-av-xl svg { width: 100%; height: 100%; display: block; }
@@ -1354,8 +1315,6 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
 .eq-foto-txt strong { font-size: 15px; font-weight: 800; }
 .eq-foto-txt small { color: var(--texto2); font-size: 12.5px; font-weight: 600; line-height: 1.3; }
 .eq-foto-txt .acciones-fila { margin-top: 4px; }
-
-/* ---- 2) Tu equipo: foto de perfil de cada miembro ---- */
 #listaEquipo { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); align-items: start; }
 #listaEquipo > h3.sec, #listaEquipo > .ayuda, #listaEquipo > .estado, #listaEquipo > #eqRetry { grid-column: 1 / -1; }
 #listaEquipo .tarjeta-rep .fila { flex-wrap: wrap; }
@@ -1363,12 +1322,8 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
 #listaEquipo .tarjeta-rep .avatar { flex: none; width: 62px; height: 62px; padding: 5px; border: 2px solid var(--celeste); background-color: var(--celeste-suave); background-repeat: no-repeat; display: grid; place-items: center; overflow: hidden; }
 #listaEquipo .tarjeta-rep .avatar svg { width: 100%; height: 100%; display: block; }
 #listaEquipo .tarjeta-rep .avatar.con-foto { padding: 0; background-color: transparent; border-color: var(--celeste-prof); }
-
-/* ---- 3 y 4) Listas de facturas y calificaciones en rejilla ---- */
 #califLista { grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); align-items: start; }
 #califLista > .stats-total, #califLista > .ayuda { grid-column: 1 / -1; }
-
-/* ---- Módulos con cortina (minimizar / maximizar) ---- */
 #panelEquipo .eq-mod { min-width: 0; background: #fff; border: 1px solid var(--linea); border-radius: 22px; padding: 6px 16px; }
 #panelEquipo .eq-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: nowrap; }
 #panelEquipo .eq-cab h2 { flex: 1 1 auto; min-width: 0; margin: 0; }
@@ -1382,17 +1337,11 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
 .eq-mod.cerrada .eq-cuerpo { grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows .28s ease, visibility 0s linear .28s; }
 .eq-mod.cerrada .eq-cuerpo-in { padding-bottom: 0; }
 #btnRecargarEquipo { flex: none; }
-
-/* ---- Mapa: herramientas con scroll propio si la pantalla es baja ---- */
 .barra-herr { max-height: calc(100% - 74px); overflow-y: auto; overflow-x: hidden; scrollbar-width: none; overscroll-behavior: contain; padding: 1px; }
 .barra-herr::-webkit-scrollbar { display: none; }
 .res-busq { max-height: 42dvh; }
-
-/* ---- Modales: nunca más altos ni más anchos que la pantalla ---- */
 .modal-rep { overflow-y: auto; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
 .modal-rep-caja { max-height: calc(100dvh - 24px); }
-
-/* ---- Teléfonos muy angostos / plegables ---- */
 @media (max-width: 360px) {
   #panelEquipo { padding: 12px; gap: 12px; }
   .formulario-equipo { padding: 14px; }
@@ -1400,20 +1349,14 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
   .eq-av-xl { width: 72px; height: 72px; }
   #listaEquipo .tarjeta-rep .avatar { width: 54px; height: 54px; }
 }
-
-/* ---- Tablets verticales y teléfonos grandes ---- */
 @media (min-width: 600px) {
   .modal-rep-caja:not(.sa-caja):not(.foto-modal) { max-width: 460px; }
 }
-
-/* ---- Tablets / laptops pequeñas ---- */
 @media (min-width: 700px) {
   .panel-guia, .toast-admin { right: 84px; }
   .panel-guia { max-width: 640px; }
   body.admin .chat { width: min(100%, 780px); margin-inline: auto; box-shadow: 0 0 0 100vmax rgba(14,20,27,.45); }
 }
-
-/* ---- Laptops ---- */
 @media (min-width: 1100px) {
   #panelEquipo { max-width: 1240px; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; align-items: start; }
   #panelEquipo > .eq-pie { grid-column: 1 / -1; }
@@ -1422,8 +1365,6 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
   .buscador { right: auto; width: min(640px, calc(100% - 100px)); }
   .modal-rep-caja:not(.sa-caja):not(.foto-modal) { max-width: 520px; }
 }
-
-/* ---- Pantallas grandes / TV (1600 px o más) ---- */
 @media (min-width: 1600px) {
   #panelEquipo { max-width: 1560px; column-gap: 28px; padding: 32px; }
   #vistaApp #panelPedidos:not(.oculto) { max-width: 1560px; gap: 28px; padding: 32px; }
@@ -1447,8 +1388,6 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
   .modal-rep-caja:not(.sa-caja):not(.foto-modal) { max-width: 600px; }
   body.admin .chat { width: min(100%, 980px); }
 }
-
-/* ---- 4K / TV muy grande ---- */
 @media (min-width: 2400px) {
   #panelEquipo, #vistaApp #panelPedidos:not(.oculto) { max-width: 1960px; }
   body.admin .tabs button { height: 88px; font-size: 22px; }
@@ -1458,8 +1397,6 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
   .herr small { font-size: 14px; }
   .panel-guia, .toast-admin { right: 118px; }
 }
-
-/* ---- Teléfono en horizontal (poca altura) ---- */
 @media (max-height: 500px) and (orientation: landscape) {
   .eq-av-xl { width: 64px; height: 64px; }
   .eq-foto-fila { padding: 8px; gap: 10px; }
@@ -1467,47 +1404,34 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
   .eq-toggle { min-height: 40px; }
   .modal-rep-caja { max-height: calc(100dvh - 16px); }
 }
-
-/* ---- Movimiento reducido ---- */
 @media (prefers-reduced-motion: reduce) {
   .eq-cuerpo, .eq-mod.cerrada .eq-cuerpo, .eq-flecha { transition: none; }
 }
 
 /* ============================================================
-   MAPA ADMIN · Negocios pequeños y pegados al mapa (estilo Google Maps / Waze),
-   tarjeta de información siempre por encima y fotos en la lista de Chats
+   MAPA ADMIN · Negocios pequeños y tarjeta de información superior
    ============================================================ */
 .neg-ico { background: none; border: 0; cursor: pointer; }
 .neg-pin { position: absolute; left: 0; top: 0; width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 2px solid #F59E0B; display: grid; place-items: center; font-size: 11px; line-height: 1; box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
-/* La tarjeta de información queda por encima de todos los íconos del mapa */
 .leaflet-popup-pane { z-index: 900; }
 .leaflet-popup { z-index: 900; }
-
-/* Foto de perfil del repartidor en la lista de Chats */
 #listaChats .tarjeta-rep .avatar { flex: none; width: 52px; height: 52px; padding: 4px; border: 2px solid var(--celeste); background-color: var(--celeste-suave); background-repeat: no-repeat; display: grid; place-items: center; overflow: hidden; }
 #listaChats .tarjeta-rep .avatar svg { width: 100%; height: 100%; display: block; }
 #listaChats .tarjeta-rep .avatar.con-foto { padding: 0; background-color: transparent; border-color: var(--celeste-prof); }
-
-/* Foto de perfil visible: el ícono de moto se oculta cuando hay foto (las reglas de arriba lo volvían a mostrar encima) */
 #listaChats .tarjeta-rep .avatar.con-foto svg,
 #listaEquipo .tarjeta-rep .avatar.con-foto svg,
 .eq-av-xl.con-foto svg { display: none; }
 #listaChats .tarjeta-rep .avatar.con-foto,
 #listaEquipo .tarjeta-rep .avatar.con-foto,
 .eq-av-xl.con-foto { background-size: cover; background-position: center; background-repeat: no-repeat; }
-
-/* Solicitud de cliente ya tomada por un repartidor */
 .pin-solicitud-admin.tomada { background: #0A86C9; border-color: #fff; animation: none; }
 .pin-solicitud-admin.tomada::before { display: none; }
 .etq-solicitud-admin.tomada { background: #0A86C9; color: #fff; }
-
-/* Descarga de la actualización dentro de la app */
 .upd-prog { width: 100%; height: 10px; border-radius: 99px; background: var(--linea); overflow: hidden; }
 .upd-prog i { display: block; width: 0; height: 100%; background: var(--celeste-prof); border-radius: 99px; transition: width .2s ease; }
 #updEstado:empty { display: none; }
 
-
-/* ===== FASE 2 · Solicitudes: sin scroll horizontal, tarjetas ordenadas y acciones coherentes con el estado ===== */
+/* ===== FASE 2 · Solicitudes responsivas ===== */
 #panelSolicitudes, #panelSolicitudes * { overflow-wrap: anywhere; }
 #panelSolicitudes .sa-dat strong { overflow-wrap: normal; }
 #panelSolicitudes .sa-fecha-fila input[type="date"] { flex: 1 1 140px; max-width: 100%; }
@@ -1522,7 +1446,7 @@ body.admin table { display: block; max-width: 100%; overflow-x: auto; -webkit-ov
   #panelSolicitudes .sa-av { width: 38px; height: 38px; font-size: 16px; }
 }
 
-/* ===== FASE 3 · Verificación responsiva universal (celular · tablet · laptop · TV) ===== */
+/* ===== FASE 3 · Verificación responsiva universal ===== */
 body.admin #panelChats, body.admin #panelEquipo, body.admin #panelPedidos, body.admin #panelSolicitudes { overflow-x: hidden; box-sizing: border-box; min-width: 0; }
 body.admin nav.tabs { max-width: 100%; }
 body.admin nav.tabs button { min-width: 0; }
@@ -1533,40 +1457,31 @@ body.admin nav.tabs button { min-width: 0; }
 
 /* ============================================================
    FASE 3 · CONSOLIDACIÓN FINAL DEL ECOSISTEMA ADMIN
-   Responsivo universal (celulares, plegables, tablets, laptops y TV) + PWA instalada + push/voz.
-   Va al final del archivo para ganar a las reglas anteriores sin tocarlas.
    ============================================================ */
 html, body.admin { max-width: 100%; overflow-x: hidden; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body.admin { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); overscroll-behavior-y: contain; }
 @media (display-mode: standalone), (display-mode: minimal-ui) {
   body.admin { padding-top: env(safe-area-inset-top, 0px); }
 }
-/* Panel de solicitudes: jamás scroll horizontal; el texto largo se parte */
 body.admin #panelSolicitudes, body.admin #panelSolicitudes * { max-width: 100%; box-sizing: border-box; }
 body.admin #panelSolicitudes { overflow-x: hidden; }
 body.admin #panelSolicitudes :is(p, span, small, b, strong, h3, h4, label, button) { overflow-wrap: anywhere; word-break: break-word; }
 body.admin #panelSolicitudes :is(.sa-barra, .sa-filtros, .sa-fila, .sa-acciones) { flex-wrap: wrap; min-width: 0; }
 body.admin #panelSolicitudes img, body.admin #panelSolicitudes svg { max-width: 100%; height: auto; }
-/* Chat Messenger: las burbujas y fotos nunca desbordan */
 .chat.messenger .burbuja, .chat.messenger .burbuja p { overflow-wrap: anywhere; min-width: 0; }
 .chat.messenger .foto-chat { max-width: 100%; height: auto; }
-/* Toques cómodos en pantallas táctiles y foco visible para control remoto de TV */
 @media (pointer: coarse) { body.admin :is(button, .mini, summary, nav.tabs button) { min-height: 44px; } }
 body.admin :is(button, a, summary, input, select, textarea):focus-visible { outline: 3px solid var(--celeste-prof, #1E88C7); outline-offset: 2px; }
-/* Plegables y pantallas muy angostas */
 @media (max-width: 320px) {
   body.admin { font-size: 14px; }
   body.admin .tarjeta-rep { padding: 8px; gap: 8px; }
 }
-/* Tablets */
 @media (min-width: 768px) and (max-width: 1099px) {
   body.admin #panelChats, body.admin #panelEquipo, body.admin #panelPedidos, body.admin #panelSolicitudes { padding-inline: 18px; }
 }
-/* Laptops */
 @media (min-width: 1100px) {
   body.admin #panelChats, body.admin #panelEquipo, body.admin #panelSolicitudes { max-width: 1100px; margin-inline: auto; width: 100%; }
 }
-/* TV / pantallas grandes (a distancia: letra y botones más grandes) */
 @media (min-width: 1920px) {
   body.admin { font-size: 18px; }
   body.admin :is(button, .mini, nav.tabs button) { min-height: 56px; font-size: 1.05em; }
@@ -1576,24 +1491,18 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
   body.admin { font-size: 22px; }
   body.admin #panelChats, body.admin #panelEquipo, body.admin #panelSolicitudes { max-width: 1600px; }
 }
-/* Móvil horizontal con poca altura */
 @media (max-height: 500px) and (orientation: landscape) {
   body.admin nav.tabs button { min-height: 38px; }
 }
 @media (prefers-reduced-motion: reduce) { body.admin * { scroll-behavior: auto !important; } }
 
-
 /* ============================================================
-   FASE 1 · Mapa del administrador: sin botones de zoom, capas ordenadas,
-   marcador de cliente en vivo + panel flotante, zonas translúcidas y barra de dibujo.
+   FASE 1 · Mapa del administrador: capas, panel cliente, zonas
    ============================================================ */
 #mapaAdmin .leaflet-control-zoom { display: none !important; }
-
-/* Capas: zonas 350 · rutas 400 · negocios 450 · clientes 560 · repartidores 600 · tarjetas 700 */
 .leaflet-paneZonas-pane { z-index: 350 !important; pointer-events: none; }
 .leaflet-paneNegocios-pane { z-index: 450 !important; }
 .leaflet-paneClientes-pane { z-index: 560 !important; }
-
 .cm-wrap { background: none; border: 0; }
 .cm-pin { position: relative; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; line-height: 1; background: #fff; border: 3px solid var(--celeste-prof); box-shadow: 0 2px 8px rgba(14, 20, 27, .32); box-sizing: border-box; }
 .cm-pin.nuevo { border-color: var(--rojo); animation: cmPulso 1.7s ease-out infinite; }
@@ -1601,7 +1510,6 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .cm-etq { position: absolute; top: 44px; left: 50%; transform: translateX(-50%); max-width: 150px; padding: 2px 8px; border-radius: 9px; background: rgba(14, 20, 27, .86); color: #fff; font-size: 11px; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 @keyframes cmPulso { 0% { box-shadow: 0 0 0 0 rgba(229, 50, 45, .55), 0 2px 8px rgba(14, 20, 27, .32); } 70% { box-shadow: 0 0 0 16px rgba(229, 50, 45, 0), 0 2px 8px rgba(14, 20, 27, .32); } 100% { box-shadow: 0 0 0 0 rgba(229, 50, 45, 0), 0 2px 8px rgba(14, 20, 27, .32); } }
 @media (prefers-reduced-motion: reduce) { .cm-pin.nuevo { animation: none; } }
-
 .panel-cliente { position: absolute; z-index: 1100; left: 10px; right: 72px; bottom: calc(14px + env(safe-area-inset-bottom)); max-width: 440px; box-sizing: border-box; display: grid; gap: 10px; padding: 12px; border-radius: 18px; background: #fff; border: 1px solid var(--linea); box-shadow: 0 10px 30px rgba(14, 20, 27, .28); text-align: left; }
 .panel-cliente.oculto, .barra-zona.oculto { display: none !important; }
 .cm-cab { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -1621,7 +1529,6 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .cm-btn { min-width: 0; height: 44px; padding: 0 10px; border-radius: 12px; border: 1.5px solid var(--linea); background: #fff; font-size: 13.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cm-btn.pri { background: var(--tinta); border-color: var(--tinta); color: #fff; }
 .cm-btn:active, .cm-x:active { transform: scale(.97); }
-
 .zn-wrap { background: none; border: 0; }
 .zn-etq { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; font-size: 11px; font-weight: 800; letter-spacing: .3px; opacity: .8; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 5px #fff; pointer-events: none; transition: opacity .2s; }
 .zoom-lejos .zn-etq { opacity: 0; }
@@ -1641,7 +1548,6 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .barra-zona-acc button { min-width: 0; height: 40px; padding: 0 6px; border-radius: 11px; border: 1.5px solid rgba(255, 255, 255, .25); background: transparent; color: #fff; font-size: 12.5px; font-weight: 800; white-space: nowrap; }
 .barra-zona-acc button.ok { background: #1E9B5A; border-color: #1E9B5A; }
 .barra-zona-acc button:disabled { opacity: .4; }
-
 @media (min-width: 700px) { .panel-cliente, .barra-zona { left: 14px; right: auto; width: 420px; } }
 @media (min-width: 1200px) {
   .panel-cliente, .barra-zona { width: 480px; bottom: 22px; }
@@ -1657,7 +1563,7 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 }
 
 /* ============================================================
-   FASE 2 · Aviso de mensaje nuevo DENTRO de la bandeja de Chats + tarjeta de rendimiento por repartidor
+   FASE 2 · Aviso mensaje nuevo en bandeja + tarjeta rendimiento
    ============================================================ */
 .cb-bandeja { display: grid; gap: 8px; }
 .cb-bandeja:empty { display: none; }
@@ -1672,7 +1578,6 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .cb-x { flex: none; width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 0; background: var(--gris); font-size: 13px; font-weight: 800; }
 @keyframes cbEntra { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .cb-aviso { animation: none; } }
-
 .rd-tarjeta { display: grid; gap: 10px; padding: 14px; border-radius: 18px; background: #fff; border: 1px solid var(--linea); text-align: left; min-width: 0; }
 .rd-tarjeta.total { background: var(--tinta); color: #fff; border-color: var(--tinta); }
 .rd-cab { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -1706,7 +1611,7 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 @media (min-width: 1200px) { .rd-cab strong { font-size: 18px; } .rd-fila { font-size: 15px; } .rd-entrega b { font-size: 24px; } }
 
 /* ============================================================
-   FASE 3 · Solicitudes: cortina (minimizar / maximizar) + adaptabilidad universal
+   FASE 3 · Solicitudes: cortina + adaptabilidad universal
    ============================================================ */
 .sa-cab-sol { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
 .sa-cab-sol h2 { margin: 0; min-width: 0; }
@@ -1720,7 +1625,6 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 #panelSolicitudes.sa-min .sa-cortina { background: #0E141B; color: #fff; border-color: #0E141B; }
 #panelSolicitudes.sa-min .sa-cortina-n { background: #fff; color: #0E141B; }
 @media (prefers-reduced-motion: reduce) { .sa-cortina-flecha { transition: none; } }
-
 @media (min-width: 768px) {
   body.admin #panelSolicitudes { max-width: 760px !important; }
   body.admin .cb-bandeja, body.admin #panelEquipo > * { max-width: 760px; margin-left: auto; margin-right: auto; }
@@ -1738,7 +1642,7 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 }
 
 /* ============================================================
-   Rendimiento e ingresos · selector de periodo + ventana con calendario
+   Rendimiento e ingresos · selector de periodo
    ============================================================ */
 .rd-periodo { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
 .rd-flecha { flex: none; width: 46px; min-height: 52px; padding: 0; border-radius: 14px; border: 1.5px solid var(--linea); background: #fff; color: var(--tinta); font-size: 26px; font-weight: 800; line-height: 1; display: grid; place-items: center; cursor: pointer; }
@@ -1766,9 +1670,6 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 #modalAdmin:has(.rd-sheet) .modal-rep-caja { max-width: 520px; border-radius: 22px 22px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
 @media (min-width: 768px) { #modalAdmin:has(.rd-sheet) { align-items: center; } #modalAdmin:has(.rd-sheet) .modal-rep-caja { border-radius: 22px; padding-bottom: 24px; } }
 @media (min-width: 1800px) { .rd-per-btn, .rd-flecha { min-height: 64px; } .rd-per-txt strong { font-size: 19px; } .rd-chip { height: 52px; font-size: 17px; } }
-
-/* ===== Orden definitivo de capas del mapa del administrador =====
-   zonas < negocios < clientes < marcadores (repartidores, tarjetas) < globos de información */
 .leaflet-paneZonas-pane { z-index: 350 !important; }
 .leaflet-paneNegocios-pane { z-index: 450 !important; }
 .leaflet-paneClientes-pane { z-index: 560 !important; }
@@ -1776,28 +1677,24 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .leaflet-tooltip-pane { z-index: 650 !important; }
 .leaflet-popup-pane { z-index: 900 !important; }
 
-
-/* FASE 1 · PNG con canal alfa: sin fondo detrás de la imagen */
+/* FASE 1 · PNG con canal alfa */
 .chat-lista img, .chat .chat-lista img { background: transparent; object-fit: contain; }
-/* FASE 1 · Cancelar factura: modal con dos opciones */
 .fx-cancel-opc { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
 .fx-cancel-opc .custom-modal-btn { margin: 0; padding: 13px; font-weight: 700; }
 .fx-cancel-opc .fx-cancel-editar { background: var(--sky-blue); }
 .fx-cancel-volver { border: 0; background: transparent; color: #5B6672; font-weight: 700; font-size: 14px; padding: 8px; cursor: pointer; }
 
-/* FASE 2 · Botón flotante "Navegar" (reemplaza zoom +/-) */
+/* FASE 2 · Botón flotante "Navegar" + brújula Norte */
 #mapaRuta .leaflet-control-zoom { display: none !important; }
 .btn-navegar { position: absolute; z-index: 1000; right: 12px; bottom: 14px; display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 18px; border: 0; border-radius: 24px; background: #0A86C9; color: #fff; font-size: 16px; font-weight: 800; box-shadow: 0 4px 14px rgba(0,0,0,.32); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .btn-navegar:active { transform: scale(.96); }
 .btn-navegar.on { background: #E5322D; }
 .btn-navegar:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
-/* FASE 2 · Brújula fija al Norte (esquina superior derecha, solo visual) */
 .mapa-caja .brujula, .leaflet-control-rotate, .leaflet-control-compass { display: none !important; }
 .brujula-norte { position: absolute; z-index: 900; right: 10px; top: 66px; width: 58px; height: 58px; border-radius: 50%; background: rgba(255,255,255,.92); box-shadow: 0 3px 12px rgba(0,0,0,.3), inset 0 0 0 1px rgba(0,0,0,.05); pointer-events: none; display: grid; place-items: center; }
 .brujula-norte .brujula-dial { width: 52px; height: 52px; display: block; transition: transform .3s linear; will-change: transform; }
 @media (min-width: 700px) { .brujula-norte { width: 70px; height: 70px; top: 72px; } .brujula-norte .brujula-dial { width: 64px; height: 64px; } .btn-navegar { height: 54px; font-size: 17px; } }
 @media (prefers-reduced-motion: reduce) { .brujula-norte .brujula-dial { transition: none; } }
-/* FASE 2 · Pago post-entrega y bandeja de cobros */
 .pago-pregunta { font-weight: 800; color: var(--tinta) !important; margin-top: 4px; }
 .pago-monto { font-size: 20px; font-weight: 800; color: var(--tinta) !important; }
 .pago-btn { height: 56px; font-size: 18px; font-weight: 800; border-radius: 16px; }
@@ -1814,7 +1711,7 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .cobro-fila.cobrado { opacity: .6; }
 
 /* ============================================================
-   FASE 3 · RESPONSIVO UNIVERSAL DEL REPARTIDOR (móvil, tablet y gama baja)
+   FASE 3 · RESPONSIVO UNIVERSAL DEL REPARTIDOR
    ============================================================ */
 #vistaMapa .chip-gps { max-width: calc(100% - 84px); }
 #vistaMapa .aviso-marcar { right: 84px; }
@@ -1843,96 +1740,117 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
   .brujula-norte .brujula-dial { width: 41px; height: 41px; }
   .btn-navegar { height: 42px; bottom: 8px; }
 }
-/* Gama baja: sin transiciones ni sombras costosas en los controles del mapa */
 @media (prefers-reduced-motion: reduce), (max-width: 360px) and (max-resolution: 1.5dppx) {
   .brujula-norte .brujula-dial { transition: none; will-change: auto; }
   .btn-navegar, .brujula-norte { box-shadow: 0 2px 6px rgba(0,0,0,.28); }
 }
-
-/* Foto sola (p. ej. PNG con transparencia): la burbuja no pinta fondo */
 .burbuja.solo-foto { background: transparent !important; box-shadow: none !important; border: 0 !important; }
 .chat.messenger .burbuja.solo-foto { background: transparent !important; }
 
+/* ============================================================================
+   ✨ FASE 2 · SPA + RESPONSIVIDAD UNIVERSAL (nuevo bloque — añadido al final)
+   ============================================================================ */
 
-/* ============================================================
-   FASE 1 · ICONO 3D DEL REPARTIDOR + BOTONES FLOTANTES
-   ============================================================ */
-.leaflet-marker-icon.rep3d-marca { background: none !important; border: 0 !important; box-shadow: none !important; overflow: visible; }
-.leaflet-marker-icon.rep-yo > .rep3d-escala { width: 64px; height: 84px; position: relative; transform-origin: 50% 50px; }
-.rep3d-rot { width: 64px; height: 84px; transform: rotate(var(--rot-rep, 0deg)); transform-origin: 50% 50px; transition: transform .45s linear; will-change: transform; }
-.rep3d-persp { width: 64px; height: 84px; transform: perspective(230px) rotateX(16deg); transform-origin: 50% 88%; }
-.rep3d-svg { display: block; width: 64px; height: 84px; overflow: visible; filter: drop-shadow(0 6px 4px rgba(14,20,27,.38)); }
-.rep3d-nombre { position: absolute; left: 50%; top: 87px; transform: translateX(-50%); font: 800 11px/1.1 "Plus Jakarta Sans", system-ui, sans-serif; color: #0E141B; white-space: nowrap; pointer-events: none; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 4px #fff, 0 0 4px #fff; }
-@media (prefers-reduced-motion: reduce) { .rep3d-rot { transition: none; } }
+/* ─── 1. Transiciones de subvistas (apertura/cierre suave) ─────────────── */
+.modal-rep {
+  transition: opacity .22s ease, visibility .22s ease, transform .22s ease;
+  will-change: opacity, transform;
+}
+.modal-rep.oculto {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(.98);
+}
+.panel-cliente,
+.barra-zona {
+  transition: transform .24s ease, opacity .24s ease;
+}
+.panel-cliente.oculto,
+.barra-zona.oculto {
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+}
 
-.acciones-mapa { position: absolute; z-index: 1000; left: 12px; bottom: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.fab-mapa { height: 46px; padding: 0 16px; border: 0; border-radius: 23px; background: #fff; color: #0E141B; font-size: 14px; font-weight: 800; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.32); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-.fab-mapa.prim { background: #0A86C9; color: #fff; }
-.fab-mapa:active { transform: scale(.96); }
-.fab-mapa:focus-visible { outline: 3px solid #0A86C9; outline-offset: 2px; }
-@media (max-width: 380px) { .fab-mapa { height: 42px; padding: 0 12px; font-size: 13px; } .acciones-mapa { left: 8px; bottom: 10px; } }
+/* ─── 2. Indicador visual de pila activa ───────────────────────────────── */
+body.spa-responsivo-activo::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--celeste, #3DB8F5), transparent);
+  z-index: 99999;
+  pointer-events: none;
+  animation: spa-pulso 2.4s ease-in-out infinite;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+body.spa-responsivo-activo:has(.modal-rep:not(.oculto))::before,
+body.spa-responsivo-activo:has(.panel-cliente:not(.oculto))::before,
+body.spa-responsivo-activo:has(.barra-zona:not(.oculto))::before {
+  opacity: 1;
+}
+@keyframes spa-pulso {
+  0%, 100% { transform: scaleX(.85); }
+  50%      { transform: scaleX(1); }
+}
 
+/* ─── 3. Responsividad por breakpoint (data-bp) ────────────────────────── */
+body[data-bp="xs"] .modal-rep-caja { padding: 18px 14px; }
+body[data-bp="xs"] .modal-rep       { padding: 12px; }
 
-/* ============================================================
-   FASE 2 · PANEL INFERIOR ESTILO WAZE + DESTINO POR PULSACIÓN LARGA + BURBUJA ARRASTRABLE
-   ============================================================ */
-#vistaMapa .barra-hoja { height: auto; min-height: 70px; padding: 7px 16px 8px; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 3px; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; overflow: visible; white-space: normal; text-align: left; box-shadow: 0 -6px 18px rgba(0,0,0,.16); -webkit-tap-highlight-color: transparent; }
-#vistaMapa .barra-hoja:focus-visible { outline: 3px solid #0A86C9; outline-offset: -3px; }
-.bh-asa { display: block; width: 42px; height: 5px; border-radius: 3px; background: #C5CED6; margin: 0 auto 3px; }
-.bh-fila { display: flex; align-items: center; gap: 14px; min-width: 0; }
-.bh-eta { display: flex; align-items: baseline; gap: 3px; color: #12A150; flex: none; }
-.bh-eta b { font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -.5px; }
-.bh-eta small { font-size: 13px; font-weight: 800; }
-.bh-info { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.bh-info b { font-size: 15px; font-weight: 800; color: #0E141B; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bh-info small { font-size: 12px; color: #5B6672; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bh-stop { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: #E5322D; color: #fff; font-size: 18px; font-weight: 800; box-shadow: 0 3px 10px rgba(229,50,45,.4); touch-action: manipulation; }
-.bh-stop:active { transform: scale(.94); }
-.bh-pie { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; color: #5B6672; min-width: 0; }
-.bh-pie #barraHojaTxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(100% - 40px); }
+body[data-bp="sm"] .modal-rep-caja { max-width: 460px; }
 
-@keyframes pwSube { from { transform: translateY(24px); opacity: .35; } to { transform: none; opacity: 1; } }
-#vistaMapa .hoja-pedidos:not(.oculta) { animation: pwSube .26s ease-out; }
-.pw-panel { display: grid; gap: 10px; }
-.pw-acciones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.pw-acciones button { display: grid; justify-items: center; align-content: center; gap: 2px; height: 62px; padding: 6px 4px; border: 0; border-radius: 14px; background: #EEF4F8; color: #0E141B; font-size: 12px; font-weight: 800; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-.pw-acciones button span { font-size: 22px; line-height: 1; }
-.pw-acciones button.rojo { background: #FDECEB; color: #B3261E; }
-.pw-acciones button:active { transform: scale(.96); }
-.pw-bloque { display: grid; gap: 7px; padding: 11px 13px; border: 1.5px solid var(--linea); border-radius: 16px; background: #fff; }
-.pw-tit { font-size: 13px; font-weight: 800; color: #0E141B; }
-.pw-fila { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; font-size: 13px; color: #4A5561; }
-.pw-fila b { color: #0E141B; text-align: right; min-width: 0; overflow-wrap: anywhere; }
-.pw-fila.total { margin-top: 2px; padding-top: 9px; border-top: 1px dashed #D6DDE3; font-size: 15px; font-weight: 800; color: #0E141B; }
-.pw-fila.total b { font-size: 21px; color: #0A86C9; }
+body[data-bp="md"] .modal-rep-caja { max-width: 520px; }
+body[data-bp="md"] .panel-cliente,
+body[data-bp="md"] .barra-zona     { width: 420px; }
 
-.tarjeta-destino { position: absolute; z-index: 1002; left: 12px; right: 12px; bottom: 72px; display: grid; gap: 10px; padding: 12px 14px; border-radius: 18px; background: #fff; box-shadow: 0 8px 26px rgba(0,0,0,.35); animation: pwSube .2s ease-out; }
-.td-cab { display: flex; align-items: center; gap: 10px; }
-.td-ic { font-size: 26px; line-height: 1; }
-.td-txt { display: grid; min-width: 0; }
-.td-txt b { font-size: 15px; font-weight: 800; color: #0E141B; }
-.td-txt small { font-size: 12px; color: #5B6672; }
-.td-botones { display: grid; grid-template-columns: auto 1fr; gap: 8px; }
-.td-botones button { height: 46px; border: 0; border-radius: 14px; font-size: 15px; font-weight: 800; touch-action: manipulation; }
-#btnIrDestino { background: #0A86C9; color: #fff; }
-#btnCancelarDestino { background: #EEF4F8; color: #0E141B; padding: 0 16px; }
-.pin-destino-lp { font-size: 32px; line-height: 1; filter: drop-shadow(0 3px 3px rgba(0,0,0,.4)); animation: pinCae .28s ease-out; }
-@keyframes pinCae { from { transform: translateY(-18px); opacity: 0; } to { transform: none; opacity: 1; } }
+body[data-bp="lg"] .modal-rep-caja { max-width: 580px; }
+body[data-bp="lg"] .panel-cliente,
+body[data-bp="lg"] .barra-zona     { width: 480px; }
 
-.burbuja-rep { position: fixed; left: 0; top: 0; z-index: 2400; width: 58px; height: 58px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 50%; background: linear-gradient(145deg, #4FC3F7, #0A86C9); box-shadow: 0 6px 16px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.35); font-size: 28px; line-height: 1; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; cursor: grab; will-change: transform; }
-.burbuja-rep.arrastrando { cursor: grabbing; box-shadow: 0 12px 26px rgba(0,0,0,.45), inset 0 2px 0 rgba(255,255,255,.35); }
-.burbuja-rep.sobre-blanco { background: linear-gradient(145deg, #FF7A74, #E5322D); }
-.burbuja-rep.cerrando { transition: transform .2s ease-in, opacity .2s ease-in; opacity: 0; }
-.burbuja-rep:focus-visible { outline: 3px solid #0E141B; outline-offset: 2px; }
-.menu-burbuja { position: fixed; z-index: 2401; min-width: 196px; display: grid; gap: 2px; padding: 6px; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.4); animation: pwSube .15s ease-out; }
-.menu-burbuja button { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: #0E141B; font-size: 15px; font-weight: 700; text-align: left; touch-action: manipulation; }
-.menu-burbuja button:active { background: #EEF4F8; }
-.menu-burbuja button span { font-size: 20px; line-height: 1; }
-.blanco-burbuja { position: fixed; z-index: 2399; left: 50%; bottom: calc(92px + env(safe-area-inset-bottom)); width: 72px; height: 72px; margin-left: -36px; display: grid; place-items: center; border: 3px dashed rgba(255,255,255,.95); border-radius: 50%; background: rgba(14,20,27,.55); color: #fff; font-size: 28px; font-weight: 800; opacity: 0; transform: scale(.6); pointer-events: none; transition: opacity .18s, transform .18s, background .15s; }
-.blanco-burbuja.ver { opacity: 1; transform: scale(1); }
-.blanco-burbuja.on { background: rgba(229,50,45,.88); border-style: solid; transform: scale(1.18); }
-@media (prefers-reduced-motion: reduce) { #vistaMapa .hoja-pedidos:not(.oculta), .tarjeta-destino, .menu-burbuja, .pin-destino-lp { animation: none; } .blanco-burbuja { transition: none; } }
+body[data-bp="xl"] { font-size: 17px; }
+body[data-bp="xl"] .modal-rep-caja { max-width: 640px; }
+body[data-bp="xl"] .panel-cliente,
+body[data-bp="xl"] .barra-zona     { width: 560px; }
+body[data-bp="xl"] nav.tabs button { min-height: 64px; font-size: 16px; }
+body[data-bp="xl"] .mini            { min-height: 52px; font-size: 15px; }
+body[data-bp="xl"] .herr            { width: 72px; height: 68px; }
+body[data-bp="xl"] .herr b          { font-size: 20px; }
+body[data-bp="xl"] .herr small      { font-size: 12px; }
 
-/* FASE 3 · ajustes de consolidación (los botones base del sitio usan width:100%) */
-.fab-mapa { width: auto; }
-.bh-stop { width: 44px; }
+/* ─── 4. Landscape móvil (poca altura) ─────────────────────────────────── */
+@media (max-height: 500px) and (orientation: landscape) {
+  .modal-rep-caja { max-height: calc(100dvh - 16px); }
+  .panel-cliente  { gap: 6px; padding: 8px 10px; }
+  .barra-zona     { padding: 8px 10px; }
+}
+
+/* ─── 5. Prefers-reduced-motion ────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .modal-rep,
+  .panel-cliente,
+  .barra-zona,
+  body.spa-responsivo-activo::before {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ─── 6. PWA standalone · safe-area · notch ────────────────────────────── */
+@media (display-mode: standalone), (display-mode: minimal-ui) {
+  body.admin,
+  body.rep {
+    padding-top:    env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* ─── 7. Foco accesible · control remoto / TV ──────────────────────────── */
+body.admin :is(button, a, summary, input, select, textarea):focus-visible {
+  outline: 3px solid var(--celeste-prof, #0A86C9);
+  outline-offset: 2px;
+}
