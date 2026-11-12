@@ -590,7 +590,7 @@
             "texto": { ".validate": "newData.isString() && newData.val().length >= 5 && newData.val().length <= 200" },
             "$otro": { ".validate": false }
           },
-          "servicio": { ".validate": "newData.isString() && (newData.val() === 'enviar' || newData.val() === 'retirar' || newData.val() === 'comida' || newData.val() === 'pickup')" },
+          "servicio": { ".validate": "newData.isString() && (newData.val() === 'enviar' || newData.val() === 'retirar' || newData.val() === 'comida' || newData.val() === 'mandado' || newData.val() === 'pickup')" },
           "tipo": { ".validate": "newData.isString() && (newData.val() === 'envio' || newData.val() === 'compra')" },
           "contacto": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 80" },
           "$otro": { ".validate": false }

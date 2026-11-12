@@ -210,6 +210,8 @@
         : "No se pudo abrir la sesión: " + (e.code || e.message));
     }
 
+    /* Recupera perfil, sesión y conversación desde los respaldos (IndexedDB / cookie) si el navegador los perdió. */
+    if (window.Almacen) { try { await Almacen.restaurar(); } catch (_) { } }
     perfil = leerPerfil();
     const ses = leerSesion();
     if (!perfil && ses) {
@@ -685,7 +687,7 @@
   const CLAVE_HISTORIAL = "brothers_historial_chat";
   const CADUCA_CONVO_MS = 12 * 3600 * 1000;
   const MAX_LOG = 80;
-  const SERVICIOS = ["enviar", "retirar", "comida", "pickup"];
+  const SERVICIOS = ["enviar", "retirar", "comida", "mandado", "pickup"];
 
   const okLL = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180;
   const redondear = (n) => Math.round(n * 1e6) / 1e6;
@@ -856,6 +858,8 @@
   }
 
   /* Obliga a tener la ubicación en vivo. Devuelve {lat,lng} o null si la conversación se reinició. */
+  /* Tocar el botón («Yo recibo», «Mi ubicación en vivo», «Enviar»…) ya es la confirmación del cliente:
+     la ubicación se activa de inmediato, sin preguntar de nuevo. */
   async function obtenerGps(id) {
     let primera = true;
     while (vivo(id)) {
@@ -1127,6 +1131,43 @@
     await finalizar(id, { servicio: "comida", tipo: "compra", quiere: v.quiere, origen: v.origen, modo: v.quien === "yo" ? "recibe" : "envia", destino: v.destino });
   }
 
+  /* ---------- Flujo MANDADO (compramos o hacemos algo por el cliente) ---------- */
+  async function flujoMandado(id) {
+    const v = datos.v;
+    if (!v.quiere) {
+      if (!(await di(id, "🛒 ¡Con gusto! Cuéntame qué mandado necesitas (por ejemplo: comprar medicinas, pagar un recibo, traer algo del mercado).", "m1"))) return;
+      const t = await pedirTexto(id, "Ej. Comprar medicinas", 2, "Cuéntame qué necesitas (mínimo 2 letras).");
+      if (!vivo(id)) return;
+      guardar("quiere", t);
+    }
+    if (!v.origen) {
+      if (!(await di(id, "¿Dónde lo compramos o lo hacemos? Escribe el nombre del lugar (por ejemplo: «Farmacia Santa Ana» o «Mercado Central»).", "m2"))) return;
+      const t = await pedirTexto(id, "Nombre del lugar", 2, "Indica el lugar (mínimo 2 letras).", 120);
+      if (!vivo(id)) return;
+      guardar("origen", t);
+    }
+    if (!v.quien) {
+      if (!(await di(id, "¿Quién recibe el mandado?", "m3"))) return;
+      const q = await opciones(id, [{ clave: "yo", texto: "🙋 Yo recibo" }, { clave: "otro", texto: "🎁 Lo recibe otra persona" }]);
+      if (!vivo(id)) return;
+      guardar("quien", q);
+    }
+    if (!v.destino) {
+      if (v.quien === "yo") {
+        if (!(await di(id, "Activo tu ubicación en tiempo real para que el repartidor te encuentre.", "m4y"))) return;
+        const g = await obtenerGps(id);
+        if (!g || !vivo(id)) return;
+        guardar("destino", { tipo: "gps", lat: g.lat, lng: g.lng });
+      } else {
+        const d = await pedirLugar(id, { clave: "m4o", pregunta: "Marca en el mapa o escribe la dirección exacta de la persona que recibe.", ultima: true });
+        if (!d || !vivo(id)) return;
+        guardar("destino", d);
+      }
+    }
+    if (!(await di(id, "Tu repartidor te confirmará el costo del mandado por el chat.", "m5"))) return;
+    await finalizar(id, { servicio: "mandado", tipo: "compra", quiere: v.quiere, origen: v.origen, modo: v.quien === "yo" ? "recibe" : "envia", destino: v.destino });
+  }
+
   /* ---------- Flujo PICKUP (mototaxi) ---------- */
   async function flujoPickup(id) {
     const v = datos.v;
@@ -1145,7 +1186,7 @@
     });
   }
 
-  const FLUJOS = { enviar: flujoEnviar, retirar: flujoRetirar, comida: flujoComida, pickup: flujoPickup };
+  const FLUJOS = { enviar: flujoEnviar, retirar: flujoRetirar, comida: flujoComida, mandado: flujoMandado, pickup: flujoPickup };
 
   function ejecutarFlujo(id, clave) {
     FLUJOS[clave](id).catch(() => {
@@ -1261,6 +1302,8 @@
       lineas.push("📦 Servicio: Enviar", "🧾 Paquete: " + String(p.quiere || ""), "⬆️ Recogida: " + retiro, "🏁 Entrega: " + entrega);
     } else if (s === "retirar") {
       lineas.push("📥 Servicio: Retirar", "👤 Lo entrega: " + String(p.contacto || p.quiere || ""), "⬆️ Retiro: " + retiro, "🏁 Entrega final: " + entrega);
+    } else if (s === "mandado") {
+      lineas.push("🛒 Servicio: Mandado", "📝 Necesita: " + String(p.quiere || ""), "🏪 Lugar: " + String(p.origen || ""), "📍 Entrega: " + entrega + (p.modo === "recibe" ? " (lo recibe el cliente)" : " (lo recibe otra persona)"));
     } else if (s === "pickup") {
       lineas.push("🏍️ Servicio: Pickup (mototaxi)", "⬆️ Recogida: " + retiro, "🏁 Destino: " + entrega);
     } else {
