@@ -129,9 +129,11 @@ const ActualizacionApp = (() => {
     g("modalActualizacion").classList.add("oculto");
     document.body.classList.remove("upd-bloqueado");
   }
-  function evaluar(d) { if (d && Number(d.version) > APP_VERSION) mostrar(d); else ocultar(); }
+  /* Solo el APK pide actualizar; la versión web siempre carga la última publicada y nunca muestra este aviso */
+  const esApk = () => { const C = window.Capacitor; return !!(C && ((C.isNativePlatform && C.isNativePlatform()) || (C.getPlatform && C.getPlatform() !== "web"))); };
+  function evaluar(d) { if (esApk() && d && Number(d.version) > APP_VERSION) mostrar(d); else ocultar(); }
   function vigilar() {
-    if (ref) return;
+    if (ref || !esApk()) return;
     ref = db.ref(RUTA);
     ref.on("value", (s) => evaluar(s.val()), () => { ref = null; });
   }
