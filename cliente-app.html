@@ -63,6 +63,7 @@
       </header>
 
       <div id="formPedido" class="wa-form-pedido">
+        <div id="archivoInicio" class="wa-archivo-caja"></div>
         <div class="wa-dia"><span>Hoy</span></div>
         <div class="wa-burbuja-bot">
           <p id="saludoInicio">¡Hola! 👋</p>
@@ -164,8 +165,12 @@
         <button type="button" class="wa-estrella" data-n="4" role="radio" aria-checked="false" aria-label="4 estrellas">★</button>
         <button type="button" class="wa-estrella" data-n="5" role="radio" aria-checked="false" aria-label="5 estrellas">★</button>
       </div>
+      <textarea id="inComentario" maxlength="300" rows="3" placeholder="Deja un comentario (opcional)" aria-label="Comentario sobre tu pedido"></textarea>
       <div id="msgValoracion" class="wa-estado oculto" role="status"></div>
-      <button id="btnNuevo" type="button" class="primario wa-btn-grande">PEDIR NUEVAMENTE</button>
+      <div class="wa-cierre-acc">
+        <button id="btnOmitirVal" type="button" class="oscuro">Ahora no</button>
+        <button id="btnEnviarVal" type="button" class="primario" disabled>Enviar</button>
+      </div>
     </div>
   </div>
 

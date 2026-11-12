@@ -416,7 +416,7 @@ body.wa-cliente {
 .wa-cliente .wa-nombre-acc button { height: 46px; }
 
 /* Pedido terminado */
-.wa-cliente .wa-chat.cerrado .wa-compositor,
+.wa-cliente .wa-chat.cerrado .wa-foto,
 .wa-cliente .wa-chat.cerrado .wa-aviso,
 .wa-cliente .wa-chat.cerrado .wa-panel-mapa,
 .wa-cliente .wa-chat.cerrado .wa-seguir,
@@ -670,3 +670,21 @@ body.teclado.wa-cliente .wa-burbuja-mapa .wa-pin-mapa { height: 150px; }
 @media (max-width: 340px) {
   .wa-cliente .wa-hist .wa-burbuja-bot, .wa-cliente .wa-hist .wa-burbuja-yo { max-width: 96%; }
 }
+
+/* ============================================================
+   FASE 5 · Cierre del pedido: calificación, agradecimiento y chats anteriores
+   ============================================================ */
+.wa-cliente .wa-archivo-caja { display: grid; gap: 6px; margin-bottom: 6px; }
+.wa-cliente .wa-archivo-caja:empty { display: none; }
+.wa-cliente .wa-archivo { display: grid; gap: 4px; padding-bottom: 10px; border-bottom: 1px dashed rgba(11,20,26,.15); opacity: .85; }
+.wa-cliente .wa-archivo-cuerpo { display: flex; flex-direction: column; gap: 3px; }
+.wa-cliente .wa-archivo-cuerpo > * { flex-shrink: 0; }
+.wa-cliente .wa-msg.cierre { width: min(92%, 380px); max-width: none; border-left: 4px solid #25D366; margin-top: 8px; }
+.wa-cliente .wa-msg.cierre p { font-size: 14.5px; line-height: 1.45; }
+.wa-cliente .wa-cierre textarea {
+  width: 100%; min-height: 72px; resize: none; border: 2px solid var(--linea); border-radius: 12px;
+  padding: 10px 12px; font: inherit; font-size: 15px;
+}
+.wa-cliente .wa-cierre textarea:focus { border-color: var(--wa-accion); outline: none; }
+.wa-cliente .wa-cierre-acc { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.wa-cliente .wa-cierre-acc button { height: 50px; }

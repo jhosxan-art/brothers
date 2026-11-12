@@ -44,6 +44,9 @@
   const COLOR_TICK_LEIDO = "#25D366";
   const COLOR_PIN_REP = "#25D366";
   const COLOR_PIN_CLI = "#2F6FED";
+  const CADUCA_CHAT_MS = 12 * 3600 * 1000;           // el chat de un pedido terminado dura 12 h
+  const CLAVE_ARCHIVO = "brothers_archivo_chat";
+  const CLAVE_VAL_OMITIDA = "brothers_valoracion_omitida";
 
   const $ = (id) => document.getElementById(id);
   const db = APP.database();
@@ -69,6 +72,7 @@
   let tUltTyping = 0, tmEscribiendo = null, tmTypingRefresh = null;
   let resumenCard = null, resumenReal = false, resumenEnviando = false;
   let recuperando = false;
+  let cierreTs = 0, tmCaduca = null, enviandoVal = false, estrellasSel = 0;
 
   /* ---------- Utilidades ---------- */
   const vista = (id) => ["vCarga", "vNombre", "vPedido", "vChat"].forEach((v) => $(v).classList.toggle("oculto", v !== id));
@@ -303,6 +307,7 @@
 
   function entrarAlChat() {
     vista("vChat");
+    pintarArchivoChat();
     escucharSolicitud();
     escucharLeidos();
     escucharTyping();
@@ -324,6 +329,7 @@
     mensajesListos = false; avisadoCerca = false;
     lect = {}; typingOtro = {};
     resumenCard = null; resumenReal = false; resumenEnviando = false;
+    cierreTs = 0; clearTimeout(tmCaduca);
     pintarAvatar(null, "");
     limpiarMapa();
   }
@@ -479,6 +485,7 @@
   function pintarTyping() {
     const sub = $("subChat");
     if (!sub) return;
+    if (cerrado) { sub.textContent = "Pedido finalizado"; sub.classList.remove("escribiendo"); return; }
     const ahora = Date.now();
     const repTs = Number(typingOtro.repartidor) || 0;
     const escribiendo = asignado && repTs > 0 && ahora - repTs < TYPING_CADUCA;
@@ -501,7 +508,7 @@
 
   function escucharMensajes() {
     refMensajes.limitToLast(300).on("child_added", (s) => {
-      if (cerrado || vistos.has(s.key)) return;
+      if (vistos.has(s.key)) return;
       vistos.add(s.key);
       const m = s.val();
       if (!m || typeof m !== "object") return;
@@ -643,6 +650,8 @@
     ev.preventDefault();
     const inp = $("inMensaje");
     const texto = inp.value.trim().slice(0, MAX_TEXTO);
+    /* Pedido terminado: al escribir, el chat se reinicia con los botones guiados para un pedido NUEVO */
+    if (cerrado) { if (texto) { inp.value = ""; nuevoPedidoDesdeChat(); } return; }
     if (!texto || !asignado || !refMensajes) return;
 
     inp.value = "";
@@ -1189,6 +1198,7 @@
 
   function pedirDetalles() {
     const previa = leerConvo();
+    pintarArchivoInicio();
     vista("vPedido");
     if (previa) retomarConvo(previa);
     else { borrarHistorial(); reiniciarConvo(); }
@@ -1227,7 +1237,8 @@
     dia.appendChild(s);
     w.appendChild(dia);
     log.forEach((e) => w.appendChild(crearBurbuja(e.c === "yo" ? "wa-burbuja-yo" : "wa-burbuja-bot", e.t, e.ts, true)));
-    cont.insertBefore(w, cont.firstChild);
+    const ar = $("archivoPrev");
+    cont.insertBefore(w, ar ? ar.nextSibling : cont.firstChild);
   }
 
   /* ---------- Resumen automático del pedido ---------- */
@@ -1292,7 +1303,8 @@
     card.appendChild(p);
     card.appendChild(h);
     const hist = $("histLocal");
-    cont.insertBefore(card, hist ? hist.nextSibling : cont.firstChild);
+    const ar = $("archivoPrev");
+    cont.insertBefore(card, hist ? hist.nextSibling : (ar ? ar.nextSibling : cont.firstChild));
     resumenCard = card;
   }
 
@@ -1667,36 +1679,167 @@
   /* ============================================================
      Cierre del ciclo
      ============================================================ */
+  /* El chat NO se borra al terminar: se conserva 12 h desde la entrega. Entregado → calificar → agradecimiento;
+     cancelado → aviso directo. Al escribir de nuevo arranca un pedido nuevo con los botones guiados. */
   function cerrarCiclo(d) {
     const entregado = d.estado === "entregado";
+    const tsCierre = Number(entregado ? d.entregadoTs : d.canceladoTs) || Number(d.ts) || Date.now();
+    if (!cerrado && Date.now() - tsCierre >= CADUCA_CHAT_MS) {
+      return reiniciarCiclo(false);   // ya pasaron 12 h: ese chat se descarta
+    }
     if (!cerrado) {
       cerrado = true;
+      cierreTs = tsCierre;
       detenerGps();
-      if (refMensajes) refMensajes.off();
-      $("mensajes").textContent = "";
-      borrarHistorial();
-      resumenCard = null;
-      ultimoDe = null; ultimoDia = null;
+      ultimoDe = null;
       $("vChat").classList.add("cerrado");
       setMapaVisible(false);
       mostrarError("");
       $("btnCambiarNombre").classList.add("oculto");
+      programarCaducidad(tsCierre);
+      habilitarEscribirTrasCierre();
     }
     const est = d.valoracion && Number(d.valoracion.estrellas);
-    $("cierreIcono").textContent = entregado ? "✅" : "🚫";
-    $("cierreTitulo").textContent = entregado ? "¡Pedido entregado!" : "Pedido cancelado";
-    $("cierreSub").textContent = entregado ? "¿Cómo estuvo tu " + textoBusqueda().quien + "?" : "Tu pedido fue cancelado. Puedes pedir de nuevo cuando quieras.";
-    $("boxEstrellas").classList.toggle("oculto", !entregado);
-    if (est >= 1 && est <= 5) {
-      valorada = true;
-      pintarEstrellas(est, true);
-      mensajeValoracion("¡Gracias por tu valoración!");
-    } else if (!valorada) {
-      pintarEstrellas(0, false);
-      $("msgValoracion").classList.add("oculto");
+    if (est >= 1 && est <= 5) valorada = true;
+    const pendiente = entregado && !valorada && !enviandoVal && !valoracionOmitida();
+    if (pendiente) {
+      $("cierreIcono").textContent = "✅";
+      $("cierreTitulo").textContent = "¡Pedido entregado!";
+      $("cierreSub").textContent = "¿Cómo estuvo tu " + textoBusqueda().quien + "? Califica y déjanos tu comentario.";
+      pintarEstrellas(estrellasSel, false);
+      $("btnEnviarVal").disabled = estrellasSel < 1;
+      $("vCierre").classList.remove("oculto");
+    } else {
+      $("vCierre").classList.add("oculto");
+      mostrarAgradecimiento(entregado);
     }
-    $("vCierre").classList.remove("oculto");
   }
+
+  function habilitarEscribirTrasCierre() {
+    const inp = $("inMensaje");
+    inp.disabled = false;
+    inp.placeholder = "Escribe aquí para hacer otro pedido…";
+    $("btnEnviar").disabled = false;
+    $("btnFoto").disabled = true;
+    const sub = $("subChat");
+    sub.textContent = "Pedido finalizado";
+    sub.classList.remove("escribiendo");
+  }
+
+  function mostrarAgradecimiento(entregado) {
+    if ($("msgCierre")) return;
+    const caja = el("div", "wa-msg cierre");
+    caja.id = "msgCierre";
+    const intro = entregado
+      ? "💚 ¡Gracias por confiar en Brother’s Deliverys! Tu pedido fue entregado.\n\nEste chat se borrará automáticamente 12 horas después de la entrega."
+      : "Tu pedido fue cancelado.";
+    caja.appendChild(el("p", "", intro + "\n\nSi deseas algo más, escríbenos aquí y te guiaremos para hacer tu nuevo pedido. 🏍️"));
+    caja.appendChild(el("span", "wa-hora", hora(Date.now())));
+    $("mensajes").appendChild(caja);
+    ultimoDe = null;
+    alFinal();
+  }
+
+  const valoracionOmitida = () => {
+    try { return !!perfil && localStorage.getItem(CLAVE_VAL_OMITIDA) === perfil.solicitudId; } catch (_) { return false; }
+  };
+
+  /* ---------- Caducidad de 12 h ---------- */
+  function programarCaducidad(ts) {
+    clearTimeout(tmCaduca);
+    const falta = ts + CADUCA_CHAT_MS - Date.now();
+    if (falta <= 0) return;
+    tmCaduca = setTimeout(caducarChat, Math.min(falta, 2147000000));
+  }
+
+  function caducarChat() {
+    if (!cerrado) return;
+    $("mensajes").textContent = "";
+    resumenCard = null; ultimoDe = null; ultimoDia = null;
+    avisoSistema("La conversación de tu pedido anterior se borró (pasaron 12 horas). Escribe para hacer un nuevo pedido.");
+  }
+
+  /* ---------- Chats anteriores (conservados 12 h tras cada entrega) ---------- */
+  function leerArchivo() {
+    let l = [];
+    try { l = JSON.parse(localStorage.getItem(CLAVE_ARCHIVO) || "[]"); } catch (_) { l = []; }
+    if (!Array.isArray(l)) l = [];
+    const ahora = Date.now();
+    const v = l.filter((e) => e && typeof e.html === "string" && Number.isFinite(e.ts) && Number.isFinite(e.expira) && e.expira > ahora);
+    if (v.length !== l.length) escribirArchivo(v);
+    return v;
+  }
+
+  function escribirArchivo(l) {
+    try { localStorage.setItem(CLAVE_ARCHIVO, JSON.stringify(l)); return; } catch (_) { }
+    try { localStorage.setItem(CLAVE_ARCHIVO, JSON.stringify(l.slice(-1))); } catch (_) {
+      try { localStorage.removeItem(CLAVE_ARCHIVO); } catch (__) { }
+    }
+  }
+
+  function archivarChat() {
+    try {
+      const cont = $("mensajes");
+      if (!cont || !cont.children.length) return;
+      const clon = cont.cloneNode(true);
+      const prev = clon.querySelector("#archivoPrev");
+      if (prev) prev.remove();
+      clon.querySelectorAll("img").forEach((i) => i.replaceWith(el("p", "", "📷 Foto")));
+      clon.querySelectorAll("[id]").forEach((n) => n.removeAttribute("id"));
+      if (!clon.children.length) return;
+      const base = cierreTs || Date.now();
+      const lista = leerArchivo();
+      lista.push({ ts: base, expira: base + CADUCA_CHAT_MS, html: clon.innerHTML });
+      escribirArchivo(lista.slice(-4));
+    } catch (_) { }
+  }
+
+  function bloqueArchivo(e) {
+    const w = el("div", "wa-archivo");
+    const dia = el("div", "wa-dia");
+    dia.appendChild(el("span", "", "Pedido anterior · " + etiquetaDia(e.ts)));
+    const cuerpo = el("div", "wa-archivo-cuerpo");
+    cuerpo.innerHTML = e.html;
+    w.appendChild(dia);
+    w.appendChild(cuerpo);
+    return w;
+  }
+
+  function pintarArchivoChat() {
+    if ($("archivoPrev")) return;
+    const lista = leerArchivo();
+    if (!lista.length) return;
+    const caja = el("div", "wa-archivo-caja");
+    caja.id = "archivoPrev";
+    lista.forEach((e) => caja.appendChild(bloqueArchivo(e)));
+    $("mensajes").insertBefore(caja, $("mensajes").firstChild);
+  }
+
+  function pintarArchivoInicio() {
+    const caja = $("archivoInicio");
+    if (!caja) return;
+    caja.textContent = "";
+    leerArchivo().forEach((e) => caja.appendChild(bloqueArchivo(e)));
+  }
+
+  /* ---------- Reinicio: el siguiente pedido es una solicitud nueva; el chat anterior se conserva ---------- */
+  function reiniciarCiclo(archivar) {
+    if (archivar) archivarChat();
+    clearTimeout(tmCaduca);
+    detenerTodo();
+    cerrado = false; valorada = false; enviandoVal = false; estrellasSel = 0;
+    $("btnCancelar").disabled = false;
+    $("vCierre").classList.add("oculto");
+    $("vChat").classList.remove("cerrado");
+    $("inComentario").value = "";
+    $("inMensaje").value = "";
+    borrarSesion();
+    borrarConvo(); borrarHistorial();
+    perfil = { id: generarId(), nombre: perfil.nombre, solicitudId: null };
+    guardarPerfil(perfil);
+    abrirChat();
+  }
+  function nuevoPedidoDesdeChat() { reiniciarCiclo(true); }
 
   function pintarEstrellas(n, bloquear) {
     document.querySelectorAll("#boxEstrellas .wa-estrella").forEach((b) => {
@@ -1713,36 +1856,49 @@
     e.className = "wa-estado" + (error ? " error" : "");
   }
 
-  document.querySelectorAll("#boxEstrellas .wa-estrella").forEach((b) => b.addEventListener("click", async () => {
-    if (valorada || !refSolicitud) return;
-    const n = Number(b.dataset.n);
-    valorada = true;
-    pintarEstrellas(n, true);
+  document.querySelectorAll("#boxEstrellas .wa-estrella").forEach((b) => b.addEventListener("click", () => {
+    if (valorada || enviandoVal) return;
+    estrellasSel = Number(b.dataset.n);
+    pintarEstrellas(estrellasSel, false);
+    $("btnEnviarVal").disabled = false;
+    $("msgValoracion").classList.add("oculto");
+  }));
+
+  $("btnEnviarVal").addEventListener("click", async () => {
+    if (valorada || enviandoVal || !refSolicitud || estrellasSel < 1) return;
+    enviandoVal = true;
+    $("btnEnviarVal").disabled = true;
+    const coment = $("inComentario").value.replace(/\s+/g, " ").trim().slice(0, 300);
     try {
       const e = await refSolicitud.child("estado").once("value");
       if (e.exists()) {
-        await refSolicitud.child("valoracion").set({ estrellas: n, ts: firebase.database.ServerValue.TIMESTAMP });
+        const v = { estrellas: estrellasSel, ts: firebase.database.ServerValue.TIMESTAMP };
+        if (coment) v.comentario = coment;
+        try { await refSolicitud.child("valoracion").set(v); }
+        catch (err) {
+          /* Reglas aún sin el campo «comentario»: guarda al menos las estrellas. */
+          if (!coment || !err || err.code !== "PERMISSION_DENIED") throw err;
+          await refSolicitud.child("valoracion").set({ estrellas: estrellasSel, ts: firebase.database.ServerValue.TIMESTAMP });
+        }
       }
-      mensajeValoracion("¡Gracias por tu valoración!");
+      valorada = true;
+      pintarEstrellas(estrellasSel, true);
+      $("vCierre").classList.add("oculto");
+      mostrarAgradecimiento(true);
     } catch (err) {
-      valorada = false;
-      pintarEstrellas(0, false);
       mensajeValoracion("No se pudo guardar tu valoración: " + (err.code || err.message), true);
+      $("btnEnviarVal").disabled = false;
+    } finally {
+      enviandoVal = false;
     }
-  }));
-
-  $("btnNuevo").addEventListener("click", () => {
-    detenerTodo();
-    cerrado = false; valorada = false;
-    $("btnCancelar").disabled = false;
-    $("vCierre").classList.add("oculto");
-    $("vChat").classList.remove("cerrado");
-    borrarSesion();
-    borrarConvo(); borrarHistorial();
-    perfil = { id: generarId(), nombre: perfil.nombre, solicitudId: null };
-    guardarPerfil(perfil);
-    abrirChat();
   });
+
+  $("btnOmitirVal").addEventListener("click", () => {
+    try { localStorage.setItem(CLAVE_VAL_OMITIDA, (perfil && perfil.solicitudId) || ""); } catch (_) { }
+    $("vCierre").classList.add("oculto");
+    mostrarAgradecimiento(true);
+  });
+
 
   /* ============================================================
      Cambiar mi nombre

@@ -613,6 +613,7 @@
           ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && !data.exists() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'entregado'",
           ".validate": "newData.hasChildren(['estrellas', 'ts']) && newData.child('estrellas').isNumber() && newData.child('estrellas').val() >= 1 && newData.child('estrellas').val() <= 5 && newData.child('estrellas').val() % 1 === 0 && newData.child('ts').val() === now",
           "estrellas": {}, "ts": {},
+          "comentario": { ".validate": "newData.isString() && newData.val().length <= 300" },
           "$otro": { ".validate": false }
         },
         "facturaFinal": {
