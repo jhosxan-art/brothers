@@ -2072,26 +2072,50 @@
 
   function mostrarCampo(campo) {
     if (!campo || !campo.isConnected) return;
+    if (campo.closest(".wa-compositor")) return;
     const dentroModal = !!campo.closest(".wa-hoja, .wa-nombre-caja");
     try { campo.scrollIntoView({ block: dentroModal ? "center" : "nearest", behavior: "auto" }); }
     catch (_) { campo.scrollIntoView(); }
+  }
+
+  /* Recuerda si la persona está viendo lo más reciente. Solo cambia cuando ella scrollea:
+     al abrir el teclado el área se achica y NO debe contar como "scrolleó". */
+  const pegados = { formPedido: true, mensajes: true };
+  let ignorarScrollHasta = 0;
+  ["formPedido", "mensajes"].forEach((sid) => {
+    const el = $(sid);
+    if (!el) return;
+    el.addEventListener("scroll", () => {
+      if (Date.now() < ignorarScrollHasta) return;
+      pegados[sid] = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    }, { passive: true });
+  });
+  function mantenerFinal() {
+    [["formPedido", "vPedido"], ["mensajes", "vChat"]].forEach((par) => {
+      const sc = $(par[0]), vis = $(par[1]);
+      if (!sc || !vis || vis.classList.contains("oculto") || !pegados[par[0]]) return;
+      sc.scrollTop = sc.scrollHeight;
+    });
+  }
+  function seguirFinalUnRato() {
+    ignorarScrollHasta = Date.now() + 900;
+    mantenerFinal();
+    [60, 180, 380, 700].forEach((ms) => setTimeout(mantenerFinal, ms));
   }
 
   let rafViewport = 0;
   function ajustarViewport() {
     const vv = window.visualViewport;
     if (!vv) return;
+    ignorarScrollHasta = Math.max(ignorarScrollHasta, Date.now() + 600);
     const raiz = document.documentElement.style;
-    const pegado = pegadoAlFinal();
     raiz.setProperty("--vvh", Math.round(vv.height) + "px");
     raiz.setProperty("--vvt", Math.round(vv.offsetTop) + "px");
     document.body.classList.toggle("teclado", window.innerHeight - vv.height > 120);
+    mantenerFinal();
     const activo = document.activeElement;
     if (esCampo(activo)) {
-      setTimeout(() => {
-        mostrarCampo(activo);
-        if (pegado && !$("vChat").classList.contains("oculto")) alFinal();
-      }, 60);
+      setTimeout(() => { mostrarCampo(activo); mantenerFinal(); }, 60);
     }
     window.scrollTo(0, 0);
   }
@@ -2108,10 +2132,13 @@
   }
   document.addEventListener("focusin", (ev) => {
     if (!esCampo(ev.target)) return;
-    setTimeout(() => { ajustarViewport(); mostrarCampo(ev.target); }, 320);
+    seguirFinalUnRato();
+    /* Reajusta varias veces: algunos teclados terminan de abrirse (y de cambiar de alto) después del primer aviso. */
+    [100, 320, 700].forEach((ms) => setTimeout(() => { ajustarViewport(); mostrarCampo(ev.target); mantenerFinal(); }, ms));
   });
   document.addEventListener("focusout", () => {
-    setTimeout(() => { if (!esCampo(document.activeElement)) ajustarViewport(); }, 120);
+    seguirFinalUnRato();
+    [120, 400].forEach((ms) => setTimeout(() => { if (!esCampo(document.activeElement)) ajustarViewport(); }, ms));
   });
 
   /* Al volver a la app (pestaña recuperada, pantalla desbloqueada) se reanuda el GPS en vivo. */
