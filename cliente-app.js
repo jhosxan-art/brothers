@@ -4,9 +4,13 @@
      1) Sesión anónima de Firebase.
      2) Lee el perfil de LocalStorage. Si no existe o está dañado → genera ID único y pide el nombre.
      3) Crea (o retoma) el chat en  solicitudes_entrantes/{solicitudId}.
-     4) Antes de crear el chat, un modal dual pregunta si desea ENVIAR algo (retiro/entrega,
-        con GPS, pin o direcciones escritas) o PEDIR algo (qué, de dónde, quién recibe y dónde).
+     4) Antes de crear el chat, el chat inicial pregunta «¿Qué deseas hoy?» con 4 botones:
+        Enviar · Retirar · Pedir Comida · Pickup (mototaxi). Cada opción abre un flujo paso a paso
+        dentro del propio chat (GPS en vivo, pin en el mapa, dirección escrita o texto libre).
         El resumen del pedido queda como primer mensaje del chat al ser atendido.
+        La conversación inicial se guarda en localStorage (se retoma tras un cierre accidental) y,
+        al enviar, queda al inicio del chat junto al resumen. La solicitud estructurada se envía a
+        Firebase y se muestra «Buscando un repartidor para tu pedido» / «Buscando un conductor para tu pickup».
      5) Escucha el chat en vivo. El cliente solo puede escribir cuando un repartidor lo atendió.
      6) Cuando el estado pasa a "entregado" (o "cancelado") el chat se vacía y queda un modal
         para valorar (1–5 estrellas) y el botón PEDIR NUEVAMENTE.
@@ -108,6 +112,14 @@
     if (dif === 0) return "Hoy";
     if (dif === 1) return "Ayer";
     return d.toLocaleDateString("es", { day: "numeric", month: "long" });
+  }
+
+  /* ---------- Textos de búsqueda según el servicio (pickup → conductor) ---------- */
+  const esPickup = () => !!pedidoActual && pedidoActual.servicio === "pickup";
+  function textoBusqueda() {
+    return esPickup()
+      ? { titulo: "Buscando un conductor para tu pickup", sub: "Buscando conductor…", espera: "Esperando conductor…", quien: "conductor" }
+      : { titulo: "Buscando un repartidor para tu pedido", sub: "Buscando repartidor…", espera: "Esperando repartidor…", quien: "repartidor" };
   }
 
   /* ---------- Perfil en LocalStorage ---------- */
@@ -270,7 +282,7 @@
     } catch (e) {
       /* Reglas aún sin los campos nuevos (tipo / retiro): reintenta con el formato anterior. */
       if (!e || e.code !== "PERMISSION_DENIED") throw e;
-      const { tipo, retiro, ...anterior } = pedido;
+      const { tipo, retiro, servicio: _srv, contacto: _ctc, ...anterior } = pedido;
       await refSolicitud.set({ ...base, pedido: anterior });
     }
     avisarServidorSolicitud();
@@ -339,6 +351,7 @@
       const nombreRep = typeof d.repartidorNombre === "string" ? d.repartidorNombre.slice(0, 40) : "";
       pintarEstado(ahoraAsignado, nombreRep, d.repartidorUid);
       pintarResumen();
+      pintarHistorialLocal();
       if (!ahoraAsignado) pintarResumenLocal();
       iniciarGps();
 
@@ -383,14 +396,16 @@
   function pintarEstado(conRepartidor, nombreRep, uidRep) {
     $("avisoEspera").classList.toggle("oculto", conRepartidor);
     $("tituloChat").textContent = conRepartidor ? (nombreRep || "Tu repartidor") : "Brother’s Deliverys";
-    if (!conRepartidor) $("subChat").textContent = "Buscando repartidor…";
+    const tb = textoBusqueda();
+    $("avisoTitulo").textContent = tb.titulo;
+    if (!conRepartidor) $("subChat").textContent = tb.sub;
     pintarAvatar(conRepartidor && typeof uidRep === "string" ? uidRep : null, nombreRep);
     const inp = $("inMensaje");
     inp.disabled = !conRepartidor;
     $("btnEnviar").disabled = !conRepartidor;
     $("btnFoto").disabled = !conRepartidor;
     $("btnSeguir").classList.toggle("oculto", !conRepartidor || typeof L === "undefined");
-    inp.placeholder = conRepartidor ? "Escribe un mensaje" : "Esperando repartidor…";
+    inp.placeholder = conRepartidor ? "Escribe un mensaje" : tb.espera;
     if (conRepartidor) pintarTyping();
   }
 
@@ -474,7 +489,7 @@
       sub.textContent = "Te está atendiendo";
       sub.classList.remove("escribiendo");
     } else {
-      sub.textContent = "Buscando repartidor…";
+      sub.textContent = textoBusqueda().sub;
       sub.classList.remove("escribiendo");
     }
   }
@@ -646,340 +661,573 @@
   });
 
   /* ============================================================
-     Modal inicial: tipo de servicio + datos del pedido
-     Pantallas: 0 (Enviar / Pedir) · 1, 2, 3r, 3e (Pedir algo) · E1, E2, E3 (Enviar algo)
+     Chat inicial: «¿Qué deseas hoy?» + flujos conversacionales
+     Enviar · Retirar · Pedir Comida · Pickup (mototaxi)
+     - Cada respuesta del cliente es una burbuja verde; el bot pregunta paso a paso.
+     - Todo (burbujas + datos ya respondidos) se guarda en localStorage: si el cliente cierra
+       la página a medias, la conversación se retoma justo donde quedó.
+     - Al completar el flujo se consolida el pedido, se envía a Firebase (Admin/Repartidores)
+       y el chat muestra la pantalla de búsqueda.
      ============================================================ */
   const MARCA_RESUMEN = "📋 RESUMEN DEL PEDIDO";
   const MARCA_GPS_RETIRO = "📍 Mi ubicación actual (retiro)";
   const CLAVE_RESUMEN = "brothers_resumen_pedido";
-
-  let pantalla = "0", historial = [], servicio = null, modo = null, modoEnvio = null;
-  let tipoEnvio = "pin", pin = null, gpsListo = null;
-  let mapaPin = null, marcaPin = null;
-  let tipoLugarE = "pin", pinE = null, mapaE = null, marcaE = null;
+  const CLAVE_CONVO = "brothers_conversacion_v1";
+  const CLAVE_HISTORIAL = "brothers_historial_chat";
+  const CADUCA_CONVO_MS = 12 * 3600 * 1000;
+  const MAX_LOG = 80;
+  const SERVICIOS = ["enviar", "retirar", "comida", "pickup"];
 
   const okLL = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180;
   const redondear = (n) => Math.round(n * 1e6) / 1e6;
   const iconoPin = (clase, emoji) => L.divIcon({ className: "", html: '<div class="wa-pin ' + clase + '">' + emoji + "</div>", iconSize: [40, 40], iconAnchor: [20, 20] });
-  const falla = (msg) => { errorPedido(msg); return null; };
   const pausaSplash = () => new Promise((ok) => setTimeout(ok, 900));
+  const pausa = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const nuevosDatos = (s) => ({ servicio: s, dichos: {}, v: {}, log: [] });
+  let datos = nuevosDatos(null);
+  let gpsListo = null, convId = 0, pendTexto = null, mapaConv = null;
+  const vivo = (id) => id === convId;
+
+  /* ---------- Persistencia de la conversación (localStorage) ---------- */
+  function guardarConvo() {
+    if (!perfil || !datos.servicio) return;
+    const o = { clienteId: perfil.id, ts: Date.now(), servicio: datos.servicio, dichos: datos.dichos, v: datos.v, log: datos.log.slice(-MAX_LOG) };
+    try { localStorage.setItem(CLAVE_CONVO, JSON.stringify(o)); } catch (_) { }
   }
 
-  function errorPedido(msg) {
-    const e = $("msgPedido");
-    e.textContent = msg;
-    e.classList.toggle("oculto", !msg);
+  function leerConvo() {
+    try {
+      const o = JSON.parse(localStorage.getItem(CLAVE_CONVO) || "null");
+      if (o && typeof o === "object" && perfil && o.clienteId === perfil.id && SERVICIOS.indexOf(o.servicio) >= 0
+        && Number.isFinite(o.ts) && Date.now() - o.ts < CADUCA_CONVO_MS && Array.isArray(o.log)
+        && o.dichos && typeof o.dichos === "object" && o.v && typeof o.v === "object") {
+        o.log = o.log.filter((e) => e && (e.c === "bot" || e.c === "yo") && typeof e.t === "string" && Number.isFinite(e.ts)).slice(-MAX_LOG);
+        return o;
+      }
+    } catch (_) { }
+    return null;
+  }
+
+  function borrarConvo() { try { localStorage.removeItem(CLAVE_CONVO); } catch (_) { } }
+
+  function guardarHistorial() {
+    if (!perfil || !perfil.solicitudId) return;
+    try { localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify({ solicitudId: perfil.solicitudId, log: datos.log.slice(-MAX_LOG) })); } catch (_) { }
+  }
+  function leerHistorial() {
+    try {
+      const o = JSON.parse(localStorage.getItem(CLAVE_HISTORIAL) || "null");
+      if (o && perfil && o.solicitudId === perfil.solicitudId && Array.isArray(o.log)) {
+        return o.log.filter((e) => e && (e.c === "bot" || e.c === "yo") && typeof e.t === "string" && Number.isFinite(e.ts));
+      }
+    } catch (_) { }
+    return [];
+  }
+  function borrarHistorial() { try { localStorage.removeItem(CLAVE_HISTORIAL); } catch (_) { } }
+
+  function guardar(clave, valor) { datos.v[clave] = valor; guardarConvo(); }
+
+  /* ---------- Burbujas ---------- */
+  function bajar() {
+    const f = $("formPedido");
+    requestAnimationFrame(() => { f.scrollTop = f.scrollHeight; });
+  }
+
+  function crearBurbuja(clase, texto, ts, quieta) {
+    const d = document.createElement("div");
+    d.className = clase + (quieta ? " sin-anim" : "");
+    const p = document.createElement("p");
+    p.textContent = texto;
+    const t = document.createElement("span");
+    t.className = "wa-hora";
+    t.textContent = hora(ts);
+    d.appendChild(p);
+    d.appendChild(t);
+    return d;
+  }
+
+  /* nuevo=false: burbuja restaurada, no se vuelve a registrar */
+  function burbuja(clase, texto, nuevo) {
+    const ts = Date.now();
+    $("convo").appendChild(crearBurbuja(clase, texto, ts, nuevo === false));
+    if (nuevo !== false) {
+      datos.log.push({ c: clase === "wa-burbuja-yo" ? "yo" : "bot", t: texto, ts });
+      guardarConvo();
+    }
+    bajar();
+  }
+  const addBot = (texto, nuevo) => burbuja("wa-burbuja-bot", texto, nuevo);
+  const addYo = (texto, nuevo) => burbuja("wa-burbuja-yo", texto, nuevo);
+
+  /* El bot «escribe…» un instante y responde. Si trae `clave` y ya la dijo antes (conversación
+     retomada), no la repite. Devuelve false si la conversación se reinició. */
+  async function di(id, texto, clave) {
+    if (!vivo(id)) return false;
+    if (clave && datos.dichos[clave]) return true;
+    const e = document.createElement("div");
+    e.className = "wa-burbuja-bot wa-escribiendo";
+    e.setAttribute("aria-hidden", "true");
+    e.innerHTML = '<span class="wa-puntos"><i></i><i></i><i></i></span>';
+    $("convo").appendChild(e);
+    bajar();
+    await pausa(420);
+    e.remove();
+    if (!vivo(id)) return false;
+    if (clave) datos.dichos[clave] = true;
+    addBot(texto);
+    return true;
+  }
+
+  /* Botones de respuesta rápida dentro del hilo. Resuelve con la clave elegida. */
+  function opciones(id, lista) {
+    return new Promise((res) => {
+      if (!vivo(id)) return;
+      const g = document.createElement("div");
+      g.className = "wa-quick wa-quick-hilo";
+      g.setAttribute("role", "group");
+      lista.forEach((o) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "wa-quick-btn";
+        b.textContent = o.texto;
+        b.addEventListener("click", () => {
+          if (!vivo(id)) return;
+          g.remove();
+          addYo(o.texto);
+          res(o.clave);
+        });
+        g.appendChild(b);
+      });
+      $("convo").appendChild(g);
+      bajar();
+    });
+  }
+
+  /* Respuesta escrita: habilita el compositor inferior hasta que el cliente envía. */
+  function apagarComposer() {
+    const i = $("inConvo");
+    i.value = ""; i.disabled = true; i.placeholder = "Elige una opción…";
+    $("btnConvo").disabled = true;
+  }
+
+  function pedirTexto(id, placeholder, min, errorMsg, max) {
+    return new Promise((res) => {
+      if (!vivo(id)) return;
+      pendTexto = { id, min, max: max || 200, errorMsg, res };
+      const i = $("inConvo");
+      i.disabled = false; i.value = ""; i.placeholder = placeholder;
+      $("btnConvo").disabled = false;
+      setTimeout(() => i.focus(), 60);
+    });
+  }
+
+  $("formConvo").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const p = pendTexto;
+    if (!p || !vivo(p.id)) return;
+    const t = limpiarNombre($("inConvo").value);
+    if (t.length < p.min) { addBot(p.errorMsg); return; }
+    pendTexto = null;
+    apagarComposer();
+    addYo(t);
+    p.res(t.slice(0, p.max));
+  });
+
+  /* ---------- GPS en tiempo real ---------- */
+  function geoUna() {
+    return new Promise((ok) => {
+      if (!navigator.geolocation) return ok({ ok: false, code: 0 });
+      navigator.geolocation.getCurrentPosition(
+        (p) => ok({ ok: true, pos: { lat: redondear(p.coords.latitude), lng: redondear(p.coords.longitude) } }),
+        (e) => ok({ ok: false, code: e && e.code }),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+  }
+
+  /* Obliga a tener la ubicación en vivo. Devuelve {lat,lng} o null si la conversación se reinició. */
+  async function obtenerGps(id) {
+    let primera = true;
+    while (vivo(id)) {
+      if (primera) { if (!(await di(id, "📡 Activando tu ubicación en tiempo real…"))) return null; primera = false; }
+      const r = await geoUna();
+      if (!vivo(id)) return null;
+      if (r.ok) {
+        gpsListo = r.pos;
+        addBot("✅ Ubicación lista. Tu repartidor te verá en el mapa mientras tu pedido esté en curso.");
+        return gpsListo;
+      }
+      addBot(r.code === 1
+        ? "Tu ubicación está bloqueada. Permite la ubicación para este sitio en los ajustes de tu navegador y toca «Reintentar»."
+        : "No pude obtener tu ubicación. Enciende el GPS de tu celular y toca «Reintentar».");
+      const c = await opciones(id, [{ clave: "r", texto: "📍 Reintentar ubicación" }, { clave: "x", texto: "↩️ Volver al inicio" }]);
+      if (c === "x") { reiniciarConvo(); return null; }
+    }
+    return null;
+  }
+
+  /* ---------- Mapa dentro del chat ---------- */
+  function mapaBurbuja(id) {
+    return new Promise((res) => {
+      if (!vivo(id)) return;
+      if (typeof L === "undefined") { addBot("El mapa no está disponible ahora. Escribe la dirección exacta."); return res(null); }
+      const caja = document.createElement("div");
+      caja.className = "wa-burbuja-bot wa-burbuja-mapa";
+      const ayuda = document.createElement("p");
+      ayuda.textContent = "🗺️ Toca el mapa para colocar el pin. Puedes arrastrarlo para ajustarlo.";
+      const cont = document.createElement("div");
+      cont.className = "wa-pin-mapa";
+      cont.setAttribute("aria-label", "Mapa para colocar el pin");
+      const acc = document.createElement("div");
+      acc.className = "wa-mapa-acc";
+      const ok = document.createElement("button");
+      ok.type = "button"; ok.className = "primario"; ok.textContent = "✅ Confirmar ubicación"; ok.disabled = true;
+      const no = document.createElement("button");
+      no.type = "button"; no.textContent = "Cancelar";
+      acc.appendChild(ok); acc.appendChild(no);
+      caja.appendChild(ayuda); caja.appendChild(cont); caja.appendChild(acc);
+      $("convo").appendChild(caja);
+      bajar();
+
+      const centro = gpsListo ? [gpsListo.lat, gpsListo.lng] : CENTRO_MAPA;
+      const m = L.map(cont, { zoomControl: false }).setView(centro, gpsListo ? 16 : 14);
+      mapaConv = m;
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(m);
+      let marca = null, punto = null;
+      const poner = (ll) => {
+        punto = { lat: redondear(ll.lat), lng: redondear(ll.lng) };
+        if (!marca) {
+          marca = L.marker(ll, { icon: iconoPin("wa-pin-cli", "📍"), draggable: true }).addTo(m);
+          marca.on("dragend", () => poner(marca.getLatLng()));
+        } else marca.setLatLng(ll);
+        ayuda.textContent = "✅ Pin colocado. Puedes moverlo si hace falta y luego confirmar.";
+        ok.disabled = false;
+      };
+      m.on("click", (ev) => poner(ev.latlng));
+      setTimeout(() => m.invalidateSize(), 150);
+
+      const cerrar = () => { try { m.remove(); } catch (_) { } if (mapaConv === m) mapaConv = null; caja.remove(); };
+      ok.addEventListener("click", () => {
+        if (!punto || !vivo(id)) return;
+        const r = punto;
+        cerrar();
+        addYo("📍 Pin marcado en el mapa");
+        res(r);
+      });
+      no.addEventListener("click", () => {
+        if (!vivo(id)) return;
+        cerrar();
+        res(null);
+      });
+    });
+  }
+
+  /* ---------- Pedir un lugar: GPS en vivo / pin / dirección escrita / última dirección ---------- */
+  async function pedirLugar(id, cfg) {
+    if (!(await di(id, cfg.pregunta, cfg.clave))) return null;
+    const ult = cfg.ultima ? leerUltimaDirLocal() : null;
+    let ultTxt = "";
+    if (ult && ult.tipo === "direccion" && ult.texto) ultTxt = "🕘 Usar: " + String(ult.texto).slice(0, 38);
+    else if (ult && ult.tipo === "pin" && okLL(Number(ult.lat), Number(ult.lng))) ultTxt = "🕘 Usar mi último pin";
+    const ops = [];
+    if (cfg.gps) ops.push({ clave: "gps", texto: "📍 Mi ubicación en vivo" });
+    ops.push({ clave: "pin", texto: "🗺️ Marcar en el mapa" }, { clave: "dir", texto: "🏠 Escribir dirección" });
+    if (ultTxt) ops.push({ clave: "ult", texto: ultTxt });
+
+    while (vivo(id)) {
+      const c = await opciones(id, ops);
+      if (!vivo(id)) return null;
+      if (c === "gps") {
+        if (!(await di(id, "Perfecto, usaré tu ubicación en tiempo real."))) return null;
+        const g = await obtenerGps(id);
+        if (!g) return null;
+        return { tipo: "gps", lat: g.lat, lng: g.lng };
+      }
+      if (c === "pin") {
+        const p = await mapaBurbuja(id);
+        if (!vivo(id)) return null;
+        if (p) return { tipo: "pin", lat: p.lat, lng: p.lng };
+        continue;
+      }
+      if (c === "dir") {
+        if (!(await di(id, "Escribe la dirección exacta: calle, barrio y una referencia (por ejemplo, «frente a la pulpería»)."))) return null;
+        const t = await pedirTexto(id, "Calle, número, referencia", 5, "Escribe la dirección con un poco más de detalle (mínimo 5 letras).");
+        if (!vivo(id)) return null;
+        return { tipo: "direccion", texto: t.slice(0, 200) };
+      }
+      if (c === "ult" && ult) {
+        if (!(await di(id, "Listo, usaré esa dirección."))) return null;
+        return ult.tipo === "pin" ? { tipo: "pin", lat: Number(ult.lat), lng: Number(ult.lng) } : { tipo: "direccion", texto: String(ult.texto).slice(0, 200) };
+      }
+    }
+    return null;
+  }
+
+  function origenTexto(l) {
+    if (!l) return "Por confirmar";
+    if (l.tipo === "gps") return MARCA_GPS_RETIRO;
+    if (l.tipo === "pin") return "📍 Pin en el mapa (" + Number(l.lat).toFixed(5) + ", " + Number(l.lng).toFixed(5) + ")";
+    return String(l.texto || "Por confirmar").slice(0, 120);
+  }
+
+  /* ---------- Consolidación del pedido: valida y deja la estructura exacta que acepta Firebase ---------- */
+  function consolidarPedido(p) {
+    const lug = (l, nombre) => {
+      if (!l || typeof l !== "object") throw new Error("Falta " + nombre + ".");
+      if (l.tipo === "direccion") {
+        const t = limpiarNombre(l.texto).slice(0, 200);
+        if (t.length < 5) throw new Error("La dirección de " + nombre + " es muy corta.");
+        return { tipo: "direccion", texto: t };
+      }
+      if ((l.tipo === "gps" || l.tipo === "pin") && okLL(Number(l.lat), Number(l.lng))) {
+        return { tipo: l.tipo, lat: redondear(Number(l.lat)), lng: redondear(Number(l.lng)) };
+      }
+      throw new Error("La ubicación de " + nombre + " no es válida.");
+    };
+    if (SERVICIOS.indexOf(p.servicio) < 0) throw new Error("Servicio desconocido.");
+    const quiere = limpiarNombre(p.quiere).slice(0, 200), origen = limpiarNombre(p.origen).slice(0, 120);
+    if (quiere.length < 2 || origen.length < 2) throw new Error("Faltan datos del pedido.");
+    const o = {
+      servicio: p.servicio, tipo: p.tipo === "compra" ? "compra" : "envio", quiere, origen,
+      modo: p.modo === "recibe" ? "recibe" : "envia", destino: lug(p.destino, "entrega")
+    };
+    if (p.retiro) o.retiro = lug(p.retiro, "retiro");
+    const contacto = limpiarNombre(p.contacto).slice(0, 80);
+    if (contacto.length >= 2) o.contacto = contacto;
+    return o;
+  }
+
+  /* ---------- Cierre de cualquier flujo: consolida, envía a Firebase y pasa a la pantalla de búsqueda ---------- */
+  async function finalizar(id, bruto) {
+    if (!vivo(id)) return;
+    let pedido;
+    try { pedido = consolidarPedido(bruto); }
+    catch (e) {
+      addBot("No pude armar tu solicitud: " + e.message + " Volvamos a empezar.");
+      await opciones(id, [{ clave: "x", texto: "↩️ Volver al inicio" }]);
+      if (vivo(id)) { borrarConvo(); reiniciarConvo(); }
+      return;
+    }
+    if (!(await di(id, pedido.servicio === "pickup"
+      ? "✅ ¡Listo! Ya tengo todo. Buscando un conductor para tu pickup…"
+      : "✅ ¡Listo! Ya tengo todo. Buscando un repartidor para tu pedido…"))) return;
+    try {
+      await crearSolicitud(pedido);
+      guardarResumenLocal(pedido);
+      guardarSesion({ estado: "nuevo" });
+      guardarUltimaDireccion(pedido.destino);
+    } catch (e) {
+      if (!vivo(id)) return;
+      addBot("No se pudo enviar tu pedido: " + (e.code || e.message));
+      await opciones(id, [{ clave: "r", texto: "🔄 Reintentar" }]);
+      return finalizar(id, bruto);
+    }
+    if (!vivo(id)) return;
+    guardarHistorial();
+    borrarConvo();
+    pendTexto = null;
+    pedidoActual = pedido;
+    entrarAlChat();
+  }
+
+  /* ---------- Flujo ENVIAR ---------- */
+  async function flujoEnviar(id) {
+    const v = datos.v;
+    if (!v.gps) {
+      if (!(await di(id, "📦 ¡Perfecto! Para recoger tu paquete usaré tu ubicación en tiempo real.", "e1"))) return;
+      const g = await obtenerGps(id);
+      if (!g || !vivo(id)) return;
+      guardar("gps", g);
+    } else gpsListo = v.gps;
+    if (!v.quiere) {
+      if (!(await di(id, "¿Qué vas a enviar? (por ejemplo: documentos, una caja pequeña, llaves)", "e2"))) return;
+      const t = await pedirTexto(id, "Ej. Documentos", 2, "Cuéntame qué vas a enviar (mínimo 2 letras).");
+      if (!vivo(id)) return;
+      guardar("quiere", t);
+    }
+    if (!v.destino) {
+      const d = await pedirLugar(id, { clave: "e3", pregunta: "¿Dónde entregamos el paquete? Marca el punto en el mapa o escribe la dirección de la persona que lo recibe.", ultima: true });
+      if (!d || !vivo(id)) return;
+      guardar("destino", d);
+    }
+    await finalizar(id, {
+      servicio: "enviar", tipo: "envio", quiere: v.quiere, origen: MARCA_GPS_RETIRO, modo: "envia",
+      retiro: { tipo: "gps", lat: v.gps.lat, lng: v.gps.lng }, destino: v.destino
+    });
+  }
+
+  /* ---------- Flujo RETIRAR ---------- */
+  async function flujoRetirar(id) {
+    const v = datos.v;
+    if (!v.retiro) {
+      const r = await pedirLugar(id, { clave: "r1", pregunta: "📥 Muy bien, retiraremos algo por ti. ¿Dónde lo recogemos? Marca el punto exacto en el mapa o escribe la dirección de retiro." });
+      if (!r || !vivo(id)) return;
+      guardar("retiro", r);
+    }
+    if (!v.contacto) {
+      if (!(await di(id, "¿Cómo se llama la persona o el negocio que te lo entrega?", "r2"))) return;
+      const t = await pedirTexto(id, "Nombre de la persona o negocio", 2, "Escribe el nombre de la persona o del negocio (mínimo 2 letras).", 80);
+      if (!vivo(id)) return;
+      guardar("contacto", t);
+    }
+    if (!v.destino) {
+      const d = await pedirLugar(id, { clave: "r3", pregunta: "Por último, ¿dónde lo entregamos? Comparte tu ubicación en tiempo real o marca el punto de entrega final.", gps: true, ultima: true });
+      if (!d || !vivo(id)) return;
+      guardar("destino", d);
+    }
+    await finalizar(id, {
+      servicio: "retirar", tipo: "envio", quiere: ("Retirar con " + v.contacto).slice(0, 200), contacto: v.contacto,
+      origen: origenTexto(v.retiro), modo: v.destino.tipo === "gps" ? "recibe" : "envia", retiro: v.retiro, destino: v.destino
+    });
+  }
+
+  /* ---------- Flujo PEDIR COMIDA ---------- */
+  async function flujoComida(id) {
+    const v = datos.v;
+    if (!v.quiere) {
+      if (!(await di(id, "🍔 ¡Qué rico! ¿Qué deseas pedir?", "c1"))) return;
+      const t = await pedirTexto(id, "Ej. 2 hamburguesas y una Coca-Cola", 2, "Cuéntame qué deseas pedir (mínimo 2 letras).");
+      if (!vivo(id)) return;
+      guardar("quiere", t);
+    }
+    if (!v.origen) {
+      if (!(await di(id, "¿De qué establecimiento lo quieres?", "c2"))) return;
+      const t = await pedirTexto(id, "Ej. Burger House, Av. Central", 2, "Indica el nombre del establecimiento (mínimo 2 letras).", 120);
+      if (!vivo(id)) return;
+      guardar("origen", t);
+    }
+    if (!v.quien) {
+      if (!(await di(id, "¿Quién recibe el pedido?", "c3"))) return;
+      const q = await opciones(id, [{ clave: "yo", texto: "🙋 Yo recibo" }, { clave: "otro", texto: "🎁 Envío a alguien" }]);
+      if (!vivo(id)) return;
+      guardar("quien", q);
+    }
+    if (!v.destino) {
+      if (v.quien === "yo") {
+        if (!(await di(id, "Activo tu ubicación en tiempo real para que el repartidor te encuentre.", "c4y"))) return;
+        const g = await obtenerGps(id);
+        if (!g || !vivo(id)) return;
+        guardar("destino", { tipo: "gps", lat: g.lat, lng: g.lng });
+      } else {
+        const d = await pedirLugar(id, { clave: "c4o", pregunta: "Marca en el mapa o escribe la dirección exacta de la persona que recibe.", ultima: true });
+        if (!d || !vivo(id)) return;
+        guardar("destino", d);
+      }
+    }
+    await finalizar(id, { servicio: "comida", tipo: "compra", quiere: v.quiere, origen: v.origen, modo: v.quien === "yo" ? "recibe" : "envia", destino: v.destino });
+  }
+
+  /* ---------- Flujo PICKUP (mototaxi) ---------- */
+  async function flujoPickup(id) {
+    const v = datos.v;
+    if (!v.retiro) {
+      const r = await pedirLugar(id, { clave: "p1", pregunta: "🏍️ ¡Listo! Pediremos un mototaxi. ¿Dónde te recogemos? Usa tu ubicación en vivo, marca el punto en el mapa o escribe la dirección.", gps: true });
+      if (!r || !vivo(id)) return;
+      guardar("retiro", r);
+    }
+    if (!v.destino) {
+      const d = await pedirLugar(id, { clave: "p2", pregunta: "¿A dónde vas? Marca el destino en el mapa o escribe la dirección.", ultima: true });
+      if (!d || !vivo(id)) return;
+      guardar("destino", d);
+    }
+    await finalizar(id, {
+      servicio: "pickup", tipo: "envio", quiere: "Pickup (mototaxi)", origen: origenTexto(v.retiro), modo: "envia", retiro: v.retiro, destino: v.destino
+    });
+  }
+
+  const FLUJOS = { enviar: flujoEnviar, retirar: flujoRetirar, comida: flujoComida, pickup: flujoPickup };
+
+  function ejecutarFlujo(id, clave) {
+    FLUJOS[clave](id).catch(() => {
+      if (vivo(id)) addBot("Ocurrió un problema inesperado. Toca ↩️ arriba para volver al inicio e intentarlo de nuevo.");
+    });
+  }
+
+  /* ---------- Arranque, reinicio y retoma del chat inicial ---------- */
+  function pintarInicio() {
+    const saludo = $("saludoInicio");
+    if (saludo) saludo.textContent = "¡Hola, " + ((perfil && perfil.nombre) || "") + "! 👋";
+    const t = hora(Date.now());
+    document.querySelectorAll(".wa-hora-inicio").forEach((n) => { n.textContent = t; });
+  }
+
+  function reiniciarConvo() {
+    convId++;
+    pendTexto = null; gpsListo = null;
+    datos = nuevosDatos(null);
+    borrarConvo();
+    if (mapaConv) { try { mapaConv.remove(); } catch (_) { } mapaConv = null; }
+    $("convo").textContent = "";
+    apagarComposer();
+    $("menuInicio").classList.remove("oculto");
+    $("btnReiniciar").classList.add("oculto");
+    pintarInicio();
+    $("formPedido").scrollTop = 0;
+  }
+
+  /* Retoma una conversación guardada: repinta las burbujas y continúa en el paso pendiente. */
+  function retomarConvo(o) {
+    convId++;
+    const id = convId;
+    pendTexto = null;
+    if (mapaConv) { try { mapaConv.remove(); } catch (_) { } mapaConv = null; }
+    datos = { servicio: o.servicio, dichos: o.dichos, v: o.v, log: o.log.slice() };
+    gpsListo = datos.v.gps && okLL(Number(datos.v.gps.lat), Number(datos.v.gps.lng)) ? datos.v.gps : null;
+    $("convo").textContent = "";
+    apagarComposer();
+    pintarInicio();
+    $("menuInicio").classList.add("oculto");
+    $("btnReiniciar").classList.remove("oculto");
+    o.log.forEach((e) => {
+      $("convo").appendChild(crearBurbuja(e.c === "yo" ? "wa-burbuja-yo" : "wa-burbuja-bot", e.t, e.ts, true));
+    });
+    $("convo").appendChild(crearBurbuja("wa-burbuja-bot", "↩️ Retomamos tu solicitud donde la dejaste.", Date.now(), true));
+    bajar();
+    ejecutarFlujo(id, datos.servicio);
   }
 
   function pedirDetalles() {
-    servicio = null; modo = null; modoEnvio = null; historial = [];
-    tipoEnvio = "pin"; pin = null; gpsListo = null; pantalla = "0";
-    ["inQuiere", "inOrigen", "inDir", "inPaquete", "inRetiroTxt", "inEntregaTxt", "inLugarE"].forEach((id) => { $(id).value = ""; });
-    ["estadoGps", "estadoGpsE"].forEach((id) => $(id).classList.add("oculto"));
-    $("btnGps").textContent = "📍 Activar mi ubicación";
-    $("btnGpsE").textContent = "📍 Activar mi ubicación";
-    $("ayudaPin").textContent = "Toca el mapa para colocar el pin. Puedes arrastrarlo.";
-    $("ultimaDireccionBox").classList.add("oculto");
-    if (marcaPin && mapaPin) { mapaPin.removeLayer(marcaPin); marcaPin = null; }
-    resetLugarE();
-    setTipoEnvio("pin");
-    $("btnSiguiente").disabled = false;
-    errorPedido("");
+    const previa = leerConvo();
     vista("vPedido");
-    mostrarPantalla();
+    if (previa) retomarConvo(previa);
+    else { borrarHistorial(); reiniciarConvo(); }
   }
 
-  /* ---------- Navegación entre pantallas ---------- */
-  function pintarIndicador() {
-    const ind = $("pasosInd");
-    let idx = -1, total = 3;
-    if (servicio === "pedir") {
-      idx = pantalla === "1" ? 0 : pantalla === "2" ? 1 : (pantalla === "3r" || pantalla === "3e") ? 2 : -1;
-    } else if (servicio === "enviar") {
-      total = 2;
-      idx = pantalla === "E1" ? 0 : (pantalla === "E2" || pantalla === "E3") ? 1 : -1;
-    }
-    ind.classList.toggle("oculto", idx < 0);
-    if (idx < 0) return;
-    ind.textContent = "";
-    for (let i = 0; i < total; i++) {
-      const b = document.createElement("i");
-      if (i <= idx) b.className = "on";
-      ind.appendChild(b);
-    }
+  function iniciarFlujo(clave, etiqueta) {
+    if (!FLUJOS[clave]) return;
+    convId++;
+    const id = convId;
+    pendTexto = null; gpsListo = null;
+    datos = nuevosDatos(clave);
+    $("menuInicio").classList.add("oculto");
+    $("btnReiniciar").classList.remove("oculto");
+    addYo(etiqueta);
+    ejecutarFlujo(id, clave);
   }
 
-  function mostrarPantalla() {
-    document.querySelectorAll("#formPedido .wa-paso").forEach((n) => n.classList.toggle("oculto", n.dataset.paso !== pantalla));
-    pintarIndicador();
-    $("btnAtras").classList.toggle("oculto", pantalla === "0");
-    $("btnAtras").parentElement.classList.toggle("oculto", pantalla === "0");
-    const sinBoton = pantalla === "0" || pantalla === "2" || pantalla === "E1";
-    $("btnSiguiente").classList.toggle("oculto", sinBoton);
-    $("btnSiguiente").textContent = pantalla === "1" ? "Siguiente" : "Enviar pedido";
-    errorPedido("");
-    if (pantalla === "1") setTimeout(() => $("inQuiere").focus(), 60);
-    if (pantalla === "E3") setTimeout(() => $("inRetiroTxt").focus(), 60);
-    if (pantalla === "3e") { iniciarMapaPin(); mostrarUltimaDireccion(); }
-    if (pantalla === "3r") { if (gpsListo) pintarGpsListo("estadoGps", "btnGps"); else pedirGps("estadoGps", "btnGps"); }
-    if (pantalla === "E2") prepararE2();
-  }
-
-  function irA(clave) {
-    if (pantalla !== clave) historial.push(pantalla);
-    pantalla = clave;
-    mostrarPantalla();
-  }
-
-  $("btnAtras").addEventListener("click", () => {
-    if (!historial.length) return;
-    pantalla = historial.pop();
-    if (pantalla === "0") servicio = null;
-    mostrarPantalla();
-  });
-
-  document.querySelectorAll("#formPedido [data-servicio]").forEach((b) => b.addEventListener("click", () => {
-    servicio = b.dataset.servicio;
-    irA(servicio === "enviar" ? "E1" : "1");
+  document.querySelectorAll("#menuInicio [data-servicio]").forEach((b) => b.addEventListener("click", () => {
+    iniciarFlujo(b.dataset.servicio, b.dataset.etiqueta || b.textContent.trim());
   }));
+  $("btnReiniciar").addEventListener("click", reiniciarConvo);
 
-  document.querySelectorAll('#formPedido [data-paso="2"] .wa-opcion').forEach((b) => b.addEventListener("click", () => {
-    modo = b.dataset.modo;
-    irA(modo === "recibe" ? "3r" : "3e");
-  }));
-
-  document.querySelectorAll("#formPedido [data-envio]").forEach((b) => b.addEventListener("click", () => {
-    const paquete = limpiarNombre($("inPaquete").value);
-    if (paquete.length < 2) { $("inPaquete").focus(); return errorPedido("Cuéntanos qué vas a enviar."); }
-    const antes = modoEnvio;
-    modoEnvio = b.dataset.envio;
-    if (antes && antes !== modoEnvio) resetLugarE();
-    irA(modoEnvio === "texto" ? "E3" : "E2");
-  }));
-
-  /* ---------- Última dirección guardada (Pedir algo → entrega a otra persona) ---------- */
-  function mostrarUltimaDireccion() {
-    const box = $("ultimaDireccionBox"), txt = $("ultimaDireccionTxt");
-    const dir = leerUltimaDirLocal();
-    if (!dir || (dir.tipo !== "pin" && dir.tipo !== "direccion")) {
-      box.classList.add("oculto");
-      return;
-    }
-    let donde = "";
-    if (dir.tipo === "direccion") donde = dir.texto || "";
-    else if (okLL(dir.lat, dir.lng)) donde = `Pin del mapa (${Number(dir.lat).toFixed(5)}, ${Number(dir.lng).toFixed(5)})`;
-    if (!donde) { box.classList.add("oculto"); return; }
-
-    let hace = "";
-    if (dir.ts) {
-      const s = Math.max(0, Math.round((Date.now() - Number(dir.ts)) / 1000));
-      hace = s < 60 ? "hace unos segundos" : s < 3600 ? "hace " + Math.round(s / 60) + " min" : s < 86400 ? "hace " + Math.round(s / 3600) + " h" : "hace " + Math.round(s / 86400) + " días";
-    }
-    txt.innerHTML = "La última vez pediste a: <b>" + escapeHtml(donde) + "</b>" + (hace ? " (" + escapeHtml(hace) + ")" : "") + ".<br>¿Recibes aquí de nuevo?";
-    box.classList.remove("oculto");
-
-    $("btnUsarUltima").onclick = () => {
-      if (dir.tipo === "direccion") {
-        setTipoEnvio("direccion");
-        $("inDir").value = dir.texto || "";
-        $("formPedido").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-      } else if (dir.tipo === "pin" && okLL(dir.lat, dir.lng)) {
-        setTipoEnvio("pin");
-        setTimeout(() => {
-          colocarPin({ lat: Number(dir.lat), lng: Number(dir.lng) });
-          if (mapaPin) mapaPin.setView([Number(dir.lat), Number(dir.lng)], Math.max(mapaPin.getZoom(), 16));
-          $("formPedido").dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-        }, 80);
-      }
-    };
-    $("btnOtraDir").onclick = () => box.classList.add("oculto");
-  }
-
-  /* ---------- GPS (compartido por "Lo recibo yo", "Retiran donde mí" y "Traen donde mí") ---------- */
-  let buscandoGps = false;
-
-  function pintarGpsListo(estId, btnId) {
-    const est = $(estId);
-    est.className = "wa-estado";
-    est.textContent = "✅ Ubicación lista. Se compartirá en vivo con tu repartidor.";
-    $(btnId).textContent = "📍 Actualizar mi ubicación";
-  }
-
-  function pedirGps(estId, btnId) {
-    if (buscandoGps) return;
-    const est = $(estId);
-    est.className = "wa-estado";
-    est.textContent = "Buscando tu ubicación…";
-    if (!navigator.geolocation) return falloGps(0, estId, btnId);
-    buscandoGps = true;
-    navigator.geolocation.getCurrentPosition((pos) => {
-      buscandoGps = false;
-      gpsListo = { lat: redondear(pos.coords.latitude), lng: redondear(pos.coords.longitude) };
-      pintarGpsListo(estId, btnId);
-      errorPedido("");
-    }, (e) => { buscandoGps = false; falloGps(e && e.code, estId, btnId); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
-  }
-
-  function falloGps(codigo, estId, btnId) {
-    gpsListo = null;
-    const est = $(estId);
-    est.className = "wa-estado error";
-    est.textContent = codigo === 1
-      ? "Tu ubicación está bloqueada. Permite la ubicación para este sitio en los ajustes de tu navegador y toca el botón de nuevo."
-      : "No pudimos obtener tu ubicación. Enciende el GPS de tu celular y toca el botón de nuevo.";
-    $(btnId).textContent = "📍 Reintentar ubicación";
-  }
-
-  $("btnGps").addEventListener("click", () => pedirGps("estadoGps", "btnGps"));
-  $("btnGpsE").addEventListener("click", () => pedirGps("estadoGpsE", "btnGpsE"));
-
-  /* ---------- Pedir algo: dónde se entrega (pin o dirección) ---------- */
-  function setTipoEnvio(t) {
-    tipoEnvio = t;
-    document.querySelectorAll("#segPedir button").forEach((b) => b.classList.toggle("activa", b.dataset.tipo === t));
-    $("boxPin").classList.toggle("oculto", t !== "pin");
-    $("boxDir").classList.toggle("oculto", t !== "direccion");
-    if (t === "pin" && pantalla === "3e") iniciarMapaPin();
-  }
-  document.querySelectorAll("#segPedir button").forEach((b) => b.addEventListener("click", () => setTipoEnvio(b.dataset.tipo)));
-
-  function iniciarMapaPin() {
-    if (typeof L === "undefined") {
-      setTipoEnvio("direccion");
-      document.querySelector('#segPedir button[data-tipo="pin"]').classList.add("oculto");
-      return;
-    }
-    if (!mapaPin) {
-      mapaPin = L.map("mapaPin", { zoomControl: false }).setView(CENTRO_MAPA, 14);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapaPin);
-      mapaPin.on("click", (ev) => colocarPin(ev.latlng));
-    }
-    setTimeout(() => mapaPin.invalidateSize(), 80);
-  }
-
-  function colocarPin(ll) {
-    pin = { lat: redondear(ll.lat), lng: redondear(ll.lng) };
-    if (!marcaPin) {
-      marcaPin = L.marker(ll, { icon: iconoPin("wa-pin-cli", "📍"), draggable: true }).addTo(mapaPin);
-      marcaPin.on("dragend", () => colocarPin(marcaPin.getLatLng()));
-    } else marcaPin.setLatLng(ll);
-    $("ayudaPin").textContent = "✅ Pin colocado. Puedes moverlo si hace falta.";
-    errorPedido("");
-  }
-
-  /* ---------- Enviar algo: lugar de retiro o de entrega (pin o dirección) ---------- */
-  function prepararE2() {
-    const retiran = modoEnvio === "retiran";
-    $("tituloE2").textContent = retiran ? "📍 Retiran donde mí" : "🏠 Traen donde mí";
-    $("ayudaGpsE").textContent = retiran
-      ? "Tu ubicación en vivo será el punto de retiro y el repartidor te verá en el mapa. Si tu GPS está encendido, la detectamos sola."
-      : "Tu ubicación en vivo será el punto de entrega final y el repartidor te verá en el mapa. Si tu GPS está encendido, la detectamos sola.";
-    $("lblLugarE").textContent = retiran ? "¿Dónde se entrega el paquete?" : "¿Dónde retiran el paquete?";
-    if (gpsListo) pintarGpsListo("estadoGpsE", "btnGpsE"); else pedirGps("estadoGpsE", "btnGpsE");
-    setTipoLugarE(tipoLugarE);
-  }
-
-  function resetLugarE() {
-    pinE = null; tipoLugarE = "pin";
-    if (marcaE && mapaE) { mapaE.removeLayer(marcaE); marcaE = null; }
-    $("ayudaPinE").textContent = "Toca el mapa para colocar el pin. Puedes arrastrarlo.";
-    $("inLugarE").value = "";
-    document.querySelectorAll("#segEnvio button").forEach((b) => b.classList.toggle("activa", b.dataset.tipo === "pin"));
-    $("boxPinE").classList.remove("oculto");
-    $("boxDirE").classList.add("oculto");
-  }
-
-  function setTipoLugarE(t) {
-    tipoLugarE = t;
-    document.querySelectorAll("#segEnvio button").forEach((b) => b.classList.toggle("activa", b.dataset.tipo === t));
-    $("boxPinE").classList.toggle("oculto", t !== "pin");
-    $("boxDirE").classList.toggle("oculto", t !== "direccion");
-    if (t === "pin" && pantalla === "E2") iniciarMapaE();
-  }
-  document.querySelectorAll("#segEnvio button").forEach((b) => b.addEventListener("click", () => setTipoLugarE(b.dataset.tipo)));
-
-  function iniciarMapaE() {
-    if (typeof L === "undefined") {
-      setTipoLugarE("direccion");
-      document.querySelector('#segEnvio button[data-tipo="pin"]').classList.add("oculto");
-      return;
-    }
-    if (!mapaE) {
-      mapaE = L.map("mapaEnvio", { zoomControl: false }).setView(CENTRO_MAPA, 14);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapaE);
-      mapaE.on("click", (ev) => colocarPinE(ev.latlng));
-    }
-    setTimeout(() => mapaE.invalidateSize(), 80);
-  }
-
-  function colocarPinE(ll) {
-    pinE = { lat: redondear(ll.lat), lng: redondear(ll.lng) };
-    if (!marcaE) {
-      marcaE = L.marker(ll, { icon: iconoPin("wa-pin-cli", "📍"), draggable: true }).addTo(mapaE);
-      marcaE.on("dragend", () => colocarPinE(marcaE.getLatLng()));
-    } else marcaE.setLatLng(ll);
-    $("ayudaPinE").textContent = "✅ Pin colocado. Puedes moverlo si hace falta.";
-    errorPedido("");
-  }
-
-  function leerLugarE() {
-    if (tipoLugarE === "pin") {
-      if (!pinE) return falla(modoEnvio === "retiran" ? "Toca el mapa para colocar el pin del lugar de entrega." : "Toca el mapa para colocar el pin del lugar de retiro.");
-      return { tipo: "pin", lat: pinE.lat, lng: pinE.lng };
-    }
-    const t = limpiarNombre($("inLugarE").value);
-    if (t.length < 5) return falla("Escribe la dirección exacta (mínimo 5 letras).");
-    return { tipo: "direccion", texto: t };
-  }
-
-  /* ---------- Armado del pedido ---------- */
-  function armarPedidoCompra() {
-    const quiere = limpiarNombre($("inQuiere").value), origen = limpiarNombre($("inOrigen").value);
-    let destino = null;
-    if (pantalla === "3r") {
-      if (!gpsListo) return falla("Para recibir tu pedido necesitamos tu ubicación en tiempo real. Actívala para continuar.");
-      destino = { tipo: "gps", lat: gpsListo.lat, lng: gpsListo.lng };
-    } else if (tipoEnvio === "pin") {
-      if (!pin) return falla("Toca el mapa para colocar el pin del lugar de entrega.");
-      destino = { tipo: "pin", lat: pin.lat, lng: pin.lng };
-    } else {
-      const dir = limpiarNombre($("inDir").value);
-      if (dir.length < 5) return falla("Escribe la dirección exacta (mínimo 5 letras).");
-      destino = { tipo: "direccion", texto: dir };
-    }
-    return { tipo: "compra", quiere, origen, modo: pantalla === "3r" ? "recibe" : "envia", destino };
-  }
-
-  function armarPedidoEnvio() {
-    const quiere = limpiarNombre($("inPaquete").value);
-    if (quiere.length < 2) return falla("Cuéntanos qué vas a enviar.");
-
-    if (modoEnvio === "texto") {
-      const retiro = limpiarNombre($("inRetiroTxt").value), entrega = limpiarNombre($("inEntregaTxt").value);
-      if (retiro.length < 2) return falla("Escribe el lugar de retiro.");
-      if (entrega.length < 5) return falla("Escribe la dirección de entrega (mínimo 5 letras).");
-      return {
-        tipo: "envio", quiere, origen: retiro.slice(0, 120), modo: "envia",
-        retiro: { tipo: "direccion", texto: retiro },
-        destino: { tipo: "direccion", texto: entrega }
-      };
-    }
-
-    if (!gpsListo) return falla("Necesitamos tu ubicación en tiempo real para este envío. Actívala para continuar.");
-    const gps = { tipo: "gps", lat: gpsListo.lat, lng: gpsListo.lng };
-    const lugar = leerLugarE();
-    if (!lugar) return null;
-
-    if (modoEnvio === "retiran") {
-      return { tipo: "envio", quiere, origen: MARCA_GPS_RETIRO, modo: "envia", retiro: gps, destino: lugar };
-    }
-    const origen = lugar.tipo === "pin"
-      ? "📍 Pin en el mapa (" + lugar.lat.toFixed(5) + ", " + lugar.lng.toFixed(5) + ")"
-      : lugar.texto.slice(0, 120);
-    return { tipo: "envio", quiere, origen, modo: "recibe", retiro: lugar, destino: gps };
+  /* ---------- Conversación inicial dentro del chat (queda al principio, en orden cronológico) ---------- */
+  function pintarHistorialLocal() {
+    if (cerrado || $("histLocal")) return;
+    const log = leerHistorial();
+    if (!log.length) return;
+    const cont = $("mensajes");
+    const w = document.createElement("div");
+    w.id = "histLocal";
+    w.className = "wa-hist";
+    const dia = document.createElement("div");
+    dia.className = "wa-dia";
+    const s = document.createElement("span");
+    s.textContent = "Tu solicitud · " + etiquetaDia(log[0].ts);
+    dia.appendChild(s);
+    w.appendChild(dia);
+    log.forEach((e) => w.appendChild(crearBurbuja(e.c === "yo" ? "wa-burbuja-yo" : "wa-burbuja-bot", e.t, e.ts, true)));
+    cont.insertBefore(w, cont.firstChild);
   }
 
   /* ---------- Resumen automático del pedido ---------- */
@@ -994,23 +1242,18 @@
 
   function armarResumen(p) {
     if (!p || typeof p !== "object") return "";
-    const envio = p.tipo === "envio" || (!!p.retiro && p.tipo !== "compra");
+    const s = p.servicio || ((p.tipo === "envio" || (!!p.retiro && p.tipo !== "compra")) ? "enviar" : "comida");
     const entrega = lugarTexto(p.destino) || "Por confirmar";
+    const retiro = lugarTexto(p.retiro) || String(p.origen || "Por confirmar");
     const lineas = [MARCA_RESUMEN];
-    if (envio) {
-      lineas.push(
-        "📦 Servicio: Enviar algo (mándado / paquete)",
-        "🧾 Paquete: " + String(p.quiere || ""),
-        "⬆️ Retiro: " + (lugarTexto(p.retiro) || String(p.origen || "Por confirmar")),
-        "🏁 Entrega: " + entrega
-      );
+    if (s === "enviar") {
+      lineas.push("📦 Servicio: Enviar", "🧾 Paquete: " + String(p.quiere || ""), "⬆️ Recogida: " + retiro, "🏁 Entrega: " + entrega);
+    } else if (s === "retirar") {
+      lineas.push("📥 Servicio: Retirar", "👤 Lo entrega: " + String(p.contacto || p.quiere || ""), "⬆️ Retiro: " + retiro, "🏁 Entrega final: " + entrega);
+    } else if (s === "pickup") {
+      lineas.push("🏍️ Servicio: Pickup (mototaxi)", "⬆️ Recogida: " + retiro, "🏁 Destino: " + entrega);
     } else {
-      lineas.push(
-        "🍔 Servicio: Pedir algo (comida / compras)",
-        "🛍️ Pedido: " + String(p.quiere || ""),
-        "🏪 Comprar en: " + String(p.origen || ""),
-        "📍 Entrega: " + entrega
-      );
+      lineas.push("🍔 Servicio: Pedir Comida", "🛍️ Pedido: " + String(p.quiere || ""), "🏪 Establecimiento: " + String(p.origen || ""), "📍 Entrega: " + entrega + (p.modo === "recibe" ? " (lo recibe el cliente)" : " (lo recibe otra persona)"));
     }
     return lineas.join("\n").slice(0, MAX_TEXTO);
   }
@@ -1048,7 +1291,8 @@
     h.textContent = "Resumen de tu solicitud";
     card.appendChild(p);
     card.appendChild(h);
-    cont.insertBefore(card, cont.firstChild);
+    const hist = $("histLocal");
+    cont.insertBefore(card, hist ? hist.nextSibling : cont.firstChild);
     resumenCard = card;
   }
 
@@ -1079,36 +1323,6 @@
       resumenEnviando = false;
     }
   }
-
-  /* ---------- Submit del pedido ---------- */
-  $("formPedido").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    if (pantalla === "1") {
-      const quiere = limpiarNombre($("inQuiere").value), origen = limpiarNombre($("inOrigen").value);
-      if (quiere.length < 2) return errorPedido("Cuéntanos qué deseas.");
-      if (origen.length < 2) return errorPedido("Indica de dónde lo deseas.");
-      return irA("2");
-    }
-
-    let pedido = null;
-    if (pantalla === "3r" || pantalla === "3e") pedido = armarPedidoCompra();
-    else if (pantalla === "E2" || pantalla === "E3") pedido = armarPedidoEnvio();
-    if (!pedido) return;
-
-    const btn = $("btnSiguiente");
-    btn.disabled = true;
-    try {
-      await crearSolicitud(pedido);
-      guardarResumenLocal(pedido);
-      guardarSesion({ estado: "nuevo" });
-      if (pedido.tipo === "compra") guardarUltimaDireccion(pedido.destino);
-    } catch (e) {
-      btn.disabled = false;
-      return errorPedido("No se pudo enviar tu pedido: " + (e.code || e.message));
-    }
-    btn.disabled = false;
-    entrarAlChat();
-  });
 
   /* ============================================================
      GPS en vivo del cliente
@@ -1379,7 +1593,7 @@
   /* ---------- Cancelar ---------- */
   $("btnCancelar").addEventListener("click", async () => {
     if (!refSolicitud || asignado || cerrado) return;
-    if (!confirm("¿Cancelar tu solicitud? Dejaremos de buscar repartidor.")) return;
+    if (!confirm("¿Cancelar tu solicitud? Dejaremos de buscar " + textoBusqueda().quien + ".")) return;
     const btn = $("btnCancelar");
     btn.disabled = true;
     mostrarError("");
@@ -1460,6 +1674,7 @@
       detenerGps();
       if (refMensajes) refMensajes.off();
       $("mensajes").textContent = "";
+      borrarHistorial();
       resumenCard = null;
       ultimoDe = null; ultimoDia = null;
       $("vChat").classList.add("cerrado");
@@ -1470,7 +1685,7 @@
     const est = d.valoracion && Number(d.valoracion.estrellas);
     $("cierreIcono").textContent = entregado ? "✅" : "🚫";
     $("cierreTitulo").textContent = entregado ? "¡Pedido entregado!" : "Pedido cancelado";
-    $("cierreSub").textContent = entregado ? "¿Cómo estuvo tu repartidor?" : "Tu pedido fue cancelado. Puedes pedir de nuevo cuando quieras.";
+    $("cierreSub").textContent = entregado ? "¿Cómo estuvo tu " + textoBusqueda().quien + "?" : "Tu pedido fue cancelado. Puedes pedir de nuevo cuando quieras.";
     $("boxEstrellas").classList.toggle("oculto", !entregado);
     if (est >= 1 && est <= 5) {
       valorada = true;
@@ -1523,6 +1738,7 @@
     $("vCierre").classList.add("oculto");
     $("vChat").classList.remove("cerrado");
     borrarSesion();
+    borrarConvo(); borrarHistorial();
     perfil = { id: generarId(), nombre: perfil.nombre, solicitudId: null };
     guardarPerfil(perfil);
     abrirChat();

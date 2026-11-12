@@ -7,9 +7,9 @@
    + responsive universal (≤380px, ≥768px, landscape, prefers-reduced-motion).
    ============================================================ */
 body.wa-cliente {
-  --burbuja-yo: #D3EEFC;
+  --burbuja-yo: #D9FDD3;
   --burbuja-otro: #ffffff;
-  --fondo-chat: #EAF2F6;
+  --fondo-chat: #EFEAE2;
   --tick-enviado: #8696A0;
   --tick-leido: #25D366;
   position: fixed; left: 0; right: 0; top: var(--vvt, 0px); height: var(--vvh, 100dvh); min-height: 0;
@@ -506,4 +506,167 @@ body.wa-cliente {
 @media (prefers-reduced-motion: reduce) {
   .wa-cliente .wa-dual, .wa-cliente .wa-seguir { transition: none !important; }
   .wa-cliente .wa-dual:active, .wa-cliente .wa-seguir:active { transform: none !important; }
+}
+
+
+/* ============================================================
+   FASE 1 · Estética WhatsApp + chat inicial «¿Qué deseas hoy?»
+   ============================================================ */
+body.wa-cliente {
+  --wa-fondo: #EFEAE2;
+  --wa-texto: #111B21;
+  --wa-texto2: #667781;
+  --wa-accion: #00A884;
+  --wa-linea: #E9EDEF;
+  font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, system-ui, -apple-system, sans-serif;
+  color: var(--wa-texto);
+}
+.wa-cliente button, .wa-cliente input { font-family: inherit; }
+.wa-cliente button.primario { background: var(--wa-accion); border-color: var(--wa-accion); color: #fff; }
+.wa-cliente button.primario:disabled { opacity: .55; }
+.wa-cliente input:focus { border-color: var(--wa-accion); }
+.wa-cliente .wa-mensajes, .wa-cliente .wa-chat {
+  background-color: var(--wa-fondo);
+  background-image: radial-gradient(rgba(11,20,26,.045) 1.2px, transparent 1.4px);
+  background-size: 22px 22px;
+}
+.wa-cliente .wa-aviso { background: #D9FDD3; border-color: var(--wa-verde); box-shadow: 0 3px 12px rgba(37,211,102,.28); }
+.wa-cliente .wa-puntos i { background: var(--wa-verde-osc); }
+.wa-cliente .wa-gps-caja, .wa-cliente .wa-estado { background: #E7F9EE; }
+.wa-cliente .wa-estado.error { background: var(--rojo-suave); }
+.wa-cliente .wa-pasos i.on { background: var(--wa-verde); }
+.wa-cliente .wa-msg.yo { box-shadow: 0 1px .5px rgba(11,20,26,.13); }
+
+/* ---------- Chat inicial (pantalla 0 del modal) ---------- */
+.wa-cliente .wa-inicio-barra { display: none; }
+.wa-cliente .wa-modal.inicio { background: var(--wa-fondo); align-items: stretch; padding: 0; }
+.wa-cliente .wa-modal.inicio .wa-hoja {
+  max-width: 560px; height: 100%; max-height: none; border-radius: 0; padding: 0; gap: 0; overflow-y: auto;
+  align-content: start; background-color: var(--wa-fondo);
+  background-image: radial-gradient(rgba(11,20,26,.045) 1.2px, transparent 1.4px); background-size: 22px 22px;
+}
+.wa-cliente .wa-modal.inicio .wa-inicio-barra {
+  display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 3; background: #075E54; color: #fff;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+}
+.wa-cliente .wa-modal.inicio .wa-inicio-barra .wa-avatar { width: 42px; height: 42px; }
+.wa-cliente .wa-modal.inicio .wa-inicio-barra strong { font-size: 17px; font-weight: 700; }
+.wa-cliente .wa-modal.inicio .wa-inicio-barra small { font-size: 13px; font-weight: 500; opacity: .85; }
+.wa-cliente .wa-modal.inicio .wa-form-pedido { padding: 12px 12px calc(16px + env(safe-area-inset-bottom)); gap: 8px; align-content: start; }
+.wa-cliente .wa-modal.inicio .wa-paso[data-paso="0"] { gap: 6px; }
+
+.wa-cliente .wa-dia { display: flex; justify-content: center; margin: 2px 0 6px; }
+.wa-cliente .wa-dia span {
+  background: #fff; color: var(--wa-texto2); font-size: 12.5px; font-weight: 600; padding: 5px 12px; border-radius: 8px;
+  box-shadow: 0 1px .5px rgba(11,20,26,.13);
+}
+.wa-cliente .wa-burbuja-bot {
+  justify-self: start; position: relative; max-width: 86%; background: #fff; color: var(--wa-texto);
+  padding: 7px 10px 5px 11px; border-radius: 10px; border-top-left-radius: 2px; box-shadow: 0 1px .5px rgba(11,20,26,.13);
+  animation: wa-entra .28s ease-out both;
+}
+.wa-cliente .wa-burbuja-bot + .wa-burbuja-bot { animation-delay: .25s; }
+.wa-cliente .wa-burbuja-bot p { font-size: 15.5px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+.wa-cliente .wa-burbuja-bot .wa-hora { display: block; text-align: right; font-size: 11px; font-weight: 500; color: var(--wa-texto2); margin-top: 1px; }
+@keyframes wa-entra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.wa-cliente .wa-quick { display: grid; gap: 6px; width: min(86%, 420px); margin-top: 2px; animation: wa-entra .3s .5s ease-out both; }
+.wa-cliente .wa-quick-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: auto; min-height: 50px; padding: 8px 14px;
+  background: #fff; color: var(--wa-accion); border: 0; border-radius: 10px; box-shadow: 0 1px .5px rgba(11,20,26,.13);
+  font-size: 15.5px; font-weight: 700; cursor: pointer; transition: background .12s ease, transform .12s ease;
+}
+.wa-cliente .wa-quick-ico { font-size: 22px; line-height: 1; }
+.wa-cliente .wa-quick-txt { display: grid; text-align: left; line-height: 1.2; }
+.wa-cliente .wa-quick-txt b { font-weight: 700; font-size: 15.5px; }
+.wa-cliente .wa-quick-txt small { font-size: 12px; font-weight: 500; color: var(--wa-texto2); }
+.wa-cliente .wa-quick-btn:active { background: #F0F2F5; transform: scale(.985); }
+.wa-cliente .wa-quick-btn:focus-visible { outline: 3px solid var(--wa-accion); outline-offset: 2px; }
+@media (hover: hover) { .wa-cliente .wa-quick-btn:hover { background: #F7F8FA; } }
+@media (prefers-reduced-motion: reduce) {
+  .wa-cliente .wa-burbuja-bot, .wa-cliente .wa-quick { animation: none !important; }
+}
+
+/* Responsive del chat inicial */
+@media (min-width: 700px) {
+  .wa-cliente .wa-modal.inicio { background: #d9e4ea; justify-content: center; }
+  .wa-cliente .wa-modal.inicio .wa-hoja { box-shadow: 0 0 0 1px var(--wa-linea); }
+}
+@media (min-width: 900px) {
+  .wa-cliente .wa-modal.inicio .wa-hoja { max-width: 720px; padding: 0; }
+  .wa-cliente .wa-modal.inicio .wa-form-pedido { padding: 18px 22px 22px; }
+  .wa-cliente .wa-burbuja-bot p { font-size: 16px; }
+  .wa-cliente .wa-quick { width: min(70%, 440px); }
+}
+@media (min-width: 1200px) {
+  .wa-cliente .wa-modal.inicio { padding: 20px; }
+  .wa-cliente .wa-modal.inicio .wa-hoja { max-width: 820px; border-radius: 12px; box-shadow: 0 10px 40px rgba(14,20,27,.18); }
+  .wa-cliente .wa-modal.inicio .wa-inicio-barra { border-radius: 12px 12px 0 0; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .wa-cliente .wa-quick { grid-template-columns: 1fr 1fr; width: min(96%, 560px); }
+  .wa-cliente .wa-quick-btn { min-height: 44px; }
+}
+@media (max-width: 340px) {
+  .wa-cliente .wa-burbuja-bot, .wa-cliente .wa-quick { max-width: 96%; width: 96%; }
+}
+
+
+/* ============================================================
+   FASE 2 · Flujos conversacionales dentro del chat inicial
+   ============================================================ */
+.wa-cliente .wa-modal.inicio .wa-hoja { display: flex; flex-direction: column; overflow: hidden; }
+.wa-cliente .wa-modal.inicio .wa-inicio-barra { position: static; flex: 0 0 auto; }
+.wa-cliente .wa-modal.inicio .wa-form-pedido {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; align-content: start; gap: 6px;
+}
+.wa-cliente .wa-modal.inicio .wa-compositor-inicio { flex: 0 0 auto; background: #F0F2F5; border-top: 0; }
+.wa-cliente .wa-modal.inicio .wa-compositor-inicio input { background: #fff; border-color: #fff; }
+.wa-cliente .wa-modal.inicio .wa-compositor-inicio input:disabled { opacity: .7; }
+.wa-cliente .wa-modal.inicio .wa-compositor-inicio .wa-enviar { background: var(--wa-accion); border-color: var(--wa-accion); color: #fff; }
+.wa-cliente .wa-modal.inicio .wa-compositor-inicio .wa-enviar:disabled { background: #D1D7DB; border-color: #D1D7DB; color: #fff; }
+.wa-cliente .wa-modal.inicio .wa-inicio-barra .wa-btn-barra { margin-left: auto; }
+
+.wa-cliente .wa-menu-oculto, .wa-cliente #menuInicio.oculto { display: none !important; }
+.wa-cliente .wa-convo { display: grid; gap: 6px; }
+.wa-cliente .wa-burbuja-yo {
+  justify-self: end; position: relative; max-width: 86%; background: #D9FDD3; color: var(--wa-texto);
+  padding: 7px 10px 5px 11px; border-radius: 10px; border-top-right-radius: 2px; box-shadow: 0 1px .5px rgba(11,20,26,.13);
+  animation: wa-entra .22s ease-out both;
+}
+.wa-cliente .wa-burbuja-yo p { font-size: 15.5px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wa-cliente .wa-burbuja-yo .wa-hora { display: block; text-align: right; font-size: 11px; font-weight: 500; color: var(--wa-texto2); margin-top: 1px; }
+.wa-cliente .wa-convo .wa-burbuja-bot { animation-delay: 0s; }
+.wa-cliente .wa-escribiendo { padding: 12px 14px; }
+.wa-cliente .wa-escribiendo .wa-puntos i { background: var(--wa-texto2); }
+.wa-cliente .wa-quick-hilo { animation: wa-entra .25s ease-out both; }
+.wa-cliente .wa-burbuja-mapa { width: min(94%, 460px); max-width: 100%; display: grid; gap: 8px; padding: 8px; }
+.wa-cliente .wa-burbuja-mapa .wa-pin-mapa { height: 240px; width: 100%; }
+.wa-cliente .wa-mapa-acc { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.wa-cliente .wa-mapa-acc button { height: 46px; font-size: 14.5px; }
+.wa-cliente .wa-mapa-acc button:not(.primario) { width: auto; min-width: 96px; }
+@media (min-width: 900px) {
+  .wa-cliente .wa-burbuja-mapa .wa-pin-mapa { height: 300px; }
+  .wa-cliente .wa-burbuja-yo p { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wa-cliente .wa-burbuja-yo, .wa-cliente .wa-quick-hilo { animation: none !important; }
+}
+body.teclado.wa-cliente .wa-burbuja-mapa .wa-pin-mapa { height: 150px; }
+
+
+/* ============================================================
+   FASE 3 · Pantalla de búsqueda, historial en el chat y persistencia
+   ============================================================ */
+.wa-cliente .sin-anim { animation: none !important; }
+.wa-cliente .wa-hist { display: grid; gap: 6px; padding: 2px 0 10px; border-bottom: 1px dashed rgba(11,20,26,.15); margin-bottom: 6px; }
+.wa-cliente .wa-hist .wa-burbuja-bot, .wa-cliente .wa-hist .wa-burbuja-yo { opacity: .92; }
+.wa-cliente .wa-aviso strong { font-size: 16px; }
+.wa-cliente .wa-aviso .wa-puntos i { width: 9px; height: 9px; }
+.wa-cliente .wa-mensajes > .wa-hist { flex-shrink: 0; }
+@media (min-width: 900px) {
+  .wa-cliente .wa-aviso strong { font-size: 17px; }
+}
+@media (max-width: 340px) {
+  .wa-cliente .wa-hist .wa-burbuja-bot, .wa-cliente .wa-hist .wa-burbuja-yo { max-width: 96%; }
 }

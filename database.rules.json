@@ -582,6 +582,17 @@
             "texto": { ".validate": "newData.isString() && newData.val().length >= 5 && newData.val().length <= 200" },
             "$otro": { ".validate": false }
           },
+          "retiro": {
+            ".validate": "newData.hasChild('tipo') && ((newData.child('tipo').val() === 'direccion' && newData.hasChild('texto')) || ((newData.child('tipo').val() === 'gps' || newData.child('tipo').val() === 'pin') && newData.hasChildren(['lat', 'lng'])))",
+            "tipo": { ".validate": "newData.val() === 'gps' || newData.val() === 'pin' || newData.val() === 'direccion'" },
+            "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+            "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+            "texto": { ".validate": "newData.isString() && newData.val().length >= 5 && newData.val().length <= 200" },
+            "$otro": { ".validate": false }
+          },
+          "servicio": { ".validate": "newData.isString() && (newData.val() === 'enviar' || newData.val() === 'retirar' || newData.val() === 'comida' || newData.val() === 'pickup')" },
+          "tipo": { ".validate": "newData.isString() && (newData.val() === 'envio' || newData.val() === 'compra')" },
+          "contacto": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 80" },
           "$otro": { ".validate": false }
         },
         "clienteGps": {
