@@ -243,6 +243,128 @@ function mostrar(vista) {
     ["vistaFactura", "vistaMapa", "vistaChats", "navApp"].forEach((id) => $(id).classList.add("oculto"));
   } else irA(vistaActual);
 }
+/* ============================================================
+   FASE 2 · BURBUJA ARRASTRABLE
+   - Se mueve libremente. Al llegar abajo aparece un círculo objetivo: soltarla encima la cierra.
+   - Un toque abre el menú; otro toque lo cierra; tocar fuera lo oculta al instante.
+   ============================================================ */
+const BurbujaRep = (() => {
+  const T = 58, UMBRAL = 8;
+  let x = null, y = null, drag = null, cerrada = false, abierto = false;
+  try { cerrada = sessionStorage.getItem("burbujaRepCerrada") === "1"; } catch (_) {}
+  const el = () => $("burbujaRep"), menu = () => $("menuBurbujaRep"), blanco = () => $("blancoBurbuja");
+  const W = () => window.innerWidth, H = () => window.innerHeight;
+  function limitar() { x = Math.min(Math.max(4, x), Math.max(4, W() - T - 4)); y = Math.min(Math.max(4, y), Math.max(4, H() - T - 4)); }
+  function pintar() { const b = el(); if (b) b.style.transform = "translate3d(" + x + "px," + y + "px,0)"; }
+  function cerrarMenu() {
+    const m = menu(), b = el(); abierto = false;
+    if (m) m.classList.add("oculto");
+    if (b) b.setAttribute("aria-expanded", "false");
+  }
+  function htmlMenu() {
+    let hay = false;
+    try { hay = orden.length > 0 || !!PedidoRep.info() || OrdenAdminRep.activo(); } catch (_) {}
+    return (hay ? '<button type="button" role="menuitem" data-bm="chat"><span aria-hidden="true">💬</span>Chat al cliente</button>' : "") +
+      '<button type="button" role="menuitem" data-bm="ubicacion"><span aria-hidden="true">📍</span>Ver ubicación</button>' +
+      '<button type="button" role="menuitem" data-bm="factura"><span aria-hidden="true">🧾</span>Crear factura</button>';
+  }
+  function abrirMenu() {
+    const m = menu(), b = el(); if (!m || !b) return;
+    m.innerHTML = htmlMenu();
+    m.classList.remove("oculto");
+    const mw = m.offsetWidth, mh = m.offsetHeight;
+    let left = x + T + 8; if (left + mw > W() - 6) left = x - mw - 8;
+    left = Math.max(6, left);
+    const top = Math.min(Math.max(6, y), Math.max(6, H() - mh - 6));
+    m.style.left = left + "px"; m.style.top = top + "px";
+    abierto = true; b.setAttribute("aria-expanded", "true");
+  }
+  /* Muestra el círculo objetivo cuando la burbuja baja; devuelve true si coinciden */
+  function objetivo() {
+    const bl = blanco(), b = el(); if (!bl || !b) return false;
+    const abajo = y + T / 2 > H() * 0.55;
+    bl.classList.toggle("ver", abajo);
+    let coincide = false;
+    if (abajo) {
+      const r = bl.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      coincide = Math.hypot(x + T / 2 - cx, y + T / 2 - cy) < Math.max(34, r.width * 0.5);
+    }
+    bl.classList.toggle("on", coincide); b.classList.toggle("sobre-blanco", coincide);
+    if (drag) {
+      if (coincide && !drag.vibro) { drag.vibro = true; try { navigator.vibrate && navigator.vibrate(18); } catch (_) {} }
+      if (!coincide) drag.vibro = false;
+    }
+    return coincide;
+  }
+  function cerrarBurbuja() {
+    const bl = blanco(), b = el(); if (!bl || !b) return;
+    const r = bl.getBoundingClientRect();
+    x = r.left + r.width / 2 - T / 2; y = r.top + r.height / 2 - T / 2;
+    b.classList.add("cerrando"); pintar();
+    setTimeout(() => {
+      cerrada = true;
+      try { sessionStorage.setItem("burbujaRepCerrada", "1"); } catch (_) {}
+      b.classList.remove("cerrando", "arrastrando", "sobre-blanco"); b.classList.add("oculto");
+      bl.classList.remove("ver", "on");
+    }, 220);
+  }
+  function mostrar(on) {
+    const b = el(); if (!b) return;
+    if (x == null) { x = W() - T - 8; y = Math.round(H() * 0.4); }
+    limitar(); pintar();
+    const ver = !!on && !cerrada;
+    b.classList.toggle("oculto", !ver);
+    if (!ver) cerrarMenu();
+  }
+  function iniciar() {
+    const b = el(), m = menu(); if (!b || !m) return;
+    b.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: x, oy: y, mov: false, vibro: false };
+      try { b.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    b.addEventListener("pointermove", (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      if (!drag.mov) {
+        if (Math.hypot(dx, dy) < UMBRAL) return;
+        drag.mov = true; cerrarMenu(); b.classList.add("arrastrando");
+      }
+      x = drag.ox + dx; y = drag.oy + dy; limitar(); pintar(); objetivo();
+      e.preventDefault();
+    });
+    const fin = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = drag; let coincide = false;
+      if (d.mov) coincide = objetivo();
+      drag = null;
+      b.classList.remove("arrastrando");
+      try { b.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (!d.mov) { abierto ? cerrarMenu() : abrirMenu(); return; }   // toque simple: abre / cierra el menú
+      if (coincide && e.type === "pointerup") return cerrarBurbuja();
+      const bl = blanco(); if (bl) bl.classList.remove("ver", "on");
+      b.classList.remove("sobre-blanco");
+    };
+    b.addEventListener("pointerup", fin);
+    b.addEventListener("pointercancel", fin);
+    b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abierto ? cerrarMenu() : abrirMenu(); } });
+    m.addEventListener("click", (e) => {
+      const it = e.target.closest("button[data-bm]"); if (!it) return;
+      const a = it.dataset.bm; cerrarMenu();
+      try { accionBurbuja(a); } catch (_) {}
+    });
+    /* Tocar en cualquier otra parte de la pantalla oculta el menú de inmediato */
+    document.addEventListener("pointerdown", (e) => {
+      if (!abierto) return;
+      if (e.target.closest && e.target.closest("#burbujaRep, #menuBurbujaRep")) return;
+      cerrarMenu();
+    }, true);
+    window.addEventListener("resize", () => { if (x != null) { limitar(); pintar(); } cerrarMenu(); });
+  }
+  iniciar();
+  return { mostrar, cerrarMenu };
+})();
+
 function irA(vista) {
   vistaActual = vista;
   $("vistaFactura").classList.toggle("oculto", vista !== "factura");
@@ -271,6 +393,7 @@ function actualizarNav() {
   const hay = !!uidActual && !!usuario;
   $("navApp").classList.toggle("oculto", !hay);
   document.body.classList.toggle("con-nav", !!hay);
+  try { BurbujaRep.mostrar(!!hay); } catch (_) {}
   $("navFactura").classList.toggle("activa", vistaActual === "factura");
   $("navMapa").classList.toggle("activa", vistaActual === "mapa");
   $("navChats").classList.toggle("activa", vistaActual === "chats");
@@ -397,6 +520,68 @@ const Brujula = (() => {
   return { iniciar, pintar };
 })();
 
+/* ============================================================
+   FASE 2 · DESTINO POR PULSACIÓN LARGA
+   - Mantén presionado un punto del mapa: aparece un pin y la tarjeta "Iniciar navegación".
+   ============================================================ */
+const DestinoManual = (() => {
+  const MS = 650, MOV_MAX = 10;
+  let timer = null, ini = null, punto = null, pin = null;
+  const cancelarTimer = () => { clearTimeout(timer); timer = null; ini = null; };
+  function ocultar() {
+    cancelarTimer();
+    const t = $("tarjetaDestino"); if (t) t.classList.add("oculto");
+    if (pin && mapa) { try { mapa.removeLayer(pin); } catch (_) {} }
+    pin = null; punto = null;
+  }
+  function mostrar(ll) {
+    if (!mapa) return;
+    punto = { lat: ll.lat, lng: ll.lng };
+    if (pin) { try { mapa.removeLayer(pin); } catch (_) {} }
+    pin = L.marker([punto.lat, punto.lng], {
+      icon: L.divIcon({ className: "", html: '<div class="pin-destino-lp" aria-hidden="true">📍</div>', iconSize: [34, 42], iconAnchor: [17, 40] }),
+      interactive: false, zIndexOffset: 900
+    }).addTo(mapa);
+    $("tdCoords").textContent = punto.lat.toFixed(5) + ", " + punto.lng.toFixed(5);
+    $("tarjetaDestino").classList.remove("oculto");
+    try { navigator.vibrate && navigator.vibrate(30); } catch (_) {}
+  }
+  function iniciarNavegacion() {
+    if (!punto) return;
+    const l = { nombre: "Destino marcado", lat: punto.lat, lng: punto.lng, icono: "📍" };
+    ocultar();
+    irALugar(l, false);
+    if (!ultimaPos) return setEstado("Esperando tu ubicación para navegar…", "error");
+    Camara.setModo("navegacion");
+    seguirme = true;
+    Camara.actualizar(true);
+    setEstado("🧭 Navegando al destino marcado", "ok");
+  }
+  function iniciar(map) {
+    const c = map.getContainer();
+    c.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (e.target.closest && e.target.closest(".leaflet-marker-icon, .leaflet-popup, .leaflet-control, button, a, input, .barra-sup-rep, .res-busq, .tarjeta-destino")) return;
+      if (typeof marcando !== "undefined" && marcando) return;
+      cancelarTimer();
+      ini = { x: e.clientX, y: e.clientY };
+      timer = setTimeout(() => {
+        const p = ini; timer = null; if (!p) return;
+        let ll = null; try { ll = map.mouseEventToLatLng({ clientX: p.x, clientY: p.y }); } catch (_) {}
+        if (ll) mostrar(ll);
+      }, MS);
+    }, { passive: true });
+    c.addEventListener("pointermove", (e) => { if (ini && Math.hypot(e.clientX - ini.x, e.clientY - ini.y) > MOV_MAX) cancelarTimer(); }, { passive: true });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((ev) => c.addEventListener(ev, cancelarTimer, { passive: true }));
+    c.addEventListener("contextmenu", (e) => e.preventDefault());
+    map.on("dragstart zoomstart", cancelarTimer);
+    map.on("click dragstart", () => { if (punto) ocultar(); });
+  }
+  $("btnIrDestino").onclick = iniciarNavegacion;
+  $("btnCancelarDestino").onclick = ocultar;
+  return { iniciar, ocultar };
+})();
+
 function initMapa() {
   if (mapa) return;
   mapa = L.map("mapaRuta", Object.assign({}, GestosMapa.opciones, Camara.opcionesMapa())).setView([12.5700, -87.1311], 14);
@@ -406,6 +591,8 @@ function initMapa() {
     mapa.createPane("paneYo", base).style.zIndex = 640;
     mapa.getPane("popupPane").style.zIndex = 800; }
   Brujula.iniciar();
+  mapa.on("rotate", Camara.marcarIcono);
+  DestinoManual.iniciar(mapa);
   GestosMapa.aplicar(mapa);
   mapa.on("click movestart", cerrarBusquedaRep);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
@@ -488,7 +675,25 @@ const Camara = (() => {
     if (!mapa) return;
     try { mapa.getContainer().style.setProperty("--escala-rep", String(escalaPara(mapa.getZoom()))); } catch (_) {}
   }
-  function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) e.classList.add("rep-yo"); }
+  /* Gira el ícono 3D: ángulo en pantalla = rumbo real − giro del mapa (por el camino más corto). En navegación queda mirando hacia arriba */
+  let accRot = 0;
+  function rotarIcono() {
+    const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (!e) return;
+    const b = rotable() ? (Number(mapa.getBearing()) || 0) : 0;
+    const objetivo = tieneRumbo ? suave - b : 0;
+    const d = ((((objetivo - accRot) % 360) + 540) % 360) - 180;
+    if (Math.abs(d) < 0.2) return;
+    accRot += d;
+    e.style.setProperty("--rot-rep", accRot.toFixed(1) + "deg");
+  }
+  function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) e.classList.add("rep-yo"); rotarIcono(); }
+  /* Rumbo que entrega el GPS (solo si aún no hay rumbo calculado por desplazamiento y el aparato se mueve) */
+  function registrarGPS(h, v) {
+    const n = Number(h), s = Number(v);
+    if (tieneRumbo || !Number.isFinite(n) || !(s > 1.2)) return;
+    suave = ((n % 360) + 360) % 360; tieneRumbo = true;
+  }
+  const rumbo = () => (tieneRumbo ? suave : null);
 
   function refrescarBoton() {
     const b = $("btnNavegar"); if (!b) return;
@@ -497,6 +702,7 @@ const Camara = (() => {
     b.setAttribute("aria-pressed", String(activo));
     b.setAttribute("aria-label", activo ? "Salir de la navegación" : "Activar navegación");
     const t = $("btnNavegarTxt"); if (t) t.textContent = activo ? "Salir" : "Navegar";
+    try { accionesMapaRefrescar(); } catch (_) {}
   }
   function salir() {
     modo = "fitbounds";
@@ -551,16 +757,64 @@ const Camara = (() => {
     if (rotable()) { try { mapa.setBearing(0); } catch (_) {} }
     setTimeout(refrescarBoton, 0);
   }
-  return { opcionesMapa, registrar, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
+  return { opcionesMapa, registrar, registrarGPS, rumbo, rotarIcono, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
 })();
+
+/* ============================================================
+   FASE 1 · ICONO 3D DEL REPARTIDOR (vista trasera, tercera persona, mochila celeste)
+   - Sin círculo ni contenedor de fondo: solo la silueta con sombra que la sigue.
+   - Gira según el rumbo respecto al mapa (en navegación siempre mira hacia arriba).
+   ============================================================ */
+function icono3DRepartidor(nombre) {
+  const svg = `<svg class="rep3d-svg" viewBox="0 0 80 105" width="64" height="84" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="r3Mochila" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7DD3FF"/><stop offset="1" stop-color="#1B9BE0"/></linearGradient>
+      <linearGradient id="r3Tapa" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D4F0FF"/><stop offset="1" stop-color="#8FD8FF"/></linearGradient>
+      <linearGradient id="r3Chasis" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1F2933"/><stop offset=".5" stop-color="#4B5B6B"/><stop offset="1" stop-color="#1F2933"/></linearGradient>
+      <linearGradient id="r3Chaqueta" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#B91F1A"/><stop offset=".5" stop-color="#E5322D"/><stop offset="1" stop-color="#B91F1A"/></linearGradient>
+    </defs>
+    <rect x="34" y="82" width="12" height="22" rx="5" fill="#111827"/>
+    <path d="M36 88h8M36 93h8M36 98h8" stroke="#374151" stroke-width="1.4" stroke-linecap="round"/>
+    <path d="M24 62Q40 58 56 62L53 84Q40 89 27 84Z" fill="url(#r3Chasis)"/>
+    <rect x="34" y="77" width="12" height="4.5" rx="2.2" fill="#E5322D"/>
+    <rect x="35.5" y="78.2" width="9" height="1.4" rx=".7" fill="#FF9B97"/>
+    <path d="M27 56L22 80Q22 87 29 87L32 68Z" fill="#1F2937"/>
+    <path d="M53 56L58 80Q58 87 51 87L48 68Z" fill="#1F2937"/>
+    <ellipse cx="26" cy="87" rx="5" ry="3.2" fill="#0B1220"/>
+    <ellipse cx="54" cy="87" rx="5" ry="3.2" fill="#0B1220"/>
+    <rect x="12" y="66" width="56" height="2.6" rx="1.3" fill="#1F2933"/>
+    <path d="M18 38Q7 50 9 66" stroke="#B91F1A" stroke-width="7.5" stroke-linecap="round" fill="none"/>
+    <path d="M62 38Q73 50 71 66" stroke="#B91F1A" stroke-width="7.5" stroke-linecap="round" fill="none"/>
+    <rect x="3" y="64" width="12" height="5.5" rx="2.7" fill="#111827"/>
+    <rect x="65" y="64" width="12" height="5.5" rx="2.7" fill="#111827"/>
+    <path d="M17 31Q40 22 63 31L65 52L15 52Z" fill="url(#r3Chaqueta)"/>
+    <path d="M30 18Q30 5 40 5Q50 5 50 18L50 28L30 28Z" fill="#111827"/>
+    <path d="M40 5V26" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M33 12Q35 8 40 7.5" stroke="#9CA3AF" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <rect x="17" y="34" width="4.5" height="29" rx="2.2" fill="#0E7BBF"/>
+    <rect x="58.5" y="34" width="4.5" height="29" rx="2.2" fill="#0B6AA8"/>
+    <path d="M23 24Q40 20 57 24L61 33H19Z" fill="url(#r3Tapa)"/>
+    <rect x="20" y="32" width="40" height="32" rx="5" fill="url(#r3Mochila)"/>
+    <path d="M23.5 36.5Q23.5 35 25.5 35H36" stroke="#fff" stroke-opacity=".6" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <path d="M22.5 43.5h35" stroke="#fff" stroke-opacity=".85" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M22.5 56h35" stroke="#fff" stroke-opacity=".85" stroke-width="2.2" stroke-linecap="round"/>
+    <text x="40" y="53" text-anchor="middle" font-size="11" font-weight="800" fill="#fff" font-family="system-ui,sans-serif">B</text>
+  </svg>`;
+  const nom = nombre ? `<span class="rep3d-nombre">${escHtml(String(nombre).slice(0, 24))}</span>` : "";
+  return L.divIcon({
+    className: "rep3d-marca",
+    html: `<div class="rep3d-escala"><div class="rep3d-rot"><div class="rep3d-persp">${svg}</div></div></div>${nom}`,
+    iconSize: [64, 84], iconAnchor: [32, 50]
+  });
+}
 
 function pintarYo(rumbo) {
   if (!mapa || !ultimaPos) return;
   const p = [ultimaPos.lat, ultimaPos.lng];
-  if (!marcaYo) { marcaYo = L.marker(p, { icon: iconoRepartidorNombre(usuario), zIndexOffset: 1000, pane: "paneYo" }).addTo(mapa); nombreYoMarcado = usuario; }
+  if (!marcaYo) { marcaYo = L.marker(p, { icon: icono3DRepartidor(usuario), zIndexOffset: 1000, pane: "paneYo" }).addTo(mapa); nombreYoMarcado = usuario; }
   else {
     marcaYo.setLatLng(p);
-    if (nombreYoMarcado !== usuario) { marcaYo.setIcon(iconoRepartidorNombre(usuario)); nombreYoMarcado = usuario; }
+    if (nombreYoMarcado !== usuario) { marcaYo.setIcon(icono3DRepartidor(usuario)); nombreYoMarcado = usuario; }
   }
   Camara.marcarIcono();
   if (rastro.length) estelaProp.setLatLngs(rastro);
@@ -653,6 +907,44 @@ $("btnNavegar").onclick = () => {
   }
   Camara.actualizar(true);
 };
+Camara.refrescarBoton();
+
+/* ============================================================
+   FASE 1 · BOTONES FLOTANTES: "Volver a centrar" y "Ver ruta"
+   - Aparecen cuando mueves el mapa con el dedo o cuando hay una ruta activa.
+   ============================================================ */
+function hayRutaActiva() {
+  let cli = null; try { cli = PedidoRep.posCliente(); } catch (_) {}
+  return !!(lugarDestino || (viajes[seleccionado] && viajes[seleccionado].destino) || cli);
+}
+function accionesMapaRefrescar() {
+  const c = $("accionesMapa"); if (!c) return;
+  const rec = !!ultimaPos && !seguirme, ruta = !!ultimaPos && hayRutaActiva();
+  $("btnRecentrar").classList.toggle("oculto", !rec);
+  $("btnVerRuta").classList.toggle("oculto", !ruta);
+  c.classList.toggle("oculto", !(rec || ruta));
+}
+function verRutaCompleta() {
+  if (!mapa) return;
+  if (!ultimaPos) return setEstado("Esperando tu ubicación…", "error");
+  const pts = [[ultimaPos.lat, ultimaPos.lng]];
+  const n = lugarDestino ? rutaLugar : viajes[seleccionado];
+  if (n && Array.isArray(n.rutaPts)) n.rutaPts.forEach((p) => { if (p) pts.push(p); });
+  puntosMulti(lugarDestino || (viajes[seleccionado] && viajes[seleccionado].destino) || null).forEach((p) => pts.push(p));
+  seguirme = false;
+  Camara.norte();
+  if (pts.length > 1) mapa.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [60, 110], paddingBottomRight: [60, 90], maxZoom: 17 });
+  else mapa.setView(pts[0], 16);
+  Camara.refrescarBoton();
+}
+$("btnRecentrar").onclick = () => {
+  if (!ultimaPos) return setEstado("Esperando tu ubicación…", "error");
+  Camara.setModo("navegacion");
+  seguirme = true;
+  Camara.actualizar(true);
+  setEstado("🎯 Mapa centrado en tu ubicación", "ok");
+};
+$("btnVerRuta").onclick = verRutaCompleta;
 Camara.refrescarBoton();
 
 async function pedirRuta(v, forzar) {
@@ -1428,7 +1720,34 @@ function aplicarHoja() {
   const c = $("barraHojaCnt"); c.textContent = n; c.classList.toggle("oculto", !n);
   if (mapa) setTimeout(() => { mapa.invalidateSize(); if (Camara.getModo() === "navegacion") Camara.actualizar(true); }, 120);
 }
-$("barraHoja").onclick = () => { hojaOculta = !hojaOculta; aplicarHoja(); };
+(() => {
+  const b = $("barraHoja"); let y0 = null, pid = null;
+  b.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    y0 = e.clientY; pid = e.pointerId;
+    try { b.setPointerCapture(pid); } catch (_) {}
+  });
+  b.addEventListener("pointerup", (e) => {
+    if (y0 == null || e.pointerId !== pid) return;
+    const dy = e.clientY - y0; y0 = null;
+    if (dy < -24) hojaOculta = false;          // desliza hacia arriba: muestra el detalle
+    else if (dy > 24) hojaOculta = true;       // desliza hacia abajo: lo oculta
+    else hojaOculta = !hojaOculta;             // toque simple: alterna
+    aplicarHoja();
+  });
+  b.addEventListener("pointercancel", () => { y0 = null; });
+  b.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); hojaOculta = !hojaOculta; aplicarHoja(); } });
+  $("btnDetener").onclick = (e) => { e.stopPropagation(); detenerRuta(); };
+  /* Desde el panel abierto: arrastrar hacia abajo (estando arriba del todo) lo oculta */
+  const h = $("hojaPedidos"); let ty = null;
+  h.addEventListener("touchstart", (e) => { ty = h.scrollTop <= 0 && e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true });
+  h.addEventListener("touchend", (e) => {
+    if (ty == null) return;
+    const dy = (e.changedTouches[0] ? e.changedTouches[0].clientY : ty) - ty; ty = null;
+    if (dy > 80 && h.scrollTop <= 0) { hojaOculta = true; aplicarHoja(); }
+  }, { passive: true });
+})();
 
 function cerrarBusquedaRep() { $("resBusqRep").classList.add("oculto"); $("busqRep").blur(); }
 function mostrarBusquedaRep(online) {
@@ -1514,7 +1833,7 @@ function actualizarBanner() {
   const b = $("bannerRuta"); if (!b) return;
   const n = lugarDestino ? rutaLugar : viajes[seleccionado];
   const titulo = lugarDestino ? `${lugarDestino.icono} ${lugarDestino.nombre}` : (n ? "👤 " + nombreDe(n) : "");
-  if (!lugarDestino && !(n && n.destino)) { b.classList.add("oculto"); return; }
+  if (!lugarDestino && !(n && n.destino)) { b.classList.add("oculto"); try { actualizarBarraEta(); } catch (_) {} return; }
   b.classList.remove("oculto");
   const cerrar = lugarDestino ? '<button id="brX" type="button" aria-label="Quitar destino">✕</button>' : "";
   let ico = "🧭", txt = "";
@@ -1539,6 +1858,77 @@ function actualizarBanner() {
   }
   b.innerHTML = `<span class="ir-ic">${ico}</span><span class="ir-txt">${txt}</span>${cerrar}`;
   const x = $("brX"); if (x) x.onclick = quitarLugarDestino;
+  try { actualizarBarraEta(); } catch (_) {}
+}
+
+/* ============================================================
+   FASE 2 · PANEL INFERIOR ESTILO WAZE (sin "Compartir trayecto")
+   - Barra con ETA / distancia / hora de llegada y botón de detener ruta.
+   - Se desliza hacia arriba para ver el detalle: factura, delivery y total a cobrar.
+   ============================================================ */
+function interiorPanelWaze() {
+  if (!(OrdenAdminRep.activo() || orden.length || lugarDestino)) return "";
+  const fila = (k, v, cls) => `<div class="pw-fila${cls ? " " + cls : ""}"><span>${k}</span><b>${v}</b></div>`;
+  let det = OrdenAdminRep.desgloseHtml();
+  if (!det && orden.length) {
+    const t = viajes[seleccionado] ? seleccionado : orden[0], v = viajes[t];
+    if (v) {
+      const cc = totalCobrar(v);
+      let tot = cc ? cc.total : null;
+      if (tot == null && v.esChat) { try { tot = ChatsEntrantes.totalFactura(t); } catch (_) {} }
+      det = `<div class="pw-bloque"><div class="pw-tit">🧾 Detalle del pedido</div>
+        ${fila("Cliente", escHtml(nombreDe(v)))}
+        ${cc && cc.compras > 0 ? fila("Monto de la factura", money2(cc.compras)) : ""}
+        ${cc ? fila("Precio del delivery", money2(cc.delivery)) : ""}
+        ${cc && cc.propina > 0 ? fila("⚡ Propina por prioridad", money2(cc.propina)) : ""}
+        ${cc && cc.extras > 0 ? fila("Extras", money2(cc.extras)) : ""}
+        ${fila("Total a cobrar", tot != null ? money2(tot) : "Sin factura", "total")}
+      </div>`;
+    }
+  }
+  return `<div class="pw-acciones">
+      <button type="button" data-pw="ruta"><span aria-hidden="true">🗺️</span>Ver ruta</button>
+      <button type="button" data-pw="centrar"><span aria-hidden="true">🎯</span>Centrar</button>
+      <button type="button" data-pw="detener" class="rojo"><span aria-hidden="true">⛔</span>Detener</button>
+    </div>${det || ""}`;
+}
+function htmlPanelWaze() { const i = interiorPanelWaze(); return i ? `<div class="pw-panel" id="pwPanel">${i}</div>` : ""; }
+function actualizarPanelWaze() {
+  const p = $("pwPanel"); if (!p) return;
+  const i = interiorPanelWaze(); if (!i) return;
+  if (p.innerHTML !== i) p.innerHTML = i;
+}
+function detenerRuta() {
+  if (lugarDestino) quitarLugarDestino();
+  Camara.salir();
+  seguirme = true;
+  Camara.actualizar(true);
+  setEstado("⛔ Ruta detenida", "ok");
+  actualizarBarraEta(); aplicarHoja();
+}
+function accionPanelWaze(a) {
+  if (a === "ruta") return verRutaCompleta();
+  if (a === "centrar") return $("btnRecentrar").onclick();
+  if (a === "detener") return detenerRuta();
+}
+function actualizarBarraEta() {
+  const min = $("bhMin"); if (!min) return;
+  const n = lugarDestino ? rutaLugar : viajes[seleccionado];
+  const stop = $("btnDetener"), hayRuta = hayRutaActiva();
+  stop.classList.toggle("oculto", !hayRuta);
+  if (!(n && n.rutaDur && n.rutaDist && ultimaPos)) {
+    min.textContent = "—"; $("bhUni").textContent = "min";
+    $("bhDist").textContent = hayRuta ? "Calculando ruta…" : "Sin ruta";
+    $("bhHora").textContent = hayRuta ? "Un momento…" : "Mantén presionado el mapa para elegir un destino";
+    return;
+  }
+  const m = Math.max(1, Math.round(n.rutaDur / 60));
+  min.textContent = m < 60 ? String(m) : Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0");
+  $("bhUni").textContent = m < 60 ? "min" : "h";
+  $("bhDist").textContent = formatoDist(n.rutaDist);
+  let hora = "";
+  try { hora = new Date(Date.now() + n.rutaDur * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch (_) {}
+  $("bhHora").textContent = "Llegada " + hora;
 }
 
 function renderLista() { renderListaBase(); aplicarHoja(); }
@@ -1549,10 +1939,10 @@ function renderLista() { renderListaBase(); aplicarHoja(); }
    - Oculta los detalles de factura interna (#cobro, #prio) para pedidos esChat.
    ============================================================ */
 function renderListaBase() {
-  const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html() + htmlPedidoChat();
-  if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Toca un cliente en el mapa o inicia una entrega desde Pedidos.</p>'); return; }
+  const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html() + htmlPedidoChat(), pw = htmlPanelWaze();
+  if (!orden.length) { cont.innerHTML = pw + delAdmin + (delAdmin || pw ? "" : '<p class="ayuda">No hay pedidos en ruta. Toca un cliente en el mapa o inicia una entrega desde Pedidos.</p>'); return; }
   const t = viajes[seleccionado] ? seleccionado : orden[0], v = viajes[t], i = orden.indexOf(t);
-  cont.innerHTML = delAdmin + `<div class="pedido-card sel${v.esChat ? " es-chat" : ""}" data-token="${t}">
+  cont.innerHTML = pw + delAdmin + `<div class="pedido-card sel${v.esChat ? " es-chat" : ""}" data-token="${t}">
       <div class="pc-top">
         <span class="pc-num">${i + 1}</span>
         <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small class="pc-sub" id="sub-${t}"></small></div>
@@ -1608,6 +1998,7 @@ function textoSub(v) {
   return p.join(" · ");
 }
 function refrescarTextos() {
+  try { actualizarPanelWaze(); } catch (_) {}
   orden.forEach((t) => {
     const v = viajes[t]; if (!v) return;
     const sub = $("sub-" + t); if (!sub) { pintarCliente(v); return; }
@@ -1649,6 +2040,7 @@ function refrescarTextos() {
 setInterval(() => { if (orden.length) refrescarTextos(); PedidoRep.pintarCliente(); }, 15000);
 
 $("hojaPedidos").onclick = (e) => {
+  const pw = e.target.closest("button[data-pw]"); if (pw) { accionPanelWaze(pw.dataset.pw); return; }
   if (PedidoRep.alClick(e)) return;
   if (OrdenAdminRep.alClick(e)) return;
   const card = e.target.closest(".pedido-card"); if (!card) return;
@@ -1949,6 +2341,7 @@ function procesarPosicion(c) {
     if (!ult || distanciaM(ult[0], ult[1], lat, lng) > 4) { rastro.push([lat, lng]); if (rastro.length > 800) rastro.shift(); guardarRastro(); }
   }
   Camara.registrar(lat, lng);
+  Camara.registrarGPS(c.heading, c.speed);
   pintarYo();
   if (mapa && vistaActual === "mapa") {
     if (seguirme) Camara.actualizar(primera);

@@ -1852,3 +1852,87 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 /* Foto sola (p. ej. PNG con transparencia): la burbuja no pinta fondo */
 .burbuja.solo-foto { background: transparent !important; box-shadow: none !important; border: 0 !important; }
 .chat.messenger .burbuja.solo-foto { background: transparent !important; }
+
+
+/* ============================================================
+   FASE 1 · ICONO 3D DEL REPARTIDOR + BOTONES FLOTANTES
+   ============================================================ */
+.leaflet-marker-icon.rep3d-marca { background: none !important; border: 0 !important; box-shadow: none !important; overflow: visible; }
+.leaflet-marker-icon.rep-yo > .rep3d-escala { width: 64px; height: 84px; position: relative; transform-origin: 50% 50px; }
+.rep3d-rot { width: 64px; height: 84px; transform: rotate(var(--rot-rep, 0deg)); transform-origin: 50% 50px; transition: transform .45s linear; will-change: transform; }
+.rep3d-persp { width: 64px; height: 84px; transform: perspective(230px) rotateX(16deg); transform-origin: 50% 88%; }
+.rep3d-svg { display: block; width: 64px; height: 84px; overflow: visible; filter: drop-shadow(0 6px 4px rgba(14,20,27,.38)); }
+.rep3d-nombre { position: absolute; left: 50%; top: 87px; transform: translateX(-50%); font: 800 11px/1.1 "Plus Jakarta Sans", system-ui, sans-serif; color: #0E141B; white-space: nowrap; pointer-events: none; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 4px #fff, 0 0 4px #fff; }
+@media (prefers-reduced-motion: reduce) { .rep3d-rot { transition: none; } }
+
+.acciones-mapa { position: absolute; z-index: 1000; left: 12px; bottom: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.fab-mapa { height: 46px; padding: 0 16px; border: 0; border-radius: 23px; background: #fff; color: #0E141B; font-size: 14px; font-weight: 800; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.32); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.fab-mapa.prim { background: #0A86C9; color: #fff; }
+.fab-mapa:active { transform: scale(.96); }
+.fab-mapa:focus-visible { outline: 3px solid #0A86C9; outline-offset: 2px; }
+@media (max-width: 380px) { .fab-mapa { height: 42px; padding: 0 12px; font-size: 13px; } .acciones-mapa { left: 8px; bottom: 10px; } }
+
+
+/* ============================================================
+   FASE 2 · PANEL INFERIOR ESTILO WAZE + DESTINO POR PULSACIÓN LARGA + BURBUJA ARRASTRABLE
+   ============================================================ */
+#vistaMapa .barra-hoja { height: auto; min-height: 70px; padding: 7px 16px 8px; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 3px; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; overflow: visible; white-space: normal; text-align: left; box-shadow: 0 -6px 18px rgba(0,0,0,.16); -webkit-tap-highlight-color: transparent; }
+#vistaMapa .barra-hoja:focus-visible { outline: 3px solid #0A86C9; outline-offset: -3px; }
+.bh-asa { display: block; width: 42px; height: 5px; border-radius: 3px; background: #C5CED6; margin: 0 auto 3px; }
+.bh-fila { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.bh-eta { display: flex; align-items: baseline; gap: 3px; color: #12A150; flex: none; }
+.bh-eta b { font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -.5px; }
+.bh-eta small { font-size: 13px; font-weight: 800; }
+.bh-info { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.bh-info b { font-size: 15px; font-weight: 800; color: #0E141B; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bh-info small { font-size: 12px; color: #5B6672; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bh-stop { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: #E5322D; color: #fff; font-size: 18px; font-weight: 800; box-shadow: 0 3px 10px rgba(229,50,45,.4); touch-action: manipulation; }
+.bh-stop:active { transform: scale(.94); }
+.bh-pie { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; color: #5B6672; min-width: 0; }
+.bh-pie #barraHojaTxt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: calc(100% - 40px); }
+
+@keyframes pwSube { from { transform: translateY(24px); opacity: .35; } to { transform: none; opacity: 1; } }
+#vistaMapa .hoja-pedidos:not(.oculta) { animation: pwSube .26s ease-out; }
+.pw-panel { display: grid; gap: 10px; }
+.pw-acciones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pw-acciones button { display: grid; justify-items: center; align-content: center; gap: 2px; height: 62px; padding: 6px 4px; border: 0; border-radius: 14px; background: #EEF4F8; color: #0E141B; font-size: 12px; font-weight: 800; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.pw-acciones button span { font-size: 22px; line-height: 1; }
+.pw-acciones button.rojo { background: #FDECEB; color: #B3261E; }
+.pw-acciones button:active { transform: scale(.96); }
+.pw-bloque { display: grid; gap: 7px; padding: 11px 13px; border: 1.5px solid var(--linea); border-radius: 16px; background: #fff; }
+.pw-tit { font-size: 13px; font-weight: 800; color: #0E141B; }
+.pw-fila { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; font-size: 13px; color: #4A5561; }
+.pw-fila b { color: #0E141B; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.pw-fila.total { margin-top: 2px; padding-top: 9px; border-top: 1px dashed #D6DDE3; font-size: 15px; font-weight: 800; color: #0E141B; }
+.pw-fila.total b { font-size: 21px; color: #0A86C9; }
+
+.tarjeta-destino { position: absolute; z-index: 1002; left: 12px; right: 12px; bottom: 72px; display: grid; gap: 10px; padding: 12px 14px; border-radius: 18px; background: #fff; box-shadow: 0 8px 26px rgba(0,0,0,.35); animation: pwSube .2s ease-out; }
+.td-cab { display: flex; align-items: center; gap: 10px; }
+.td-ic { font-size: 26px; line-height: 1; }
+.td-txt { display: grid; min-width: 0; }
+.td-txt b { font-size: 15px; font-weight: 800; color: #0E141B; }
+.td-txt small { font-size: 12px; color: #5B6672; }
+.td-botones { display: grid; grid-template-columns: auto 1fr; gap: 8px; }
+.td-botones button { height: 46px; border: 0; border-radius: 14px; font-size: 15px; font-weight: 800; touch-action: manipulation; }
+#btnIrDestino { background: #0A86C9; color: #fff; }
+#btnCancelarDestino { background: #EEF4F8; color: #0E141B; padding: 0 16px; }
+.pin-destino-lp { font-size: 32px; line-height: 1; filter: drop-shadow(0 3px 3px rgba(0,0,0,.4)); animation: pinCae .28s ease-out; }
+@keyframes pinCae { from { transform: translateY(-18px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.burbuja-rep { position: fixed; left: 0; top: 0; z-index: 2400; width: 58px; height: 58px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 50%; background: linear-gradient(145deg, #4FC3F7, #0A86C9); box-shadow: 0 6px 16px rgba(0,0,0,.4), inset 0 2px 0 rgba(255,255,255,.35); font-size: 28px; line-height: 1; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; cursor: grab; will-change: transform; }
+.burbuja-rep.arrastrando { cursor: grabbing; box-shadow: 0 12px 26px rgba(0,0,0,.45), inset 0 2px 0 rgba(255,255,255,.35); }
+.burbuja-rep.sobre-blanco { background: linear-gradient(145deg, #FF7A74, #E5322D); }
+.burbuja-rep.cerrando { transition: transform .2s ease-in, opacity .2s ease-in; opacity: 0; }
+.burbuja-rep:focus-visible { outline: 3px solid #0E141B; outline-offset: 2px; }
+.menu-burbuja { position: fixed; z-index: 2401; min-width: 196px; display: grid; gap: 2px; padding: 6px; border-radius: 16px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.4); animation: pwSube .15s ease-out; }
+.menu-burbuja button { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px; border: 0; border-radius: 12px; background: transparent; color: #0E141B; font-size: 15px; font-weight: 700; text-align: left; touch-action: manipulation; }
+.menu-burbuja button:active { background: #EEF4F8; }
+.menu-burbuja button span { font-size: 20px; line-height: 1; }
+.blanco-burbuja { position: fixed; z-index: 2399; left: 50%; bottom: calc(92px + env(safe-area-inset-bottom)); width: 72px; height: 72px; margin-left: -36px; display: grid; place-items: center; border: 3px dashed rgba(255,255,255,.95); border-radius: 50%; background: rgba(14,20,27,.55); color: #fff; font-size: 28px; font-weight: 800; opacity: 0; transform: scale(.6); pointer-events: none; transition: opacity .18s, transform .18s, background .15s; }
+.blanco-burbuja.ver { opacity: 1; transform: scale(1); }
+.blanco-burbuja.on { background: rgba(229,50,45,.88); border-style: solid; transform: scale(1.18); }
+@media (prefers-reduced-motion: reduce) { #vistaMapa .hoja-pedidos:not(.oculta), .tarjeta-destino, .menu-burbuja, .pin-destino-lp { animation: none; } .blanco-burbuja { transition: none; } }
+
+/* FASE 3 · ajustes de consolidación (los botones base del sitio usan width:100%) */
+.fab-mapa { width: auto; }
+.bh-stop { width: 44px; }

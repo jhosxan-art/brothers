@@ -355,14 +355,31 @@
         </svg>
       </div>
       <button id="btnNavegar" class="btn-navegar" type="button" aria-pressed="false" aria-label="Activar navegación"><span aria-hidden="true">🧭</span><span id="btnNavegarTxt">Navegar</span></button>
+      <div id="accionesMapa" class="acciones-mapa oculto">
+        <button id="btnRecentrar" class="fab-mapa prim oculto" type="button" aria-label="Volver a centrar"><span aria-hidden="true">🎯</span>Volver a centrar</button>
+        <button id="btnVerRuta" class="fab-mapa oculto" type="button" aria-label="Ver ruta completa"><span aria-hidden="true">🗺️</span>Ver ruta</button>
+      </div>
       <div id="resBusqRep" class="res-busq oculto"></div>
       <div class="estado chip-gps" id="estadoGps">Obteniendo ubicación…</div>
       <div id="bannerRuta" class="info-ruta oculto"></div>
       <div id="avisoMarcar" class="aviso-marcar oculto">Toca el mapa para marcar el destino del pedido seleccionado.</div>
+      <div id="tarjetaDestino" class="tarjeta-destino oculto" role="dialog" aria-label="Destino marcado en el mapa">
+        <div class="td-cab"><span class="td-ic" aria-hidden="true">📍</span><div class="td-txt"><b>Destino marcado</b><small id="tdCoords">—</small></div></div>
+        <div class="td-botones">
+          <button id="btnCancelarDestino" type="button">✕ Cancelar</button>
+          <button id="btnIrDestino" type="button">🧭 Iniciar navegación</button>
+        </div>
+      </div>
     </div>
-    <button id="barraHoja" class="barra-hoja" type="button" aria-expanded="true" aria-controls="hojaPedidos">
-      <span id="barraHojaTxt">▾ Ocultar pedidos</span><span id="barraHojaCnt" class="badge-nav oculto">0</span>
-    </button>
+    <div id="barraHoja" class="barra-hoja" role="button" tabindex="0" aria-expanded="true" aria-controls="hojaPedidos" aria-label="Panel del pedido: desliza hacia arriba para ver el detalle">
+      <span class="bh-asa" aria-hidden="true"></span>
+      <div class="bh-fila">
+        <div class="bh-eta"><b id="bhMin">—</b><small id="bhUni">min</small></div>
+        <div class="bh-info"><b id="bhDist">Sin ruta</b><small id="bhHora">Elige un destino</small></div>
+        <button id="btnDetener" class="bh-stop oculto" type="button" aria-label="Detener ruta">✕</button>
+      </div>
+      <div class="bh-pie"><span id="barraHojaTxt">▾ Ocultar pedidos</span><span id="barraHojaCnt" class="badge-nav oculto">0</span></div>
+    </div>
     <div id="hojaPedidos" class="hoja-pedidos"></div>
   </section>
 
@@ -634,6 +651,11 @@
       <span id="updVersionTxt" class="upd-ver"></span>
     </div>
   </div>
+
+  <!-- FASE 2 · Burbuja arrastrable con menú y círculo objetivo para cerrarla -->
+  <div id="blancoBurbuja" class="blanco-burbuja" aria-hidden="true"><span>✕</span></div>
+  <div id="burbujaRep" class="burbuja-rep oculto" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" aria-label="Menú rápido (arrastra hacia abajo para cerrar)"><span aria-hidden="true">🛵</span></div>
+  <div id="menuBurbujaRep" class="menu-burbuja oculto" role="menu" aria-label="Menú rápido"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate-src.js"></script>
