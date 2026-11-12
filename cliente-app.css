@@ -696,3 +696,24 @@ body.teclado.wa-cliente .wa-burbuja-mapa .wa-pin-mapa { height: 150px; }
 .wa-cliente .wa-cierre textarea:focus { border-color: var(--wa-accion); outline: none; }
 .wa-cliente .wa-cierre-acc { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
 .wa-cliente .wa-cierre-acc button { height: 50px; }
+
+/* ============================================================
+   FASE 6 · Menú «¿Qué deseas hoy?» simétrico: mismo alto, ícono en columna fija y textos alineados
+   ============================================================ */
+.wa-cliente #menuInicio { gap: 8px; width: min(92%, 420px); }
+.wa-cliente #menuInicio .wa-quick-btn {
+  justify-content: flex-start; gap: 14px; min-height: 64px; padding: 8px 16px; text-align: left;
+}
+.wa-cliente #menuInicio .wa-quick-ico {
+  flex: 0 0 44px; width: 44px; height: 44px; display: grid; place-items: center; font-size: 26px;
+  border-radius: 50%; background: #E7F9EE;
+}
+.wa-cliente #menuInicio .wa-quick-txt { flex: 1 1 auto; min-width: 0; gap: 2px; }
+.wa-cliente #menuInicio .wa-quick-txt small { font-size: 12.5px; line-height: 1.25; }
+@media (min-width: 900px) {
+  .wa-cliente #menuInicio { width: min(70%, 460px); }
+}
+@media (max-width: 340px) {
+  .wa-cliente #menuInicio { width: 96%; }
+  .wa-cliente #menuInicio .wa-quick-btn { padding: 8px 12px; gap: 10px; }
+}
