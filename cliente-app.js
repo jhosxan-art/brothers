@@ -1316,7 +1316,20 @@
   document.querySelectorAll("#menuInicio [data-servicio]").forEach((b) => b.addEventListener("click", () => {
     iniciarFlujo(b.dataset.servicio, b.dataset.etiqueta || b.textContent.trim());
   }));
-  $("btnReiniciar").addEventListener("click", reiniciarConvo);
+  /* «Atrás»: pide confirmación antes de borrar los datos del pedido. */
+  function cerrarAvisoReiniciar() { $("modalReiniciar").classList.add("oculto"); }
+  function abrirAvisoReiniciar() {
+    if (esCampo(document.activeElement)) document.activeElement.blur();
+    $("modalReiniciar").classList.remove("oculto");
+    setTimeout(() => { try { $("btnReiniciarNo").focus(); } catch (_) { } }, 50);
+  }
+  $("btnReiniciar").addEventListener("click", abrirAvisoReiniciar);
+  $("btnReiniciarNo").addEventListener("click", cerrarAvisoReiniciar);
+  $("btnReiniciarSi").addEventListener("click", () => { cerrarAvisoReiniciar(); reiniciarConvo(); });
+  $("modalReiniciar").addEventListener("click", (ev) => { if (ev.target === $("modalReiniciar")) cerrarAvisoReiniciar(); });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && !$("modalReiniciar").classList.contains("oculto")) cerrarAvisoReiniciar();
+  });
 
   /* ---------- Conversación inicial dentro del chat (queda al principio, en orden cronológico) ---------- */
   function pintarHistorialLocal() {

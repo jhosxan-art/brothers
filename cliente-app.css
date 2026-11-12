@@ -727,3 +727,20 @@ body.teclado.wa-cliente:has(#vPedido:not(.oculto)) { background: #F0F2F5; }
 /* Con el teclado abierto, cualquier zona que el teclado deje transparente toma el color del compositor (sin franja beige) */
 html:has(body.teclado.wa-cliente) { background: #fff; }
 html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
+
+/* ---------- Botón «Atrás» del chat inicial ---------- */
+.wa-cliente .wa-btn-barra.wa-btn-atras {
+  width: auto; height: 40px; padding: 0 16px 0 10px; gap: 4px; border-radius: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.2); color: #fff; font-size: 15px; font-weight: 800; letter-spacing: .2px;
+  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.35); transition: background-color .12s ease, transform .12s ease;
+}
+.wa-cliente .wa-btn-barra.wa-btn-atras svg { flex: none; }
+.wa-cliente .wa-btn-barra.wa-btn-atras:active { background: rgba(255,255,255,.34); transform: scale(.96); }
+.wa-cliente .wa-btn-barra.wa-btn-atras:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+/* ---------- Aviso de volver a empezar ---------- */
+.wa-cliente #modalReiniciar .wa-cierre { text-align: center; }
+.wa-cliente #modalReiniciar .wa-ayuda { font-size: 16px; line-height: 1.4; }
+.wa-cliente button.peligro { background: #D93025; border-color: #D93025; color: #fff; font-weight: 800; }
+.wa-cliente button.peligro:active { background: #B3261E; border-color: #B3261E; }
