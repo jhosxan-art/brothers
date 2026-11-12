@@ -914,11 +914,25 @@
         : (esIOS
           ? "No pude obtener tu ubicación. Revisa que «Localización» esté activada en Ajustes > Privacidad y seguridad, sal a un lugar con mejor señal y toca «Reintentar»."
           : "No pude obtener tu ubicación. Enciende el GPS de tu celular y toca «Reintentar»."));
-      const c = await opciones(id, [{ clave: "r", texto: "📍 Reintentar ubicación" }, { clave: "x", texto: "↩️ Volver al inicio" }]);
+      const c = await opciones(id, [
+        { clave: "d", texto: "🏠 Escribir mi dirección" },
+        { clave: "r", texto: "📍 Reintentar ubicación" },
+        { clave: "x", texto: "↩️ Volver al inicio" }
+      ]);
+      if (!vivo(id)) return null;
       if (c === "x") { reiniciarConvo(); return null; }
+      if (c === "d") {
+        if (!(await di(id, "Sin problema. Escribe tu dirección exacta: calle, barrio y una referencia (por ejemplo, «frente a la pulpería»)."))) return null;
+        const t = await pedirTexto(id, "Calle, número, referencia", 5, "Escribe la dirección con un poco más de detalle (mínimo 5 letras).");
+        if (!vivo(id)) return null;
+        return { manual: true, texto: t.slice(0, 200) };
+      }
     }
     return null;
   }
+
+  /* Convierte lo que devuelve obtenerGps en un lugar del pedido: GPS en vivo o dirección escrita. */
+  const lugarDeGps = (g) => g.manual ? { tipo: "direccion", texto: g.texto } : { tipo: "gps", lat: g.lat, lng: g.lng };
 
   /* ---------- Mapa dentro del chat ---------- */
   function mapaBurbuja(id) {
@@ -995,7 +1009,7 @@
         if (!(await di(id, "Perfecto, usaré tu ubicación en tiempo real."))) return null;
         const g = await obtenerGps(id);
         if (!g) return null;
-        return { tipo: "gps", lat: g.lat, lng: g.lng };
+        return lugarDeGps(g);
       }
       if (c === "pin") {
         const p = await mapaBurbuja(id);
@@ -1087,12 +1101,13 @@
   /* ---------- Flujo ENVIAR ---------- */
   async function flujoEnviar(id) {
     const v = datos.v;
-    if (!v.gps) {
+    if (!v.gps && !v.retiroDir) {
       if (!(await di(id, "📦 ¡Perfecto! Para recoger tu paquete usaré tu ubicación en tiempo real.", "e1"))) return;
       const g = await obtenerGps(id);
       if (!g || !vivo(id)) return;
-      guardar("gps", g);
-    } else gpsListo = v.gps;
+      if (g.manual) guardar("retiroDir", { tipo: "direccion", texto: g.texto });
+      else guardar("gps", g);
+    } else if (v.gps) gpsListo = v.gps;
     if (!v.quiere) {
       if (!(await di(id, "¿Qué vas a enviar? (por ejemplo: documentos, una caja pequeña, llaves)", "e2"))) return;
       const t = await pedirTexto(id, "Ej. Documentos", 2, "Cuéntame qué vas a enviar (mínimo 2 letras).");
@@ -1104,9 +1119,10 @@
       if (!d || !vivo(id)) return;
       guardar("destino", d);
     }
+    const retiroEnv = v.retiroDir ? v.retiroDir : { tipo: "gps", lat: v.gps.lat, lng: v.gps.lng };
     await finalizar(id, {
-      servicio: "enviar", tipo: "envio", quiere: v.quiere, origen: MARCA_GPS_RETIRO, modo: "envia",
-      retiro: { tipo: "gps", lat: v.gps.lat, lng: v.gps.lng }, destino: v.destino
+      servicio: "enviar", tipo: "envio", quiere: v.quiere, origen: origenTexto(retiroEnv), modo: "envia",
+      retiro: retiroEnv, destino: v.destino
     });
   }
 
@@ -1161,7 +1177,7 @@
         if (!(await di(id, "Activo tu ubicación en tiempo real para que el repartidor te encuentre.", "c4y"))) return;
         const g = await obtenerGps(id);
         if (!g || !vivo(id)) return;
-        guardar("destino", { tipo: "gps", lat: g.lat, lng: g.lng });
+        guardar("destino", lugarDeGps(g));
       } else {
         const d = await pedirLugar(id, { clave: "c4o", pregunta: "Marca en el mapa o escribe la dirección exacta de la persona que recibe.", ultima: true });
         if (!d || !vivo(id)) return;
@@ -1197,7 +1213,7 @@
         if (!(await di(id, "Activo tu ubicación en tiempo real para que el repartidor te encuentre.", "m4y"))) return;
         const g = await obtenerGps(id);
         if (!g || !vivo(id)) return;
-        guardar("destino", { tipo: "gps", lat: g.lat, lng: g.lng });
+        guardar("destino", lugarDeGps(g));
       } else {
         const d = await pedirLugar(id, { clave: "m4o", pregunta: "Marca en el mapa o escribe la dirección exacta de la persona que recibe.", ultima: true });
         if (!d || !vivo(id)) return;
