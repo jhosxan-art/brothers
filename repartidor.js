@@ -247,6 +247,7 @@ function mostrar(vista) {
 }
 function irA(vista) {
   vistaActual = vista;
+  try { if (history.state && typeof history.state.rep === "number") history.replaceState(Object.assign({}, history.state, { vista }), ""); } catch (_) {}
   $("vistaFactura").classList.toggle("oculto", vista !== "factura");
   $("vistaMapa").classList.toggle("oculto", vista !== "mapa");
   $("vistaChats").classList.toggle("oculto", vista !== "chats");
@@ -2188,24 +2189,149 @@ function volverABandeja() {
   if (vistaActual !== "chats") irA("chats");
   else { try { ChatsEntrantes.alMostrar(); } catch (_) {} }
 }
-Atras.iniciar([
-  () => { if (CobroEntrega.abierto()) { CobroEntrega.cancelar(); return true; } return false; },
-  () => Chat.cerrarCapa(),
-  () => { if (typeof ChatsEntrantes !== "undefined" && ChatsEntrantes.abierto && ChatsEntrantes.abierto()) { volverABandeja(); return true; } return false; },
-  () => { for (const id of ["modalNuevoPedido", "modalSub", "modalFacturaVivo", "modalEntregado", "modalContacto", "modalElegir", "modalBurbuja"]) if (!$(id).classList.contains("oculto")) { $(id).classList.add("oculto"); return true; } return false; },
-  () => {
-    if ($("invoicePopup").classList.contains("show")) { closePopup(); return true; }
-    if ($("customConfirmModal").classList.contains("show")) { closeCustomConfirm(false); return true; }
-    if ($("customAlertModal").classList.contains("show")) { closeCustomAlert(); return true; }
-    if ($("cancelFacturaModal").classList.contains("show")) { cerrarCancelFactura(); return true; }
+/* ============================================================
+   NAVEGACIÓN "ATRÁS" UNIFICADA (botón físico, gesto y botón virtual)
+   - Gestor de historial SPA: una entrada "guarda" en history absorbe cada "Atrás" y se vuelve a armar,
+     así la app nunca se cierra sola ni se congela.
+   - Jerarquía: capas superiores (modales, paneles, chat) → Chat a Bandeja → Bandeja/Factura a Mapa →
+     Mapa: aviso "presiona otra vez para salir" → segunda pulsación: salir.
+   - En APK (Capacitor) también escucha el evento nativo backButton del plugin App.
+   ============================================================ */
+const NavAtras = (() => {
+  const AVISO_MS = 3500;
+  let avisoActivo = false, avisoTimer = null, saliendo = false, saltos = 0;
+  const appVisible = () => { const m = $("mainAuth"); return !!m && m.classList.contains("oculto"); };
+  const visible = (id) => { const e = $(id); return !!e && !e.classList.contains("oculto"); };
+  const llamar = (nombre, ...a) => { try { if (typeof window[nombre] === "function") { window[nombre](...a); return true; } } catch (_) {} return false; };
+
+  function ocultarAviso() {
+    avisoActivo = false; clearTimeout(avisoTimer); avisoTimer = null;
+    const t = $("toastSalir"); if (t) t.classList.add("oculto");
+  }
+  function mostrarAviso() {
+    avisoActivo = true;
+    const t = $("toastSalir"); if (t) t.classList.remove("oculto");
+    clearTimeout(avisoTimer);
+    avisoTimer = setTimeout(ocultarAviso, AVISO_MS);
+    try { navigator.vibrate && navigator.vibrate(40); } catch (_) {}
+  }
+  /* Capas de la más alta a la más baja. Cada una devuelve true si consumió el "Atrás". */
+  const capas = [
+    /* Actualización obligatoria: no se puede esquivar con Atrás */
+    () => visible("modalActualizacion"),
+    /* Pago post-entrega */
+    () => { try { if (CobroEntrega.abierto()) { CobroEntrega.cancelar(); return true; } } catch (_) {} return false; },
+    /* Diálogos y ventanas de la factura */
+    () => {
+      const on = (id) => { const e = $(id); return !!e && e.classList.contains("show"); };
+      if (on("customLoadingModal")) return true;
+      if (on("customConfirmModal")) { if (!llamar("closeCustomConfirm", false)) $("customConfirmModal").classList.remove("show"); return true; }
+      if (on("customAlertModal")) { if (!llamar("closeCustomAlert")) $("customAlertModal").classList.remove("show"); return true; }
+      if (on("cancelFacturaModal")) { if (!llamar("cerrarCancelFactura")) $("cancelFacturaModal").classList.remove("show"); return true; }
+      if (on("invoicePopup")) { if (!llamar("closePopup")) $("invoicePopup").classList.remove("show"); return true; }
+      return false;
+    },
+    /* Modales de la app (el último en el DOM es el que queda encima) */
+    () => {
+      const abiertos = Array.from(document.querySelectorAll(".modal-rep")).filter((m) => !m.classList.contains("oculto") && m.id !== "modalPago");
+      const m = abiertos[abiertos.length - 1];
+      if (!m) return false;
+      if (m.id === "modalPermisos") return true;                       // hay que responder el permiso
+      if (m.id === "modalSolicitud") { const b = $("spCerrar"); if (b) b.click(); else m.classList.add("oculto"); return true; }
+      m.classList.add("oculto");
+      return true;
+    },
+    /* Chat activo (cliente de la app, pedido del administrador o Brothers): vuelve a la bandeja de chats */
+    () => {
+      const habia = chatToken !== null;
+      let cerro = false;
+      try { cerro = !!Chat.cerrarCapa(); } catch (_) {}
+      if (cerro && habia) { chatToken = null; volverABandeja(); return true; }
+      if (cerro) return true;
+      if (habia) chatToken = null;
+      return false;
+    },
+    /* Conversación abierta dentro de la bandeja (incluye facturas manuales): vuelve a la lista */
+    () => {
+      if (vistaActual === "chats" && appVisible() && typeof ChatsEntrantes !== "undefined" && ChatsEntrantes.abierto && ChatsEntrantes.abierto()) { volverABandeja(); return true; }
+      return false;
+    },
+    /* Cortina de cobros desplegada en la bandeja */
+    () => {
+      const c = $("cnCobros"), b = $("btnCortinaCobros");
+      if (vistaActual === "chats" && appVisible() && c && b && !c.classList.contains("oculto")) { b.click(); return true; }
+      return false;
+    },
+    /* Globo del mapa */
+    () => { try { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } } catch (_) {} return false; },
+    /* Buscador del mapa */
+    () => { if (!$("resBusqRep").classList.contains("oculto") || document.activeElement === $("busqRep")) { cerrarBusquedaRep(); return true; } return false; },
+    /* Modo marcar punto */
+    () => { if (marcando) { marcando = false; $("avisoMarcar").classList.add("oculto"); return true; } return false; },
+    /* Estadísticas de la factura */
+    () => { if (vistaActual === "factura" && appVisible() && $("invoiceContainer").style.display === "none") { if (llamar("hideStats")) return true; } return false; },
+    /* Jerarquía de pantallas: Bandeja / Factura → Mapa */
+    () => { if (appVisible() && uidActual && vistaActual !== "mapa") { irA("mapa"); return true; } return false; }
+  ];
+  const extras = () => { try { return (window.Atras && Array.isArray(window.Atras._h)) ? window.Atras._h : []; } catch (_) { return []; } };
+
+  function salir() {
+    saliendo = true; saltos = 4;
+    ocultarAviso();
+    try { const A = plug("App"); if (A && typeof A.exitApp === "function") { A.exitApp(); return; } } catch (_) {}
+    try { window.close(); } catch (_) {}
+    try { history.back(); } catch (_) {}
+  }
+  /* Procesa un "Atrás". Devuelve true si la app sigue abierta, false si se está saliendo. */
+  function manejar() {
+    for (const capa of capas) {
+      let r = false;
+      try { r = !!capa(); } catch (_) { r = false; }
+      if (r) { ocultarAviso(); return true; }
+    }
+    for (const capa of extras()) { try { if (capa()) { ocultarAviso(); return true; } } catch (_) {} }
+    /* Raíz (Mapa): primero aviso, luego salida */
+    if (!avisoActivo) { mostrarAviso(); return true; }
+    salir();
     return false;
-  },
-  () => { if (mapa && mapa._popup && mapa._popup.isOpen && mapa._popup.isOpen()) { mapa.closePopup(); return true; } return false; },
-  () => { if (!$("resBusqRep").classList.contains("oculto") || document.activeElement === $("busqRep")) { cerrarBusquedaRep(); return true; } return false; },
-  () => { if (marcando) { marcando = false;  $("avisoMarcar").classList.add("oculto"); return true; } return false; },
-  () => { if ($("invoiceContainer").style.display === "none") { hideStats(); return true; } return false; },
-  () => { if (vistaActual === "mapa" && uidActual) { irA("factura"); return true; } return false; }
-]);
+  }
+  function armar() {
+    try {
+      if (history.state && history.state.rep === 1) return;
+      history.pushState({ rep: 1, vista: vistaActual }, "");
+    } catch (_) {}
+  }
+  function alPopState(e) {
+    if (saliendo) { if (--saltos > 0) { try { history.back(); } catch (_) {} } return; }
+    const st = e && e.state;
+    if (st && st.rep === 1) return;                 // entrada propia: nada que hacer
+    const sigue = manejar();
+    if (sigue) armar();                             // se vuelve a poner la guarda delante
+  }
+  function iniciar() {
+    try { history.scrollRestoration = "manual"; } catch (_) {}
+    try { history.replaceState({ rep: 0, vista: vistaActual }, ""); } catch (_) {}
+    armar();
+    window.addEventListener("popstate", alPopState);
+    /* Chrome solo respeta entradas creadas tras un gesto del usuario: se rearma en el primer toque */
+    const gesto = () => { armar(); };
+    ["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, gesto, { once: true, passive: true, capture: true }));
+    /* APK: botón atrás nativo */
+    try {
+      const A = plug("App");
+      if (A && typeof A.addListener === "function") {
+        const h = A.addListener("backButton", () => { manejar(); });
+        if (h && typeof h.catch === "function") h.catch(() => {});
+      }
+    } catch (_) {}
+  }
+  iniciar();
+  const api = { iniciar: () => {}, manejar, armar, ocultarAviso, _h: [], registrar(fn) { if (typeof fn === "function") this._h.push(fn); } };
+  api.agregar = api.registrar; api.push = api.registrar;
+  return api;
+})();
+window.Atras = NavAtras;
+$("toastSalir").addEventListener("click", () => NavAtras.ocultarAviso());
 
 function nuevoPedidoAsignado(id, o) {
   Pantalla.pedir();

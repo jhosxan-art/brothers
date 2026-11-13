@@ -1990,3 +1990,12 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .cobro-estado.pagada { background: #E3F6E9; border-color: #34A853; color: #14532D; }
 .cobro-fila.cobrado { opacity: 1; }
 @media (max-width: 360px) { .cobro-fila { flex-wrap: wrap; } .cobro-estado { width: 100%; } }
+
+/* ===== Aviso de salida (Atrás en el Mapa) ===== */
+.toast-salir { position: fixed; z-index: 6000; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: calc(100% - 32px); max-width: 420px; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 14px; background: #1c1f26; color: #fff; box-shadow: 0 8px 28px rgba(0,0,0,.35); border: 1.5px solid #F59E0B; animation: toastSalirIn .18s ease-out; }
+.toast-salir.oculto { display: none !important; }
+.toast-salir span { font-size: 24px; line-height: 1; flex: none; }
+.toast-salir div { min-width: 0; display: grid; gap: 2px; }
+.toast-salir b { font-size: 14px; color: #FBBF24; }
+.toast-salir small { font-size: 13.5px; font-weight: 600; }
+@keyframes toastSalirIn { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }

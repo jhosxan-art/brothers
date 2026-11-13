@@ -435,6 +435,8 @@
     </div>
   </div>
 
+  <div id="toastSalir" class="toast-salir oculto" role="alert" aria-live="assertive"><span aria-hidden="true">🚪</span><div><b>¿Salir de la aplicación?</b><small>Presiona Atrás otra vez para salir</small></div></div>
+
   <button id="solToast" class="oculto" type="button" role="status"><span id="solToastIco" aria-hidden="true">💬</span><div><b id="solToastTit"></b><small id="solToastTxt"></small></div></button>
 
   <div id="modalPago" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="pagoTitulo">
@@ -643,7 +645,10 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
-  <script src="atras.js"></script>
+  <script>
+    /* atras.js se reemplazó: el gestor de historial vive en repartidor.js (NavAtras). Esta pieza evita errores si otro módulo llama a Atras antes de que cargue. */
+    window.Atras = new Proxy({ _h: [], registrar: function (f) { if (typeof f === "function") this._h.push(f); } }, { get: function (t, k) { return k in t ? t[k] : function () { return false; }; } });
+  </script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
   <script src="chat.js"></script>
