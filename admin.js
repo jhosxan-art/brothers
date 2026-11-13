@@ -1391,8 +1391,12 @@ function nombreCliente(token, r) {
   const n = (f && (f.cliente || f.nombre)) || (typeof PedidosAdmin !== "undefined" && PedidosAdmin.clienteDe(token)) || "";
   return n || (r && r.pedido ? "del pedido " + r.pedido : "");
 }
-function revisarVoz() { const a = $("avisoVoz"); if (a) a.classList.toggle("oculto", Voz.lista()); }
+/* Las alertas de voz se piden UNA sola vez: al activarlas queda guardado (admin_voz_activada) y VozSiempre (ordenes-admin.js)
+   las mantiene activas siempre; el aviso ya no vuelve a aparecer. */
+const vozGuardada = () => { try { return localStorage.getItem("admin_voz_activada") === "1"; } catch (_) { return false; } };
+function revisarVoz() { const a = $("avisoVoz"); if (a) a.classList.toggle("oculto", Voz.lista() || vozGuardada()); }
 $("btnActivarVoz").onclick = () => {
+  try { localStorage.setItem("admin_voz_activada", "1"); } catch (_) {}
   Voz.activar(); Voz.hablar(Voz.FRASES.prueba, { forzar: true }); revisarVoz();
   try { if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission().catch(() => {}); } catch (_) {}
 };

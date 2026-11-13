@@ -3433,6 +3433,39 @@ const EntregasAdmin = (() => {
 
 
 /* ============================================================
+   ALERTAS DE VOZ SIEMPRE ACTIVAS
+   El navegador/WebView exige un toque del usuario para permitir la voz. Se pide UNA sola vez (botón "Activar", o cualquier
+   activación previa) y se guarda en admin_voz_activada. Desde entonces:
+     · al abrir la app se reactiva sola la voz (en la app instalada no hace falta ni tocar);
+     · si el sistema la deja "dormida" (al reabrir en el navegador), el primer toque en cualquier parte la reactiva sin avisos;
+     · se reactiva al volver a primer plano, al recuperar la conexión y cada 15 s, y se quita cualquier pausa de la síntesis.
+   El aviso "Toca para activar" no vuelve a aparecer.
+   ============================================================ */
+const VozSiempre = (() => {
+  const CLAVE = "admin_voz_activada";
+  const guardada = () => { try { return localStorage.getItem(CLAVE) === "1"; } catch (_) { return false; } };
+  const guardar = () => { try { localStorage.setItem(CLAVE, "1"); } catch (_) {} };
+  const lista = () => { try { return typeof Voz !== "undefined" && !!Voz.lista(); } catch (_) { return false; } };
+  function ocultarAviso() { const a = document.getElementById("avisoVoz"); if (a && guardada()) a.classList.add("oculto"); }
+  function reactivar() {
+    if (!guardada()) { if (lista()) guardar(); return; }   // una activación previa también cuenta como "ya pedida"
+    if (!lista()) { try { Voz.activar(); } catch (_) {} }
+    try { if (typeof speechSynthesis !== "undefined" && speechSynthesis.paused) speechSynthesis.resume(); } catch (_) {}
+    ocultarAviso();
+  }
+  ["pointerdown", "touchstart", "keydown", "click"].forEach((t) => document.addEventListener(t, () => { if (guardada() && !lista()) reactivar(); }, { capture: true, passive: true }));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) reactivar(); });
+  window.addEventListener("focus", reactivar);
+  window.addEventListener("pageshow", reactivar);
+  window.addEventListener("online", reactivar);
+  const btn = document.getElementById("btnActivarVoz");
+  if (btn) btn.addEventListener("click", () => { guardar(); ocultarAviso(); });
+  setInterval(reactivar, 15000);
+  reactivar();
+  return { reactivar, activada: guardada };
+})();
+
+/* ============================================================
    FASE 3 · ALERTAS PUSH DE ALTA PRIORIDAD (lado página) + VOZ
    sw.js muestra el banner (pantalla encendida, vibración) con la app cerrada o en segundo plano y avisa a la página
    (PUSH_RECIBIDO). Con la app abierta: vibración + voz "Hay una solicitud de pedido".
