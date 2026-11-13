@@ -289,7 +289,12 @@ function actualizarNav() {
 }
 $("navFactura").onclick = () => irA("factura");
 $("navMapa").onclick = () => irA("mapa");
-$("navChats").onclick = () => irA("chats");
+$("navChats").onclick = () => {
+  /* Tocar "Pedidos" estando dentro de una conversación también regresa a la lista de mensajes */
+  let dentro = false;
+  try { dentro = vistaActual === "chats" && ChatsEntrantes.abierto && ChatsEntrantes.abierto(); } catch (_) {}
+  if (dentro) volverABandeja(); else irA("chats");
+};
 
 function msgLogin(t) {
   const e = $("msgLogin");
@@ -2241,6 +2246,11 @@ const NavAtras = (() => {
       m.classList.add("oculto");
       return true;
     },
+    /* Conversación abierta en la pestaña Pedidos (app, administrador o factura manual): vuelve a la lista de mensajes de todos los clientes */
+    () => {
+      if (chatToken === null && vistaActual === "chats" && appVisible() && typeof ChatsEntrantes !== "undefined" && ChatsEntrantes.abierto && ChatsEntrantes.abierto()) { volverABandeja(); return true; }
+      return false;
+    },
     /* Chat activo (cliente de la app, pedido del administrador o Brothers): vuelve a la bandeja de chats */
     () => {
       const habia = chatToken !== null;
@@ -2249,11 +2259,6 @@ const NavAtras = (() => {
       if (cerro && habia) { chatToken = null; volverABandeja(); return true; }
       if (cerro) return true;
       if (habia) chatToken = null;
-      return false;
-    },
-    /* Conversación abierta dentro de la bandeja (incluye facturas manuales): vuelve a la lista */
-    () => {
-      if (vistaActual === "chats" && appVisible() && typeof ChatsEntrantes !== "undefined" && ChatsEntrantes.abierto && ChatsEntrantes.abierto()) { volverABandeja(); return true; }
       return false;
     },
     /* Cortina de cobros desplegada en la bandeja */
