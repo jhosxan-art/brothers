@@ -2316,7 +2316,12 @@ const NavAtras = (() => {
     /* Chrome solo respeta entradas creadas tras un gesto del usuario: se rearma en el primer toque */
     const gesto = () => { armar(); };
     ["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, gesto, { once: true, passive: true, capture: true }));
-    /* APK: botón atrás nativo */
+    /* Gestos atrás (borde del celular, iOS/Android): llegan como popstate o backButton y usan la misma lógica.
+       Se vuelve a armar la guarda al volver a la app, al restaurar de caché (bfcache) o al recuperar el foco. */
+    window.addEventListener("pageshow", () => { armar(); });
+    window.addEventListener("focus", () => { armar(); });
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") armar(); });
+    /* APK: botón atrás nativo y gesto atrás (Android 10+, incluido el atrás predictivo) */
     try {
       const A = plug("App");
       if (A && typeof A.addListener === "function") {
