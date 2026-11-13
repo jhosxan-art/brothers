@@ -2085,13 +2085,10 @@ const CobroEntrega = (() => {
     d.appendChild(n); d.appendChild(s);
     const m = document.createElement("b");
     m.textContent = c.total != null ? moneda(c.total) : "—";
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = c.estado === "cobrado" ? "↩ Deshacer" : "✅ Cobrado";
-    b.addEventListener("click", () => {
-      const ruta = "cobrosAdmin/" + uidActual + "/" + refDia + "/" + claveSegura(c._k);
-      db.ref(ruta).update(c.estado === "cobrado" ? { estado: "pendiente", cobradoTs: null } : { estado: "cobrado", cobradoTs: TS }).catch(() => {});
-    });
+    /* El estado lo declara el administrador (nodo cobrosAdmin): el repartidor solo lo ve, ya no puede cambiarlo. */
+    const b = document.createElement("span"), pagada = c.estado === "cobrado";
+    b.className = "cobro-estado " + (pagada ? "pagada" : "pendiente");
+    b.textContent = pagada ? "✔ Pagada" : "⏳ Pendiente";
     f.appendChild(d); f.appendChild(m); f.appendChild(b);
     return f;
   }
@@ -2109,7 +2106,7 @@ const CobroEntrega = (() => {
     }
     const res = document.createElement("div"); res.className = "cobro-resumen";
     const sumaPend = pend.reduce((t, x) => t + (Number(x.total) || 0), 0);
-    res.textContent = pend.length ? "Por cobrar al admin: " + moneda(sumaPend) + " · " + pend.length + (pend.length === 1 ? " pedido" : " pedidos") : "✅ Todo cobrado al admin";
+    res.textContent = pend.length ? "Pendiente de pago por el admin: " + moneda(sumaPend) + " · " + pend.length + (pend.length === 1 ? " pedido" : " pedidos") : "✅ El admin ya pagó todas tus transferencias";
     caja.appendChild(res);
     lista.forEach((c) => caja.appendChild(fila(c)));
   }

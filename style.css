@@ -1855,9 +1855,9 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 
 
 /* ============================================================
-   ACTUALIZACIÓN ADMIN · pulsación larga, tarjetas colapsables, transferencias, entregadas del día
+   ACTUALIZACIÓN ADMIN · pulsación larga, Rendimiento contraíble, transferencias, facturas hechas
    ============================================================ */
-/* Mapa: sin menú nativo de "mantener presionado" (imágenes/enlaces) para que la pulsación larga sea del mapa */
+/* Mapa: sin menú nativo de "mantener presionado" para que la pulsación larga sea del mapa */
 #mapaAdmin { -webkit-touch-callout: none; }
 #mapaAdmin .leaflet-tile-pane, #mapaAdmin .leaflet-overlay-pane { -webkit-user-select: none; user-select: none; }
 .lp-anillo { position: absolute; z-index: 1200; width: 64px; height: 64px; margin: -32px 0 0 -32px; pointer-events: none; opacity: 0; transform: scale(.8); }
@@ -1870,66 +1870,123 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 @keyframes lpLleno { to { stroke-dashoffset: 0; } }
 .pd-rep.inactivo small { color: #8A97A5; }
 
-/* Tarjetas de repartidor colapsables (cortina) */
-#listaEquipo .eq-fila-cab { flex-wrap: nowrap; }
-#listaEquipo .eq-fila-cab .datos { flex: 1 1 auto; min-width: 0; }
-#listaEquipo .eq-fila-cab .datos strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Rendimiento: tarjeta contraíble (contraída = solo "Entregar a Brother’s" y transferencias pendientes) */
+.rd-cab { flex-wrap: nowrap; }
+.rd-cortina { margin-left: auto; }
 .eq-cortina { flex: none; width: 44px; height: 44px; min-width: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; display: grid; place-items: center; cursor: pointer; }
-.eq-cortina .eq-flecha { transition: transform .25s ease; }
-.tarjeta-rep.plegada .eq-cortina .eq-flecha { transform: rotate(-90deg); }
-.tr-cuerpo { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .28s ease; }
-.tr-cuerpo-in { min-height: 0; overflow: hidden; display: grid; gap: 10px; align-content: start; }
-.tarjeta-rep.plegada { gap: 0; }
-.tarjeta-rep.plegada .tr-cuerpo { grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows .28s ease, visibility 0s linear .28s; }
-.tr-badge { color: #8A4B00 !important; font-weight: 800; }
+.rd-tarjeta.plegada .eq-cortina .eq-flecha { transform: rotate(-90deg); }
+.rd-min { display: grid; gap: 8px; }
+.rd-min-fila { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 14px; min-width: 0; }
+.rd-min-fila span { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 800; line-height: 1.25; }
+.rd-min-fila small { display: block; font-size: 11.5px; font-weight: 600; opacity: .8; }
+.rd-min-fila b { flex: none; font-size: 20px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rd-min-fila.ent { background: #FFF3D6; color: #5A3A00; border: 1.5px solid #F0C76A; }
+.rd-min-fila.tra { background: #EEF7FF; color: #0B4A6B; border: 1.5px solid #9AD3F5; }
+.rd-tarjeta.total .rd-min-fila.ent { background: #FFE9A8; }
+.rd-cuerpo { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .28s ease; }
+.rd-cuerpo-in { min-height: 0; overflow: hidden; display: grid; gap: 10px; align-content: start; }
+.rd-tarjeta.plegada .rd-cuerpo { grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows .28s ease, visibility 0s linear .28s; }
+.rd-btn-fac { width: 100%; }
 
-/* Pagos por transferencia */
-.tr-transf { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; background: #EEF7FF; border: 1.5px solid #9AD3F5; text-align: left; min-width: 0; }
+/* Pagos por transferencia: cada factura pagada / pendiente */
+.tr-transf { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; background: #EEF7FF; border: 1.5px solid #9AD3F5; text-align: left; min-width: 0; color: var(--tinta); }
 .tr-tit { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .tr-tit b { font-size: 14px; font-weight: 800; }
 .tr-tit small { font-size: 12px; font-weight: 700; color: #0B4A6B; }
-.tr-fila { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 6px 0; border-bottom: 1px dashed #BFE0F5; font-size: 14px; }
+.tr-fila { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px dashed #BFE0F5; font-size: 14px; }
 .tr-fila .tr-cod { flex: 1 1 auto; min-width: 0; font-weight: 800; overflow-wrap: anywhere; }
 .tr-fila .tr-cod small { display: block; font-size: 12px; font-weight: 600; color: var(--texto2, #5B6672); }
-.tr-fila b { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tr-der { flex: none; display: grid; justify-items: end; gap: 4px; }
+.tr-der b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tr-fila.pagada .tr-cod, .tr-fila.pagada .tr-der b { text-decoration: line-through; opacity: .6; }
+.tr-estado { width: auto; min-width: 108px; height: 34px; padding: 0 10px; border-radius: 10px; font-size: 12px; font-weight: 800; border: 1.5px solid; cursor: pointer; }
+.tr-estado.pendiente { background: #FFF3D6; border-color: #F0C76A; color: #7A4B00; }
+.tr-estado.pagada { background: #E3F6E9; border-color: #34A853; color: #14532D; }
 .tr-total { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 10px; border-radius: 10px; background: #0B4A6B; color: #fff; font-weight: 800; }
 .tr-total b { font-size: 18px; white-space: nowrap; }
 .tr-nota { font-size: 11.5px; font-weight: 600; line-height: 1.3; color: #0B4A6B; }
-.rd-tarjeta.total .tr-transf { color: var(--tinta); }
 
-/* Entregadas del día */
+/* Facturas hechas: lista ordenada en cuadrícula (sin agrupar) */
 .en-caja { text-align: left; display: grid; gap: 10px; max-height: calc(100dvh - 48px); min-width: 0; }
-.en-caja h2 { text-align: left; }
+.en-caja h2 { text-align: left; font-size: 20px; }
 .en-dia { display: flex; gap: 6px; align-items: stretch; }
 .en-dia button { flex: none; width: auto; min-width: 44px; height: 44px; padding: 0 12px; border-radius: 12px; font-weight: 800; }
 .en-dia button:disabled { opacity: .4; }
 .en-dia input[type="date"] { flex: 1 1 auto; min-width: 0; height: 44px; border: 1.5px solid var(--linea); border-radius: 12px; background: var(--gris); padding: 0 10px; font: inherit; font-weight: 700; }
+.en-per { padding: 10px 12px; border-radius: 12px; background: var(--celeste-suave); font-weight: 800; font-size: 14px; }
 .en-buscar { width: 100%; height: 46px; font-size: 16px; border: 1.5px solid var(--linea); border-radius: 12px; padding: 0 12px; box-sizing: border-box; }
 .en-resumen { font-size: 13px; font-weight: 600; color: var(--texto2, #5B6672); }
-.en-lista { display: grid; gap: 8px; overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: 48dvh; padding-right: 2px; }
-.en-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; }
-.en-item > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
-.en-monto { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.en-transf-tag { background: #DFF1FD !important; color: #0B4A6B !important; }
-.en-transf-box { display: grid; gap: 2px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: #EEF7FF; border: 1.5px solid #9AD3F5; font-size: 14px; }
-.en-transf-box small { font-size: 12px; font-weight: 600; color: #0B4A6B; }
+.en-lista { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: 50dvh; padding-right: 2px; align-content: start; }
+.en-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "cod monto" "cli tag" "meta meta"; align-items: center; gap: 2px 10px; width: 100%; padding: 10px 12px; border: 1.5px solid var(--linea); border-radius: 14px; background: #fff; color: var(--tinta); text-align: left; cursor: pointer; }
+.en-item:active { background: var(--celeste-suave); }
+.en-cod { grid-area: cod; font-size: 15px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.en-monto { grid-area: monto; font-size: 15px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.en-cli { grid-area: cli; font-size: 13.5px; font-weight: 700; color: #3B4650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.en-tag { grid-area: tag; justify-self: end; font-style: normal; font-size: 11.5px; font-weight: 800; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.en-tag.pendiente { background: #FFF3D6; color: #7A4B00; }
+.en-tag.pagada { background: #E3F6E9; color: #14532D; }
+.en-meta { grid-area: meta; font-size: 12px; font-weight: 600; color: var(--texto2, #5B6672); overflow-wrap: anywhere; }
+
+/* Detalle de factura compacto (poco scroll) */
+.fa-caja { text-align: left; display: grid; gap: 8px; min-width: 0; }
+.fa-cab { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--celeste-suave); border: 1.5px solid #cfe9f8; }
+.fa-cab > div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.fa-cab strong { font-size: 17px; font-weight: 800; }
+.fa-cab span { font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.fa-cab small { font-size: 12px; font-weight: 600; color: var(--texto2, #5B6672); }
+.fa-sec { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #0b4a6b; }
+.fa-tabla { display: grid; border: 1.5px solid var(--linea); border-radius: 12px; overflow: hidden; max-height: 26dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.fa-fila { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 10px; font-size: 13.5px; border-bottom: 1px dashed var(--linea); }
+.fa-fila:last-child { border-bottom: 0; }
+.fa-fila span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.fa-fila b { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fa-fila.ex { background: #FFF9EE; color: #7C3A00; }
+.fa-vacio { font-size: 12.5px; font-weight: 600; color: var(--texto2, #5B6672); }
+.fa-tot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.fa-t { display: grid; gap: 1px; padding: 8px 10px; border-radius: 10px; background: var(--gris); min-width: 0; }
+.fa-t span { font-size: 11.5px; font-weight: 700; color: var(--texto2, #5B6672); }
+.fa-t b { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.fa-t.ex { background: #FFF9EE; }
+.fa-t.total { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; background: var(--tinta); color: #fff; }
+.fa-t.total span { color: rgba(255,255,255,.8); font-size: 13px; }
+.fa-t.total b { color: var(--celeste); font-size: 22px; }
+.fa-det summary { cursor: pointer; font-size: 13px; font-weight: 800; padding: 6px 0; }
+.fa-det .fa-tot { margin-top: 6px; }
+.fa-acc { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fa-acc button { min-width: 0; height: 44px; padding: 0 6px; font-size: 13px; white-space: nowrap; }
+.en-transf-box { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #EEF7FF; border: 1.5px solid #9AD3F5; }
+.en-transf-box > div { display: grid; gap: 1px; min-width: 0; font-size: 13.5px; }
+.en-transf-box small { font-size: 11.5px; font-weight: 600; color: #0B4A6B; }
 .fv-caja .peligro { width: 100%; }
 
 /* Selector de periodo: 6 chips (Hoy, Día, Semana, Quincena, Mes, Total) */
 .rd-sheet .rd-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
 
-@media (max-width: 360px) {
-  .eq-cab-btns { width: 100%; justify-content: stretch; }
-  .eq-cab-btns button { flex: 1; }
-  .tr-fila { font-size: 13px; }
+@media (max-width: 380px) {
+  .tr-fila { flex-wrap: wrap; font-size: 13px; }
+  .tr-der { width: 100%; grid-auto-flow: column; justify-content: space-between; align-items: center; }
+  .rd-min-fila b { font-size: 18px; }
+  .fa-acc button { font-size: 12px; }
 }
-@media (min-width: 700px) { .en-lista { max-height: 52dvh; } }
+@media (min-width: 700px) { .en-lista { max-height: 54dvh; } .fa-tabla { max-height: 30dvh; } }
+@media (min-width: 1100px) { .modal-rep-caja:has(.fa-caja), .modal-rep-caja:has(.en-caja) { max-width: 600px; } .fa-tot { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (min-width: 1600px) {
   .tr-fila, .tr-transf { font-size: 16px; }
-  .tr-total b { font-size: 22px; }
+  .tr-total b, .rd-min-fila b { font-size: 24px; }
+  .rd-min-fila span { font-size: 15px; }
   .en-item, .en-buscar, .en-dia input[type="date"] { font-size: 17px; }
+  .en-cod, .en-monto { font-size: 17px; }
+  .fa-fila { font-size: 16px; }
+  .fa-t b { font-size: 18px; }
   .eq-cortina { width: 52px; height: 52px; }
   .lp-anillo { width: 84px; height: 84px; margin: -42px 0 0 -42px; }
 }
-@media (max-height: 500px) and (orientation: landscape) { .en-lista { max-height: 34dvh; } }
-@media (prefers-reduced-motion: reduce) { .lp-anillo.on .lp-prog { animation-duration: 2s; } .tr-cuerpo, .eq-cortina .eq-flecha { transition: none; } }
+@media (max-height: 500px) and (orientation: landscape) { .en-lista { max-height: 34dvh; } .fa-tabla { max-height: 22dvh; } }
+@media (prefers-reduced-motion: reduce) { .lp-anillo.on .lp-prog { animation-duration: 2s; } .rd-cuerpo, .eq-cortina .eq-flecha { transition: none; } }
+
+/* Estado de pago de una transferencia en la app del repartidor (lo declara el admin) */
+.cobro-estado { flex: none; display: inline-grid; place-items: center; min-width: 104px; height: 34px; padding: 0 10px; border-radius: 10px; font-size: 12.5px; font-weight: 800; border: 1.5px solid; white-space: nowrap; }
+.cobro-estado.pendiente { background: #FFF3D6; border-color: #F0C76A; color: #7A4B00; }
+.cobro-estado.pagada { background: #E3F6E9; border-color: #34A853; color: #14532D; }
+.cobro-fila.cobrado { opacity: 1; }
+@media (max-width: 360px) { .cobro-fila { flex-wrap: wrap; } .cobro-estado { width: 100%; } }

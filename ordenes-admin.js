@@ -1213,33 +1213,6 @@ const EQUIPO = (() => {
   const cache = { registrados: {}, fotos: {}, error: null, cargando: true };
   let refRep = null, refFotos = null, tRetry = null, intentos = 0, lastHash = "";
 
-  /* FASE 2 · Tarjetas colapsables (cortina): el estado de cada repartidor se recuerda en este aparato. */
-  const CLAVE_TARJ = "admin_equipo_tarjetas";
-  let plegadas = {};
-  try { plegadas = JSON.parse(localStorage.getItem(CLAVE_TARJ) || "{}") || {}; } catch (_) { plegadas = {}; }
-  const guardarPlegadas = () => { try { localStorage.setItem(CLAVE_TARJ, JSON.stringify(plegadas)); } catch (_) {} };
-  const dineroEq = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
-  function aplicarPlegada(card, plegada) {
-    const uid = card.dataset.uid;
-    card.classList.toggle("plegada", plegada);
-    if (plegada) plegadas[uid] = true; else delete plegadas[uid];
-    const b = card.querySelector(".eq-cortina"), inner = card.querySelector(".tr-cuerpo-in");
-    if (b) { b.setAttribute("aria-expanded", plegada ? "false" : "true"); b.setAttribute("aria-label", (plegada ? "Maximizar" : "Minimizar") + " la tarjeta del repartidor"); }
-    if (inner && "inert" in inner) inner.inert = plegada;
-  }
-  function actualizarBotonPlegar() {
-    const b = g("btnPlegarEquipo"); if (!b) return;
-    const cards = [...document.querySelectorAll("#listaEquipo .eq-tarjeta")];
-    const hayAbierta = cards.some((c) => !c.classList.contains("plegada"));
-    b.textContent = hayAbierta ? "⇕ Plegar todo" : "⇕ Desplegar todo";
-    b.disabled = !cards.length;
-  }
-  function plegarTodo() {
-    const cards = [...document.querySelectorAll("#listaEquipo .eq-tarjeta")];
-    const plegar = cards.some((c) => !c.classList.contains("plegada"));
-    cards.forEach((c) => aplicarPlegada(c, plegar));
-    guardarPlegadas(); actualizarBotonPlegar();
-  }
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1321,34 +1294,22 @@ const EQUIPO = (() => {
         const avatarStyle = tieneFoto ? ' style="background-image:url(\'' + foto + '\');background-size:cover;background-position:center;background-color:transparent"' : "";
         const avatarInner = tieneFoto ? "" : avatar;
 
-        const plegada = !!plegadas[uid];
-        let tr = { n: 0, total: 0, html: "" };
-        try { tr = EntregasAdmin.resumenTarjeta(uid); } catch (_) {}
-        const badge = tr.n ? '<small class="tr-badge">🏦 ' + tr.n + (tr.n === 1 ? " transferencia" : " transferencias") + " · se le debe " + esc(dineroEq(tr.total)) + "</small>" : "";
-
-        return '<div class="tarjeta-rep eq-tarjeta' + (plegada ? " plegada" : "") + '" data-uid="' + esc(uid) + '">' +
-          '<div class="fila eq-fila-cab">' +
+        return '<div class="tarjeta-rep" data-uid="' + esc(uid) + '">' +
+          '<div class="fila">' +
           '<span class="avatar' + (tieneFoto ? ' con-foto' : '') + '" data-av="' + esc(uid) + '"' + avatarStyle + '>' + avatarInner + '</span>' +
           '<div class="datos">' +
-          '<strong>' + esc(nombre) + '</strong>' + badge +
-          '</div>' +
-          '<span class="chip ' + esc(estadoClase) + '">' + esc(estadoLabel) + '</span>' +
-          '<button class="eq-cortina" type="button" data-cortina="' + esc(uid) + '" aria-expanded="' + (plegada ? "false" : "true") + '" aria-label="' + (plegada ? "Maximizar" : "Minimizar") + ' la tarjeta del repartidor"><span class="eq-flecha" aria-hidden="true"></span></button>' +
-          '</div>' +
-          '<div class="tr-cuerpo"><div class="tr-cuerpo-in"' + (plegada ? " inert" : "") + '>' +
-          '<div class="datos">' +
+          '<strong>' + esc(nombre) + '</strong>' +
           '<small>' + (email ? esc(email) : "Sin correo registrado · " + esc(String(uid).slice(0, 8)) + "…") + '</small>' +
           '<small>📱 ' + (tel ? "WhatsApp +" + esc(tel) : "Sin WhatsApp guardado") + '</small>' +
           '</div>' +
-          tr.html +
+          '<span class="chip ' + esc(estadoClase) + '">' + esc(estadoLabel) + '</span>' +
+          '</div>' +
           '<div class="acciones-fila">' +
-          '<button class="mini pri" data-entregadas="' + esc(uid) + '" type="button">🧾 Entregadas del día</button>' +
           '<button class="mini" data-foto-uid="' + esc(uid) + '" data-foto-nom="' + esc(nombre) + '" type="button">📷 Foto</button>' +
           '<button class="mini" data-accion="telefono" data-uid="' + esc(uid) + '" type="button">' + (tel ? "Editar WhatsApp" : "Agregar WhatsApp") + '</button>' +
           (email ? '<button class="mini" data-accion="reset" data-uid="' + esc(uid) + '" type="button">Restablecer clave</button>' : '') +
           '<button class="mini peligro" data-accion="quitar" data-uid="' + esc(uid) + '" type="button">Quitar</button>' +
           '</div>' +
-          '</div></div>' +
           '</div>';
       } catch (e) {
         console.error("[EQUIPO] error renderizando uid=" + uid, e);
@@ -1365,7 +1326,6 @@ const EQUIPO = (() => {
     try {
       if (typeof aplicarFotosAvatares === "function") aplicarFotosAvatares();
     } catch (_) {}
-    actualizarBotonPlegar();
   }
 
   function iniciar() {
@@ -1440,20 +1400,6 @@ const EQUIPO = (() => {
     intentos = 0;
     lastHash = "";
   }
-
-  const listaEq = g("listaEquipo");
-  if (listaEq) listaEq.addEventListener("click", (ev) => {
-    const c = ev.target.closest("[data-cortina]");
-    if (c) {
-      const card = c.closest(".eq-tarjeta");
-      if (card) { aplicarPlegada(card, !card.classList.contains("plegada")); guardarPlegadas(); actualizarBotonPlegar(); }
-      return;
-    }
-    const en = ev.target.closest("[data-entregadas]");
-    if (en) { try { EntregasAdmin.abrirBandeja(en.dataset.entregadas); } catch (err) { console.warn("[entregadas]", err); toast("No se pudieron abrir las facturas entregadas."); } }
-  });
-  const btnPlegar = g("btnPlegarEquipo");
-  if (btnPlegar) btnPlegar.addEventListener("click", plegarTodo);
 
   return { iniciar, detener, render, refrescarManual: iniciar };
 })();
@@ -2927,23 +2873,36 @@ const RendimientoEquipo = (() => {
     return t;
   }
 
+  /* Tarjeta contraída = solo lo que debe entregar a Brother’s y lo que se le debe en transferencias pendientes. */
+  const CLAVE_RT = "admin_rend_tarjetas";
+  let rtPleg = {};
+  try { rtPleg = JSON.parse(localStorage.getItem(CLAVE_RT) || "{}") || {}; } catch (_) { rtPleg = {}; }
+  const guardarRt = () => { try { localStorage.setItem(CLAVE_RT, JSON.stringify(rtPleg)); } catch (_) {} };
+
   function tarjeta(titulo, sub, uid, t, esTotal) {
     const av = uid ? `<span class="avatar" data-av="${esc(uid)}">${typeof RIDER_SVG !== "undefined" ? RIDER_SVG : "🛵"}</span>` : '<span class="avatar" aria-hidden="true">👥</span>';
     const conteo = [t.d7 ? `C$ 7 × ${t.d7}` : "", t.d14 ? `C$ 14 × ${t.d14}` : "", t.d21 ? `C$ 21 × ${t.d21}` : "", t.dOtro ? `otras × ${t.dOtro}` : "", t.ivaN ? `IVA extra (C$ 7) × ${t.ivaN}` : ""].filter(Boolean).join(" · ") || "Sin deducciones";
-    let trx = ""; if (uid) { try { trx = EntregasAdmin.resumenTarjeta(uid).html; } catch (_) {} }
-    return `<div class="rd-tarjeta${esTotal ? " total" : ""}">
-      <div class="rd-cab">${av}<div><strong>${esc(titulo)}</strong><small>${esc(sub)}</small></div><span class="rd-n" title="Pedidos realizados">${t.n}</span></div>
-      <div class="rd-orig"><div><b>${t.admin}</b><small>🛡️ Admin</small></div><div><b>${t.wa}</b><small>💬 WhatsApp / Factura manual</small></div><div><b>${t.app}</b><small>📱 App Cliente</small></div></div>
-      <div class="rd-filas">
-        <div class="rd-fila"><span>Ingresos brutos (delivery + mandados)</span><b>${dinero(t.bruto)}</b></div>
-        <div class="rd-fila"><span>− Deducciones fijas</span><b>${dinero(t.fijo)}</b></div>
-        <div class="rd-fila sub"><span>${esc(conteo)}</span></div>
-        <div class="rd-fila fuerte"><span>Remanente a repartir</span><b>${dinero(t.bolsa)}</b></div>
-        <div class="rd-fila"><span>30 % comisión Brother’s</span><b>${dinero(t.brothers30)}</b></div>
-        <div class="rd-fila"><span>70 % neto del repartidor</span><b>${dinero(t.rep70)}</b></div>
-      </div>
-      ${trx}
-      <div class="rd-entrega"><span>💵 Entregar a Brother’s<br><small>Deducciones fijas + 30 % acumulado</small></span><b>${dinero(t.entregar)}</b></div>
+    let tr = { n: 0, pend: 0, pag: 0, html: "" };
+    if (uid) { try { tr = EntregasAdmin.resumenTarjeta(uid); } catch (_) {} }
+    const plegada = !!uid && !!rtPleg[uid];
+    const cortina = uid ? `<button class="eq-cortina rd-cortina" type="button" data-rdcort="${esc(uid)}" aria-expanded="${plegada ? "false" : "true"}" aria-label="${plegada ? "Expandir" : "Contraer"} la tarjeta de ${esc(titulo)}"><span class="eq-flecha" aria-hidden="true"></span></button>` : "";
+    const filaTra = uid ? `<div class="rd-min-fila tra"><span>🏦 Se le debe en transferencias${tr.pag ? `<small>Ya pagado: ${esc(dinero(tr.pag))}</small>` : ""}</span><b>${dinero(tr.pend)}</b></div>` : "";
+    return `<div class="rd-tarjeta${esTotal ? " total" : ""}${plegada ? " plegada" : ""}" data-uid="${esc(uid || "")}">
+      <div class="rd-cab">${av}<div><strong>${esc(titulo)}</strong><small>${esc(sub)}</small></div><span class="rd-n" title="Pedidos realizados">${t.n}</span>${cortina}</div>
+      <div class="rd-min"><div class="rd-min-fila ent"><span>💵 Entregar a Brother’s<small>Deducciones fijas + 30 % acumulado</small></span><b>${dinero(t.entregar)}</b></div>${filaTra}</div>
+      <div class="rd-cuerpo"><div class="rd-cuerpo-in"${plegada ? " inert" : ""}>
+        <div class="rd-orig"><div><b>${t.admin}</b><small>🛡️ Admin</small></div><div><b>${t.wa}</b><small>💬 WhatsApp / Factura manual</small></div><div><b>${t.app}</b><small>📱 App Cliente</small></div></div>
+        <div class="rd-filas">
+          <div class="rd-fila"><span>Ingresos brutos (delivery + mandados)</span><b>${dinero(t.bruto)}</b></div>
+          <div class="rd-fila"><span>− Deducciones fijas</span><b>${dinero(t.fijo)}</b></div>
+          <div class="rd-fila sub"><span>${esc(conteo)}</span></div>
+          <div class="rd-fila fuerte"><span>Remanente a repartir</span><b>${dinero(t.bolsa)}</b></div>
+          <div class="rd-fila"><span>30 % comisión Brother’s</span><b>${dinero(t.brothers30)}</b></div>
+          <div class="rd-fila"><span>70 % neto del repartidor</span><b>${dinero(t.rep70)}</b></div>
+        </div>
+        ${tr.html}
+        ${uid ? `<button class="mini pri rd-btn-fac" type="button" data-rdfac="${esc(uid)}">🧾 Ver facturas hechas</button>` : ""}
+      </div></div>
     </div>`;
   }
 
@@ -3028,6 +2987,27 @@ const RendimientoEquipo = (() => {
     g("rdVer").onclick = () => { try { cerrarModal(); } catch (_) {} aplicar(sm, sr); };
     pintarVentana();
   }
+  (function enlazarTarjetas() {
+    const caja = g("rendLista"); if (!caja) return;
+    caja.addEventListener("click", (ev) => {
+      const c = ev.target.closest("[data-rdcort]");
+      if (c) {
+        const card = c.closest(".rd-tarjeta"), uid = c.dataset.rdcort; if (!card) return;
+        const plegar = !card.classList.contains("plegada");
+        card.classList.toggle("plegada", plegar);
+        if (plegar) rtPleg[uid] = true; else delete rtPleg[uid];
+        guardarRt();
+        c.setAttribute("aria-expanded", plegar ? "false" : "true");
+        c.setAttribute("aria-label", (plegar ? "Expandir" : "Contraer") + " la tarjeta");
+        const inner = card.querySelector(".rd-cuerpo-in"); if (inner && "inert" in inner) inner.inert = plegar;
+        return;
+      }
+      const p = ev.target.closest("[data-tpago]");
+      if (p) { try { EntregasAdmin.alternarPago(p.dataset.uid, p.dataset.tpago); } catch (e) { console.warn(e); } return; }
+      const f = ev.target.closest("[data-rdfac]");
+      if (f) { try { EntregasAdmin.abrirBandeja(f.dataset.rdfac); } catch (e) { toast("No se pudieron abrir las facturas."); } }
+    });
+  })();
   (function enlazarPeriodo() {
     const b = g("rendPeriodoBtn"), pv = g("rendPrev"), nx = g("rendNext");
     if (b) b.addEventListener("click", abrirVentana);
@@ -3041,13 +3021,14 @@ const RendimientoEquipo = (() => {
 
 
 /* ============================================================
-   FASE 2 · FACTURAS ENTREGADAS DEL DÍA POR REPARTIDOR + PAGOS POR TRANSFERENCIA
+   FASE 2 · FACTURAS HECHAS POR REPARTIDOR + PAGOS POR TRANSFERENCIA (pagada / pendiente)
    ------------------------------------------------------------
    Fuentes (se unifican sin duplicar): contabilidad/{uid} (un registro por pedido cobrado), ordenes (pedidos del admin),
    solicitudes_entrantes (chat de clientes) y pedidos (en curso / WhatsApp). Cada factura entregada es UNA entrada con:
    código, cliente, detalle de compras, totales, contabilidad y si fue pagada por TRANSFERENCIA.
-   · Transferencia: Brother’s recibió el dinero del cliente, así que se le DEBE al repartidor
-       total de la factura − deducciones fijas − 30 % de Brother’s   (= lo que él habría cobrado en efectivo menos lo que entrega).
+   · Transferencia (campo metodoPago de contabilidad / metodo de cobrosAdmin): el cliente pagó a Brother’s, así que se le DEBE al
+       repartidor el total de la factura. El estado Pagada / Pendiente se guarda en cobrosAdmin/{uid}/{día}/{id} (estado "cobrado" =
+       pagada), el mismo nodo que lee la app del repartidor.
    · Eliminación profunda: borra contabilidad + pedido/solicitud + chat archivado, y descuenta el contador de facturas;
        los ingresos, el rendimiento y las transferencias se recalculan solos (escuchan esos mismos nodos).
    Para reconocer la transferencia se revisan estos campos (ajusta las listas si tu app usa otro nombre):
@@ -3069,6 +3050,9 @@ const EntregasAdmin = (() => {
   const horaDe = (ts) => (ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "");
   const fechaHora = (ts) => (ts ? new Date(ts).toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).replace(/\./g, "") : "");
   const normCod = (c) => String(c == null ? "" : c).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const claveSegura = (id) => String(id).replace(/[.#$\[\]\/]/g, "_");
+  /* Día de negocio de la app del repartidor: corte a las 08:00 */
+  const diaNegocio = (ts) => { const t = new Date(Number(ts) || Date.now()); if (t.getHours() < 8) t.setDate(t.getDate() - 1); return claveTs(t.getTime()); };
   const sumaExtras = (ex) => arr(ex).reduce((t, x) => t + num(x.monto), 0);
 
   /* ---------- ¿pagó por transferencia? ---------- */
@@ -3127,8 +3111,8 @@ const EntregasAdmin = (() => {
     } else e.cont = null;
 
     e.transf = esTransf(o, s, ff, p, e.fact, e.tipo === "c" ? e.d : null, ...e.acct.map((x) => x.r));
-    e.debeAprox = !e.cont;
-    e.debe = e.cont ? r2(Math.max(0, e.total - e.cont.entregar)) : e.total;
+    e.debeAprox = false;
+    e.debe = e.total;   // el cliente pagó a Brother’s: se le debe al repartidor el total de la factura
     const og = a0 && a0.origen;
     e.origen = og === "manual" ? "WhatsApp / factura manual" : og === "chat" ? "App cliente" : og ? "Admin" : o ? "Admin" : s ? "App cliente" : p ? (p.sinFactura ? "WhatsApp (sin factura)" : "WhatsApp / factura manual") : "—";
     if (e.tipo === "c" && a0) {
@@ -3138,6 +3122,8 @@ const EntregasAdmin = (() => {
       e.tsReal = !!t;
     }
     e.dia = e.tsReal && e.ts ? claveTs(e.ts) : (a0 && a0.fecha) || (e.ts ? claveTs(e.ts) : "");
+    e.diaNeg = (a0 && a0.fecha) || (e.tsReal && e.ts ? diaNegocio(e.ts) : e.dia);
+    e.cobroKey = claveSegura(e.acct[0] ? e.acct[0].ck : e.id);
     return e;
   }
 
@@ -3184,19 +3170,61 @@ const EntregasAdmin = (() => {
       if (raiz) raiz.acct.push({ ck, r });
       else { const e = nueva("c", ck, r); e.acct = [{ ck, r }]; E.set("c:" + ck, e); }
     });
-    return [...E.values()].map(completar).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    const lista = [...E.values()].map(completar).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    let cobros = {};
+    try { cobros = await leer(desde ? db.ref("cobrosAdmin/" + uid).orderByKey().startAt(desde).endAt(hasta) : db.ref("cobrosAdmin/" + uid).orderByKey().limitToLast(60)); } catch (_) {}
+    lista.forEach((e) => {
+      const r = cobros[e.diaNeg] && cobros[e.diaNeg][e.cobroKey];
+      e.cobro = r && typeof r === "object" ? r : null;
+      if (e.cobro && e.cobro.metodo === "transferencia") e.transf = true;
+      if (e.transf && e.cobro && e.cobro.total != null && Number.isFinite(Number(e.cobro.total))) { e.total = r2(Number(e.cobro.total)); e.debe = e.total; }   // monto que registró el repartidor
+      e.estadoPago = e.cobro && e.cobro.estado === "cobrado" ? "pagada" : "pendiente";
+    });
+    return lista;
   }
 
-  /* ---------- transferencias del periodo (tarjeta del repartidor en Equipo y en Rendimiento) ---------- */
-  const transf = {}, firmas = {}, tProg = {}, tSeq = {};
-  let periodoTxt = "", tEq = null;
-  function avisarEquipo() {
-    clearTimeout(tEq);
-    tEq = setTimeout(() => {
-      try { EQUIPO.render(true); } catch (_) {}
-      try { RendimientoEquipo.repintar(); } catch (_) {}
-    }, 120);
+  /* ---------- estado PAGADA / PENDIENTE de cada transferencia ----------
+     Se guarda en cobrosAdmin/{uid}/{día de negocio}/{id} (estado "cobrado" = pagada, "pendiente"): el mismo registro que ya crea la
+     app del repartidor al elegir "Transferencia". La app del repartidor solo lo muestra; el admin es quien lo declara. */
+  const overlay = {};   // uid → { k: "pagada" | "pendiente" } mientras se confirma el cambio
+  const pagada = (uid, e) => ((overlay[uid] && overlay[uid][e.k]) || e.estadoPago) === "pagada";
+  async function fijarPago(uid, k, aPagada) {
+    const todas = [...(transf[uid] || []), ...(ban && ban.uid === uid ? ban.lista : [])].filter((x) => x.k === k);
+    const e = todas[0]; if (!e) return;
+    const estado = aPagada ? "pagada" : "pendiente";
+    overlay[uid] = overlay[uid] || {};
+    const previo = overlay[uid][k];
+    overlay[uid][k] = estado; avisar();
+    if (ban && ban.detalle === k) abrirDetalle(k);
+    try {
+      const ruta = "cobrosAdmin/" + uid + "/" + e.diaNeg + "/" + e.cobroKey, TSV = firebase.database.ServerValue.TIMESTAMP;
+      const cambio = { estado: aPagada ? "cobrado" : "pendiente", cobradoTs: aPagada ? TSV : null };
+      if (e.cobro) await db.ref(ruta).update(cambio);
+      else {
+        const a0 = e.acct[0] && e.acct[0].r;
+        await db.ref(ruta).set(Object.assign({ id: String(e.cobroKey), origen: (a0 && a0.origen) || (e.tipo === "s" ? "chat" : e.tipo === "o" ? "admin" : "manual"), cliente: String(e.cliente).slice(0, 40), pedido: String(e.codigo).slice(0, 30), total: e.total, metodo: "transferencia", repartidorNombre: String(nombreUid(uid)).slice(0, 60), ts: TSV }, cambio));
+      }
+      todas.forEach((x) => { x.estadoPago = estado; x.cobro = x.cobro || { metodo: "transferencia", estado: cambio.estado }; });
+      if (overlay[uid]) delete overlay[uid][k];
+      avisar();
+      if (ban && ban.detalle === k) abrirDetalle(k);
+      toast(aPagada ? `✔ Factura ${e.codigo} marcada como PAGADA (el repartidor la verá pagada)` : `⏳ Factura ${e.codigo} marcada como PENDIENTE`);
+    } catch (err) {
+      if (previo) overlay[uid][k] = previo; else delete overlay[uid][k];
+      avisar();
+      if (ban && ban.detalle === k) abrirDetalle(k);
+      toast("No se pudo guardar el estado: " + (err.message || err));
+    }
   }
+  function alternarPago(uid, k) {
+    const e = (transf[uid] || []).find((x) => x.k === k) || (ban && ban.uid === uid && ban.lista.find((x) => x.k === k));
+    if (e) fijarPago(uid, k, !pagada(uid, e));
+  }
+
+  /* ---------- transferencias del periodo (tarjeta del repartidor en Rendimiento) ---------- */
+  const transf = {}, firmas = {}, tProg = {}, tSeq = {};
+  let periodoTxt = "";
+  function avisar() { try { RendimientoEquipo.repintar(); } catch (_) {} }
   async function recalcular(uid) {
     if (typeof db === "undefined") return;
     const seq = (tSeq[uid] = (tSeq[uid] || 0) + 1);
@@ -3205,63 +3233,74 @@ const EntregasAdmin = (() => {
     try {
       const l = (await cargar(uid, per.desde, per.hasta)).filter((e) => e.transf);
       if (seq !== tSeq[uid]) return;
-      const firma = per.txt + "|" + JSON.stringify(l.map((e) => [e.k, e.total, e.debe]));
+      const firma = per.txt + "|" + JSON.stringify(l.map((e) => [e.k, e.total, e.debe, e.estadoPago]));
       periodoTxt = per.txt || periodoTxt;
-      if (firma !== firmas[uid]) { firmas[uid] = firma; transf[uid] = l; avisarEquipo(); }
+      delete overlay[uid];
+      if (firma !== firmas[uid]) { firmas[uid] = firma; transf[uid] = l; avisar(); }
     } catch (err) { console.warn("[transferencias]", uid, err); }
   }
   function programar(uid) { clearTimeout(tProg[uid]); tProg[uid] = setTimeout(() => recalcular(uid), 900); }
   function limpiar() {
     Object.keys(tProg).forEach((u) => { clearTimeout(tProg[u]); delete tProg[u]; });
     Object.keys(transf).forEach((u) => { delete transf[u]; delete firmas[u]; delete tSeq[u]; });
-    cacheOrd = { ts: 0, v: null }; ban = null;
+    Object.keys(overlay).forEach((u) => delete overlay[u]); cacheOrd = { ts: 0, v: null }; ban = null;
   }
   function resumenTarjeta(uid) {
     const l = transf[uid] || [];
-    if (!l.length) return { n: 0, total: 0, html: "" };
-    const total = r2(l.reduce((t, e) => t + e.debe, 0)), aprox = l.some((e) => e.debeAprox);
-    const filas = l.map((e) => `<div class="tr-fila"><span class="tr-cod">🧾 Factura ${esc(e.codigo)}<small>${esc(e.cliente)}${e.tsReal && e.ts ? " · " + esc(fechaHora(e.ts)) : ""} · factura ${esc(dinero(e.total))}</small></span><b>${esc(dinero(e.debe))}</b></div>`).join("");
-    const html = `<div class="tr-transf" role="group" aria-label="Pagos por transferencia"><div class="tr-tit"><b>🏦 Pagos por transferencia</b><small>${esc(periodoTxt)}</small></div>${filas}<div class="tr-total"><span>Se le debe por transferencias</span><b>${esc(dinero(total))}</b></div><small class="tr-nota">Se le debe = total de la factura − deducciones fijas − 30 % de Brother’s${aprox ? " (aprox.: alguna factura no tiene registro contable)" : ""}.</small></div>`;
-    return { n: l.length, total, html };
+    if (!l.length) return { n: 0, pend: 0, pag: 0, html: "" };
+    let pend = 0, pag = 0;
+    const filas = l.map((e) => {
+      const p = pagada(uid, e);
+      if (p) pag += e.debe; else pend += e.debe;
+      return `<div class="tr-fila${p ? " pagada" : ""}"><span class="tr-cod">🧾 ${esc(e.codigo)}<small>${esc(e.cliente)}${e.tsReal && e.ts ? " · " + esc(fechaHora(e.ts)) : ""} · factura ${esc(dinero(e.total))}</small></span><span class="tr-der"><b>${esc(dinero(e.debe))}</b><button type="button" class="tr-estado ${p ? "pagada" : "pendiente"}" data-tpago="${esc(e.k)}" data-uid="${esc(uid)}" aria-pressed="${p ? "true" : "false"}" aria-label="Factura ${esc(e.codigo)}: ${p ? "pagada, tocar para dejar pendiente" : "pendiente, tocar para marcar pagada"}">${p ? "✔ Pagada" : "⏳ Pendiente"}</button></span></div>`;
+    }).join("");
+    pend = r2(pend); pag = r2(pag);
+    const html = `<div class="tr-transf" role="group" aria-label="Pagos por transferencia"><div class="tr-tit"><b>🏦 Pagos por transferencia</b><small>${esc(periodoTxt)}</small></div>${filas}<div class="tr-total"><span>Pendiente de pagarle</span><b>${esc(dinero(pend))}</b></div><small class="tr-nota">Se le debe el total de cada factura pagada por transferencia (el cliente pagó a Brother’s). Toca “Pendiente/Pagada” para declarar el pago; el repartidor lo verá en su app.</small></div>`;
+    return { n: l.length, pend, pag, html };
   }
 
-  /* ---------- bandeja: facturas entregadas del día de un repartidor ---------- */
-  let ban = null;   // { uid, dia, q, lista, cargando, error, seq }
-  const item = (e) => `<button type="button" class="pd-rep en-item" data-k="${esc(e.k)}"><span><strong>${esc(e.codigo)} · ${esc(e.cliente)}</strong><small>${e.tsReal ? "🕒 " + esc(horaDe(e.ts)) + " · " : ""}${esc(e.origen)}${e.transf ? " · se le debe " + esc(dinero(e.debe)) : ""}</small></span>${e.transf ? '<i class="pd-tag en-transf-tag">🏦 Transferencia</i>' : ""}<b class="en-monto">${esc(dinero(e.total))}</b></button>`;
+  /* ---------- bandeja: facturas hechas del periodo de Rendimiento (por defecto, el día de hoy) ---------- */
+  let ban = null;   // { uid, desde, hasta, txt, modoDia, dia, q, lista, cargando, error, seq, detalle }
+  const tagPago = (uid, e) => (e.transf ? `<i class="en-tag ${pagada(uid, e) ? "pagada" : "pendiente"}">🏦 ${pagada(uid, e) ? "Pagada" : "Pendiente"}</i>` : "");
+  const item = (e) => `<button type="button" class="en-item" data-k="${esc(e.k)}">
+      <span class="en-cod">${esc(e.codigo)}</span><b class="en-monto">${esc(dinero(e.total))}</b>
+      <span class="en-cli">${esc(e.cliente)}</span>${tagPago(ban.uid, e)}
+      <small class="en-meta">${e.tsReal && e.ts ? "🕒 " + esc(ban.modoDia ? horaDe(e.ts) : fechaHora(e.ts)) + " · " : ""}${esc(e.origen)}${e.transf ? " · se le debe " + esc(dinero(e.debe)) : ""}</small></button>`;
 
   function pintarLista() {
     const caja = g("enLista"), res = g("enResumen"); if (!caja || !res || !ban) return;
     const f = g("enFecha"), nx = g("enNext");
     if (f && f.value !== ban.dia) f.value = ban.dia;
     if (nx) nx.disabled = ban.dia >= hoyClave();
-    if (ban.cargando) { caja.innerHTML = '<p class="ayuda">Cargando facturas entregadas…</p>'; res.textContent = ""; return; }
+    if (ban.cargando) { caja.innerHTML = '<p class="ayuda">Cargando facturas…</p>'; res.textContent = ""; return; }
     if (ban.error) { caja.innerHTML = '<p class="ayuda">No se pudieron cargar: ' + esc(ban.error) + "</p>"; res.textContent = ""; return; }
     const q = normCod(ban.q);
     const vis = q ? ban.lista.filter((e) => e.codigos.some((c) => c.indexOf(q) >= 0)) : ban.lista;
     const total = r2(vis.reduce((t, e) => t + e.total, 0)), nt = vis.filter((e) => e.transf).length;
-    res.innerHTML = `<b>${vis.length}</b> entregada${vis.length === 1 ? "" : "s"}${q ? " de " + ban.lista.length : ""} · Total <b>${esc(dinero(total))}</b>${nt ? " · 🏦 " + nt + " por transferencia" : ""}`;
-    caja.innerHTML = vis.length ? vis.map(item).join("") : `<p class="ayuda">${ban.lista.length ? "Ninguna factura coincide con ese código." : "Este repartidor no tiene facturas entregadas ese día."}</p>`;
+    res.innerHTML = `<b>${vis.length}</b> factura${vis.length === 1 ? "" : "s"}${q ? " de " + ban.lista.length : ""} · Total <b>${esc(dinero(total))}</b>${nt ? " · 🏦 " + nt + " por transferencia" : ""}`;
+    caja.innerHTML = vis.length ? vis.map(item).join("") : `<p class="ayuda">${ban.lista.length ? "Ninguna factura coincide con ese código." : "No hay facturas hechas en este periodo."}</p>`;
   }
   function pintarBandeja() {
     if (!ban) return;
-    modal(`<div class="en-caja"><h2>🧾 Entregadas · ${esc(nombreUid(ban.uid))}</h2>
-      <div class="en-dia" role="group" aria-label="Día a consultar"><button id="enPrev" type="button" aria-label="Día anterior">‹</button><input id="enFecha" type="date" aria-label="Día a consultar"><button id="enNext" type="button" aria-label="Día siguiente">›</button><button id="enHoy" type="button">Hoy</button></div>
+    ban.detalle = null;
+    const nav = ban.modoDia
+      ? '<div class="en-dia" role="group" aria-label="Día a consultar"><button id="enPrev" type="button" aria-label="Día anterior">‹</button><input id="enFecha" type="date" aria-label="Día a consultar"><button id="enNext" type="button" aria-label="Día siguiente">›</button><button id="enHoy" type="button">Hoy</button></div>'
+      : `<div class="en-per">📅 ${esc(ban.txt || "Todo el tiempo")}</div>`;
+    modal(`<div class="en-caja"><h2>🧾 Facturas · ${esc(nombreUid(ban.uid))}</h2>${nav}
       <input id="enBuscar" class="en-buscar" type="search" inputmode="search" autocomplete="off" enterkeyhint="search" placeholder="🔎 Buscar por código de factura (ej. APP00012)" aria-label="Buscar por código de factura">
       <div id="enResumen" class="en-resumen" role="status" aria-live="polite"></div>
       <div id="enLista" class="en-lista"></div>
       <button id="enCerrar" class="oscuro" type="button">Cerrar</button></div>`);
-    const f = g("enFecha"), b = g("enBuscar");
-    f.value = ban.dia; f.max = hoyClave(); b.value = ban.q;
-    const mover = (n) => {
-      const [y, m, d] = ban.dia.split("-").map(Number);
-      const c = claveTs(new Date(y, m - 1, d + n).getTime());
-      if (c > hoyClave()) return;
-      ban.dia = c; recargarBandeja();
-    };
-    g("enPrev").onclick = () => mover(-1);
-    g("enNext").onclick = () => mover(1);
-    g("enHoy").onclick = () => { ban.dia = hoyClave(); recargarBandeja(); };
-    f.onchange = () => { if (f.value) { ban.dia = f.value > hoyClave() ? hoyClave() : f.value; recargarBandeja(); } };
+    const b = g("enBuscar"); b.value = ban.q;
+    if (ban.modoDia) {
+      const f = g("enFecha"); f.value = ban.dia; f.max = hoyClave();
+      const ir = (c) => { if (c > hoyClave()) return; ban.dia = ban.desde = ban.hasta = c; recargarBandeja(); };
+      const mover = (n) => { const [y, m, d] = ban.dia.split("-").map(Number); ir(claveTs(new Date(y, m - 1, d + n).getTime())); };
+      g("enPrev").onclick = () => mover(-1);
+      g("enNext").onclick = () => mover(1);
+      g("enHoy").onclick = () => ir(hoyClave());
+      f.onchange = () => { if (f.value) ir(f.value); };
+    }
     b.oninput = () => { ban.q = b.value; pintarLista(); };
     g("enLista").onclick = (ev) => { const it = ev.target.closest("[data-k]"); if (it) abrirDetalle(it.dataset.k); };
     g("enCerrar").onclick = cerrarModal;
@@ -3272,7 +3311,7 @@ const EntregasAdmin = (() => {
     const seq = ++ban.seq;
     ban.cargando = true; ban.error = ""; pintarLista();
     try {
-      const l = await cargar(ban.uid, ban.dia, ban.dia);
+      const l = await cargar(ban.uid, ban.desde, ban.hasta);
       if (!ban || seq !== ban.seq) return;
       ban.lista = l;
     } catch (err) {
@@ -3281,37 +3320,64 @@ const EntregasAdmin = (() => {
     }
     ban.cargando = false; pintarLista();
   }
-  function abrirBandeja(uid, dia) {
+  function abrirBandeja(uid) {
     if (!uid) return;
-    ban = { uid, dia: dia || hoyClave(), q: "", lista: [], cargando: true, error: "", seq: 0 };
+    let per = { desde: hoyClave(), hasta: hoyClave(), txt: "Hoy" };
+    try { per = RendimientoEquipo.periodo(); } catch (_) {}
+    const modoDia = !!per.desde && per.desde === per.hasta;
+    ban = { uid, desde: per.desde, hasta: per.hasta, txt: per.txt, modoDia, dia: per.desde || hoyClave(), q: "", lista: [], cargando: true, error: "", seq: 0, detalle: null };
     pintarBandeja();
     recargarBandeja();
   }
 
-  /* ---------- detalle completo + eliminación ---------- */
+  /* ---------- detalle compacto de la factura: compras, precios, totales ---------- */
+  function lineas(e) {
+    const out = [], nom = (p) => String(p.nombre || "Producto");
+    const prod = (f) => arr(f && f.productos).forEach((p) => out.push({ n: nom(p).replace(/^➕\s*/, ""), m: num(p.precio), ex: nom(p).indexOf("➕") === 0 }));
+    const sub = (sf) => {
+      if (!sf || typeof sf !== "object") return;
+      arr(sf.items).forEach((p) => out.push({ n: (sf.etiqueta ? sf.etiqueta + " · " : "") + nom(p).replace(/^➕\s*/, ""), m: num(p.precio), ex: nom(p).indexOf("➕") === 0 }));
+      if (num(sf.envioExtra) > 0) out.push({ n: "Envío extra" + (sf.etiqueta ? " · " + sf.etiqueta : ""), m: num(sf.envioExtra), ex: true });
+    };
+    prod(e.fact); sub(e.sub);
+    arr(e.extras).forEach((x) => { if (hayNum(x.monto)) out.push({ n: (x.nota || "Extra") + (x.por ? " · " + x.por : ""), m: x.monto, ex: true }); });
+    if (!out.length && e.tipo === "o") Ordenes.paradas(e.d).forEach((p) => { if (p.producto) out.push({ n: p.producto + (p.texto ? " · " + p.texto : ""), m: null, ex: false }); });
+    return out;
+  }
+  function desglose(e) {
+    let prod = 0, ex = 0, deliv = 0, otros = 0;
+    lineas(e).forEach((x) => { if (x.m == null) return; if (x.ex) ex += x.m; else prod += x.m; });
+    const f = e.fact;
+    if (f) {
+      const mand = num(f.mandadoExtra);
+      deliv = hayNum(f.deliveryBase) ? f.deliveryBase : Math.max(0, num(f.delivery) - mand);
+      ex += mand; otros = num(f.prioridad) + num(f.ivaExtraMonto);
+    } else if (e.tipo === "o") { deliv = num(e.d.delivery); otros = num(e.d.iva); }
+    const ajuste = r2(e.total - (prod + deliv + ex + otros));
+    return { prod: r2(prod), deliv: r2(deliv), ex: r2(ex), otros: r2(otros), ajuste: Math.abs(ajuste) > 0.009 ? ajuste : 0 };
+  }
   function abrirDetalle(k) {
     const e = ban && ban.lista.find((x) => x.k === k); if (!e) return;
-    const fv = PedidosAdmin.fv, nom = nombreUid(ban.uid);
-    let compras = "";
-    const prods = e.fact ? fv.items(e.fact.productos) : "";
-    if (prods || e.sub || e.extras) {
-      compras = `<div class="fv-sec">🛍️ Detalle de cada compra</div><div class="fv-bloque">${prods || '<div class="fv-fila"><span>Sin productos detallados.</span></div>'}</div>` + fv.sub(e.sub) + fv.extras(e.extras);
-    } else if (e.tipo === "o") {
-      const o = e.d, ps = Ordenes.paradas(o);
-      compras = `<div class="fv-sec">Ruta</div><div class="fv-bloque">${ps.map((p, i) => `<div class="fv-fila"><span>📦 ${ps.length > 1 ? "Retiro " + (i + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}</span></div>`).join("")}<div class="fv-fila"><span>🏠 Entrega: ${esc((o.entrega && o.entrega.texto) || "—")}</span></div></div>`;
-    }
-    let totales = "";
-    if (e.fact) totales = `<div class="fv-sec">Totales</div><div class="fv-bloque">${fv.totales(e.fact)}</div>`;
-    else if (e.tipo === "o") totales = `<div class="fv-sec">Cobro</div><div class="fv-bloque">${fv.fila("🛵 Delivery", dinero(e.d.delivery))}${num(e.d.iva) > 0 ? fv.fila("IVA", dinero(e.d.iva)) : ""}<div class="fv-total"><span>Total General</span><b>${esc(dinero(e.total))}</b></div></div>`;
-    else totales = `<div class="fv-bloque"><div class="fv-total"><span>Total</span><b>${esc(dinero(e.total))}</b></div></div>`;
+    ban.detalle = k;
+    const uid = ban.uid, nom = nombreUid(uid), ls = lineas(e), d = desglose(e), pg = e.transf && pagada(uid, e);
+    const tabla = ls.length
+      ? `<div class="fa-tabla">${ls.map((x) => `<div class="fa-fila${x.ex ? " ex" : ""}"><span>${esc(x.n)}</span><b>${x.m == null ? "—" : esc(dinero(x.m))}</b></div>`).join("")}</div>`
+      : '<p class="fa-vacio">Sin productos detallados.</p>';
+    const t = (txt, v, c) => `<div class="fa-t${c ? " " + c : ""}"><span>${txt}</span><b>${esc(dinero(v))}</b></div>`;
+    const tot = `<div class="fa-tot">${t("🛍️ Total de productos", d.prod)}${t("🛵 Delivery", d.deliv)}${d.ex > 0 ? t("➕ Extras / mandados", d.ex, "ex") : ""}${d.otros > 0 ? t("⚡ Prioridad / IVA", d.otros) : ""}${d.ajuste ? t("Ajustes", d.ajuste) : ""}${t("Total general", e.total, "total")}</div>`;
+    const caja = e.transf
+      ? `<div class="en-transf-box"><div><b>🏦 Pago por transferencia</b><span>Se le debe <b>${esc(dinero(e.debe))}</b> a ${esc(nom)}</span><small>= total de la factura (el cliente pagó a Brother’s)</small></div><button type="button" id="enPago" class="tr-estado ${pg ? "pagada" : "pendiente"}" aria-pressed="${pg ? "true" : "false"}">${pg ? "✔ Pagada" : "⏳ Pendiente"}</button></div>`
+      : "";
     const cont = e.cont
-      ? `<div class="fv-sec">Contabilidad del repartidor</div><div class="fv-bloque">${fv.fila("Ingresos brutos (delivery + mandados)", dinero(e.cont.bruto))}${fv.fila("− Deducciones fijas", dinero(e.cont.fijo))}${fv.fila("Remanente a repartir", dinero(e.cont.bolsa), "fv-sub")}${fv.fila("30 % comisión Brother’s", dinero(e.cont.com))}${fv.fila("70 % neto del repartidor", dinero(e.cont.rep))}${fv.fila("💵 Entregar a Brother’s", dinero(e.cont.entregar), "fv-sub")}</div>`
-      : '<div class="fv-sec">Contabilidad</div><div class="fv-bloque"><div class="fv-fila"><span>Esta factura no tiene registro contable (no suma a ingresos).</span></div></div>';
-    const caja = e.transf ? `<div class="en-transf-box" role="note">🏦 <b>Pago por transferencia.</b> Se le debe <b>${esc(dinero(e.debe))}</b> a ${esc(nom)}.<small>= total de la factura − deducciones fijas − 30 % de Brother’s${e.debeAprox ? " (aprox.: sin registro contable)" : ""}</small></div>` : "";
-    modal(`<div class="fv-caja"><h2>🧾 Factura entregada</h2><div class="fv-resumen">${fv.banner(e.codigo + " · " + e.cliente, "🛵 " + nom + " · " + e.origen + (e.tsReal && e.ts ? " · " + fechaHora(e.ts) : ""))}${caja}${compras}${totales}${cont}</div>
-      <button id="enEliminar" class="peligro" type="button">🗑 Eliminar factura</button>
-      <button id="enVolver" type="button">← Volver a la lista</button><button id="enCerrar2" class="oscuro" type="button">Cerrar</button></div>`);
-    NavAdmin.fijarVolverModal(pintarBandeja);   // Atrás: detalle → bandeja del día → Equipo
+      ? `<details class="fa-det"><summary>Contabilidad del repartidor</summary><div class="fa-tot">${t("Ingresos brutos", e.cont.bruto)}${t("− Deducciones fijas", e.cont.fijo)}${t("Remanente", e.cont.bolsa)}${t("30 % Brother’s", e.cont.com)}${t("70 % repartidor", e.cont.rep)}${t("💵 Entregar a Brother’s", e.cont.entregar, "total")}</div></details>`
+      : '<p class="fa-vacio">Sin registro contable: no suma a ingresos.</p>';
+    modal(`<div class="fa-caja">
+      <div class="fa-cab"><div><strong>${esc(e.codigo)}</strong><span>${esc(e.cliente)}</span></div><small>🛵 ${esc(nom)} · ${esc(e.origen)}${e.tsReal && e.ts ? " · " + esc(fechaHora(e.ts)) : ""}</small></div>
+      ${caja}
+      <div class="fa-sec">🛍️ Compras</div>${tabla}${tot}${cont}
+      <div class="fa-acc"><button id="enEliminar" class="peligro" type="button">🗑 Eliminar</button><button id="enVolver" type="button">← Lista</button><button id="enCerrar2" class="oscuro" type="button">Cerrar</button></div></div>`);
+    NavAdmin.fijarVolverModal(pintarBandeja);   // Atrás: detalle → lista → Equipo
+    if (e.transf) g("enPago").onclick = () => fijarPago(uid, k, !pagada(uid, e));
     g("enEliminar").onclick = () => eliminar(k);
     g("enVolver").onclick = pintarBandeja;
     g("enCerrar2").onclick = cerrarModal;
@@ -3335,6 +3401,7 @@ const EntregasAdmin = (() => {
     if (!confirm(`¿ELIMINAR la factura ${e.codigo} (${e.cliente}) de ${nom}?\n\n• Se borra su registro de los pedidos del repartidor y su chat archivado.${e.cont ? "\n• Se restan " + dinero(e.cont.bruto) + " de sus ingresos brutos, su rendimiento y las métricas del equipo." : ""}\n\nNo se puede deshacer.`)) return;
     const upd = {};
     e.acct.forEach(({ ck }) => { upd["contabilidad/" + uid + "/" + ck] = null; });
+    if (e.cobro || e.transf) upd["cobrosAdmin/" + uid + "/" + e.diaNeg + "/" + e.cobroKey] = null;
     if (e.tipo === "o") upd["ordenes/" + e.id] = null;
     if (e.tipo === "s") { upd["solicitudes_entrantes/" + e.id] = null; upd["solicitudes_fotos/" + e.id] = null; }
     const RUTAS = ["chats", "chatsResumen", "fotos", "chatsInvitado", "chatsInvitadoResumen", "fotosInvitado", "leidosInvitado"];
@@ -3354,14 +3421,14 @@ const EntregasAdmin = (() => {
       toast(`🗑 Factura ${e.codigo} eliminada. Ingresos y rendimiento actualizados.`);
       pintarBandeja();
       recalcular(uid);
-      try { RendimientoEquipo.repintar(); } catch (_) {}
+      avisar();
     } catch (err) {
       toast("No se pudo eliminar: " + (err.message || err));
       const b2 = g("enEliminar"); if (b2) b2.disabled = false;
     }
   }
 
-  return { programar, recalcular, limpiar, resumenTarjeta, abrirBandeja, cargar };
+  return { programar, recalcular, limpiar, resumenTarjeta, abrirBandeja, alternarPago, cargar };
 })();
 
 
