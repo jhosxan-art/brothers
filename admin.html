@@ -195,7 +195,8 @@
       flex-wrap: wrap;
     }
     .equipo-cab h2 { margin: 0; }
-    #btnRecargarEquipo {
+    .eq-cab-btns { display: flex; gap: 8px; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+    #btnRecargarEquipo, #btnPlegarEquipo {
       flex: none;
       width: auto;
       height: 34px;
@@ -210,8 +211,8 @@
       align-items: center;
       gap: 6px;
     }
-    #btnRecargarEquipo:active { transform: scale(.97); }
-    #btnRecargarEquipo[disabled] { opacity: .5; cursor: not-allowed; }
+    #btnRecargarEquipo:active, #btnPlegarEquipo:active { transform: scale(.97); }
+    #btnRecargarEquipo[disabled], #btnPlegarEquipo[disabled] { opacity: .5; cursor: not-allowed; }
   </style>
 </head>
 <body class="admin">
@@ -334,7 +335,7 @@
       <section class="eq-mod" id="modEquipo">
         <div class="equipo-cab eq-cab">
           <h2><button class="eq-toggle" type="button" aria-expanded="true" aria-controls="cuerpoEquipo"><span>Tu equipo</span><span class="eq-flecha" aria-hidden="true"></span></button></h2>
-          <button id="btnRecargarEquipo" type="button" aria-label="Recargar lista de repartidores">🔄 Recargar</button>
+          <div class="eq-cab-btns"><button id="btnPlegarEquipo" type="button" aria-label="Plegar o desplegar todas las tarjetas de repartidores">⇕ Plegar todo</button><button id="btnRecargarEquipo" type="button" aria-label="Recargar lista de repartidores">🔄 Recargar</button></div>
         </div>
         <div class="eq-cuerpo" id="cuerpoEquipo"><div class="eq-cuerpo-in">
           <div id="listaEquipo" class="acciones"></div>
@@ -351,7 +352,7 @@
             <button id="rendPrev" class="rd-flecha" type="button" aria-label="Periodo anterior">‹</button>
             <button id="rendPeriodoBtn" class="rd-per-btn" type="button" aria-haspopup="dialog" aria-label="Elegir periodo y fecha">
               <span class="rd-per-ico" aria-hidden="true">📅</span>
-              <span class="rd-per-txt"><small id="rendPeriodoModo">Mes</small><strong id="rendPeriodoTxt">…</strong></span>
+              <span class="rd-per-txt"><small id="rendPeriodoModo">Hoy</small><strong id="rendPeriodoTxt">…</strong></span>
               <span class="rd-per-caret" aria-hidden="true">▾</span>
             </button>
             <button id="rendNext" class="rd-flecha" type="button" aria-label="Periodo siguiente">›</button>
@@ -511,8 +512,9 @@
   <script src="iconos.js"></script>
   <script src="atras.js"></script>
   <script>
-    /* FASE 1 · Navegación contextual: inserta la capa NavAdmin (ordenes-admin.js) justo después de la cámara/chat
-       en la lista de "atrás" que define admin.js, sin tocar el resto de capas. */
+    /* FASE 1 · Navegación SPA contextual: inserta la capa NavAdmin (pila de historial de ordenes-admin.js) justo después de la cámara/chat
+       en la lista de "atrás" de admin.js. Jerarquía: chat → bandeja de Chats · factura → su lista → pantalla de origen ·
+       visor de solicitud → bandeja de Solicitudes · cualquier pestaña → Mapa. */
     (function () {
       var iniciar = Atras.iniciar;
       Atras.iniciar = function (lista) {

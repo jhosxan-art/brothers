@@ -25,6 +25,79 @@ function anclarPanesMapa() {
 setInterval(anclarPanesMapa, 2000);
 
 /* ============================================================
+   FASE 1 · NAVEGACIÓN SPA CONTEXTUAL (pila de historial para "Atrás")
+   admin.html envuelve Atras.iniciar para que esta capa corra justo después de la cámara/chat.
+   Jerarquía aplicada a toda la app de administración:
+     · Chat con repartidor (equipo o invitado)   → bandeja de Chats
+     · Detalle de factura abierto desde una lista → esa lista (Facturas en ruta / Entregadas del día) → pantalla de origen
+     · Factura / panel de cliente sobre el Mapa   → Mapa
+     · Visor de solicitud (chat o factura)        → mapa espectador plegado → bandeja de Solicitudes (o Mapa si se abrió desde él)
+     · Dibujo de zonas                            → cancela el dibujo
+     · Cualquier otra pestaña                     → Mapa (capa original de admin.js)
+   La pila guarda las vistas contextuales abiertas (de abajo hacia arriba); "Atrás" cierra siempre la de arriba.
+   ============================================================ */
+const NavAdmin = (() => {
+  const g = (id) => document.getElementById(id);
+  const pila = [];            // vistas abiertas: { id, cerrar() → true si cerró algo }
+  let volverModal = null;     // regreso del modal compartido (p. ej. detalle de factura → su lista)
+  const tabActiva = () => { const b = document.querySelector(".tabs button.activa"); return b ? b.dataset.tab : "panelMapa"; };
+  function irA(tab) { if (tab && tabActiva() !== tab) { try { irAPestana(tab); } catch (_) {} } }
+
+  function quitar(id) { const i = pila.findIndex((v) => v.id === id); if (i >= 0) pila.splice(i, 1); }
+  function empujar(id, cerrar) { quitar(id); pila.push({ id, cerrar }); }
+  function fijarVolverModal(fn) { volverModal = typeof fn === "function" ? fn : null; }
+
+  /* El modal compartido (#modalAdmin) lo reutilizan todas las ventanas: al abrir otra, el "volver" anterior deja de aplicar. */
+  if (typeof window.modal === "function" && !window.modal.__navAdmin) {
+    const original = window.modal;
+    window.modal = function () { volverModal = null; return original.apply(this, arguments); };
+    window.modal.__navAdmin = true;
+  }
+  const mm = g("modalAdmin");
+  if (mm && typeof MutationObserver !== "undefined") {
+    new MutationObserver(() => { if (mm.classList.contains("oculto")) volverModal = null; }).observe(mm, { attributes: true, attributeFilter: ["class"] });
+  }
+
+  /* Todo chat administrador ↔ repartidor (equipo o invitado) regresa a la bandeja de Chats al cerrarse. */
+  if (typeof Chat !== "undefined" && Chat && Chat.iniciar && !Chat.__navAdmin) {
+    const original = Chat.iniciar;
+    Chat.iniciar = function (o) {
+      o = o || {};
+      if (o.yo === "admin") {
+        const previo = o.alCerrar;
+        o.alCerrar = function () {
+          try { if (previo) previo.apply(this, arguments); }
+          finally { setTimeout(() => irA("panelChats"), 0); }
+        };
+      }
+      return original.call(this, o);
+    };
+    Chat.__navAdmin = true;
+  }
+
+  function atras() {
+    try { if (ZonasMapa.atras()) return true; } catch (_) {}
+    const modal = g("modalAdmin");
+    if (modal && !modal.classList.contains("oculto")) {
+      if (volverModal) {
+        const f = volverModal; volverModal = null;
+        try { f(); } catch (e) { console.warn("atrás (modal):", e); }
+        return true;
+      }
+      return false;   // cualquier otro modal: lo cierra la lista original (y se regresa a la pantalla de abajo)
+    }
+    for (let i = pila.length - 1; i >= 0; i--) {
+      let hecho = false;
+      try { hecho = !!pila[i].cerrar(); } catch (_) {}
+      if (hecho) return true;
+      pila.splice(i, 1);   // esa vista ya no estaba abierta: se descarta y se prueba la siguiente
+    }
+    return false;
+  }
+  return { atras, irA, tabActiva, empujar, quitar, fijarVolverModal };
+})();
+
+/* ============================================================
    ORDENES-ADMIN · Panel del administrador (Fases 2, 3 y 4 unificadas)
    FASE ÚNICA: se añade el módulo EQUIPO que reemplaza a pintarEquipo()
    con un renderizado robusto, redundante y auto-recuperable.
@@ -57,9 +130,11 @@ const PedidosAdmin = (() => {
   }
   const wa = (msg) => window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_system");
   
-  function repsActivos() {
-    const ids = [...new Set([...Object.keys(registrados), ...Object.keys(ubic)])];
-    return ids.filter((u) => ["enRuta", "libre"].includes(estadoDe(u))).sort((a, b) => nombreUid(a).localeCompare(nombreUid(b)));
+  /* FASE 3 · Selector universal: TODOS los repartidores del equipo (activos o inactivos) + invitados con pedido abierto. */
+  function repsTodos() {
+    const rango = { libre: 0, enRuta: 1, sinSenal: 2, desconectado: 3, sinDatos: 4 };
+    const ids = [...new Set([...Object.keys(registrados), ...Object.keys(ubic).filter((u) => O.esInvitadoUid(u) && !invCerrado(u))])];
+    return ids.sort((a, b) => ((rango[estadoDe(a)] != null ? rango[estadoDe(a)] : 9) - (rango[estadoDe(b)] != null ? rango[estadoDe(b)] : 9)) || nombreUid(a).localeCompare(nombreUid(b)));
   }
 
   // FASE 1 · Capas del mapa: los negocios (.neg-ico) siempre quedan POR DEBAJO de repartidores y demás marcadores.
@@ -87,27 +162,27 @@ const PedidosAdmin = (() => {
   function cancelarClick() { if (timerClick) { clearTimeout(timerClick); timerClick = null; } }
   function quitarTemp() { if (tempMarca && mapa) { mapa.removeLayer(tempMarca); } tempMarca = null; }
 
+  /* FASE 3 · El toque rápido / clic simple YA NO abre "Asignar punto" (solo la pulsación larga de más de 2 s, ver abajo).
+     Aquí solo queda el modo de dibujo de zonas, donde cada toque es un vértice. */
   function clickMapa(ll) {
-    if (typeof ZonasMapa !== "undefined" && ZonasMapa.capturar(ll)) return;   // modo dibujo de zonas: el toque es un vértice
-    if (busqAbierta || Date.now() - popupCerrado < 350) return;
-    if (!el("modalAdmin").classList.contains("oculto")) return;
     cancelarClick();
-    timerClick = setTimeout(() => { timerClick = null; abrirAsignacion(ll); }, 260);
+    if (typeof ZonasMapa !== "undefined" && ZonasMapa.capturar(ll)) return;
   }
 
   function abrirAsignacion(ll) {
     quitarTemp();
     tempMarca = L.marker(ll, { icon: O.pinIcono("temp", "📍"), interactive: false, zIndexOffset: 1200 }).addTo(mapa);
-    const reps = repsActivos();
+    const reps = repsTodos();
     let punto = "retiro", uid = null;
     modal(`<h2>📍 Asignar punto</h2>
       <div class="pd-coord">${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}</div>
       <div class="pd-seg" id="pdPunto"><button type="button" data-p="retiro" class="on">📦 Retiro</button><button type="button" data-p="entrega">🏠 Entrega</button></div>
-      <small>Repartidor activo</small>
+      <small>Repartidor (activo o inactivo)</small>
       <div class="pd-lista-rep" id="pdReps">${reps.length ? reps.map((u) => {
         const inv = O.esInvitadoUid(u), [tx] = ETIQUETA[estadoDe(u)];
-        return `<button type="button" class="pd-rep" data-uid="${esc(u)}"><span><strong>${esc(nombreUid(u))}</strong><small>${tx}${viajeDe(u) ? " · con pedido" : ""}</small></span>${inv ? '<i class="pd-tag">Invitado</i>' : ""}</button>`;
-      }).join("") : '<p class="ayuda">No hay repartidores activos (conectados) ahora mismo.</p>'}</div>
+        const off = ["desconectado", "sinDatos", "sinSenal"].includes(estadoDe(u));
+        return `<button type="button" class="pd-rep${off ? " inactivo" : ""}" data-uid="${esc(u)}"><span><strong>${esc(nombreUid(u))}</strong><small>${tx}${viajeDe(u) ? " · con pedido" : ""}</small></span>${inv ? '<i class="pd-tag">Invitado</i>' : ""}</button>`;
+      }).join("") : '<p class="ayuda">Aún no hay repartidores en el equipo.</p>'}</div>
       <button id="pdAsignar" class="primario" type="button" disabled>Asignar punto</button>
       <button id="pdCancelar" class="oscuro" type="button">Cancelar</button>`);
     el("pdPunto").onclick = (e) => {
@@ -130,6 +205,84 @@ const PedidosAdmin = (() => {
         toast(`${O.PUNTOS[punto].icono} ${O.PUNTOS[punto].nombre} enviado a ${nombreUid(uid)} ✓ Su ruta se traza sola.`);
       } catch (err) { toast("No se pudo asignar: " + err.message); el("pdAsignar").disabled = false; }
     };
+  }
+
+  /* ============================================================
+     FASE 3 · PULSACIÓN LARGA (> 2 segundos) PARA "ASIGNAR PUNTO"
+     Mantener presionado un punto libre del mapa por más de 2 s abre el menú; un anillo de progreso lo indica.
+     Se cancela si el dedo/ratón se mueve, si hay un segundo dedo (zoom/giro) o si el mapa empieza a moverse.
+     No actúa sobre marcadores, globos, controles, ni mientras se dibuja una zona, se agrega un negocio o se guía a un repartidor.
+     ============================================================ */
+  const HOLD_MS = 2000, HOLD_TOL = 12, HOLD_ANILLO_MS = 350;
+  let hold = null, anillo = null, sinClickHasta = 0, holdListo = false;
+
+  function holdBloqueado() {
+    try {
+      if (typeof ZonasMapa !== "undefined" && ZonasMapa.activo && ZonasMapa.activo()) return true;
+      if (typeof modoNegocio !== "undefined" && modoNegocio) return true;
+      if (typeof selUid !== "undefined" && selUid) return true;
+    } catch (_) {}
+    const bp = el("btnPolicia");
+    if (bp && (bp.classList.contains("on") || bp.classList.contains("activo"))) return true;
+    if (!el("modalAdmin").classList.contains("oculto") || !el("resBusq").classList.contains("oculto")) return true;
+    return !!ovl;
+  }
+  function holdAnillo() {
+    if (anillo) return anillo;
+    const caja = mapa.getContainer().parentNode;
+    anillo = document.createElement("div");
+    anillo.className = "lp-anillo";
+    anillo.setAttribute("aria-hidden", "true");
+    anillo.innerHTML = '<svg viewBox="0 0 48 48"><circle class="lp-fondo" cx="24" cy="24" r="20"/><circle class="lp-prog" cx="24" cy="24" r="20"/></svg>';
+    caja.appendChild(anillo);
+    return anillo;
+  }
+  function mostrarAnillo(x, y) {
+    const a = holdAnillo(), r = a.parentNode.getBoundingClientRect();
+    a.style.left = (x - r.left) + "px"; a.style.top = (y - r.top) + "px";
+    a.classList.remove("on"); void a.offsetWidth; a.classList.add("on");
+  }
+  function cancelarHold() {
+    if (hold) { clearTimeout(hold.tAnillo); clearTimeout(hold.tFuego); hold = null; }
+    if (anillo) anillo.classList.remove("on");
+  }
+  function dispararHold(x, y) {
+    cancelarHold();
+    if (holdBloqueado()) return;
+    let ll = null;
+    try { ll = mapa.mouseEventToLatLng({ clientX: x, clientY: y }); } catch (_) {}
+    if (!ll) return;
+    sinClickHasta = Date.now() + 600;   // el clic que genera soltar el dedo no debe disparar otras acciones del mapa
+    try { if (navigator.vibrate) navigator.vibrate(45); } catch (_) {}
+    abrirAsignacion(ll);
+  }
+  function iniciarPulsacionLarga() {
+    if (holdListo || typeof mapa === "undefined" || !mapa) return;
+    holdListo = true;
+    const cont = mapa.getContainer();
+    cont.addEventListener("pointerdown", (e) => {
+      cancelarHold();                                                        // un segundo dedo (zoom/giro) también cancela
+      if (!e.isPrimary || (e.pointerType === "mouse" && e.button !== 0)) return;
+      if (holdBloqueado()) return;
+      if (e.target && e.target.closest && e.target.closest(".leaflet-marker-icon, .leaflet-popup, .leaflet-control, .leaflet-interactive, button, a, input, select, textarea")) return;
+      const x = e.clientX, y = e.clientY;
+      hold = { x, y, id: e.pointerId, tAnillo: setTimeout(() => mostrarAnillo(x, y), HOLD_ANILLO_MS), tFuego: setTimeout(() => dispararHold(x, y), HOLD_MS) };
+    }, { passive: true });
+    cont.addEventListener("pointermove", (e) => {
+      if (hold && e.pointerId === hold.id && Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > HOLD_TOL) cancelarHold();
+    }, { passive: true });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((t) => cont.addEventListener(t, (e) => {
+      if (hold && (e.pointerId == null || e.pointerId === hold.id)) cancelarHold();
+    }, { passive: true }));
+    cont.addEventListener("contextmenu", (e) => { if (!(e.target && e.target.closest && e.target.closest(".leaflet-popup, input, textarea"))) e.preventDefault(); });
+    mapa.on("movestart zoomstart", cancelarHold);
+    document.addEventListener("click", (e) => { if (Date.now() < sinClickHasta) { e.stopPropagation(); e.preventDefault(); } }, true);
+    try {
+      if (!localStorage.getItem("admin_hint_hold")) {
+        localStorage.setItem("admin_hint_hold", "1");
+        setTimeout(() => { try { toast("💡 Para asignar un punto, mantén presionado el mapa 2 segundos."); } catch (_) {} }, 1500);
+      }
+    } catch (_) {}
   }
 
   const okLL = (ll) => !!ll && typeof ll.lat === "number" && typeof ll.lng === "number";
@@ -782,10 +935,13 @@ const PedidosAdmin = (() => {
     }
     modal(`<div class="fv-caja"><h2>🧾 Detalle de factura</h2><div class="fv-resumen">${cuerpo}</div>
       <button id="fvEntregar" class="primario" type="button">✅ Marcar como entregada</button>
-      <button id="fvVolver" type="button">← Volver a la lista</button><button id="fvCerrar2" class="oscuro" type="button">Cerrar</button></div>`);
+      <button id="fvCancelar" class="peligro" type="button">🚫 Cancelar factura por completo</button>
+      ${desdeLista ? '<button id="fvVolver" type="button">← Volver a la lista</button>' : ""}<button id="fvCerrar2" class="oscuro" type="button">Cerrar</button></div>`);
     facturaDesdeLista = !!desdeLista;
+    NavAdmin.fijarVolverModal(desdeLista ? abrirFacturasEnRuta : null);   // Atrás: detalle → lista → pantalla de origen
     el("fvEntregar").onclick = () => marcarEntregadaFactura(k);
-    el("fvVolver").onclick = abrirFacturasEnRuta;
+    el("fvCancelar").onclick = () => cancelarFactura(k);
+    if (el("fvVolver")) el("fvVolver").onclick = abrirFacturasEnRuta;
     el("fvCerrar2").onclick = cerrarModal;
   }
 
@@ -817,6 +973,47 @@ const PedidosAdmin = (() => {
       await db.ref().update(upd);
       cerrarModal(); toast("✅ Pedido marcado como entregado");
     } catch (err) { toast("No se pudo marcar como entregado: " + (err.message || err)); }
+  }
+
+  /* FASE 2 · Cancela POR COMPLETO una factura en curso (pedido admin, solicitud de cliente o pedido en ruta):
+     cambia su estado, libera al repartidor (guía / ubicación de invitado) y deja de contar como factura en ruta. */
+  async function cancelarFactura(k) {
+    const tipo = String(k).slice(0, 1), id = String(k).slice(2), upd = {};
+    const marca = (ruta) => {
+      upd[ruta + "/estado"] = "cancelado"; upd[ruta + "/forzadoPorAdmin"] = true; upd[ruta + "/forzadoTs"] = O.TS;
+      upd[ruta + "/canceladoTs"] = O.TS; upd[ruta + "/motivoForzado"] = "Factura cancelada por el administrador";
+    };
+    const soltarGuia = (uid, ...ids) => { if (uid && guias[uid] && ids.some((x) => x && (guias[uid].ordenId === x || guias[uid].solicitudId === x))) upd["guias/" + uid] = null; };
+    let nombre = "", pedidos = [];
+    if (tipo === "o") {
+      const o = ordenes[id]; if (!o) return toast("Ese pedido ya no está disponible.");
+      if (!activa(o)) return toast(`El pedido ${cod(o.codigo)} ya está ${o.estado === "entregado" ? "entregado" : "cancelado"}: no se puede cancelar.`);
+      const a = o.asignacion || {}, uid = a.tipo === "invitado" ? O.uidInvitado(id) : (a.uid || "");
+      nombre = cod(o.codigo) + " · " + (o.cliente || "Sin nombre");
+      marca("ordenes/" + id); upd["ordenes/" + id + "/actualizado"] = O.TS;
+      if (a.tipo === "invitado") { upd["ubicaciones/" + uid] = null; upd["guias/" + uid] = null; } else soltarGuia(uid, id);
+      pedidos = [id];
+    } else if (tipo === "s") {
+      const d = typeof SolicitudesAdmin !== "undefined" && SolicitudesAdmin.obtener ? SolicitudesAdmin.obtener(id) : null;
+      if (!d) return toast("Esa solicitud ya no está disponible.");
+      if (d.estado === "entregado" || d.estado === "cancelado") return toast("Esa solicitud ya está " + (d.estado === "entregado" ? "entregada" : "cancelada") + ".");
+      nombre = (d.nombre || "Cliente") + (d.facturaFinal && d.facturaFinal.pedido ? " · " + d.facturaFinal.pedido : "");
+      marca("solicitudes_entrantes/" + id); upd["solicitudes_entrantes/" + id + "/canceladoPor"] = "admin";
+      pedidos = Object.entries(activos).filter(([, x]) => x && x.solicitudId === id).map(([t]) => t);
+      soltarGuia(d.repartidorUid, id, ...pedidos);
+    } else {
+      const d = activos[id]; if (!d) return toast("Ese pedido ya no está en ruta.");
+      nombre = (d.pedido || "Pedido") + " · " + (d.clienteNombre || (d.factura && d.factura.cliente) || "Cliente");
+      pedidos = [id]; soltarGuia(d.repartidorUid, id);
+    }
+    if (!confirm(`¿CANCELAR POR COMPLETO la factura ${nombre}?\n\nEl pedido se cancela, el repartidor queda libre y la factura deja de estar en ruta. No se puede deshacer.`)) return;
+    try {
+      for (const t of pedidos) { if ((await db.ref("pedidos/" + t).once("value")).exists()) upd["pedidos/" + t + "/estado"] = "cancelado"; }
+      await db.ref().update(upd);
+      cerrarModal();
+      try { ClientesMapa.cerrar(); } catch (_) {}
+      toast("🚫 Factura cancelada por completo");
+    } catch (err) { toast("No se pudo cancelar: " + (err.message || err)); }
   }
 
   function abrirFacturaUid(uid) {
@@ -931,6 +1128,7 @@ const PedidosAdmin = (() => {
       mapa.on("preclick", () => { busqAbierta = !el("resBusq").classList.contains("oculto"); });
       mapa.on("popupclose", () => { popupCerrado = Date.now(); });
       mapa.on("dblclick zoomstart movestart", cancelarClick);
+      try { iniciarPulsacionLarga(); } catch (e) { console.warn("[pulsación larga]", e); }
       new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) quitarTemp(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });
       
       document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { cerrarMapaForm(); if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
@@ -984,14 +1182,15 @@ const PedidosAdmin = (() => {
     clearTimeout(tRutas); tRutas = null; Object.keys(rutasO).forEach(quitarRuta);
     ordenes = {}; resInv = {}; sinLeerInv = {};
     try { EQUIPO.detener(); } catch (e) {}
-    cerrarMapaForm(); quitarTemp(); cancelarClick();
+    cerrarMapaForm(); quitarTemp(); cancelarClick(); cancelarHold();
   }
 
   return {
     iniciar, detener, clickMapa, htmlInvitados, notaRep, cerrarInvitado, accionInvitado, expulsarInvitado, chatInvitado,
     invCerrado, tokenInv, cerrarMapaForm, clienteDe: (t) => (ordenes[t] && ordenes[t].cliente) || "",
     forzarEstadoOrden, asignarManual,
-    abrirFacturasEnRuta, abrirFacturaUid, verRecorrido, recorridoInv, volverALista,
+    abrirFacturasEnRuta, abrirFacturaUid, verRecorrido, recorridoInv, volverALista, cancelarFactura,
+    fv: { fila: filaFv, items: itemsFv, totales: totalesFv, sub: subFv, extras: extrasFv, banner: bannerFv, dinero },
     ordenesActivas: () => Object.entries(ordenes).filter(([, o]) => o && typeof o === "object" && activa(o)),
     codigo: cod
   };
@@ -1013,6 +1212,34 @@ const EQUIPO = (() => {
   const g = (id) => document.getElementById(id);
   const cache = { registrados: {}, fotos: {}, error: null, cargando: true };
   let refRep = null, refFotos = null, tRetry = null, intentos = 0, lastHash = "";
+
+  /* FASE 2 · Tarjetas colapsables (cortina): el estado de cada repartidor se recuerda en este aparato. */
+  const CLAVE_TARJ = "admin_equipo_tarjetas";
+  let plegadas = {};
+  try { plegadas = JSON.parse(localStorage.getItem(CLAVE_TARJ) || "{}") || {}; } catch (_) { plegadas = {}; }
+  const guardarPlegadas = () => { try { localStorage.setItem(CLAVE_TARJ, JSON.stringify(plegadas)); } catch (_) {} };
+  const dineroEq = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+  function aplicarPlegada(card, plegada) {
+    const uid = card.dataset.uid;
+    card.classList.toggle("plegada", plegada);
+    if (plegada) plegadas[uid] = true; else delete plegadas[uid];
+    const b = card.querySelector(".eq-cortina"), inner = card.querySelector(".tr-cuerpo-in");
+    if (b) { b.setAttribute("aria-expanded", plegada ? "false" : "true"); b.setAttribute("aria-label", (plegada ? "Maximizar" : "Minimizar") + " la tarjeta del repartidor"); }
+    if (inner && "inert" in inner) inner.inert = plegada;
+  }
+  function actualizarBotonPlegar() {
+    const b = g("btnPlegarEquipo"); if (!b) return;
+    const cards = [...document.querySelectorAll("#listaEquipo .eq-tarjeta")];
+    const hayAbierta = cards.some((c) => !c.classList.contains("plegada"));
+    b.textContent = hayAbierta ? "⇕ Plegar todo" : "⇕ Desplegar todo";
+    b.disabled = !cards.length;
+  }
+  function plegarTodo() {
+    const cards = [...document.querySelectorAll("#listaEquipo .eq-tarjeta")];
+    const plegar = cards.some((c) => !c.classList.contains("plegada"));
+    cards.forEach((c) => aplicarPlegada(c, plegar));
+    guardarPlegadas(); actualizarBotonPlegar();
+  }
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1094,22 +1321,34 @@ const EQUIPO = (() => {
         const avatarStyle = tieneFoto ? ' style="background-image:url(\'' + foto + '\');background-size:cover;background-position:center;background-color:transparent"' : "";
         const avatarInner = tieneFoto ? "" : avatar;
 
-        return '<div class="tarjeta-rep">' +
-          '<div class="fila">' +
+        const plegada = !!plegadas[uid];
+        let tr = { n: 0, total: 0, html: "" };
+        try { tr = EntregasAdmin.resumenTarjeta(uid); } catch (_) {}
+        const badge = tr.n ? '<small class="tr-badge">🏦 ' + tr.n + (tr.n === 1 ? " transferencia" : " transferencias") + " · se le debe " + esc(dineroEq(tr.total)) + "</small>" : "";
+
+        return '<div class="tarjeta-rep eq-tarjeta' + (plegada ? " plegada" : "") + '" data-uid="' + esc(uid) + '">' +
+          '<div class="fila eq-fila-cab">' +
           '<span class="avatar' + (tieneFoto ? ' con-foto' : '') + '" data-av="' + esc(uid) + '"' + avatarStyle + '>' + avatarInner + '</span>' +
           '<div class="datos">' +
-          '<strong>' + esc(nombre) + '</strong>' +
+          '<strong>' + esc(nombre) + '</strong>' + badge +
+          '</div>' +
+          '<span class="chip ' + esc(estadoClase) + '">' + esc(estadoLabel) + '</span>' +
+          '<button class="eq-cortina" type="button" data-cortina="' + esc(uid) + '" aria-expanded="' + (plegada ? "false" : "true") + '" aria-label="' + (plegada ? "Maximizar" : "Minimizar") + ' la tarjeta del repartidor"><span class="eq-flecha" aria-hidden="true"></span></button>' +
+          '</div>' +
+          '<div class="tr-cuerpo"><div class="tr-cuerpo-in"' + (plegada ? " inert" : "") + '>' +
+          '<div class="datos">' +
           '<small>' + (email ? esc(email) : "Sin correo registrado · " + esc(String(uid).slice(0, 8)) + "…") + '</small>' +
           '<small>📱 ' + (tel ? "WhatsApp +" + esc(tel) : "Sin WhatsApp guardado") + '</small>' +
           '</div>' +
-          '<span class="chip ' + esc(estadoClase) + '">' + esc(estadoLabel) + '</span>' +
-          '</div>' +
+          tr.html +
           '<div class="acciones-fila">' +
+          '<button class="mini pri" data-entregadas="' + esc(uid) + '" type="button">🧾 Entregadas del día</button>' +
           '<button class="mini" data-foto-uid="' + esc(uid) + '" data-foto-nom="' + esc(nombre) + '" type="button">📷 Foto</button>' +
           '<button class="mini" data-accion="telefono" data-uid="' + esc(uid) + '" type="button">' + (tel ? "Editar WhatsApp" : "Agregar WhatsApp") + '</button>' +
           (email ? '<button class="mini" data-accion="reset" data-uid="' + esc(uid) + '" type="button">Restablecer clave</button>' : '') +
           '<button class="mini peligro" data-accion="quitar" data-uid="' + esc(uid) + '" type="button">Quitar</button>' +
           '</div>' +
+          '</div></div>' +
           '</div>';
       } catch (e) {
         console.error("[EQUIPO] error renderizando uid=" + uid, e);
@@ -1126,6 +1365,7 @@ const EQUIPO = (() => {
     try {
       if (typeof aplicarFotosAvatares === "function") aplicarFotosAvatares();
     } catch (_) {}
+    actualizarBotonPlegar();
   }
 
   function iniciar() {
@@ -1200,6 +1440,20 @@ const EQUIPO = (() => {
     intentos = 0;
     lastHash = "";
   }
+
+  const listaEq = g("listaEquipo");
+  if (listaEq) listaEq.addEventListener("click", (ev) => {
+    const c = ev.target.closest("[data-cortina]");
+    if (c) {
+      const card = c.closest(".eq-tarjeta");
+      if (card) { aplicarPlegada(card, !card.classList.contains("plegada")); guardarPlegadas(); actualizarBotonPlegar(); }
+      return;
+    }
+    const en = ev.target.closest("[data-entregadas]");
+    if (en) { try { EntregasAdmin.abrirBandeja(en.dataset.entregadas); } catch (err) { console.warn("[entregadas]", err); toast("No se pudieron abrir las facturas entregadas."); } }
+  });
+  const btnPlegar = g("btnPlegarEquipo");
+  if (btnPlegar) btnPlegar.addEventListener("click", plegarTodo);
 
   return { iniciar, detener, render, refrescarManual: iniciar };
 })();
@@ -1599,6 +1853,7 @@ const SolicitudesAdmin = (() => {
     limpiarVisor();
     origenVisor = origen || tabActivaSA();   // pestaña a la que se regresa al cerrar (Mapa o Solicitudes)
     visorId = id; ultDia = null; vistos.clear();
+    NavAdmin.empujar("visor", atrasVisor);
     g("saMsgs").textContent = "";
     g("saMapaCaja").classList.add("oculto");
     g("saMapaBtn").setAttribute("aria-expanded", "false");
@@ -1674,6 +1929,7 @@ const SolicitudesAdmin = (() => {
     if (refLeidos) { refLeidos.off(); refLeidos = null; }
     if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
     visorId = null;
+    NavAdmin.quitar("visor");
     lect = {}; ultimaDirCliente = null;
     quitarMarcas();
     const m = g("modalSolicitud");
@@ -1865,7 +2121,7 @@ const SolicitudesAdmin = (() => {
     if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
   }
   const activas = () => Object.entries(lista).filter(([, d]) => d && typeof d === "object" && d.repartidorUid && !fin(d));
-  return { iniciar, detener, forzarEstadoSolicitud, activas, abrirVisor, cerrarVisor, atras: atrasVisor, visorAbierto: () => !!visorId };
+  return { iniciar, detener, forzarEstadoSolicitud, activas, abrirVisor, cerrarVisor, atras: atrasVisor, visorAbierto: () => !!visorId, obtener: (id) => lista[id], todas: () => lista };
 })();
 
 
@@ -2131,53 +2387,6 @@ const ActualizacionAdmin = (() => {
 
 
 /* ============================================================
-   FASE 1 · NAVEGACIÓN CONTEXTUAL HACIA ATRÁS (pila SPA)
-   admin.html envuelve Atras.iniciar para que esta capa corra justo después de la cámara/chat:
-     · Chat con repartidor            → bandeja de Chats
-     · Detalle de factura (lista)     → lista "Facturas en ruta" → Mapa
-     · Factura/panel de cliente (Mapa)→ Mapa
-     · Visor de solicitud (lectura)   → mapa espectador plegado → bandeja de Solicitudes (o Mapa si se abrió desde él)
-     · Dibujo de zonas                → cancela el dibujo
-   El resto de capas (modales, popups, búsqueda, pestañas…) sigue en la lista original de admin.js.
-   ============================================================ */
-const NavAdmin = (() => {
-  const g = (id) => document.getElementById(id);
-  const tabActiva = () => { const b = document.querySelector(".tabs button.activa"); return b ? b.dataset.tab : "panelMapa"; };
-  function irA(tab) { if (tab && tabActiva() !== tab) { try { irAPestana(tab); } catch (_) {} } }
-
-  /* Todo chat administrador ↔ repartidor (equipo o invitado) regresa a la bandeja de Chats al cerrarse. */
-  if (typeof Chat !== "undefined" && Chat && Chat.iniciar && !Chat.__navAdmin) {
-    const original = Chat.iniciar;
-    Chat.iniciar = function (o) {
-      o = o || {};
-      if (o.yo === "admin") {
-        const previo = o.alCerrar;
-        o.alCerrar = function () {
-          try { if (previo) previo.apply(this, arguments); }
-          finally { setTimeout(() => irA("panelChats"), 0); }
-        };
-      }
-      return original.call(this, o);
-    };
-    Chat.__navAdmin = true;
-  }
-
-  function atras() {
-    try { if (ZonasMapa.atras()) return true; } catch (_) {}
-    const modal = g("modalAdmin");
-    if (modal && !modal.classList.contains("oculto")) {
-      try { if (PedidosAdmin.volverALista()) return true; } catch (_) {}
-      return false;   // cualquier otro modal: lo cierra la lista original (y se regresa a la pantalla de abajo)
-    }
-    try { if (SolicitudesAdmin.atras()) return true; } catch (_) {}
-    try { if (ClientesMapa.atras()) return true; } catch (_) {}
-    return false;
-  }
-  return { atras, irA, tabActiva };
-})();
-
-
-/* ============================================================
    FASE 1 · CLIENTES EN VIVO EN EL MAPA
    Un ícono con el nombre del cliente en su ubicación GPS por cada pedido activo
    (app cliente, WhatsApp / factura manual del repartidor, o pedido creado por el admin).
@@ -2300,9 +2509,10 @@ const ClientesMapa = (() => {
   function abrir(k) {
     if (!items[k]) return;
     abierto = k; pintarPanel();
+    NavAdmin.empujar("clienteMapa", atras);
     try { mapa.panTo([items[k].lat, items[k].lng], { animate: true }); } catch (_) {}
   }
-  function cerrar() { abierto = null; const c = g("panelCliente"); if (c) { c.classList.add("oculto"); c.innerHTML = ""; } }
+  function cerrar() { NavAdmin.quitar("clienteMapa"); abierto = null; const c = g("panelCliente"); if (c) { c.classList.add("oculto"); c.innerHTML = ""; } }
   function atras() {
     if (!abierto || NavAdmin.tabActiva() !== "panelMapa") return false;
     cerrar(); return true;
@@ -2331,16 +2541,46 @@ const ClientesMapa = (() => {
     const k = Ordenes.cobro(o, ped);
     return { prod: k.pagado, deliv: k.delivery, ex: k.extras, otros: k.prio, total: k.total };
   }
+  /* Detalle de cada compra de la factura (productos, subfacturas y extras), con su precio. */
+  function lineasCompras(it) {
+    const out = [], nom = (p) => String(p.nombre || "Producto");
+    const prod = (f) => arr(f && f.productos).forEach((p) => out.push({ n: nom(p).replace(/^➕\s*/, ""), m: num(p.precio), ex: nom(p).indexOf("➕") === 0 }));
+    const sub = (sf) => {
+      if (!sf || typeof sf !== "object") return;
+      arr(sf.items).forEach((p) => out.push({ n: (sf.etiqueta ? sf.etiqueta + " · " : "") + nom(p).replace(/^➕\s*/, ""), m: num(p.precio), ex: nom(p).indexOf("➕") === 0 }));
+      if (num(sf.envioExtra) > 0) out.push({ n: "Envío extra" + (sf.etiqueta ? " · " + sf.etiqueta : ""), m: num(sf.envioExtra), ex: true });
+    };
+    const exs = (e) => arr(e).forEach((x) => { if (hayNum(x.monto)) out.push({ n: (x.nota || "Extra") + (x.por ? " · " + x.por : ""), m: x.monto, ex: true }); });
+    const ped = typeof activos !== "undefined" ? activos : {};
+    if (it.tipo === "s") {
+      prod(it.d.facturaFinal); sub(it.d.subfactura);
+      const e = Object.values(ped).find((x) => x && x.solicitudId === it.id);
+      if (e) { sub(e.subfactura); exs(e.extras); }
+    } else if (it.tipo === "p") {
+      prod(it.d.detalle || it.d.factura); sub(it.d.subfactura); exs(it.d.extras);
+    } else {
+      const e = ped[it.id], f = e && (e.detalle || e.factura);
+      prod(f); if (e) { sub(e.subfactura); exs(e.extras); }
+      if (!out.length) Ordenes.paradas(it.d).forEach((p) => { if (p.producto) out.push({ n: p.producto + (p.texto ? " · " + p.texto : ""), m: null, ex: false }); });
+    }
+    return out;
+  }
   function abrirFactura() {
     const it = items[abierto]; if (!it) return;
-    const r = resumen(it), fila = (t, v, c) => `<div class="fv-fila${c ? " " + c : ""}"><span>${t}</span><b>${dinero(v)}</b></div>`;
+    const k = it.k, r = resumen(it), ls = lineasCompras(it);
+    const fila = (t, v, c) => `<div class="fv-fila${c ? " " + c : ""}"><span>${t}</span><b>${dinero(v)}</b></div>`;
+    const compras = ls.length
+      ? `<div class="fv-sec">🛍️ Detalle de cada compra</div><div class="fv-bloque">${ls.map((x) => `<div class="fv-fila${x.ex ? " fv-ex" : ""}"><span>${esc(x.n)}</span><b>${x.m == null ? "—" : dinero(x.m)}</b></div>`).join("")}</div>`
+      : "";
     const cuerpo = r
-      ? `<div class="fv-bloque">${fila("🛍️ Total de productos", r.prod)}${fila("🛵 Delivery", r.deliv)}${fila("➕ Mandados extras", r.ex, r.ex > 0 ? "fv-ex" : "")}${r.otros > 0 ? fila("⚡ Prioridad / IVA extra", r.otros, "fv-pri") : ""}<div class="fv-total"><span>Total General</span><b>${dinero(r.total)}</b></div></div>`
+      ? `<div class="fv-sec">Resumen</div><div class="fv-bloque">${fila("🛍️ Total de productos", r.prod)}${fila("🛵 Delivery", r.deliv)}${fila("➕ Mandados extras", r.ex, r.ex > 0 ? "fv-ex" : "")}${r.otros > 0 ? fila("⚡ Prioridad / IVA extra", r.otros, "fv-pri") : ""}<div class="fv-total"><span>Total General</span><b>${dinero(r.total)}</b></div></div>`
       : '<div class="fv-bloque"><div class="fv-fila"><span>Todavía no hay factura: el repartidor aún no la envía.</span></div></div>';
     modal(`<div class="fv-caja"><h2>🧾 Factura</h2>
-      <div class="fv-resumen"><div class="fv-banner"><b>${esc(it.nombre)}</b><small>🛵 ${esc(it.rep || "Sin asignar")} · ${esc(it.fuente)}</small></div>${cuerpo}</div>
+      <div class="fv-resumen"><div class="fv-banner"><b>${esc(it.nombre)}</b><small>🛵 ${esc(it.rep || "Sin asignar")} · ${esc(it.fuente)}</small></div>${compras}${cuerpo}</div>
+      <button id="cmFvCancelar" class="peligro" type="button">🚫 Cancelar factura por completo</button>
       <button id="cmFvCerrar" class="oscuro" type="button">Cerrar</button></div>`);
     g("cmFvCerrar").onclick = cerrarModal;
+    g("cmFvCancelar").onclick = () => { PedidosAdmin.cancelarFactura(k); };
   }
 
   /* ---------- espectar chat (solo lectura) ---------- */
@@ -2543,7 +2783,7 @@ const ZonasMapa = (() => {
     if (u) u.onclick = deshacer; if (o) o.onclick = guardarDibujo; if (c) c.onclick = () => cancelarDibujo(false);
   })();
   if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
-  return { iniciar, detener, capturar, atras, abrirGestor };
+  return { iniciar, detener, capturar, atras, abrirGestor, activo: () => !!dib };
 })();
 
 
@@ -2629,7 +2869,7 @@ const RendimientoEquipo = (() => {
   const dinero = (n) => "C$ " + r2(n).toFixed(2);
   const PCT_BROTHERS = 0.3, IVA = 7;
   const refs = {}, datos = {};        // uid → ref / registros
-  let modo = "mes", ref = null, timer = null, tPintar = null, activo = false;   // modo: dia | semana | quincena | mes | total
+  let modo = "dia", ref = null, timer = null, tPintar = null, activo = false, sigueHoy = true;   // modo: dia | semana | quincena | mes | total · por defecto HOY (monitoreo diario)
 
   /* ---------- Periodo: fechas locales (sin desfase de zona horaria) ---------- */
   const pad = (n) => String(n).padStart(2, "0");
@@ -2690,6 +2930,7 @@ const RendimientoEquipo = (() => {
   function tarjeta(titulo, sub, uid, t, esTotal) {
     const av = uid ? `<span class="avatar" data-av="${esc(uid)}">${typeof RIDER_SVG !== "undefined" ? RIDER_SVG : "🛵"}</span>` : '<span class="avatar" aria-hidden="true">👥</span>';
     const conteo = [t.d7 ? `C$ 7 × ${t.d7}` : "", t.d14 ? `C$ 14 × ${t.d14}` : "", t.d21 ? `C$ 21 × ${t.d21}` : "", t.dOtro ? `otras × ${t.dOtro}` : "", t.ivaN ? `IVA extra (C$ 7) × ${t.ivaN}` : ""].filter(Boolean).join(" · ") || "Sin deducciones";
+    let trx = ""; if (uid) { try { trx = EntregasAdmin.resumenTarjeta(uid).html; } catch (_) {} }
     return `<div class="rd-tarjeta${esTotal ? " total" : ""}">
       <div class="rd-cab">${av}<div><strong>${esc(titulo)}</strong><small>${esc(sub)}</small></div><span class="rd-n" title="Pedidos realizados">${t.n}</span></div>
       <div class="rd-orig"><div><b>${t.admin}</b><small>🛡️ Admin</small></div><div><b>${t.wa}</b><small>💬 WhatsApp / Factura manual</small></div><div><b>${t.app}</b><small>📱 App Cliente</small></div></div>
@@ -2701,6 +2942,7 @@ const RendimientoEquipo = (() => {
         <div class="rd-fila"><span>30 % comisión Brother’s</span><b>${dinero(t.brothers30)}</b></div>
         <div class="rd-fila"><span>70 % neto del repartidor</span><b>${dinero(t.rep70)}</b></div>
       </div>
+      ${trx}
       <div class="rd-entrega"><span>💵 Entregar a Brother’s<br><small>Deducciones fijas + 30 % acumulado</small></span><b>${dinero(t.entregar)}</b></div>
     </div>`;
   }
@@ -2724,18 +2966,19 @@ const RendimientoEquipo = (() => {
     const l = limites(modo, ref);
     const q = l.desde ? db.ref("contabilidad/" + uid).orderByChild("fecha").startAt(l.desde).endAt(l.hasta) : db.ref("contabilidad/" + uid);
     refs[uid] = q;
-    q.on("value", (s) => { datos[uid] = s.val() || {}; pedirPintar(); }, () => { datos[uid] = {}; pedirPintar(); });
+    q.on("value", (s) => { datos[uid] = s.val() || {}; pedirPintar(); try { EntregasAdmin.programar(uid); } catch (_) {} }, () => { datos[uid] = {}; pedirPintar(); });
   }
   function soltarTodo() { Object.keys(refs).forEach((u) => { try { refs[u].off(); } catch (_) {} delete refs[u]; }); Object.keys(datos).forEach((u) => delete datos[u]); }
   function sincronizar() {
     if (!activo || typeof registrados === "undefined") return;
+    if (sigueHoy && clave(ref) !== clave(hoyD())) { ref = hoyD(); pintarPeriodo(); soltarTodo(); }   // pasó la medianoche: "Hoy" avanza solo
     const uids = Object.keys(registrados);
     uids.forEach(suscribir);
     Object.keys(refs).forEach((u) => { if (uids.indexOf(u) < 0) { try { refs[u].off(); } catch (_) {} delete refs[u]; delete datos[u]; } });
     pedirPintar();
   }
   function iniciar() { activo = true; sincronizar(); clearInterval(timer); timer = setInterval(sincronizar, 5000); }
-  function detener() { activo = false; clearInterval(timer); soltarTodo(); const c = g("rendLista"); if (c) c.innerHTML = ""; }
+  function detener() { activo = false; clearInterval(timer); soltarTodo(); const c = g("rendLista"); if (c) c.innerHTML = ""; try { EntregasAdmin.limpiar(); } catch (_) {} }
 
   /* ---------- Selector de periodo (barra con flechas + ventana con calendario) ---------- */
   function pintarPeriodo() {
@@ -2745,7 +2988,7 @@ const RendimientoEquipo = (() => {
     if (pv) pv.disabled = modo === "total";
     if (nx) nx.disabled = modo === "total" || l.hasta >= clave(hoyD());   // no hay datos del futuro
   }
-  function aplicar(m, r) { modo = m; ref = r; pintarPeriodo(); soltarTodo(); sincronizar(); }
+  function aplicar(m, r) { modo = m; ref = r; sigueHoy = m === "dia" && clave(r) === clave(hoyD()); pintarPeriodo(); soltarTodo(); sincronizar(); }
 
   function abrirVentana() {
     if (typeof modal !== "function") return;
@@ -2754,6 +2997,7 @@ const RendimientoEquipo = (() => {
       <h2>📅 Periodo de ingresos</h2>
       <div class="rd-chips" id="rdChips">
         <button type="button" class="rd-chip" data-m="hoy">Hoy</button>
+        <button type="button" class="rd-chip" data-m="dia">Día</button>
         <button type="button" class="rd-chip" data-m="semana">Semana</button>
         <button type="button" class="rd-chip" data-m="quincena">Quincena</button>
         <button type="button" class="rd-chip" data-m="mes">Mes</button>
@@ -2767,7 +3011,7 @@ const RendimientoEquipo = (() => {
     function pintarVentana() {
       const hoyAct = sm === "dia" && clave(sr) === clave(hoyD());
       g("rdChips").querySelectorAll(".rd-chip").forEach((b) => {
-        const on = b.dataset.m === "hoy" ? hoyAct : b.dataset.m === sm;
+        const on = b.dataset.m === "hoy" ? hoyAct : b.dataset.m === "dia" ? (sm === "dia" && !hoyAct) : b.dataset.m === sm;
         b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
       });
       fecha.value = clave(sr); fecha.disabled = sm === "total";
@@ -2792,7 +3036,332 @@ const RendimientoEquipo = (() => {
     pintarPeriodo();
   })();
   if (typeof auth !== "undefined") auth.onAuthStateChanged((u) => { if (u) iniciar(); else detener(); });
-  return { iniciar, detener, calcular };
+  return { iniciar, detener, calcular, repintar: pedirPintar, periodo: () => { const l = limites(modo, ref); return { desde: l.desde, hasta: l.hasta, txt: etiqueta(modo, ref).txt }; } };
+})();
+
+
+/* ============================================================
+   FASE 2 · FACTURAS ENTREGADAS DEL DÍA POR REPARTIDOR + PAGOS POR TRANSFERENCIA
+   ------------------------------------------------------------
+   Fuentes (se unifican sin duplicar): contabilidad/{uid} (un registro por pedido cobrado), ordenes (pedidos del admin),
+   solicitudes_entrantes (chat de clientes) y pedidos (en curso / WhatsApp). Cada factura entregada es UNA entrada con:
+   código, cliente, detalle de compras, totales, contabilidad y si fue pagada por TRANSFERENCIA.
+   · Transferencia: Brother’s recibió el dinero del cliente, así que se le DEBE al repartidor
+       total de la factura − deducciones fijas − 30 % de Brother’s   (= lo que él habría cobrado en efectivo menos lo que entrega).
+   · Eliminación profunda: borra contabilidad + pedido/solicitud + chat archivado, y descuenta el contador de facturas;
+       los ingresos, el rendimiento y las transferencias se recalculan solos (escuchan esos mismos nodos).
+   Para reconocer la transferencia se revisan estos campos (ajusta las listas si tu app usa otro nombre):
+   ============================================================ */
+const EntregasAdmin = (() => {
+  const g = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const hayNum = (n) => typeof n === "number" && isFinite(n);
+  const num = (n) => (hayNum(n) ? n : Number(n) || 0);
+  const r2 = (n) => Math.round(num(n) * 100) / 100;
+  const dinero = (n) => "C$ " + r2(n).toFixed(2);
+  const arr = (x) => (Array.isArray(x) ? x : Object.values(x || {})).filter((p) => p && typeof p === "object");
+  const PCT_BROTHERS = 0.3;
+  const PAGO_TEXTO = ["pago", "pagoMetodo", "metodoPago", "metodo", "formaPago", "tipoPago", "medioPago", "pagoTipo", "cobroMetodo", "pagadoCon"];
+  const PAGO_BOOL = ["transferencia", "esTransferencia", "pagoTransferencia", "porTransferencia", "pagadoPorTransferencia"];
+  const pad = (n) => String(n).padStart(2, "0");
+  const claveTs = (ts) => { const d = new Date(Number(ts)); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+  const hoyClave = () => claveTs(Date.now());
+  const horaDe = (ts) => (ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "");
+  const fechaHora = (ts) => (ts ? new Date(ts).toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).replace(/\./g, "") : "");
+  const normCod = (c) => String(c == null ? "" : c).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const sumaExtras = (ex) => arr(ex).reduce((t, x) => t + num(x.monto), 0);
+
+  /* ---------- ¿pagó por transferencia? ---------- */
+  const esTexto = (v) => typeof v === "string" && /transfer/i.test(v);
+  function marcaTransf(o, prof) {
+    if (!o || typeof o !== "object" || (prof || 0) > 2) return false;
+    for (const k of PAGO_BOOL) if (o[k] === true || o[k] === "true" || o[k] === 1) return true;
+    for (const k of PAGO_TEXTO) {
+      const v = o[k];
+      if (esTexto(v)) return true;
+      if (v && typeof v === "object" && marcaTransf(v, (prof || 0) + 1)) return true;
+    }
+    return !!prof && esTexto(o.tipo);   // pago: { tipo: "transferencia" }
+  }
+  const esTransf = (...xs) => xs.some((x) => marcaTransf(x, 0));
+
+  /* ---------- carga y unificación ---------- */
+  const leer = (q) => q.once("value").then((s) => s.val() || {}).catch(() => ({}));
+  let cacheOrd = { ts: 0, v: null };
+  async function ordenesRecientes() {
+    if (cacheOrd.v && Date.now() - cacheOrd.ts < 15000) return cacheOrd.v;
+    const v = await leer(db.ref("ordenes").orderByChild("creado").limitToLast(300));
+    cacheOrd = { ts: Date.now(), v };
+    return v;
+  }
+  const tsEntrega = (tipo, d) => Number(tipo === "o" ? (d.entregadoTs || d.actualizado || d.creado) : tipo === "s" ? (d.entregadoTs || d.fin || d.actualizado || d.ts) : (d.fin || d.entregadoTs || d.actualizado || d.inicio)) || 0;
+  const nueva = (tipo, id, d) => ({ k: tipo + ":" + id, tipo, id, d, ped: tipo === "p" ? d : null, tokens: new Set([id]), pedTokens: new Set(tipo === "o" || tipo === "p" ? [id] : []), acct: [], ts: tipo === "c" ? 0 : tsEntrega(tipo, d), tsReal: tipo !== "c" });
+
+  function completar(e) {
+    const o = e.tipo === "o" ? e.d : null, s = e.tipo === "s" ? e.d : null, p = e.ped;
+    const a0 = (e.acct[0] && e.acct[0].r) || (e.tipo === "c" ? e.d : null);
+    const ff = s && s.facturaFinal && typeof s.facturaFinal === "object" ? s.facturaFinal : null;
+    const fp = p ? (p.detalle || p.factura) : null;
+    e.fact = ff || (fp && typeof fp === "object" ? fp : null);
+    e.sub = (s && s.subfactura) || (p && p.subfactura) || null;
+    e.extras = (!ff && p && p.extras) || null;
+    e.cliente = (o && o.cliente) || (s && s.nombre) || (p && (p.clienteNombre || (p.factura && p.factura.cliente))) || (a0 && (a0.cliente || a0.clienteNombre)) || "Cliente";
+    const bruto0 = o ? PedidosAdmin.codigo(o.codigo) : (ff && ff.pedido) ? String(ff.pedido) : (p && p.pedido) ? String(p.pedido) : (a0 && (a0.pedido || a0.codigo)) ? String(a0.pedido || a0.codigo) : "";
+    e.codigo = bruto0 || "S/C";
+    e.codigos = [e.codigo, o && o.codigo, ff && ff.pedido, p && p.pedido, a0 && a0.pedido, a0 && a0.codigo, e.id].filter((x) => x != null && x !== "").map(normCod).filter(Boolean);
+
+    let total = null;
+    if (e.fact) {
+      const t = hayNum(e.fact.totalFinal) ? e.fact.totalFinal : hayNum(e.fact.total) ? e.fact.total : null;
+      if (t != null) total = t + (!ff ? sumaExtras(p && p.extras) : 0);
+    }
+    if (total == null && o) total = typeof Ordenes.totalDelivery === "function" ? num(Ordenes.totalDelivery(o)) : num(o.delivery) + num(o.iva);
+    if (total == null && a0) total = num(a0.bruto);
+    e.total = r2(total || 0);
+
+    if (e.acct.length) {
+      let bruto = 0, fijo = 0, bolsa = 0;
+      e.acct.forEach(({ r }) => { const f = num(r.fijo), b = num(r.bruto); bruto += b; fijo += f; bolsa += hayNum(r.bolsa) ? r.bolsa : Math.max(0, b - f); });
+      const com = r2(bolsa * PCT_BROTHERS);
+      e.cont = { bruto: r2(bruto), fijo: r2(fijo), bolsa: r2(bolsa), com, rep: r2(bolsa - com), entregar: r2(fijo + com) };
+    } else e.cont = null;
+
+    e.transf = esTransf(o, s, ff, p, e.fact, e.tipo === "c" ? e.d : null, ...e.acct.map((x) => x.r));
+    e.debeAprox = !e.cont;
+    e.debe = e.cont ? r2(Math.max(0, e.total - e.cont.entregar)) : e.total;
+    const og = a0 && a0.origen;
+    e.origen = og === "manual" ? "WhatsApp / factura manual" : og === "chat" ? "App cliente" : og ? "Admin" : o ? "Admin" : s ? "App cliente" : p ? (p.sinFactura ? "WhatsApp (sin factura)" : "WhatsApp / factura manual") : "—";
+    if (e.tipo === "c" && a0) {
+      const pf = /^(\d{4})-(\d{2})-(\d{2})$/.exec(a0.fecha || "");
+      const t = Number(a0.ts || a0.creado || a0.fin) || 0;
+      e.ts = t || (pf ? new Date(+pf[1], +pf[2] - 1, +pf[3], 12).getTime() : 0);
+      e.tsReal = !!t;
+    }
+    e.dia = e.tsReal && e.ts ? claveTs(e.ts) : (a0 && a0.fecha) || (e.ts ? claveTs(e.ts) : "");
+    return e;
+  }
+
+  /* Facturas ENTREGADAS de un repartidor entre dos fechas (YYYY-MM-DD; vacías = sin límite). */
+  async function cargar(uid, desde, hasta) {
+    if (typeof db === "undefined") throw new Error("Firebase no está inicializado");
+    const enRango = (ts) => { if (!ts) return false; const c = claveTs(ts); return (!desde || c >= desde) && (!hasta || c <= hasta); };
+    const [acct, peds, ords, solsQ] = await Promise.all([
+      leer(desde ? db.ref("contabilidad/" + uid).orderByChild("fecha").startAt(desde).endAt(hasta) : db.ref("contabilidad/" + uid).limitToLast(400)),
+      leer(db.ref("pedidos").orderByChild("repartidorUid").equalTo(uid).limitToLast(300)),
+      ordenesRecientes(),
+      leer(db.ref("solicitudes_entrantes").orderByChild("repartidorUid").equalTo(uid).limitToLast(200))
+    ]);
+    let vivas = {};
+    try { vivas = (typeof SolicitudesAdmin !== "undefined" && SolicitudesAdmin.todas && SolicitudesAdmin.todas()) || {}; } catch (_) {}
+    const sols = Object.assign({}, vivas, solsQ);
+    const E = new Map();
+    const uidOrden = (t, o) => { const a = o.asignacion || {}; return a.tipo === "invitado" ? Ordenes.uidInvitado(t) : a.uid; };
+
+    Object.entries(ords).forEach(([t, o]) => {
+      if (!o || typeof o !== "object" || o.estado !== "entregado" || uidOrden(t, o) !== uid || !enRango(tsEntrega("o", o))) return;
+      E.set("o:" + t, nueva("o", t, o));
+    });
+    Object.entries(sols).forEach(([id, d]) => {
+      if (!d || typeof d !== "object" || d.estado !== "entregado" || d.repartidorUid !== uid || !enRango(tsEntrega("s", d))) return;
+      E.set("s:" + id, nueva("s", id, d));
+    });
+    Object.entries(peds).forEach(([t, d]) => {
+      if (!d || typeof d !== "object" || d.estado !== "entregado" || d.repartidorUid !== uid) return;
+      const raiz = E.get("o:" + t) || (d.solicitudId && E.get("s:" + d.solicitudId)) || null;
+      if (raiz) { raiz.ped = d; raiz.tokens.add(t); raiz.pedTokens.add(t); return; }
+      if ((ords[t] && ords[t].estado === "entregado") || (d.solicitudId && sols[d.solicitudId] && sols[d.solicitudId].estado === "entregado")) return;   // su pedido raíz cae fuera del periodo
+      if (!enRango(tsEntrega("p", d))) return;
+      E.set("p:" + t, nueva("p", t, d));
+    });
+    const codigosDe = (e) => [e.id, e.d && e.d.codigo, e.d && e.d.pedido, e.ped && e.ped.pedido, e.d && e.d.facturaFinal && e.d.facturaFinal.pedido].map(normCod).filter(Boolean);
+    Object.entries(acct).forEach(([ck, r]) => {
+      if (!r || typeof r !== "object") return;
+      const ids = [ck, r.token, r.ordenId, r.orden, r.pedidoId, r.pedidoToken, r.solicitudId, r.solicitud, r.id].filter(Boolean).map(String);
+      const cod = normCod(r.pedido || r.codigo);
+      let raiz = null;
+      for (const e of E.values()) { if (ids.some((x) => e.tokens.has(x))) { raiz = e; break; } }
+      if (!raiz && cod) for (const e of E.values()) { if (codigosDe(e).indexOf(cod) >= 0) { raiz = e; break; } }
+      if (raiz) raiz.acct.push({ ck, r });
+      else { const e = nueva("c", ck, r); e.acct = [{ ck, r }]; E.set("c:" + ck, e); }
+    });
+    return [...E.values()].map(completar).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  }
+
+  /* ---------- transferencias del periodo (tarjeta del repartidor en Equipo y en Rendimiento) ---------- */
+  const transf = {}, firmas = {}, tProg = {}, tSeq = {};
+  let periodoTxt = "", tEq = null;
+  function avisarEquipo() {
+    clearTimeout(tEq);
+    tEq = setTimeout(() => {
+      try { EQUIPO.render(true); } catch (_) {}
+      try { RendimientoEquipo.repintar(); } catch (_) {}
+    }, 120);
+  }
+  async function recalcular(uid) {
+    if (typeof db === "undefined") return;
+    const seq = (tSeq[uid] = (tSeq[uid] || 0) + 1);
+    let per = { desde: "", hasta: "", txt: "" };
+    try { per = RendimientoEquipo.periodo(); } catch (_) {}
+    try {
+      const l = (await cargar(uid, per.desde, per.hasta)).filter((e) => e.transf);
+      if (seq !== tSeq[uid]) return;
+      const firma = per.txt + "|" + JSON.stringify(l.map((e) => [e.k, e.total, e.debe]));
+      periodoTxt = per.txt || periodoTxt;
+      if (firma !== firmas[uid]) { firmas[uid] = firma; transf[uid] = l; avisarEquipo(); }
+    } catch (err) { console.warn("[transferencias]", uid, err); }
+  }
+  function programar(uid) { clearTimeout(tProg[uid]); tProg[uid] = setTimeout(() => recalcular(uid), 900); }
+  function limpiar() {
+    Object.keys(tProg).forEach((u) => { clearTimeout(tProg[u]); delete tProg[u]; });
+    Object.keys(transf).forEach((u) => { delete transf[u]; delete firmas[u]; delete tSeq[u]; });
+    cacheOrd = { ts: 0, v: null }; ban = null;
+  }
+  function resumenTarjeta(uid) {
+    const l = transf[uid] || [];
+    if (!l.length) return { n: 0, total: 0, html: "" };
+    const total = r2(l.reduce((t, e) => t + e.debe, 0)), aprox = l.some((e) => e.debeAprox);
+    const filas = l.map((e) => `<div class="tr-fila"><span class="tr-cod">🧾 Factura ${esc(e.codigo)}<small>${esc(e.cliente)}${e.tsReal && e.ts ? " · " + esc(fechaHora(e.ts)) : ""} · factura ${esc(dinero(e.total))}</small></span><b>${esc(dinero(e.debe))}</b></div>`).join("");
+    const html = `<div class="tr-transf" role="group" aria-label="Pagos por transferencia"><div class="tr-tit"><b>🏦 Pagos por transferencia</b><small>${esc(periodoTxt)}</small></div>${filas}<div class="tr-total"><span>Se le debe por transferencias</span><b>${esc(dinero(total))}</b></div><small class="tr-nota">Se le debe = total de la factura − deducciones fijas − 30 % de Brother’s${aprox ? " (aprox.: alguna factura no tiene registro contable)" : ""}.</small></div>`;
+    return { n: l.length, total, html };
+  }
+
+  /* ---------- bandeja: facturas entregadas del día de un repartidor ---------- */
+  let ban = null;   // { uid, dia, q, lista, cargando, error, seq }
+  const item = (e) => `<button type="button" class="pd-rep en-item" data-k="${esc(e.k)}"><span><strong>${esc(e.codigo)} · ${esc(e.cliente)}</strong><small>${e.tsReal ? "🕒 " + esc(horaDe(e.ts)) + " · " : ""}${esc(e.origen)}${e.transf ? " · se le debe " + esc(dinero(e.debe)) : ""}</small></span>${e.transf ? '<i class="pd-tag en-transf-tag">🏦 Transferencia</i>' : ""}<b class="en-monto">${esc(dinero(e.total))}</b></button>`;
+
+  function pintarLista() {
+    const caja = g("enLista"), res = g("enResumen"); if (!caja || !res || !ban) return;
+    const f = g("enFecha"), nx = g("enNext");
+    if (f && f.value !== ban.dia) f.value = ban.dia;
+    if (nx) nx.disabled = ban.dia >= hoyClave();
+    if (ban.cargando) { caja.innerHTML = '<p class="ayuda">Cargando facturas entregadas…</p>'; res.textContent = ""; return; }
+    if (ban.error) { caja.innerHTML = '<p class="ayuda">No se pudieron cargar: ' + esc(ban.error) + "</p>"; res.textContent = ""; return; }
+    const q = normCod(ban.q);
+    const vis = q ? ban.lista.filter((e) => e.codigos.some((c) => c.indexOf(q) >= 0)) : ban.lista;
+    const total = r2(vis.reduce((t, e) => t + e.total, 0)), nt = vis.filter((e) => e.transf).length;
+    res.innerHTML = `<b>${vis.length}</b> entregada${vis.length === 1 ? "" : "s"}${q ? " de " + ban.lista.length : ""} · Total <b>${esc(dinero(total))}</b>${nt ? " · 🏦 " + nt + " por transferencia" : ""}`;
+    caja.innerHTML = vis.length ? vis.map(item).join("") : `<p class="ayuda">${ban.lista.length ? "Ninguna factura coincide con ese código." : "Este repartidor no tiene facturas entregadas ese día."}</p>`;
+  }
+  function pintarBandeja() {
+    if (!ban) return;
+    modal(`<div class="en-caja"><h2>🧾 Entregadas · ${esc(nombreUid(ban.uid))}</h2>
+      <div class="en-dia" role="group" aria-label="Día a consultar"><button id="enPrev" type="button" aria-label="Día anterior">‹</button><input id="enFecha" type="date" aria-label="Día a consultar"><button id="enNext" type="button" aria-label="Día siguiente">›</button><button id="enHoy" type="button">Hoy</button></div>
+      <input id="enBuscar" class="en-buscar" type="search" inputmode="search" autocomplete="off" enterkeyhint="search" placeholder="🔎 Buscar por código de factura (ej. APP00012)" aria-label="Buscar por código de factura">
+      <div id="enResumen" class="en-resumen" role="status" aria-live="polite"></div>
+      <div id="enLista" class="en-lista"></div>
+      <button id="enCerrar" class="oscuro" type="button">Cerrar</button></div>`);
+    const f = g("enFecha"), b = g("enBuscar");
+    f.value = ban.dia; f.max = hoyClave(); b.value = ban.q;
+    const mover = (n) => {
+      const [y, m, d] = ban.dia.split("-").map(Number);
+      const c = claveTs(new Date(y, m - 1, d + n).getTime());
+      if (c > hoyClave()) return;
+      ban.dia = c; recargarBandeja();
+    };
+    g("enPrev").onclick = () => mover(-1);
+    g("enNext").onclick = () => mover(1);
+    g("enHoy").onclick = () => { ban.dia = hoyClave(); recargarBandeja(); };
+    f.onchange = () => { if (f.value) { ban.dia = f.value > hoyClave() ? hoyClave() : f.value; recargarBandeja(); } };
+    b.oninput = () => { ban.q = b.value; pintarLista(); };
+    g("enLista").onclick = (ev) => { const it = ev.target.closest("[data-k]"); if (it) abrirDetalle(it.dataset.k); };
+    g("enCerrar").onclick = cerrarModal;
+    pintarLista();
+  }
+  async function recargarBandeja() {
+    if (!ban) return;
+    const seq = ++ban.seq;
+    ban.cargando = true; ban.error = ""; pintarLista();
+    try {
+      const l = await cargar(ban.uid, ban.dia, ban.dia);
+      if (!ban || seq !== ban.seq) return;
+      ban.lista = l;
+    } catch (err) {
+      if (!ban || seq !== ban.seq) return;
+      ban.lista = []; ban.error = (err && err.message) || "error desconocido";
+    }
+    ban.cargando = false; pintarLista();
+  }
+  function abrirBandeja(uid, dia) {
+    if (!uid) return;
+    ban = { uid, dia: dia || hoyClave(), q: "", lista: [], cargando: true, error: "", seq: 0 };
+    pintarBandeja();
+    recargarBandeja();
+  }
+
+  /* ---------- detalle completo + eliminación ---------- */
+  function abrirDetalle(k) {
+    const e = ban && ban.lista.find((x) => x.k === k); if (!e) return;
+    const fv = PedidosAdmin.fv, nom = nombreUid(ban.uid);
+    let compras = "";
+    const prods = e.fact ? fv.items(e.fact.productos) : "";
+    if (prods || e.sub || e.extras) {
+      compras = `<div class="fv-sec">🛍️ Detalle de cada compra</div><div class="fv-bloque">${prods || '<div class="fv-fila"><span>Sin productos detallados.</span></div>'}</div>` + fv.sub(e.sub) + fv.extras(e.extras);
+    } else if (e.tipo === "o") {
+      const o = e.d, ps = Ordenes.paradas(o);
+      compras = `<div class="fv-sec">Ruta</div><div class="fv-bloque">${ps.map((p, i) => `<div class="fv-fila"><span>📦 ${ps.length > 1 ? "Retiro " + (i + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}</span></div>`).join("")}<div class="fv-fila"><span>🏠 Entrega: ${esc((o.entrega && o.entrega.texto) || "—")}</span></div></div>`;
+    }
+    let totales = "";
+    if (e.fact) totales = `<div class="fv-sec">Totales</div><div class="fv-bloque">${fv.totales(e.fact)}</div>`;
+    else if (e.tipo === "o") totales = `<div class="fv-sec">Cobro</div><div class="fv-bloque">${fv.fila("🛵 Delivery", dinero(e.d.delivery))}${num(e.d.iva) > 0 ? fv.fila("IVA", dinero(e.d.iva)) : ""}<div class="fv-total"><span>Total General</span><b>${esc(dinero(e.total))}</b></div></div>`;
+    else totales = `<div class="fv-bloque"><div class="fv-total"><span>Total</span><b>${esc(dinero(e.total))}</b></div></div>`;
+    const cont = e.cont
+      ? `<div class="fv-sec">Contabilidad del repartidor</div><div class="fv-bloque">${fv.fila("Ingresos brutos (delivery + mandados)", dinero(e.cont.bruto))}${fv.fila("− Deducciones fijas", dinero(e.cont.fijo))}${fv.fila("Remanente a repartir", dinero(e.cont.bolsa), "fv-sub")}${fv.fila("30 % comisión Brother’s", dinero(e.cont.com))}${fv.fila("70 % neto del repartidor", dinero(e.cont.rep))}${fv.fila("💵 Entregar a Brother’s", dinero(e.cont.entregar), "fv-sub")}</div>`
+      : '<div class="fv-sec">Contabilidad</div><div class="fv-bloque"><div class="fv-fila"><span>Esta factura no tiene registro contable (no suma a ingresos).</span></div></div>';
+    const caja = e.transf ? `<div class="en-transf-box" role="note">🏦 <b>Pago por transferencia.</b> Se le debe <b>${esc(dinero(e.debe))}</b> a ${esc(nom)}.<small>= total de la factura − deducciones fijas − 30 % de Brother’s${e.debeAprox ? " (aprox.: sin registro contable)" : ""}</small></div>` : "";
+    modal(`<div class="fv-caja"><h2>🧾 Factura entregada</h2><div class="fv-resumen">${fv.banner(e.codigo + " · " + e.cliente, "🛵 " + nom + " · " + e.origen + (e.tsReal && e.ts ? " · " + fechaHora(e.ts) : ""))}${caja}${compras}${totales}${cont}</div>
+      <button id="enEliminar" class="peligro" type="button">🗑 Eliminar factura</button>
+      <button id="enVolver" type="button">← Volver a la lista</button><button id="enCerrar2" class="oscuro" type="button">Cerrar</button></div>`);
+    NavAdmin.fijarVolverModal(pintarBandeja);   // Atrás: detalle → bandeja del día → Equipo
+    g("enEliminar").onclick = () => eliminar(k);
+    g("enVolver").onclick = pintarBandeja;
+    g("enCerrar2").onclick = cerrarModal;
+  }
+
+  /* Día en el formato de estadisticas/{día}: se usa Dia.clave si acepta una fecha; si no, AAAA-MM-DD. */
+  function claveStat(dia) {
+    try {
+      if (typeof Dia !== "undefined" && Dia && typeof Dia.clave === "function") {
+        const a = Dia.clave(new Date()), b = Dia.clave(new Date(2000, 0, 15));
+        if (a === Dia.clave() && b !== a) { const [y, m, d] = dia.split("-").map(Number); return Dia.clave(new Date(y, m - 1, d)); }
+      }
+    } catch (_) {}
+    return dia;
+  }
+  const descuentaContador = (e) => e.tipo === "s" || e.tipo === "p" || e.acct.some(({ r }) => r.origen === "manual" || r.origen === "chat");
+
+  async function eliminar(k) {
+    const e = ban && ban.lista.find((x) => x.k === k); if (!e) return;
+    const uid = ban.uid, nom = nombreUid(uid);
+    if (!confirm(`¿ELIMINAR la factura ${e.codigo} (${e.cliente}) de ${nom}?\n\n• Se borra su registro de los pedidos del repartidor y su chat archivado.${e.cont ? "\n• Se restan " + dinero(e.cont.bruto) + " de sus ingresos brutos, su rendimiento y las métricas del equipo." : ""}\n\nNo se puede deshacer.`)) return;
+    const upd = {};
+    e.acct.forEach(({ ck }) => { upd["contabilidad/" + uid + "/" + ck] = null; });
+    if (e.tipo === "o") upd["ordenes/" + e.id] = null;
+    if (e.tipo === "s") { upd["solicitudes_entrantes/" + e.id] = null; upd["solicitudes_fotos/" + e.id] = null; }
+    const RUTAS = ["chats", "chatsResumen", "fotos", "chatsInvitado", "chatsInvitadoResumen", "fotosInvitado", "leidosInvitado"];
+    e.pedTokens.forEach((t) => {
+      upd["pedidos/" + t] = null;
+      RUTAS.forEach((r) => { upd[r + "/" + t] = null; });
+      try { if (guias[uid] && guias[uid].ordenId === t) upd["guias/" + uid] = null; } catch (_) {}
+    });
+    const btn = g("enEliminar"); if (btn) btn.disabled = true;
+    try {
+      await db.ref().update(upd);
+      if (descuentaContador(e) && e.dia) {
+        try { await db.ref("estadisticas/" + claveStat(e.dia) + "/" + uid + "/facturas").transaction((v) => (Number(v) > 0 ? Number(v) - 1 : undefined)); } catch (_) {}
+      }
+      cacheOrd = { ts: 0, v: null };
+      ban.lista = ban.lista.filter((x) => x.k !== k);
+      toast(`🗑 Factura ${e.codigo} eliminada. Ingresos y rendimiento actualizados.`);
+      pintarBandeja();
+      recalcular(uid);
+      try { RendimientoEquipo.repintar(); } catch (_) {}
+    } catch (err) {
+      toast("No se pudo eliminar: " + (err.message || err));
+      const b2 = g("enEliminar"); if (b2) b2.disabled = false;
+    }
+  }
+
+  return { programar, recalcular, limpiar, resumenTarjeta, abrirBandeja, cargar };
 })();
 
 

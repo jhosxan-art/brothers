@@ -1852,3 +1852,84 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 /* Foto sola (p. ej. PNG con transparencia): la burbuja no pinta fondo */
 .burbuja.solo-foto { background: transparent !important; box-shadow: none !important; border: 0 !important; }
 .chat.messenger .burbuja.solo-foto { background: transparent !important; }
+
+
+/* ============================================================
+   ACTUALIZACIÓN ADMIN · pulsación larga, tarjetas colapsables, transferencias, entregadas del día
+   ============================================================ */
+/* Mapa: sin menú nativo de "mantener presionado" (imágenes/enlaces) para que la pulsación larga sea del mapa */
+#mapaAdmin { -webkit-touch-callout: none; }
+#mapaAdmin .leaflet-tile-pane, #mapaAdmin .leaflet-overlay-pane { -webkit-user-select: none; user-select: none; }
+.lp-anillo { position: absolute; z-index: 1200; width: 64px; height: 64px; margin: -32px 0 0 -32px; pointer-events: none; opacity: 0; transform: scale(.8); }
+.lp-anillo.on { opacity: 1; transform: scale(1); transition: opacity .15s, transform .15s; }
+.lp-anillo svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.lp-anillo circle { fill: rgba(255,255,255,.35); stroke-width: 5; }
+.lp-anillo .lp-fondo { stroke: rgba(14,20,27,.25); }
+.lp-anillo .lp-prog { fill: none; stroke: var(--celeste-prof); stroke-linecap: round; stroke-dasharray: 126; stroke-dashoffset: 126; }
+.lp-anillo.on .lp-prog { animation: lpLleno 1.65s linear forwards; }
+@keyframes lpLleno { to { stroke-dashoffset: 0; } }
+.pd-rep.inactivo small { color: #8A97A5; }
+
+/* Tarjetas de repartidor colapsables (cortina) */
+#listaEquipo .eq-fila-cab { flex-wrap: nowrap; }
+#listaEquipo .eq-fila-cab .datos { flex: 1 1 auto; min-width: 0; }
+#listaEquipo .eq-fila-cab .datos strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eq-cortina { flex: none; width: 44px; height: 44px; min-width: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; display: grid; place-items: center; cursor: pointer; }
+.eq-cortina .eq-flecha { transition: transform .25s ease; }
+.tarjeta-rep.plegada .eq-cortina .eq-flecha { transform: rotate(-90deg); }
+.tr-cuerpo { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .28s ease; }
+.tr-cuerpo-in { min-height: 0; overflow: hidden; display: grid; gap: 10px; align-content: start; }
+.tarjeta-rep.plegada { gap: 0; }
+.tarjeta-rep.plegada .tr-cuerpo { grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows .28s ease, visibility 0s linear .28s; }
+.tr-badge { color: #8A4B00 !important; font-weight: 800; }
+
+/* Pagos por transferencia */
+.tr-transf { display: grid; gap: 6px; padding: 10px 12px; border-radius: 14px; background: #EEF7FF; border: 1.5px solid #9AD3F5; text-align: left; min-width: 0; }
+.tr-tit { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.tr-tit b { font-size: 14px; font-weight: 800; }
+.tr-tit small { font-size: 12px; font-weight: 700; color: #0B4A6B; }
+.tr-fila { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 6px 0; border-bottom: 1px dashed #BFE0F5; font-size: 14px; }
+.tr-fila .tr-cod { flex: 1 1 auto; min-width: 0; font-weight: 800; overflow-wrap: anywhere; }
+.tr-fila .tr-cod small { display: block; font-size: 12px; font-weight: 600; color: var(--texto2, #5B6672); }
+.tr-fila b { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tr-total { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 8px 10px; border-radius: 10px; background: #0B4A6B; color: #fff; font-weight: 800; }
+.tr-total b { font-size: 18px; white-space: nowrap; }
+.tr-nota { font-size: 11.5px; font-weight: 600; line-height: 1.3; color: #0B4A6B; }
+.rd-tarjeta.total .tr-transf { color: var(--tinta); }
+
+/* Entregadas del día */
+.en-caja { text-align: left; display: grid; gap: 10px; max-height: calc(100dvh - 48px); min-width: 0; }
+.en-caja h2 { text-align: left; }
+.en-dia { display: flex; gap: 6px; align-items: stretch; }
+.en-dia button { flex: none; width: auto; min-width: 44px; height: 44px; padding: 0 12px; border-radius: 12px; font-weight: 800; }
+.en-dia button:disabled { opacity: .4; }
+.en-dia input[type="date"] { flex: 1 1 auto; min-width: 0; height: 44px; border: 1.5px solid var(--linea); border-radius: 12px; background: var(--gris); padding: 0 10px; font: inherit; font-weight: 700; }
+.en-buscar { width: 100%; height: 46px; font-size: 16px; border: 1.5px solid var(--linea); border-radius: 12px; padding: 0 12px; box-sizing: border-box; }
+.en-resumen { font-size: 13px; font-weight: 600; color: var(--texto2, #5B6672); }
+.en-lista { display: grid; gap: 8px; overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: 48dvh; padding-right: 2px; }
+.en-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; }
+.en-item > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.en-monto { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.en-transf-tag { background: #DFF1FD !important; color: #0B4A6B !important; }
+.en-transf-box { display: grid; gap: 2px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: #EEF7FF; border: 1.5px solid #9AD3F5; font-size: 14px; }
+.en-transf-box small { font-size: 12px; font-weight: 600; color: #0B4A6B; }
+.fv-caja .peligro { width: 100%; }
+
+/* Selector de periodo: 6 chips (Hoy, Día, Semana, Quincena, Mes, Total) */
+.rd-sheet .rd-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
+
+@media (max-width: 360px) {
+  .eq-cab-btns { width: 100%; justify-content: stretch; }
+  .eq-cab-btns button { flex: 1; }
+  .tr-fila { font-size: 13px; }
+}
+@media (min-width: 700px) { .en-lista { max-height: 52dvh; } }
+@media (min-width: 1600px) {
+  .tr-fila, .tr-transf { font-size: 16px; }
+  .tr-total b { font-size: 22px; }
+  .en-item, .en-buscar, .en-dia input[type="date"] { font-size: 17px; }
+  .eq-cortina { width: 52px; height: 52px; }
+  .lp-anillo { width: 84px; height: 84px; margin: -42px 0 0 -42px; }
+}
+@media (max-height: 500px) and (orientation: landscape) { .en-lista { max-height: 34dvh; } }
+@media (prefers-reduced-motion: reduce) { .lp-anillo.on .lp-prog { animation-duration: 2s; } .tr-cuerpo, .eq-cortina .eq-flecha { transition: none; } }
