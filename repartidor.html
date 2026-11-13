@@ -242,7 +242,7 @@
   <header class="barra-marca">
     <span class="insignia" data-rider></span>
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span><span id="chipConPedido" class="chip-con-pedido oculto" role="status" aria-live="polite">🛵 OCUPADO</span></small></div>
-    <button id="btnChatAdmin" class="salir chat-admin oculto" aria-label="Chat con Brothers (administración)">💬<span id="badgeAdmin" class="badge-nav rojo oculto">0</span></button>
+    <button id="btnChatAdmin" class="salir chat-admin oculto" aria-label="Bandeja de mensajes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.2 3.6a.6.6 0 0 1-1-.46V16A2.5 2.5 0 0 1 4 13.5z"/><path d="M8 8.5h8M8 11.5h5"/></svg><span id="badgeAdmin" class="badge-nav rojo oculto">0</span></button>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
     </button>
@@ -368,6 +368,12 @@
 
   <section id="vistaChats" class="oculto">
     <div id="cnLista" class="cn-lista">
+      <button id="btnAnclaAdmin" class="cn-ancla-admin" type="button" aria-label="Abrir chat con Brothers (administración)">
+        <span class="cn-ancla-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></span>
+        <span class="cn-ancla-txt"><strong>Brothers · Administración</strong><small>Chat fijo con la administración</small></span>
+        <b id="badgeAdminLista" class="badge-nav rojo oculto">0</b>
+        <span class="cn-ancla-pin" aria-hidden="true">📌</span>
+      </button>
       <h2 class="cn-tit">Pedidos</h2>
       <div id="cnNuevos"></div>
       <h2 class="cn-tit">Mis chats</h2>

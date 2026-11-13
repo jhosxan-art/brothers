@@ -1300,6 +1300,7 @@ function abrirChat(v) {
 
 function pintarBadgeAdmin() {
   const b = $("badgeAdmin"); b.textContent = noLeidosAdmin; b.classList.toggle("oculto", !noLeidosAdmin);
+  const bl = $("badgeAdminLista"); if (bl) { bl.textContent = noLeidosAdmin; bl.classList.toggle("oculto", !noLeidosAdmin); }
 }
 function abrirChatAdmin() {
   cancelarNotif({ equipo: "chat" });
@@ -1312,7 +1313,13 @@ function abrirChatAdmin() {
   chatToken = "equipo"; noLeidosAdmin = 0; pintarBadgeAdmin();
   Chat.abrir();
 }
-$("btnChatAdmin").onclick = abrirChatAdmin;
+/* El icono de mensajes del encabezado lleva a la bandeja con todos los chats (el chat con la administración está anclado arriba) */
+$("btnChatAdmin").onclick = () => {
+  let dentro = false;
+  try { dentro = vistaActual === "chats" && ChatsEntrantes.abierto && ChatsEntrantes.abierto(); } catch (_) {}
+  if (dentro) volverABandeja(); else irA("chats");
+};
+$("btnAnclaAdmin").onclick = abrirChatAdmin;
 function soltarAdmin() {
   try { CobroEntrega.soltar(); } catch (_) {}
   Policia.detener();
