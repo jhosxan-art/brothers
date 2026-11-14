@@ -597,12 +597,12 @@ const Camara = (() => {
     return !!(mapa && ultimaPos) && modo === "navegacion" && seguirme && vistaActual === "mapa" && !marcando
       && !document.querySelector(".modo-registro") && document.activeElement !== $("busqRep") && $("resBusqRep").classList.contains("oculto");
   }
-  /* Punto de anclaje: tercio inferior de la pantalla (y por encima de la barra de pedidos) */
+  /* Punto de anclaje: centro inferior del mapa, justo encima de la barra "Ocultar pedido" */
   function calcAncla() {
     const H = mapa.getSize().y;
     let refY = H;
     try { const mr = mapa.getContainer().getBoundingClientRect(), br = $("barraHoja").getBoundingClientRect(); if (br.height) refY = Math.min(H, Math.max(0, br.top - mr.top)); } catch (_) {}
-    return Math.max(H * 0.45, Math.min(H * 0.72, refY - 1.3 * CM_PX));
+    return Math.max(H * 0.5, Math.min(H * 0.92, refY - 72));   // centro inferior, encima de la barra (deja espacio para el nombre)
   }
   /* Inclinación 3D (CSS): el pivote de la perspectiva es la posición del repartidor, así queda fija en pantalla */
   function aplicar3D() {
@@ -970,11 +970,12 @@ $("btnNavegar").onclick = () => {
     if (lugarDestino) { cancelarRutaManual(); return; }   // sin botón "Ruta": al salir de una ruta libre también se cancela
     setEstado("🧭 Navegación desactivada", "ok");
   } else {
-    Camara.setModo("navegacion");
     seguirme = true;
+    Camara.setModo("navegacion");
     setEstado("🧭 Navegación activa · el mapa avanza hacia arriba", "ok");
   }
   Camara.actualizar(true);
+  Camara.aplicar3D();
 };
 Camara.refrescarBoton();
 
@@ -1956,9 +1957,9 @@ function actualizarBanner() {
     const tiempoTxt = formatoTiempo(seg);
     const giroTxt = aGiro !== null ? "En " + formatoDist(redondearGiro(aGiro)) : "Sigue recto";
     b.className = "info-ruta rb-nav";
-    b.innerHTML = `<div class="rb-fila-giro"><span class="rb-ic">${ico}</span><div class="rb-giro"><b class="rb-giro-d">${escHtml(giroTxt)}</b><span class="rb-giro-t">${escHtml(info[1] || "")}</span></div>${cerrar}</div>
-<div class="rb-fila-datos"><div class="rb-dato rb-falta"><small>Falta</small><b>${escHtml(faltaTxt)}</b></div><div class="rb-dato rb-tiempo"><small>Tiempo</small><b>${escHtml(tiempoTxt)}</b></div></div>
-<div class="rb-destino">📍 ${escHtml(titulo.replace(/^\S+\s/, "") || titulo)}</div>`;
+    const dest = titulo.replace(/^\S+\s/, "") || titulo;
+    b.innerHTML = `<div class="rb-fila-giro"><span class="rb-ic">${ico}</span><b class="rb-giro-d">${escHtml(giroTxt)}</b><span class="rb-giro-t">${escHtml(info[1] || "")}</span>${cerrar}</div>
+<div class="rb-fila-datos"><span class="rb-falta"><small>Falta</small> <b>${escHtml(faltaTxt)}</b></span><span class="rb-tiempo"><small>Tiempo</small> <b>${escHtml(tiempoTxt)}</b></span><span class="rb-destino">📍 ${escHtml(dest)}</span></div>`;
     const x2 = $("brX"); if (x2) x2.onclick = cancelarRutaManual;
     return;
   }

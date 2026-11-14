@@ -2046,25 +2046,22 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 /* al buscar un negocio o lugar, la brújula se oculta */
 .mapa-caja.buscando .brujula-norte { display: none !important; }
 
-
 /* ============================================================
-   TARJETA DE RUTA (giro, distancia al giro, lo que falta en rojo, tiempo en azul): separada de la barra, a la izquierda del botón Navegar
+   TARJETA DE RUTA DISCRETA: franja compacta arriba (junto a la brújula), sin tapar al repartidor
    ============================================================ */
 #bannerRuta.info-ruta.oculto { display: none !important; }
-#bannerRuta.info-ruta { position: absolute !important; z-index: 1000 !important; left: 10px !important; right: 70px !important; top: auto !important; bottom: var(--nav-bottom, 66px) !important; width: auto !important; max-width: none !important; margin: 0 !important; transform: none !important; background: #fff !important; color: #0E141B !important; border: 1px solid #D5DEE6 !important; border-radius: 18px !important; padding: 10px 12px !important; display: grid !important; gap: 8px !important; box-shadow: 0 6px 18px rgba(0,0,0,.28) !important; transition: bottom .2s ease; }
-#bannerRuta .rb-fila-giro { display: flex; align-items: center; gap: 10px; }
-#bannerRuta .rb-ic { flex: none; width: 46px; height: 46px; border-radius: 14px; background: #E6F4FD; display: grid; place-items: center; font-size: 26px; line-height: 1; }
-#bannerRuta .rb-giro { flex: 1; min-width: 0; display: grid; gap: 1px; }
-#bannerRuta .rb-giro-d { font-size: 21px; font-weight: 800; line-height: 1.1; color: #0E141B; }
-#bannerRuta .rb-giro-t { font-size: 13.5px; font-weight: 600; line-height: 1.25; color: #3F4B57; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-#bannerRuta .rb-fila-datos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 8px; border-top: 1px solid #E3EAF0; }
-#bannerRuta .rb-dato { display: grid; gap: 0; }
-#bannerRuta .rb-dato small { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: #6B7785; }
-#bannerRuta .rb-dato b { font-size: 20px; font-weight: 800; line-height: 1.15; }
-#bannerRuta .rb-falta b { color: #D92D20; }
-#bannerRuta .rb-tiempo b { color: #0A86C9; }
-#bannerRuta .rb-destino { font-size: 12.5px; font-weight: 700; color: #3F4B57; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#bannerRuta #brX { flex: none; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: #EEF2F6; color: #3F4B57; font-size: 15px; }
+#bannerRuta.info-ruta { position: absolute !important; z-index: 950 !important; left: 64px !important; right: 10px !important; top: 66px !important; bottom: auto !important; width: auto !important; max-width: none !important; margin: 0 !important; transform: none !important; background: rgba(255,255,255,.94) !important; color: #0E141B !important; border: 1px solid rgba(0,0,0,.08) !important; border-radius: 14px !important; padding: 6px 10px !important; display: grid !important; gap: 3px !important; box-shadow: 0 2px 8px rgba(0,0,0,.22) !important; }
+#bannerRuta .rb-fila-giro { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#bannerRuta .rb-ic { flex: none; font-size: 20px; line-height: 1; }
+#bannerRuta .rb-giro-d { flex: none; font-size: 16px; font-weight: 800; line-height: 1.1; color: #0E141B; }
+#bannerRuta .rb-giro-t { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: #4B5662; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#bannerRuta .rb-fila-datos { display: flex; align-items: baseline; gap: 12px; min-width: 0; font-size: 12px; }
+#bannerRuta .rb-fila-datos small { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #7A8794; }
+#bannerRuta .rb-fila-datos b { font-size: 14px; font-weight: 800; }
+#bannerRuta .rb-falta { flex: none; } #bannerRuta .rb-falta b { color: #D92D20; }
+#bannerRuta .rb-tiempo { flex: none; } #bannerRuta .rb-tiempo b { color: #0A86C9; }
+#bannerRuta .rb-destino { flex: 1; min-width: 0; font-weight: 700; color: #4B5662; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#bannerRuta #brX { flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: #EEF2F6; color: #3F4B57; font-size: 12px; }
 #bannerRuta.rb-msg { grid-template-columns: auto 1fr auto; align-items: center; }
-#bannerRuta.rb-msg .ir-ic { font-size: 24px; }
-#bannerRuta.rb-msg .ir-txt { font-size: 14px; font-weight: 700; color: #0E141B; }
+#bannerRuta.rb-msg .ir-ic { font-size: 20px; }
+#bannerRuta.rb-msg .ir-txt { font-size: 13px; font-weight: 700; color: #0E141B; }
