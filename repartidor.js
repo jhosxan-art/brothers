@@ -379,6 +379,28 @@ const Nav = (() => {
     if (pill.textContent !== t) pill.textContent = t;
   }
 
+  /* Barra de progreso al pie de la cápsula (0 = inicio de la ruta, 100 = llegada) */
+  function barra() {
+    const b = $("bannerRuta");
+    if (!b || !b.classList.contains("rb-nav")) return;
+    const n = rutaActiva();
+    const e = estado(n);
+    if (!e) return;
+    const pct = Math.max(0, Math.min(100, Math.round((1 - e.falta / Math.max(1, e.total)) * 100)));
+    if (!b.querySelector(".rb-prog")) {
+      const w = document.createElement("span");
+      w.className = "rb-prog";
+      w.setAttribute("role", "progressbar");
+      w.setAttribute("aria-valuemin", "0");
+      w.setAttribute("aria-valuemax", "100");
+      w.innerHTML = '<i style="width:0"></i>';
+      b.appendChild(w);
+    }
+    const bar = b.querySelector(".rb-prog");
+    bar.setAttribute("aria-valuenow", String(pct));
+    bar.firstChild.style.width = pct + "%";
+  }
+
   function reanudar() {
     clearTimeout(tmGeneral); tmGeneral = null;
     if (!general) return;
@@ -429,6 +451,7 @@ const Nav = (() => {
       const s = segRestantes(n, e);
       decir("Navegación iniciada. " + formatoTiempo(s).replace(" min", " minutos").replace(" h ", " horas ") + " hasta tu destino");
     }
+    try { barra(); } catch (_) {}
     if (e.aGiro === null || e.idx >= e.last) return;
     if (n._vIdx !== e.idx) { n._vIdx = e.idx; n._vDicho = {}; }
     let u = null; for (const t of UMBRALES) if (e.aGiro <= t) u = t;
@@ -437,7 +460,7 @@ const Nav = (() => {
     const txt = textoDe(e.pasos[e.idx])[1];
     if (txt) decir(u === 25 ? "Ahora, " + txt : "En " + metrosHabla(e.aGiro) + ", " + txt);
   }
-  return { estado, restante, banner, alPosicion, hayDestino, enNavegacion, vistaGeneral, reanudar, recalculando, actualizarPill };
+  return { estado, restante, banner, alPosicion, hayDestino, enNavegacion, vistaGeneral, reanudar, recalculando, actualizarPill, barra };
 })();
 
 function mostrar(vista) {
@@ -657,7 +680,7 @@ function initMapa() {
 let seguirme = true;
 
 /* ============================================================
-   CÁMARA DEL REPARTIDOR
+   CÁMARA DEL REPARTIDOR · tercera persona tipo Waze
    ============================================================ */
 const Camara = (() => {
   const SIGNO_ROTACION = 1;
@@ -666,7 +689,8 @@ const Camara = (() => {
   const CM_PX = 96 / 2.54;
   let prev = null, suave = 0, tieneRumbo = false, ult = 0, ultGesto = 0;
   /* Motor 3D (course-up + pitch + ancla inferior + puck interpolado) */
-  const PITCH_GRADOS = 50, ESCALA_3D = 1.8, PERSPECTIVA_PX = 900, CONTRA_PITCH = 1.45, ZOOM_3D = 0.75, VEL_MIN_RUMBO = 1.2;
+  const PITCH_GRADOS = 42, ESCALA_3D = 1.6, PERSPECTIVA_PX = 900, CONTRA_PITCH = 1.30, ZOOM_3D = 0.9, VEL_MIN_RUMBO = 1.2;
+  let hdgRuta = null, hdgRutaTs = 0;   // memoria del último rumbo válido de la ruta
   let renderPos = null, anim = null, ultFix = 0, raf = 0, tPrev = 0, hdgR = 0, hdgObj = 0, hdgBrujula = null, velActual = null;
   let giroIco = 0, giroAcum = 0, zObj = null, zAuto = null, zOff = 0, zProg = false, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null, anclaPx = 0;
   let modo = "fitbounds";
@@ -707,7 +731,6 @@ const Camara = (() => {
     tieneRumbo = true;
     fijarObjetivo();
   }
-  /* Rumbo objetivo: en movimiento manda el GPS / trayectoria; detenido, la brújula del dispositivo */
   /* Rumbo de la CALLE que falta por recorrer: apunta ~40 m adelante sobre la ruta activa, así la calle siempre queda al frente */
   const ADELANTE_M = 40;
   function rumboRuta() {
@@ -735,11 +758,17 @@ const Camara = (() => {
   }
   function fijarObjetivo() {
     if (!rotable()) { hdgObj = 0; return; }
-    { const rr = modo === "navegacion" ? rumboRuta() : null; if (rr !== null) { hdgObj = rr; return; } }
-    /* La brújula del teléfono ya no gira el mapa: solo gira al repartidor (ver giroIcono) */
+    if (modo === "navegacion") {
+      const rr = rumboRuta();
+      if (rr !== null) { hdgRuta = rr; hdgRutaTs = Date.now(); hdgObj = rr; return; }
+      /* justo en una curva o recién arrancando: mantenemos el rumbo de la ruta 3 s para no saltar al GPS */
+      if (hdgRuta !== null && Date.now() - hdgRutaTs < 3000) { hdgObj = hdgRuta; return; }
+    }
     if (tieneRumbo) hdgObj = suave;
   }
   function alOrientacion(e) {
+    /* En navegación la orientación la manda la RUTA, no el teléfono */
+    if (modo === "navegacion") return;
     let h = null;
     if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;
     else if (e.absolute === true && typeof e.alpha === "number") h = (360 - e.alpha) % 360;
@@ -784,10 +813,16 @@ const Camara = (() => {
   }
   /* Punto de anclaje: centro inferior del mapa, justo encima de la barra "Ocultar pedido" */
   function calcAncla() {
-    const H = mapa.getSize().y;
-    let refY = H;
-    try { const mr = mapa.getContainer().getBoundingClientRect(), br = $("barraHoja").getBoundingClientRect(); if (br.height) refY = Math.min(H, Math.max(0, br.top - mr.top)); } catch (_) {}
-    return Math.max(H * 0.5, Math.min(H * 0.92, refY - 72));   // centro inferior, encima de la barra (deja espacio para el nombre)
+    const H = mapa.getSize().y || 600;
+    let refY = Math.round(H * 0.65);
+    try {
+      const mr = mapa.getContainer().getBoundingClientRect();
+      const br = $("barraHoja") && $("barraHoja").getBoundingClientRect();
+      if (br && br.height > 8 && br.top > mr.top && br.top < mr.bottom) {
+        refY = Math.round(br.top - mr.top - 90);
+      }
+    } catch (_) {}
+    return Math.max(Math.round(H * 0.45), Math.min(Math.round(H * 0.82), refY));
   }
   /* Inclinación 3D (CSS): el pivote de la perspectiva es la posición del repartidor, así queda fija en pantalla */
   function aplicar3D() {
@@ -818,14 +853,14 @@ const Camara = (() => {
     zProg = true;
     try { mapa.setView(centro, zu, { animate: false, noMoveStart: true }); } finally { zProg = false; }
   }
-  /* Giro de cabeza: el ícono del repartidor gira hacia donde apunta el teléfono (relativo al mapa); el mapa no se mueve */
+  /* Tercera persona: el ícono del repartidor SIEMPRE apunta hacia arriba (nunca gira con la brújula) */
   function giroIcono(dt, activa) {
     const el = marcaYo && marcaYo.getElement && marcaYo.getElement();
     if (!el) return false;
-    const meta = activa && hdgBrujula !== null ? ((hdgBrujula - hdgR + 540) % 360) - 180 : 0;   // -180..180, 0 = hacia arriba
+    const meta = 0;
     const d = ((meta - giroAcum + 540) % 360) - 180;
     if (Math.abs(d) < 0.3) { if (giroAcum !== meta) giroAcum = meta; }
-    else giroAcum += d * (1 - Math.exp(-dt / 110));
+    else giroAcum += d * (1 - Math.exp(-dt / 150));
     const v = giroAcum.toFixed(1) + "deg";
     if (v !== giroIco) { giroIco = v; el.style.setProperty("--giro-rep", v); }
     return Math.abs(d) >= 0.3;
@@ -962,10 +997,13 @@ const Camara = (() => {
     if (!renderPos) renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
     aplicarEscala();
     if (forzar) {
-      hdgR = hdgObj; anim = null; renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
+      /* No forzamos el rumbo: dejamos que el motor interpole desde el bearing actual hasta el rumbo de la ruta.
+         Así el “giro a modo navegación” se ve como una rotación suave, no como un salto. */
+      anim = null; renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
       if (marcaYo) marcaYo.setLatLng([renderPos.lat, renderPos.lng]);
       zoomando = false;
       aplicarCamara(true);
+      despertar();
     } else despertar();
     refrescarBoton();
   }
@@ -1942,7 +1980,13 @@ function aplicarHoja() {
   const n = orden.length + (OrdenAdminRep.activo() ? 1 : 0), res = OrdenAdminRep.resumen();
   const vsel = viajes[seleccionado]; $("barraHojaTxt").textContent = hojaOculta ? "▴ " + (res || (n ? "Mostrar pedido" + (vsel ? " · " + String(nombreDe(vsel)).slice(0, 22) : "") : "Mostrar panel")) : "▾ Ocultar pedido";
   const c = $("barraHojaCnt"); c.textContent = n; c.classList.toggle("oculto", !n);
-  if (mapa) setTimeout(() => { mapa.invalidateSize(); if (Camara.getModo() === "navegacion") Camara.actualizar(true); }, 120);
+  if (mapa) setTimeout(() => {
+    mapa.invalidateSize();
+    if (Camara.getModo() === "navegacion") {
+      Camara.aplicar3D();
+      Camara.actualizar(true);
+    }
+  }, 120);
 }
 $("barraHoja").onclick = () => { hojaOculta = !hojaOculta; aplicarHoja(); };
 
@@ -2141,6 +2185,7 @@ function actualizarBanner() {
       b.innerHTML = h.html;
       const x2 = $("brX"); if (x2) x2.onclick = cancelarRutaManual;
       alinearCapsulaRuta();
+      try { Nav.barra(); } catch (_) {}
       return;
     }
     txt = escHtml(`Calculando ruta a ${titulo}…`);
@@ -2800,11 +2845,6 @@ function volverABandeja() {
 }
 /* ============================================================
    NAVEGACIÓN "ATRÁS" UNIFICADA (botón físico, gesto y botón virtual)
-   - Gestor de historial SPA: una entrada "guarda" en history absorbe cada "Atrás" y se vuelve a armar,
-     así la app nunca se cierra sola ni se congela.
-   - Jerarquía: capas superiores (modales, paneles, chat) → Chat a Bandeja → Bandeja/Factura a Mapa →
-     Mapa: aviso "presiona otra vez para salir" → segunda pulsación: salir.
-   - En APK (Capacitor) también escucha el evento nativo backButton del plugin App.
    ============================================================ */
 const NavAtras = (() => {
   const AVISO_MS = 3500;
@@ -2845,7 +2885,7 @@ const NavAtras = (() => {
       const abiertos = Array.from(document.querySelectorAll(".modal-rep")).filter((m) => !m.classList.contains("oculto") && m.id !== "modalPago");
       const m = abiertos[abiertos.length - 1];
       if (!m) return false;
-      if (m.id === "modalPermisos") return true;                       // hay que responder el permiso
+      if (m.id === "modalPermisos") return true;
       if (m.id === "modalSolicitud") { const b = $("spCerrar"); if (b) b.click(); else m.classList.add("oculto"); return true; }
       m.classList.add("oculto");
       return true;
@@ -2913,24 +2953,20 @@ const NavAtras = (() => {
   function alPopState(e) {
     if (saliendo) { if (--saltos > 0) { try { history.back(); } catch (_) {} } return; }
     const st = e && e.state;
-    if (st && st.rep === 1) return;                 // entrada propia: nada que hacer
+    if (st && st.rep === 1) return;
     const sigue = manejar();
-    if (sigue) armar();                             // se vuelve a poner la guarda delante
+    if (sigue) armar();
   }
   function iniciar() {
     try { history.scrollRestoration = "manual"; } catch (_) {}
     try { history.replaceState({ rep: 0, vista: vistaActual }, ""); } catch (_) {}
     armar();
     window.addEventListener("popstate", alPopState);
-    /* Chrome solo respeta entradas creadas tras un gesto del usuario: se rearma en el primer toque */
     const gesto = () => { armar(); };
     ["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, gesto, { once: true, passive: true, capture: true }));
-    /* Gestos atrás (borde del celular, iOS/Android): llegan como popstate o backButton y usan la misma lógica.
-       Se vuelve a armar la guarda al volver a la app, al restaurar de caché (bfcache) o al recuperar el foco. */
     window.addEventListener("pageshow", () => { armar(); });
     window.addEventListener("focus", () => { armar(); });
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") armar(); });
-    /* APK: botón atrás nativo y gesto atrás (Android 10+, incluido el atrás predictivo) */
     try {
       const A = plug("App");
       if (A && typeof A.addListener === "function") {
@@ -3059,7 +3095,6 @@ const ChatsEntrantes = (() => {
     const x = d && d.pedido && d.pedido.destino;
     return x && okLL(x.lat, x.lng) ? { lat: x.lat, lng: x.lng } : null;
   }
-  // FASE 1 · ya no mostramos coordenadas numéricas: solo texto de "ubicación en vivo"
   function textoDestino(d) {
     const x = d && d.pedido && d.pedido.destino;
     if (!x) return "Sin datos de ubicación";
@@ -3327,7 +3362,6 @@ const ChatsEntrantes = (() => {
     });
   }
 
-  /* Toque en el push "Nueva solicitud": abre la vista previa (Atender / Cerrar) en cuanto la solicitud esté cargada */
   function abrirSolicitud(id) {
     solPendiente = id;
     if (cargada) resolverSolPendiente();
@@ -3824,8 +3858,6 @@ const ChatsEntrantes = (() => {
     registrarEntrega(id, lista[id] || {}, leerFacLocal(id), pago);
     limpiarLocal(id);
   }
-  /* Pedido terminado (entregado o cancelado) desde el chat o desde el mapa: se cierra el chat abierto y se quitan
-     los botones Iniciar entrega / Cancelar / Entregado de ambos lados, para que no quede nada pendiente. */
   function cerrarPedido(id, estado) {
     const d = lista[id];
     if (d) { d.estado = estado; delete d.repartidorUid; }
@@ -3836,8 +3868,7 @@ const ChatsEntrantes = (() => {
   }
   function registrarEntrega(id, d, reg, pago) {
     CobroEntrega.guardar({ id, origen: "chat", cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", total: reg && reg.actual ? Number(reg.actual.totalFinal) || 0 : null }, pago);
-    { /* FASE 2 · Contabilidad unificada (origen "chat"): base = 1.ª factura, extras = mandados acumulados */
-      const c = Contabilidad.desdeFacturas(reg && reg.base, reg && reg.actual);
+    { const c = Contabilidad.desdeFacturas(reg && reg.base, reg && reg.actual);
       Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", metodoPago: pago || null, pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, ivasExtras: c.ivasExtras, sinFactura: c.sinFactura });
     }
     const a = leerRegistro();
@@ -3862,14 +3893,12 @@ const ChatsEntrantes = (() => {
       subtotal: r.subtotal, delivery: r.delivery, extras: r.extras, totalFinal: r.totalFinal, orden: r.orden, sinFactura: r.sinFactura, ts: TS
     }))).catch(() => {});
   }
-  /* FASE 3 · "Facturas entregadas" unificado: lee contabilidad/{uid} (Chat · Admin · Manual) en tiempo real con resumen y filtros por fecha */
   function pintarRegistro() {
     const caja = $("cnRegistro");
     if (!caja || !uidActual) return;
     if (caja.classList.contains("oculto")) return;
     PanelContable.montar({ db, uid: uidActual, contenedor: caja, rangoInicial: "hoy", editablePago: true });
   }
-  /* Cortina: "Facturas entregadas" queda oculta y se despliega solo al tocar el encabezado */
   { const btnCort = $("btnCortinaFacturas");
     if (btnCort) btnCort.addEventListener("click", () => {
       const caja = $("cnRegistro"); if (!caja) return;
@@ -4007,7 +4036,7 @@ const Extras = (() => {
     const sinRed = !firebaseOk || navigator.onLine === false;
     clearTimeout(tmRed);
     if (!sinRed) { const c = crearChipRed(); if (c) c.classList.add("oculto"); return; }
-    tmRed = setTimeout(() => {   // espera unos segundos para no parpadear en cortes breves
+    tmRed = setTimeout(() => {
       if (!firebaseOk || navigator.onLine === false) { const c = crearChipRed(); if (c) c.classList.remove("oculto"); }
     }, ESPERA_MS);
   }
