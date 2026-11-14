@@ -14,8 +14,10 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -39,6 +41,7 @@ import java.util.regex.Pattern;
 
 /*
  * Funciones nativas de Brother's Deliverys (solo Android):
+ *  - Burbuja flotante arrastrable: al arrastrarla aparece abajo una zona con "X"; si se suelta ahi, la burbuja se cierra
  *  - Burbuja flotante con el logo de la app cuando el repartidor sale de ella (toque = menu: chat y ubicacion SOLO con pedido, nueva factura, abrir la app)
  *  - Pedir permiso de "mostrar sobre otras apps" y exencion de ahorro de bateria
  *  - Recibir ubicaciones/enlaces compartidos desde WhatsApp, Google Maps, Waze, etc.
@@ -56,6 +59,9 @@ public class NativoPlugin extends Plugin {
     private View menu;
     private WindowManager.LayoutParams lp;
     private Runnable cierreMenu;
+    private View zonaX;
+    private TextView zonaXTxt;
+    private boolean sobreZonaX = false;
 
     /* ---------- Ciclo de vida ---------- */
 
@@ -271,7 +277,7 @@ public class NativoPlugin extends Plugin {
             final Context ctx = getContext().getApplicationContext();
             wm = (WindowManager) ctx.getSystemService(Context.WINDOW_SERVICE);
             final float d = ctx.getResources().getDisplayMetrics().density;
-            int px = (int) (62 * d);
+            final int px = (int) (62 * d);
 
             FrameLayout caja = new FrameLayout(ctx);
             GradientDrawable fondo = ovalo(Color.WHITE);
@@ -318,6 +324,7 @@ public class NativoPlugin extends Plugin {
                             tx0 = e.getRawX();
                             ty0 = e.getRawY();
                             movido = false;
+                            sobreZonaX = false;
                             v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(90).start();
                             return true;
                         case MotionEvent.ACTION_MOVE:
@@ -325,8 +332,24 @@ public class NativoPlugin extends Plugin {
                             int dy = (int) (e.getRawY() - ty0);
                             if (Math.abs(dx) > 12 || Math.abs(dy) > 12) movido = true;
                             if (movido) {
+                                if (menu != null) quitarMenuYa();
+                                mostrarZonaX();
                                 lp.x = x0 + dx;
                                 lp.y = y0 + dy;
+                                /* Cerca de la zona "X": la burbuja se imanta al centro de la X y la X se resalta */
+                                int[] c = centroZonaX();
+                                int cx = lp.x + px / 2;
+                                int cy = lp.y + px / 2;
+                                boolean cerca = c != null && Math.hypot(cx - c[0], cy - c[1]) < 90 * d;
+                                if (cerca) {
+                                    lp.x = c[0] - px / 2;
+                                    lp.y = c[1] - px / 2;
+                                }
+                                if (cerca != sobreZonaX) {
+                                    sobreZonaX = cerca;
+                                    resaltarZonaX(cerca);
+                                    if (cerca) v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                                }
                                 try {
                                     wm.updateViewLayout(v, lp);
                                 } catch (Exception ignored) {
@@ -334,11 +357,26 @@ public class NativoPlugin extends Plugin {
                             }
                             return true;
                         case MotionEvent.ACTION_UP:
+                            if (movido && sobreZonaX) {
+                                /* Soltada sobre la X: se cierra la burbuja */
+                                sobreZonaX = false;
+                                v.animate().scaleX(0f).scaleY(0f).setDuration(160).withEndAction(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        quitarBurbuja();
+                                    }
+                                }).start();
+                                ocultarZonaX();
+                                return true;
+                            }
                             v.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
+                            ocultarZonaX();
                             if (!movido) alternarMenu();
                             return true;
                         case MotionEvent.ACTION_CANCEL:
+                            sobreZonaX = false;
                             v.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
+                            ocultarZonaX();
                             return true;
                         default:
                             return false;
@@ -356,11 +394,93 @@ public class NativoPlugin extends Plugin {
         }
     }
 
+    /* ---------- Zona "X" para cerrar la burbuja (aparece abajo mientras se arrastra) ---------- */
+
+    private int[] centroZonaX() {
+        try {
+            if (wm == null) return null;
+            Context ctx = getContext().getApplicationContext();
+            float d = ctx.getResources().getDisplayMetrics().density;
+            DisplayMetrics dm = new DisplayMetrics();
+            wm.getDefaultDisplay().getRealMetrics(dm);
+            return new int[]{dm.widthPixels / 2, dm.heightPixels - (int) (40 * d) - (int) (32 * d)};
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void mostrarZonaX() {
+        if (zonaX != null || wm == null) return;
+        try {
+            final Context ctx = getContext().getApplicationContext();
+            float d = ctx.getResources().getDisplayMetrics().density;
+            FrameLayout z = new FrameLayout(ctx);
+            z.setBackground(ovalo(Color.parseColor("#CC111827")));
+            z.setElevation(16f);
+            TextView x = new TextView(ctx);
+            x.setText("\u2715");
+            x.setTextColor(Color.WHITE);
+            x.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+            x.setTypeface(Typeface.DEFAULT_BOLD);
+            x.setGravity(Gravity.CENTER);
+            z.addView(x, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            zonaXTxt = x;
+            WindowManager.LayoutParams zp = new WindowManager.LayoutParams((int) (64 * d), (int) (64 * d), tipoVentana(),
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT);
+            zp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            zp.y = (int) (40 * d);
+            z.setAlpha(0f);
+            z.setScaleX(0.6f);
+            z.setScaleY(0.6f);
+            wm.addView(z, zp);
+            z.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(160).start();
+            zonaX = z;
+        } catch (Exception e) {
+            zonaX = null;
+        }
+    }
+
+    private void resaltarZonaX(boolean activa) {
+        if (zonaX == null) return;
+        zonaX.setBackground(ovalo(Color.parseColor(activa ? "#E5322D" : "#CC111827")));
+        zonaX.animate().scaleX(activa ? 1.3f : 1f).scaleY(activa ? 1.3f : 1f).setDuration(120).start();
+    }
+
+    private void ocultarZonaX() {
+        final View z = zonaX;
+        if (z == null) return;
+        zonaX = null;
+        zonaXTxt = null;
+        z.animate().alpha(0f).scaleX(0.6f).scaleY(0.6f).setDuration(140).withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (wm != null) wm.removeView(z);
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
+    private void quitarZonaXYa() {
+        if (zonaX != null && wm != null) {
+            try {
+                wm.removeView(zonaX);
+            } catch (Exception ignored) {
+            }
+        }
+        zonaX = null;
+        zonaXTxt = null;
+        sobreZonaX = false;
+    }
+
     private void quitarBurbuja() {
         ui.post(new Runnable() {
             @Override
             public void run() {
                 quitarMenuYa();
+                quitarZonaXYa();
                 if (burbuja != null && wm != null) {
                     try {
                         wm.removeView(burbuja);
