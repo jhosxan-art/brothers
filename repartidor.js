@@ -379,28 +379,6 @@ const Nav = (() => {
     if (pill.textContent !== t) pill.textContent = t;
   }
 
-  /* Barra de progreso al pie de la cápsula (0 = inicio de la ruta, 100 = llegada) */
-  function barra() {
-    const b = $("bannerRuta");
-    if (!b || !b.classList.contains("rb-nav")) return;
-    const n = rutaActiva();
-    const e = estado(n);
-    if (!e) return;
-    const pct = Math.max(0, Math.min(100, Math.round((1 - e.falta / Math.max(1, e.total)) * 100)));
-    if (!b.querySelector(".rb-prog")) {
-      const w = document.createElement("span");
-      w.className = "rb-prog";
-      w.setAttribute("role", "progressbar");
-      w.setAttribute("aria-valuemin", "0");
-      w.setAttribute("aria-valuemax", "100");
-      w.innerHTML = '<i style="width:0"></i>';
-      b.appendChild(w);
-    }
-    const bar = b.querySelector(".rb-prog");
-    bar.setAttribute("aria-valuenow", String(pct));
-    bar.firstChild.style.width = pct + "%";
-  }
-
   function reanudar() {
     clearTimeout(tmGeneral); tmGeneral = null;
     if (!general) return;
@@ -451,7 +429,6 @@ const Nav = (() => {
       const s = segRestantes(n, e);
       decir("Navegación iniciada. " + formatoTiempo(s).replace(" min", " minutos").replace(" h ", " horas ") + " hasta tu destino");
     }
-    try { barra(); } catch (_) {}
     if (e.aGiro === null || e.idx >= e.last) return;
     if (n._vIdx !== e.idx) { n._vIdx = e.idx; n._vDicho = {}; }
     let u = null; for (const t of UMBRALES) if (e.aGiro <= t) u = t;
@@ -460,7 +437,7 @@ const Nav = (() => {
     const txt = textoDe(e.pasos[e.idx])[1];
     if (txt) decir(u === 25 ? "Ahora, " + txt : "En " + metrosHabla(e.aGiro) + ", " + txt);
   }
-  return { estado, restante, banner, alPosicion, hayDestino, enNavegacion, vistaGeneral, reanudar, recalculando, actualizarPill, barra };
+  return { estado, restante, banner, alPosicion, hayDestino, enNavegacion, vistaGeneral, reanudar, recalculando, actualizarPill };
 })();
 
 function mostrar(vista) {
@@ -680,7 +657,7 @@ function initMapa() {
 let seguirme = true;
 
 /* ============================================================
-   CÁMARA DEL REPARTIDOR · tercera persona tipo Waze
+   CÁMARA DEL REPARTIDOR
    ============================================================ */
 const Camara = (() => {
   const SIGNO_ROTACION = 1;
@@ -689,8 +666,7 @@ const Camara = (() => {
   const CM_PX = 96 / 2.54;
   let prev = null, suave = 0, tieneRumbo = false, ult = 0, ultGesto = 0;
   /* Motor 3D (course-up + pitch + ancla inferior + puck interpolado) */
-  const PITCH_GRADOS = 42, ESCALA_3D = 1.6, PERSPECTIVA_PX = 900, CONTRA_PITCH = 1.30, ZOOM_3D = 0.9, VEL_MIN_RUMBO = 1.2;
-  let hdgRuta = null, hdgRutaTs = 0;   // memoria del último rumbo válido de la ruta
+  const PITCH_GRADOS = 50, ESCALA_3D = 1.8, PERSPECTIVA_PX = 900, CONTRA_PITCH = 1.45, ZOOM_3D = 0.75, VEL_MIN_RUMBO = 1.2;
   let renderPos = null, anim = null, ultFix = 0, raf = 0, tPrev = 0, hdgR = 0, hdgObj = 0, hdgBrujula = null, velActual = null;
   let giroIco = 0, giroAcum = 0, zObj = null, zAuto = null, zOff = 0, zProg = false, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null, anclaPx = 0;
   let modo = "fitbounds";
@@ -731,6 +707,7 @@ const Camara = (() => {
     tieneRumbo = true;
     fijarObjetivo();
   }
+  /* Rumbo objetivo: en movimiento manda el GPS / trayectoria; detenido, la brújula del dispositivo */
   /* Rumbo de la CALLE que falta por recorrer: apunta ~40 m adelante sobre la ruta activa, así la calle siempre queda al frente */
   const ADELANTE_M = 40;
   function rumboRuta() {
@@ -758,17 +735,11 @@ const Camara = (() => {
   }
   function fijarObjetivo() {
     if (!rotable()) { hdgObj = 0; return; }
-    if (modo === "navegacion") {
-      const rr = rumboRuta();
-      if (rr !== null) { hdgRuta = rr; hdgRutaTs = Date.now(); hdgObj = rr; return; }
-      /* justo en una curva o recién arrancando: mantenemos el rumbo de la ruta 3 s para no saltar al GPS */
-      if (hdgRuta !== null && Date.now() - hdgRutaTs < 3000) { hdgObj = hdgRuta; return; }
-    }
+    { const rr = modo === "navegacion" ? rumboRuta() : null; if (rr !== null) { hdgObj = rr; return; } }
+    /* La brújula del teléfono ya no gira el mapa: solo gira al repartidor (ver giroIcono) */
     if (tieneRumbo) hdgObj = suave;
   }
   function alOrientacion(e) {
-    /* En navegación la orientación la manda la RUTA, no el teléfono */
-    if (modo === "navegacion") return;
     let h = null;
     if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;
     else if (e.absolute === true && typeof e.alpha === "number") h = (360 - e.alpha) % 360;
@@ -813,16 +784,10 @@ const Camara = (() => {
   }
   /* Punto de anclaje: centro inferior del mapa, justo encima de la barra "Ocultar pedido" */
   function calcAncla() {
-    const H = mapa.getSize().y || 600;
-    let refY = Math.round(H * 0.65);
-    try {
-      const mr = mapa.getContainer().getBoundingClientRect();
-      const br = $("barraHoja") && $("barraHoja").getBoundingClientRect();
-      if (br && br.height > 8 && br.top > mr.top && br.top < mr.bottom) {
-        refY = Math.round(br.top - mr.top - 90);
-      }
-    } catch (_) {}
-    return Math.max(Math.round(H * 0.45), Math.min(Math.round(H * 0.82), refY));
+    const H = mapa.getSize().y;
+    let refY = H;
+    try { const mr = mapa.getContainer().getBoundingClientRect(), br = $("barraHoja").getBoundingClientRect(); if (br.height) refY = Math.min(H, Math.max(0, br.top - mr.top)); } catch (_) {}
+    return Math.max(H * 0.5, Math.min(H * 0.92, refY - 72));   // centro inferior, encima de la barra (deja espacio para el nombre)
   }
   /* Inclinación 3D (CSS): el pivote de la perspectiva es la posición del repartidor, así queda fija en pantalla */
   function aplicar3D() {
@@ -853,14 +818,14 @@ const Camara = (() => {
     zProg = true;
     try { mapa.setView(centro, zu, { animate: false, noMoveStart: true }); } finally { zProg = false; }
   }
-  /* Tercera persona: el ícono del repartidor SIEMPRE apunta hacia arriba (nunca gira con la brújula) */
+  /* Giro de cabeza: el ícono del repartidor gira hacia donde apunta el teléfono (relativo al mapa); el mapa no se mueve */
   function giroIcono(dt, activa) {
     const el = marcaYo && marcaYo.getElement && marcaYo.getElement();
     if (!el) return false;
-    const meta = 0;
+    const meta = activa && hdgBrujula !== null ? ((hdgBrujula - hdgR + 540) % 360) - 180 : 0;   // -180..180, 0 = hacia arriba
     const d = ((meta - giroAcum + 540) % 360) - 180;
     if (Math.abs(d) < 0.3) { if (giroAcum !== meta) giroAcum = meta; }
-    else giroAcum += d * (1 - Math.exp(-dt / 150));
+    else giroAcum += d * (1 - Math.exp(-dt / 110));
     const v = giroAcum.toFixed(1) + "deg";
     if (v !== giroIco) { giroIco = v; el.style.setProperty("--giro-rep", v); }
     return Math.abs(d) >= 0.3;
@@ -890,6 +855,7 @@ const Camara = (() => {
   /* Punto de la pantalla (clientX/Y) → coordenadas del mapa; deshace la inclinación 3D (rotateX + escala con perspectiva) */
   function clienteALatLng(cx, cy) {
     if (!mapa) return null;
+    try { if (NavGL.visible()) { const g = NavGL.clienteALatLng(cx, cy); if (g) return g; } } catch (_) {}
     const esc = $("escena3d"), r = (esc || mapa.getContainer()).getBoundingClientRect();
     let px = cx - r.left, py = cy - r.top;
     if (inclinada && esc) {
@@ -965,6 +931,8 @@ const Camara = (() => {
     refrescarBoton();
   }
   function getModo() { return modo; }
+  /* Estado de la cámara para vistas auxiliares (NavGL): posición suavizada, rumbo, zoom de Leaflet y ancla vertical */
+  function estadoVista() { return { activo: navActiva(), pos: renderPos, hdg: hdgR, zoom: mapa ? mapa.getZoom() : 0, ancla: mapa ? calcAncla() : 0, h: mapa ? mapa.getSize().y : 0 }; }
 
   function actualizar(forzar) {
     if (!mapa || !ultimaPos || !seguirme || vistaActual !== "mapa") return;
@@ -997,13 +965,10 @@ const Camara = (() => {
     if (!renderPos) renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
     aplicarEscala();
     if (forzar) {
-      /* No forzamos el rumbo: dejamos que el motor interpole desde el bearing actual hasta el rumbo de la ruta.
-         Así el “giro a modo navegación” se ve como una rotación suave, no como un salto. */
-      anim = null; renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
+      hdgR = hdgObj; anim = null; renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
       if (marcaYo) marcaYo.setLatLng([renderPos.lat, renderPos.lng]);
       zoomando = false;
       aplicarCamara(true);
-      despertar();
     } else despertar();
     refrescarBoton();
   }
@@ -1011,7 +976,7 @@ const Camara = (() => {
     if (rotable()) { try { mapa.setBearing(0); } catch (_) {} }
     setTimeout(refrescarBoton, 0);
   }
-  return { opcionesMapa, registrar, clienteALatLng, anclarYo, moverYo, iniciarMotor, aplicar3D, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
+  return { opcionesMapa, registrar, clienteALatLng, anclarYo, moverYo, iniciarMotor, aplicar3D, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo, estadoVista };
 })();
 
 function pintarYo(rumbo) {
@@ -1237,6 +1202,7 @@ function dibujarRuta() {
   if (clave !== flechasClave) { flechasClave = clave; if (clave) Ruta.flechas(v.rutaPts, flechasOrden, "#0A86C9"); else flechasOrden.clearLayers(); }
   dibujarOtras();
   pintarGuia();
+  try { NavGL.pintarRuta(); } catch (_) {}
 }
 
 function seleccionar(token, enfocar) {
@@ -1980,13 +1946,7 @@ function aplicarHoja() {
   const n = orden.length + (OrdenAdminRep.activo() ? 1 : 0), res = OrdenAdminRep.resumen();
   const vsel = viajes[seleccionado]; $("barraHojaTxt").textContent = hojaOculta ? "▴ " + (res || (n ? "Mostrar pedido" + (vsel ? " · " + String(nombreDe(vsel)).slice(0, 22) : "") : "Mostrar panel")) : "▾ Ocultar pedido";
   const c = $("barraHojaCnt"); c.textContent = n; c.classList.toggle("oculto", !n);
-  if (mapa) setTimeout(() => {
-    mapa.invalidateSize();
-    if (Camara.getModo() === "navegacion") {
-      Camara.aplicar3D();
-      Camara.actualizar(true);
-    }
-  }, 120);
+  if (mapa) setTimeout(() => { mapa.invalidateSize(); if (Camara.getModo() === "navegacion") Camara.actualizar(true); }, 120);
 }
 $("barraHoja").onclick = () => { hojaOculta = !hojaOculta; aplicarHoja(); };
 
@@ -2185,7 +2145,6 @@ function actualizarBanner() {
       b.innerHTML = h.html;
       const x2 = $("brX"); if (x2) x2.onclick = cancelarRutaManual;
       alinearCapsulaRuta();
-      try { Nav.barra(); } catch (_) {}
       return;
     }
     txt = escHtml(`Calculando ruta a ${titulo}…`);
@@ -2606,6 +2565,8 @@ function procesarPosicion(c) {
   Camara.registrar(lat, lng, c.heading, c.speed);
   try { Extras.alPosicion(c); } catch (_) {}
   try { Nav.alPosicion(c); } catch (_) {}
+  try { Viajes.alPosicion(c); } catch (_) {}
+  try { NavGL.alPosicion(); } catch (_) {}
   pintarYo();
   if (mapa && vistaActual === "mapa") {
     if (seguirme) Camara.actualizar(primera);
@@ -2845,6 +2806,11 @@ function volverABandeja() {
 }
 /* ============================================================
    NAVEGACIÓN "ATRÁS" UNIFICADA (botón físico, gesto y botón virtual)
+   - Gestor de historial SPA: una entrada "guarda" en history absorbe cada "Atrás" y se vuelve a armar,
+     así la app nunca se cierra sola ni se congela.
+   - Jerarquía: capas superiores (modales, paneles, chat) → Chat a Bandeja → Bandeja/Factura a Mapa →
+     Mapa: aviso "presiona otra vez para salir" → segunda pulsación: salir.
+   - En APK (Capacitor) también escucha el evento nativo backButton del plugin App.
    ============================================================ */
 const NavAtras = (() => {
   const AVISO_MS = 3500;
@@ -2885,7 +2851,7 @@ const NavAtras = (() => {
       const abiertos = Array.from(document.querySelectorAll(".modal-rep")).filter((m) => !m.classList.contains("oculto") && m.id !== "modalPago");
       const m = abiertos[abiertos.length - 1];
       if (!m) return false;
-      if (m.id === "modalPermisos") return true;
+      if (m.id === "modalPermisos") return true;                       // hay que responder el permiso
       if (m.id === "modalSolicitud") { const b = $("spCerrar"); if (b) b.click(); else m.classList.add("oculto"); return true; }
       m.classList.add("oculto");
       return true;
@@ -2953,20 +2919,24 @@ const NavAtras = (() => {
   function alPopState(e) {
     if (saliendo) { if (--saltos > 0) { try { history.back(); } catch (_) {} } return; }
     const st = e && e.state;
-    if (st && st.rep === 1) return;
+    if (st && st.rep === 1) return;                 // entrada propia: nada que hacer
     const sigue = manejar();
-    if (sigue) armar();
+    if (sigue) armar();                             // se vuelve a poner la guarda delante
   }
   function iniciar() {
     try { history.scrollRestoration = "manual"; } catch (_) {}
     try { history.replaceState({ rep: 0, vista: vistaActual }, ""); } catch (_) {}
     armar();
     window.addEventListener("popstate", alPopState);
+    /* Chrome solo respeta entradas creadas tras un gesto del usuario: se rearma en el primer toque */
     const gesto = () => { armar(); };
     ["pointerdown", "touchend", "keydown"].forEach((ev) => window.addEventListener(ev, gesto, { once: true, passive: true, capture: true }));
+    /* Gestos atrás (borde del celular, iOS/Android): llegan como popstate o backButton y usan la misma lógica.
+       Se vuelve a armar la guarda al volver a la app, al restaurar de caché (bfcache) o al recuperar el foco. */
     window.addEventListener("pageshow", () => { armar(); });
     window.addEventListener("focus", () => { armar(); });
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") armar(); });
+    /* APK: botón atrás nativo y gesto atrás (Android 10+, incluido el atrás predictivo) */
     try {
       const A = plug("App");
       if (A && typeof A.addListener === "function") {
@@ -3095,6 +3065,7 @@ const ChatsEntrantes = (() => {
     const x = d && d.pedido && d.pedido.destino;
     return x && okLL(x.lat, x.lng) ? { lat: x.lat, lng: x.lng } : null;
   }
+  // FASE 1 · ya no mostramos coordenadas numéricas: solo texto de "ubicación en vivo"
   function textoDestino(d) {
     const x = d && d.pedido && d.pedido.destino;
     if (!x) return "Sin datos de ubicación";
@@ -3362,6 +3333,7 @@ const ChatsEntrantes = (() => {
     });
   }
 
+  /* Toque en el push "Nueva solicitud": abre la vista previa (Atender / Cerrar) en cuanto la solicitud esté cargada */
   function abrirSolicitud(id) {
     solPendiente = id;
     if (cargada) resolverSolPendiente();
@@ -3858,6 +3830,8 @@ const ChatsEntrantes = (() => {
     registrarEntrega(id, lista[id] || {}, leerFacLocal(id), pago);
     limpiarLocal(id);
   }
+  /* Pedido terminado (entregado o cancelado) desde el chat o desde el mapa: se cierra el chat abierto y se quitan
+     los botones Iniciar entrega / Cancelar / Entregado de ambos lados, para que no quede nada pendiente. */
   function cerrarPedido(id, estado) {
     const d = lista[id];
     if (d) { d.estado = estado; delete d.repartidorUid; }
@@ -3868,7 +3842,8 @@ const ChatsEntrantes = (() => {
   }
   function registrarEntrega(id, d, reg, pago) {
     CobroEntrega.guardar({ id, origen: "chat", cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", total: reg && reg.actual ? Number(reg.actual.totalFinal) || 0 : null }, pago);
-    { const c = Contabilidad.desdeFacturas(reg && reg.base, reg && reg.actual);
+    { /* FASE 2 · Contabilidad unificada (origen "chat"): base = 1.ª factura, extras = mandados acumulados */
+      const c = Contabilidad.desdeFacturas(reg && reg.base, reg && reg.actual);
       Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", metodoPago: pago || null, pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, ivasExtras: c.ivasExtras, sinFactura: c.sinFactura });
     }
     const a = leerRegistro();
@@ -3893,12 +3868,14 @@ const ChatsEntrantes = (() => {
       subtotal: r.subtotal, delivery: r.delivery, extras: r.extras, totalFinal: r.totalFinal, orden: r.orden, sinFactura: r.sinFactura, ts: TS
     }))).catch(() => {});
   }
+  /* FASE 3 · "Facturas entregadas" unificado: lee contabilidad/{uid} (Chat · Admin · Manual) en tiempo real con resumen y filtros por fecha */
   function pintarRegistro() {
     const caja = $("cnRegistro");
     if (!caja || !uidActual) return;
     if (caja.classList.contains("oculto")) return;
     PanelContable.montar({ db, uid: uidActual, contenedor: caja, rangoInicial: "hoy", editablePago: true });
   }
+  /* Cortina: "Facturas entregadas" queda oculta y se despliega solo al tocar el encabezado */
   { const btnCort = $("btnCortinaFacturas");
     if (btnCort) btnCort.addEventListener("click", () => {
       const caja = $("cnRegistro"); if (!caja) return;
@@ -4036,7 +4013,7 @@ const Extras = (() => {
     const sinRed = !firebaseOk || navigator.onLine === false;
     clearTimeout(tmRed);
     if (!sinRed) { const c = crearChipRed(); if (c) c.classList.add("oculto"); return; }
-    tmRed = setTimeout(() => {
+    tmRed = setTimeout(() => {   // espera unos segundos para no parpadear en cortes breves
       if (!firebaseOk || navigator.onLine === false) { const c = crearChipRed(); if (c) c.classList.remove("oculto"); }
     }, ESPERA_MS);
   }
@@ -4064,4 +4041,452 @@ const Extras = (() => {
     window.addEventListener("offline", evaluarRed);
   } catch (_) {}
   return { alPosicion, evaluarRed };
+})();
+
+/* ============================================================
+   VIAJES · replay de recorridos + geocercas con aviso de llegada (aditivo)
+   Ajustes estilo Routario: grabar recorridos, geocercas (radio y permanencia mínima), voz.
+   - Mientras hay un pedido activo graba el recorrido [lat, lng, seg, km/h] y las entradas/salidas de lugares.
+   - Se guarda en este aparato (siempre) y en Firebase historial_viajes/{uid}/{id} (si las reglas lo permiten).
+   - Botón 🎞️ del mapa: lista de viajes con ▶ Replay (pausa, 1×/4×/16×/64×, barra de tiempo), paradas 🛑 y lugares 📍.
+   ============================================================ */
+const Viajes = (() => {
+  const LS_AJ = "ajustesViajes", LS_HIST = "viajeHist", LS_ACT = "viajeActual", MAX_HIST = 15, MAX_PTS = 2500;
+  const DEF = { grabar: true, geocercas: true, voz: true, radio: 60, permanencia: 20 };
+  const aj = Object.assign({}, DEF);
+  try { Object.assign(aj, JSON.parse(localStorage.getItem(LS_AJ) || "{}")); } catch (_) {}
+  let t = null, finDesde = 0, ultGuardado = 0, dentro = {}, modal = null, tab = "viajes", rp = null, ultFirebase = 0;
+
+  const ocupado = () => (orden && orden.length > 0) || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo());
+  const guardarAj = () => { try { localStorage.setItem(LS_AJ, JSON.stringify(aj)); } catch (_) {} };
+  const fdur = (s) => { const m = Math.round((s || 0) / 60); return m < 1 ? "<1 min" : m < 60 ? m + " min" : Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") + " min"; };
+  const fhora = (ms) => { try { return new Date(ms).toLocaleTimeString("es-NI", { hour: "numeric", minute: "2-digit" }); } catch (_) { return ""; } };
+  const ffecha = (ms) => { try { return new Date(ms).toLocaleDateString("es-NI", { weekday: "short", day: "numeric", month: "short" }) + " · " + fhora(ms); } catch (_) { return ""; } };
+  const r5 = (x) => Math.round(x * 1e5) / 1e5;
+
+  /* ---------- Historial local ---------- */
+  function leerHist() { try { const h = JSON.parse(localStorage.getItem(LS_HIST) || "[]"); return Array.isArray(h) ? h : []; } catch (_) { return []; } }
+  function guardarHist(h) {
+    h.sort((a, b) => b.inicio - a.inicio);
+    h = h.slice(0, MAX_HIST);
+    for (let i = 0; i < 4; i++) { try { localStorage.setItem(LS_HIST, JSON.stringify(h)); return; } catch (_) { h = h.slice(0, Math.max(1, h.length - 3)); } }
+  }
+  function distTotal(pts) { let d = 0; for (let i = 1; i < pts.length; i++) d += distanciaM(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]); return d; }
+  /* Paradas: se queda ≥90 s dentro de 30 m (los puntos de un aparato quieto llegan cada 60 s) */
+  function paradas(pts) {
+    const r = []; let i = 0;
+    while (i < pts.length - 1) {
+      let j = i + 1;
+      while (j < pts.length && distanciaM(pts[i][0], pts[i][1], pts[j][0], pts[j][1]) <= 30) j++;
+      const dur = pts[j - 1][2] - pts[i][2];
+      if (dur >= 90) { r.push({ lat: pts[i][0], lng: pts[i][1], t: pts[i][2], dur }); i = j; } else i++;
+    }
+    return r;
+  }
+  function resumen(v) {
+    const pts = v.pts || [];
+    return { dist: Math.round(distTotal(pts)), dur: pts.length ? pts[pts.length - 1][2] : 0, paradas: paradas(pts).length };
+  }
+
+  /* ---------- Grabación ---------- */
+  function recuperar() {
+    try {
+      const a = JSON.parse(localStorage.getItem(LS_ACT) || "null");
+      if (!a || !Array.isArray(a.pts)) return null;
+      const fin = a.inicio + (a.pts.length ? a.pts[a.pts.length - 1][2] : 0) * 1000;
+      if (a.uid === uidActual && Date.now() - fin < 30 * 60000) return a;
+      cerrar(a);
+    } catch (_) {}
+    return null;
+  }
+  function etiquetas() {
+    if (!t) return;
+    orden.forEach((tk) => { const v = viajes[tk]; if (!v) return; const n = nombreDe(v); if (n && !t.pedidos.includes(n) && t.pedidos.length < 8) t.pedidos.push(n); });
+  }
+  function persistirActual(ahora) {
+    if (!t || ahora - ultGuardado < 20000) return; ultGuardado = ahora;
+    try { localStorage.setItem(LS_ACT, JSON.stringify(t)); } catch (_) {}
+  }
+  function subirFirebase(v) {
+    try {
+      const r = resumen(v);
+      db.ref("historial_viajes/" + v.uid + "/" + v.id).set({
+        id: v.id, inicio: v.inicio, usuario: v.usuario || "", pedidos: v.pedidos || [], eventos: v.eventos || [],
+        dist: r.dist, dur: r.dur, paradas: r.paradas, ptsJson: JSON.stringify(v.pts)
+      }).catch(() => {});
+    } catch (_) {}
+  }
+  function cerrar(v) {
+    const viaje = v || t;
+    if (!viaje) return;
+    if (viaje === t) { t = null; finDesde = 0; dentro = {}; }
+    try { localStorage.removeItem(LS_ACT); } catch (_) {}
+    if (!viaje.pts || viaje.pts.length < 5 || distTotal(viaje.pts) < 100) return;
+    const h = leerHist().filter((x) => x.id !== viaje.id); h.push(viaje); guardarHist(h);
+    if (viaje.uid) subirFirebase(viaje);
+  }
+  function grabar(lat, lng, kmh, ahora, oc) {
+    if (!t) {
+      if (!oc || !uidActual) return;
+      t = recuperar() || { id: String(ahora), inicio: ahora, uid: uidActual, usuario: typeof usuario === "string" ? usuario : "", pts: [], eventos: [], pedidos: [] };
+    }
+    if (!oc) {
+      if (!finDesde) finDesde = ahora; else if (ahora - finDesde >= 20000) cerrar();
+      return;
+    }
+    finDesde = 0; etiquetas();
+    const seg = Math.round((ahora - t.inicio) / 1000), u = t.pts.length ? t.pts[t.pts.length - 1] : null;
+    const d = u ? distanciaM(u[0], u[1], lat, lng) : Infinity, dt = u ? seg - u[2] : Infinity;
+    if (!u || d >= 8 || (dt >= 10 && d >= 3) || dt >= 60) {
+      t.pts.push([r5(lat), r5(lng), seg, kmh]);
+      if (t.pts.length > MAX_PTS) t.pts = t.pts.filter((_, i) => i % 2 === 0 || i > MAX_PTS / 2);
+    }
+    persistirActual(ahora);
+  }
+
+  /* ---------- Geocercas ---------- */
+  function evento(tipo, o, extra) {
+    if (!t) return;
+    t.eventos.push(Object.assign({ t: Math.round((Date.now() - t.inicio) / 1000), tipo, nombre: o.nombre, lat: r5(o.lat), lng: r5(o.lng) }, extra || {}));
+    if (t.eventos.length > 60) t.eventos.shift();
+  }
+  function geocercas(lat, lng, ahora, oc) {
+    if (!oc) { dentro = {}; return; }
+    const R = aj.radio, objetivos = {};
+    Object.entries(lugares || {}).forEach(([id, l]) => { if (l && typeof l.lat === "number" && typeof l.lng === "number") objetivos["l:" + id] = { nombre: l.nombre || "Lugar", lat: l.lat, lng: l.lng, aviso: true }; });
+    orden.forEach((tk) => { const v = viajes[tk]; if (v && v.destino) objetivos["d:" + tk] = { nombre: "Entrega · " + nombreDe(v), lat: v.destino.lat, lng: v.destino.lng, aviso: false }; });
+    Object.keys(dentro).forEach((k) => { if (!objetivos[k]) delete dentro[k]; });
+    Object.entries(objetivos).forEach(([k, o]) => {
+      const d = distanciaM(lat, lng, o.lat, o.lng); let st = dentro[k];
+      if (d <= R) {
+        if (!st) st = dentro[k] = { t0: ahora, ok: false };
+        if (!st.ok && ahora - st.t0 >= aj.permanencia * 1000) {
+          st.ok = true; evento("entrada", o);
+          if (o.aviso) {
+            try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (_) {}
+            setEstado("📍 Llegaste a " + o.nombre, "ok");
+            if (aj.voz) { try { Voz.hablar("Llegaste a " + o.nombre, { forzar: true }); } catch (_) {} }
+          }
+        }
+      } else if (st && d > R * 1.3) {
+        if (st.ok) {
+          const dur = Math.round((ahora - st.t0) / 1000); evento("salida", o, { durSeg: dur });
+          if (o.aviso && dur >= 60) setEstado("✅ Saliste de " + o.nombre + " · estuviste " + fdur(dur), "ok");
+        }
+        delete dentro[k];
+      }
+    });
+  }
+
+  function alPosicion(c) {
+    const ahora = Date.now(), kmh = Number.isFinite(c.speed) ? Math.max(0, Math.round(c.speed * 3.6)) : 0, oc = ocupado();
+    if (aj.grabar) grabar(c.latitude, c.longitude, kmh, ahora, oc); else if (t) cerrar();
+    if (aj.geocercas) geocercas(c.latitude, c.longitude, ahora, oc); else dentro = {};
+  }
+
+  /* ---------- Ventana: viajes y ajustes ---------- */
+  function elModal() {
+    if (modal) return modal;
+    modal = document.createElement("div");
+    modal.id = "modalViajes"; modal.className = "modal-rep oculto"; modal.setAttribute("role", "dialog"); modal.setAttribute("aria-modal", "true"); modal.setAttribute("aria-labelledby", "vjTitulo");
+    modal.innerHTML = '<div class="modal-rep-caja vj-caja"><div class="vj-cab"><h2 id="vjTitulo">Viajes y geocercas</h2><button type="button" class="vj-x" data-vj="cerrar" aria-label="Cerrar">✕</button></div>' +
+      '<div class="vj-tabs"><button type="button" data-vj="tab" data-t="viajes">🎞️ Viajes</button><button type="button" data-vj="tab" data-t="ajustes">⚙️ Ajustes</button></div><div id="vjCuerpo" class="vj-cuerpo"></div></div>';
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) return cerrarModal();
+      const b = e.target.closest("[data-vj]"); if (!b) return;
+      const a = b.dataset.vj;
+      if (a === "cerrar") cerrarModal();
+      else if (a === "tab") { tab = b.dataset.t; pintarModal(); }
+      else if (a === "play") reproducir(b.dataset.id);
+      else if (a === "del") { if (confirm("¿Borrar este viaje de este aparato?")) { guardarHist(leerHist().filter((x) => x.id !== b.dataset.id)); pintarModal(); } }
+      else if (a === "borrar") { if (confirm("¿Borrar todo el historial de viajes de este aparato?")) { try { localStorage.removeItem(LS_HIST); } catch (_) {} pintarModal(); } }
+    });
+    modal.addEventListener("input", (e) => {
+      const k = e.target && e.target.dataset && e.target.dataset.aj; if (!k) return;
+      aj[k] = e.target.type === "checkbox" ? e.target.checked : Number(e.target.value);
+      guardarAj();
+      const lb = modal.querySelector('[data-val="' + k + '"]'); if (lb) lb.textContent = aj[k] + (k === "radio" ? " m" : " s");
+    });
+    return modal;
+  }
+  function pintarModal() {
+    const m = elModal(), cu = m.querySelector("#vjCuerpo");
+    m.querySelectorAll('[data-vj="tab"]').forEach((b) => b.classList.toggle("on", b.dataset.t === tab));
+    if (tab === "ajustes") {
+      const sw = (k, tit, ayuda) => `<label class="vj-fila"><span><b>${tit}</b><small>${ayuda}</small></span><input type="checkbox" data-aj="${k}" ${aj[k] ? "checked" : ""}></label>`;
+      const rg = (k, tit, ayuda, mn, mx, st, u) => `<div class="vj-fila vj-rango"><span><b>${tit}</b><small>${ayuda}</small></span><div><input type="range" data-aj="${k}" min="${mn}" max="${mx}" step="${st}" value="${aj[k]}"><em data-val="${k}">${aj[k]} ${u}</em></div></div>`;
+      cu.innerHTML = sw("grabar", "Grabar recorridos", "Guarda tu ruta mientras tienes un pedido activo (para el replay).") +
+        sw("geocercas", "Geocercas y llegada", "Avisa al llegar a un negocio y registra cuánto estuviste.") +
+        sw("voz", "Voz en los avisos", "Dice «Llegaste a …» al entrar a una geocerca.") +
+        rg("radio", "Radio de geocerca", "Distancia a la que cuentas como «dentro» del lugar.", 30, 150, 10, "m") +
+        rg("permanencia", "Permanencia mínima", "Tiempo dentro antes de avisar (evita avisos al pasar de largo).", 5, 60, 5, "s") +
+        '<button type="button" class="vj-borrar" data-vj="borrar">🗑 Borrar historial de este aparato</button>';
+      cu.querySelectorAll("em[data-val]").forEach((e) => { e.textContent = aj[e.dataset.val] + (e.dataset.val === "radio" ? " m" : " s"); });
+      return;
+    }
+    const h = leerHist().sort((a, b) => b.inicio - a.inicio);
+    cu.innerHTML = h.length ? h.map((v) => {
+      const r = resumen(v), lug = (v.eventos || []).filter((e) => e.tipo === "entrada").length;
+      return `<div class="vj-item"><div class="vj-t"><b>${escHtml(ffecha(v.inicio))}</b><span>${escHtml(fdur(r.dur))} · ${escHtml(formatoDist(r.dist))}</span></div>` +
+        `<div class="vj-s">${r.paradas} parada${r.paradas === 1 ? "" : "s"} · ${lug} lugar${lug === 1 ? "" : "es"}${(v.pedidos || []).length ? " · " + escHtml(v.pedidos.join(", ")) : ""}</div>` +
+        `<div class="vj-acc"><button type="button" class="primario" data-vj="play" data-id="${escHtml(v.id)}">▶ Replay</button><button type="button" class="vj-del" data-vj="del" data-id="${escHtml(v.id)}" aria-label="Borrar viaje">🗑</button></div></div>`;
+    }).join("") : '<p class="vj-vacio">Aún no hay viajes grabados. Se graban solos mientras tienes un pedido activo (se guardan los últimos ' + MAX_HIST + ').</p>';
+  }
+  function abrirModal() {
+    elModal().classList.remove("oculto"); tab = "viajes"; pintarModal();
+    try {   // une los viajes guardados en Firebase (otro aparato / reinstalación); si las reglas no lo permiten se ignora
+      if (uidActual) db.ref("historial_viajes/" + uidActual).limitToLast(MAX_HIST).once("value").then((s) => {
+        const nube = s.val(); if (!nube) return;
+        const h = leerHist(), ids = new Set(h.map((x) => x.id));
+        Object.values(nube).forEach((n) => { if (!n || ids.has(n.id)) return; try { h.push({ id: n.id, inicio: n.inicio, uid: uidActual, usuario: n.usuario, pedidos: n.pedidos || [], eventos: n.eventos || [], pts: JSON.parse(n.ptsJson || "[]") }); } catch (_) {} });
+        guardarHist(h); if (modal && !modal.classList.contains("oculto") && tab === "viajes") pintarModal();
+      }).catch(() => {});
+    } catch (_) {}
+  }
+  function cerrarModal() { if (modal) modal.classList.add("oculto"); }
+
+  /* ---------- Replay en el mapa ---------- */
+  function barra() {
+    let b = $("replayBar"); if (b) return b;
+    const caja = document.querySelector("#vistaMapa .mapa-caja"); if (!caja) return null;
+    b = document.createElement("div"); b.id = "replayBar"; b.className = "replay-bar oculto";
+    b.innerHTML = '<div class="rp-fila"><button type="button" data-rp="play" aria-label="Pausar o reproducir">⏸</button><input id="rpSlider" type="range" min="0" max="1000" value="0" aria-label="Tiempo del viaje"><button type="button" data-rp="vel" aria-label="Velocidad de reproducción">4×</button><button type="button" data-rp="cerrar" aria-label="Cerrar replay">✕</button></div><div id="rpInfo" class="rp-info"></div>';
+    caja.appendChild(b);
+    b.addEventListener("click", (e) => {
+      const x = e.target.closest("[data-rp]"); if (!x || !rp) return;
+      if (x.dataset.rp === "cerrar") cerrarReplay();
+      else if (x.dataset.rp === "play") { if (!rp.play && rp.t >= rp.dur) rp.t = 0; rp.play = !rp.play; rp.sucio = true; x.textContent = rp.play ? "⏸" : "▶"; }
+      else if (x.dataset.rp === "vel") { const V = [1, 4, 16, 64]; rp.vel = V[(V.indexOf(rp.vel) + 1) % V.length]; x.textContent = rp.vel + "×"; }
+    });
+    b.querySelector("#rpSlider").addEventListener("input", (e) => { if (!rp) return; rp.t = (Number(e.target.value) / 1000) * rp.dur; rp.sucio = true; });
+    return b;
+  }
+  function reproducir(id) {
+    const v = leerHist().find((x) => x.id === id);
+    if (!v || !v.pts || v.pts.length < 2) return;
+    cerrarModal(); cerrarReplay();
+    if (vistaActual !== "mapa") irA("mapa");
+    initMapa();
+    const caja = document.querySelector("#vistaMapa .mapa-caja"), b = barra();
+    if (!mapa || !caja || !b) return;
+    const pts = v.pts, ll = pts.map((p) => [p[0], p[1]]);
+    const grupo = L.layerGroup().addTo(mapa);
+    L.polyline(ll, { color: "#7B8794", weight: 5, opacity: .6, interactive: false }).addTo(grupo);
+    const prog = L.polyline([ll[0]], { color: "#0A86C9", weight: 6, opacity: .95, interactive: false }).addTo(grupo);
+    const marca = L.marker(ll[0], { icon: L.divIcon({ className: "rp-marca", html: "🏍️", iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: 2000, interactive: false }).addTo(grupo);
+    paradas(pts).forEach((p) => L.marker([p.lat, p.lng], { icon: L.divIcon({ className: "rp-pin", html: "🛑", iconSize: [24, 24], iconAnchor: [12, 12] }) }).bindTooltip("Parada · " + fdur(p.dur), { direction: "top" }).addTo(grupo));
+    (v.eventos || []).filter((e) => e.tipo === "entrada").forEach((e) => L.marker([e.lat, e.lng], { icon: L.divIcon({ className: "rp-pin", html: "📍", iconSize: [24, 24], iconAnchor: [12, 12] }) }).bindTooltip(String(e.nombre || "Lugar"), { direction: "top" }).addTo(grupo));
+    rp = { v, pts, ll, grupo, prog, marca, t: 0, dur: Math.max(1, pts[pts.length - 1][2]), vel: 4, play: true, sucio: true, last: performance.now(), raf: 0, ultProg: 0, modoPrev: Camara.getModo(), seguirPrev: seguirme };
+    caja.classList.add("replay-on"); b.classList.remove("oculto");
+    b.querySelector('[data-rp="play"]').textContent = "⏸"; b.querySelector('[data-rp="vel"]').textContent = "4×";
+    Camara.setModo("fitbounds"); Camara.norte(); seguirme = false; Camara.refrescarBoton();
+    try { mapa.fitBounds(L.latLngBounds(ll), { padding: [70, 70], animate: false }); } catch (_) {}
+    const loop = (now) => {
+      if (!rp) return;
+      const dt = Math.min(0.1, (now - rp.last) / 1000); rp.last = now;
+      if (rp.play) { rp.t = Math.min(rp.dur, rp.t + dt * rp.vel); if (rp.t >= rp.dur) { rp.play = false; const pb = $("replayBar").querySelector('[data-rp="play"]'); if (pb) pb.textContent = "▶"; } rp.sucio = true; }
+      if (rp.sucio) { rp.sucio = false; pintarReplay(now); }
+      rp.raf = requestAnimationFrame(loop);
+    };
+    rp.raf = requestAnimationFrame(loop);
+  }
+  function pintarReplay(now) {
+    const { pts, t } = rp;
+    let lo = 0, hi = pts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (pts[mid][2] <= t) lo = mid; else hi = mid - 1; }
+    const a = pts[lo], b = pts[Math.min(lo + 1, pts.length - 1)], span = b[2] - a[2], f = span > 0 ? Math.min(1, Math.max(0, (t - a[2]) / span)) : 0;
+    const lat = a[0] + (b[0] - a[0]) * f, lng = a[1] + (b[1] - a[1]) * f;
+    rp.marca.setLatLng([lat, lng]);
+    if (now - rp.ultProg > 100 || !rp.play) { rp.ultProg = now; rp.prog.setLatLngs(rp.ll.slice(0, lo + 1).concat([[lat, lng]])); }
+    try { if (!mapa.getBounds().pad(-0.2).contains([lat, lng])) mapa.panTo([lat, lng], { animate: true, duration: 0.4 }); } catch (_) {}
+    const sl = $("rpSlider"); if (sl && document.activeElement !== sl) sl.value = String(Math.round((t / rp.dur) * 1000));
+    const info = $("rpInfo"); if (info) info.textContent = `${fhora(rp.v.inicio + t * 1000)} · ${fdur(t)} de ${fdur(rp.dur)} · ${Math.round(a[3] || 0)} km/h`;
+  }
+  function cerrarReplay() {
+    if (!rp) return;
+    const r = rp; rp = null; cancelAnimationFrame(r.raf);
+    try { mapa.removeLayer(r.grupo); } catch (_) {}
+    const b = $("replayBar"); if (b) b.classList.add("oculto");
+    const caja = document.querySelector("#vistaMapa .mapa-caja"); if (caja) caja.classList.remove("replay-on");
+    seguirme = true; Camara.setModo(r.modoPrev === "navegacion" ? "navegacion" : "fitbounds"); Camara.refrescarBoton(); Camara.actualizar(true);
+  }
+
+  /* Botón 🎞️ en la barra superior del mapa */
+  try {
+    const barraSup = document.querySelector(".barra-sup-rep");
+    if (barraSup && !$("btnViajes")) {
+      const bt = document.createElement("button");
+      bt.id = "btnViajes"; bt.type = "button"; bt.className = "herr-rep"; bt.textContent = "🎞️"; bt.setAttribute("aria-label", "Viajes, replay y geocercas");
+      bt.onclick = abrirModal;
+      const ref = $("btnVerTodo"); barraSup.insertBefore(bt, ref || null);
+    }
+  } catch (_) {}
+  return { alPosicion, abrir: abrirModal, ajustes: () => Object.assign({}, aj) };
+})();
+
+/* ============================================================
+   NAVGL · capa 3D (MapLibre GL JS + OpenFreeMap) solo mientras navegas (aditivo)
+   - Al activar Navegar aparece un mapa vectorial con inclinación y giro REALES; al salir vuelves al mapa de siempre.
+   - Es solo una VISTA: la cámara (rumbo, zoom, ancla) sigue siendo la de Camara; la ruta es la de Nav.
+   - Si la librería, los mapas o WebGL fallan, no se muestra nada y la navegación sigue en el mapa actual (reintenta a los 2 min).
+   - Los negocios dibujados por la app no aparecen en esta vista (el mapa vectorial trae sus propios lugares).
+   ============================================================ */
+const NavGL = (() => {
+  const LIB_JS = ["libs/maplibre-gl.js", "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"];
+  const LIB_CSS = ["libs/maplibre-gl.css", "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"];
+  const ESTILO = "https://tiles.openfreemap.org/styles/liberty";   // gratis, sin llave (OpenStreetMap + OpenFreeMap)
+  const PITCH = 55, AJUSTE_ZOOM = -0.15, REINTENTO_MS = 120000, ESPERA_MS = 15000;
+  let div = null, gl = null, puck = null, listo = false, cargando = false, visible = false, falloTs = 0, raf = 0, ultClave = "", tm = null;
+  const dest = {};
+  let colorRuta = "";
+
+  function cargarScript(fuentes) {
+    return new Promise((ok, ko) => {
+      let i = 0;
+      const sig = () => {
+        if (i >= fuentes.length) return ko(new Error("maplibre no disponible"));
+        const s = document.createElement("script"); s.src = fuentes[i++]; s.async = true;
+        s.onload = () => (window.maplibregl ? ok() : sig());
+        s.onerror = () => { s.remove(); sig(); };
+        document.head.appendChild(s);
+      };
+      sig();
+    });
+  }
+  function cargarCss() {
+    if (document.getElementById("maplibreCss")) return;
+    const l = document.createElement("link"); l.id = "maplibreCss"; l.rel = "stylesheet"; l.href = LIB_CSS[1];
+    document.head.appendChild(l);
+  }
+  function cargarLib() { if (window.maplibregl) { cargarCss(); return Promise.resolve(); } cargarCss(); return cargarScript(LIB_JS); }
+
+  function fallar(msg) {
+    falloTs = Date.now(); cargando = false; listo = false;
+    try { console.warn("NavGL:", msg); } catch (_) {}
+    ocultar();
+    try { if (gl) gl.remove(); } catch (_) {}
+    gl = null; puck = null; Object.keys(dest).forEach((k) => { try { dest[k].m.remove(); } catch (_) {} delete dest[k]; });
+    if (div && div.parentNode) div.parentNode.removeChild(div);
+    div = null; colorRuta = "";
+  }
+
+  function elPuck() {
+    const el = document.createElement("div"); el.className = "gl-puck";
+    el.innerHTML = '<svg viewBox="0 0 64 64" width="58" height="58" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#0A86C9" opacity=".18"/><path d="M32 7 L51 54 L32 44 L13 54 Z" fill="#0A86C9" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg>';
+    return el;
+  }
+  function agregarCapas() {
+    gl.addSource("ruta", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    const ancho = ["interpolate", ["linear"], ["zoom"], 10, 3, 14, 7, 17, 12, 20, 22];
+    const borde = ["interpolate", ["linear"], ["zoom"], 10, 5, 14, 11, 17, 18, 20, 30];
+    gl.addLayer({ id: "ruta-borde", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": borde, "line-opacity": 0.95 } });
+    gl.addLayer({ id: "ruta-linea", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0A86C9", "line-width": ancho } });
+  }
+
+  function crear() {
+    const esc = $("escena3d"); if (!esc || !ultimaPos) throw new Error("sin mapa");
+    div = document.createElement("div"); div.id = "mapaGL"; esc.after(div);
+    const ev = Camara.estadoVista();
+    gl = new maplibregl.Map({
+      container: div, style: ESTILO, center: [ultimaPos.lng, ultimaPos.lat], zoom: Math.max(12, (ev.zoom || 17) - 1 + AJUSTE_ZOOM),
+      bearing: ev.hdg || 0, pitch: PITCH, maxPitch: 70, interactive: false, attributionControl: false, fadeDuration: 0, pixelRatio: Math.min(window.devicePixelRatio || 1, 2)
+    });
+    gl.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
+    puck = new maplibregl.Marker({ element: elPuck(), pitchAlignment: "map", rotationAlignment: "map" }).setLngLat([ultimaPos.lng, ultimaPos.lat]).addTo(gl);
+    gl.on("load", () => { try { agregarCapas(); pintarRuta(); } catch (e) { fallar("capas: " + e.message); } });
+    gl.once("idle", () => { listo = true; cargando = false; clearTimeout(tm); });
+    gl.on("error", (e) => { if (!listo && e && e.error && /style|Failed to fetch|NetworkError|404|401|403/i.test(String(e.error.message || e.error))) fallar("estilo: " + e.error.message); });
+    const cv = gl.getCanvas && gl.getCanvas(); if (cv) cv.addEventListener("webglcontextlost", () => fallar("webgl perdido"), false);
+    clearTimeout(tm); tm = setTimeout(() => { if (!listo) fallar("tiempo de espera"); }, ESPERA_MS);
+  }
+  function iniciar() {
+    if (cargando || gl) return;
+    cargando = true;
+    cargarLib().then(() => { try { crear(); } catch (e) { fallar(e.message); } }).catch((e) => fallar(e.message));
+  }
+
+  /* ---------- Ruta y destinos ---------- */
+  function rutaActiva() { return lugarDestino ? rutaLugar : (viajes[seleccionado] && viajes[seleccionado].destino ? viajes[seleccionado] : null); }
+  function pintarRuta() {
+    if (!gl || !listo && !gl.getSource) return;
+    let src = null; try { src = gl.getSource("ruta"); } catch (_) {}
+    if (!src) return;
+    const n = rutaActiva();
+    let coords = [];
+    if (n && n.rutaPts && ultimaPos) coords = [[ultimaPos.lng, ultimaPos.lat]].concat(Nav.restante(n).map((p) => [p[1], p[0]]));
+    src.setData({ type: "FeatureCollection", features: coords.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } }] : [] });
+    const col = lugarDestino ? "#F59E0B" : "#0A86C9";
+    if (col !== colorRuta) { colorRuta = col; try { gl.setPaintProperty("ruta-linea", "line-color", col); } catch (_) {} }
+    /* destinos */
+    const quiero = {};
+    if (lugarDestino) quiero.L = { lat: lugarDestino.lat, lng: lugarDestino.lng, nombre: lugarDestino.nombre || "Destino", ic: lugarDestino.icono || "📍", act: true };
+    (orden || []).forEach((tk) => { const v = viajes[tk]; if (v && v.destino && Number.isFinite(v.destino.lat)) quiero[tk] = { lat: v.destino.lat, lng: v.destino.lng, nombre: nombreDe(v), ic: "🏠", act: !lugarDestino && tk === seleccionado }; });
+    Object.keys(dest).forEach((k) => { if (!quiero[k]) { try { dest[k].m.remove(); } catch (_) {} delete dest[k]; } });
+    Object.entries(quiero).forEach(([k, q]) => {
+      let d = dest[k];
+      if (!d) {
+        const el = document.createElement("div"); el.className = "gl-dest"; el.innerHTML = "<b></b><span></span>";
+        d = dest[k] = { el, m: new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([q.lng, q.lat]).addTo(gl), clave: "" };
+      }
+      const clave = [q.lat, q.lng, q.nombre, q.ic, q.act].join("|");
+      if (clave !== d.clave) {
+        d.clave = clave; d.m.setLngLat([q.lng, q.lat]);
+        d.el.firstChild.textContent = q.ic; d.el.lastChild.textContent = String(q.nombre).slice(0, 28);
+        d.el.classList.toggle("act", !!q.act);
+      }
+    });
+  }
+
+  /* ---------- Cámara (espeja a Camara) ---------- */
+  function loop() {
+    if (!visible || !gl) return;
+    raf = requestAnimationFrame(loop);
+    const ev = Camara.estadoVista();
+    if (!ev.pos) return;
+    const clave = [ev.pos.lat.toFixed(6), ev.pos.lng.toFixed(6), ev.hdg.toFixed(1), ev.zoom.toFixed(2), Math.round(ev.ancla), Math.round(ev.h)].join("|");
+    if (clave === ultClave) return;
+    ultClave = clave;
+    const pad = Math.max(0, Math.round(2 * ev.ancla - ev.h));
+    try {
+      gl.jumpTo({ center: [ev.pos.lng, ev.pos.lat], bearing: ev.hdg, pitch: PITCH, zoom: Math.max(1, ev.zoom - 1 + AJUSTE_ZOOM), padding: { top: pad, bottom: 0, left: 0, right: 0 } });
+      puck.setLngLat([ev.pos.lng, ev.pos.lat]); puck.setRotation(ev.hdg);
+    } catch (_) {}
+  }
+  function mostrar() {
+    const caja = document.querySelector("#vistaMapa .mapa-caja"); if (!caja || !gl) return;
+    visible = true; ultClave = "";
+    try { gl.resize(); } catch (_) {}
+    caja.classList.add("gl-activo");
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
+  }
+  function ocultar() {
+    if (!visible) return;
+    visible = false; cancelAnimationFrame(raf);
+    const caja = document.querySelector("#vistaMapa .mapa-caja"); if (caja) caja.classList.remove("gl-activo");
+  }
+
+  /* Punto de la pantalla → coordenadas (para marcar destino con pulsación larga sobre esta vista) */
+  function clienteALatLng(cx, cy) {
+    if (!visible || !gl || !div) return null;
+    try {
+      const r = div.getBoundingClientRect(), ll = gl.unproject([cx - r.left, cy - r.top]);
+      if (!Number.isFinite(ll.lat) || !Number.isFinite(ll.lng)) return null;
+      if (ultimaPos && distanciaM(ultimaPos.lat, ultimaPos.lng, ll.lat, ll.lng) > 60000) return null;   // el cielo / más allá del horizonte
+      return L.latLng(ll.lat, ll.lng);
+    } catch (_) { return null; }
+  }
+
+  function tick() {
+    try {
+      const quiere = Camara.estadoVista().activo;
+      if (quiere) {
+        if (falloTs && Date.now() - falloTs < REINTENTO_MS) return;
+        if (!gl) iniciar(); else if (listo && !visible) { pintarRuta(); mostrar(); }
+      } else if (visible) ocultar();
+    } catch (_) {}
+  }
+  setInterval(tick, 500);
+  window.addEventListener("resize", () => { try { if (gl && visible) gl.resize(); } catch (_) {} });
+  return { alPosicion() { tick(); if (visible) pintarRuta(); }, pintarRuta() { if (visible) pintarRuta(); }, clienteALatLng, visible: () => visible };
 })();
