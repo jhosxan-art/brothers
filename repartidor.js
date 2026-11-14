@@ -416,6 +416,7 @@ function initMapa() {
   Brujula.iniciar();
   Camara.iniciarMotor();
   GestosMapa.aplicar(mapa);
+  PuntoLargo.instalar();
   mapa.on("click movestart", cerrarBusquedaRep);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
   estelaProp = L.polyline([], { color: "#7B8794", weight: 5, opacity: .65 }).addTo(mapa);
@@ -461,7 +462,7 @@ const Camara = (() => {
   /* Motor 3D (course-up + pitch + ancla inferior + puck interpolado) */
   const PITCH_GRADOS = 50, ESCALA_3D = 1.8, PERSPECTIVA_PX = 900, CONTRA_PITCH = 1.45, ZOOM_3D = 0.75, VEL_MIN_RUMBO = 1.2;
   let renderPos = null, anim = null, ultFix = 0, raf = 0, tPrev = 0, hdgR = 0, hdgObj = 0, hdgBrujula = null, velActual = null;
-  let zObj = null, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null;
+  let zObj = null, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null, anclaPx = 0;
   let modo = "fitbounds";
   const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
   const rotable = () => !!(mapa && typeof mapa.setBearing === "function");
@@ -553,7 +554,7 @@ const Camara = (() => {
   function aplicar3D() {
     const esc = $("escena3d"); if (!esc || !mapa) return;
     const on = navActiva();
-    if (on) esc.style.setProperty("--ancla-y", Math.round(calcAncla()) + "px");
+    if (on) { anclaPx = Math.round(calcAncla()); esc.style.setProperty("--ancla-y", anclaPx + "px"); }
     if (on !== inclinada) {
       inclinada = on;
       esc.classList.toggle("inclinada", on);
@@ -599,6 +600,19 @@ const Camara = (() => {
       aplicarCamara(false);
     }
     if (activo) raf = requestAnimationFrame(frame); else tPrev = 0;
+  }
+  /* Punto de la pantalla (clientX/Y) → coordenadas del mapa; deshace la inclinación 3D (rotateX + escala con perspectiva) */
+  function clienteALatLng(cx, cy) {
+    if (!mapa) return null;
+    const esc = $("escena3d"), r = (esc || mapa.getContainer()).getBoundingClientRect();
+    let px = cx - r.left, py = cy - r.top;
+    if (inclinada && esc) {
+      const P = PERSPECTIVA_PX, th = rad(PITCH_GRADOS), s = ESCALA_3D, dx = px - r.width / 2, dy = py - anclaPx;
+      const v = (dy * P) / (s * (P * Math.cos(th) + dy * Math.sin(th)));
+      const f = P / (P - s * v * Math.sin(th));
+      px = r.width / 2 + dx / (s * f); py = anclaPx + v;
+    }
+    try { return mapa.containerPointToLatLng(L.point(px, py)); } catch (_) { return null; }
   }
   function iniciarMotor() {
     const esc = $("escena3d");
@@ -690,7 +704,7 @@ const Camara = (() => {
     if (rotable()) { try { mapa.setBearing(0); } catch (_) {} }
     setTimeout(refrescarBoton, 0);
   }
-  return { opcionesMapa, registrar, anclarYo, moverYo, iniciarMotor, aplicar3D, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
+  return { opcionesMapa, registrar, clienteALatLng, anclarYo, moverYo, iniciarMotor, aplicar3D, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
 })();
 
 function pintarYo(rumbo) {
@@ -1652,6 +1666,64 @@ function dibujarRutaLugar() {
   capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...rutaLugar.rutaPts] : []);
   capaLugar.setStyle({ opacity: rutaLugar && rutaLugar.rutaPts ? .9 : .5 });
 }
+
+/* ============================================================
+   PUNTO DE DESTINO POR PULSACIÓN LARGA: mantener apretado el mapa más de 1 segundo marca el destino y traza la ruta
+   ============================================================ */
+const PuntoLargo = (() => {
+  const MS = 1000, TOL = 12;
+  let timer = null, p0 = null, id = null, ll0 = null, anillo = null, ultFijado = 0, instalado = false;
+  function elAnillo() {
+    if (!anillo) { anillo = document.createElement("div"); anillo.className = "anillo-punto oculto"; anillo.setAttribute("aria-hidden", "true"); document.body.appendChild(anillo); }
+    return anillo;
+  }
+  function cancelar() {
+    clearTimeout(timer); timer = null; p0 = null; id = null; ll0 = null;
+    if (anillo) anillo.classList.add("oculto");
+  }
+  function permitido(e) {
+    if (!mapa || vistaActual !== "mapa" || marcando || document.querySelector(".modo-registro")) return false;
+    if (e.target && e.target.closest && e.target.closest(".leaflet-marker-icon, .leaflet-popup, .leaflet-control, button, input, a")) return false;
+    return true;
+  }
+  function fijar() {
+    const ll = ll0; cancelar();
+    if (!ll || !Number.isFinite(ll.lat) || !Number.isFinite(ll.lng)) return;
+    ultFijado = Date.now();
+    try { navigator.vibrate && navigator.vibrate(60); } catch (_) {}
+    irALugar({ nombre: "Punto marcado", lat: ll.lat, lng: ll.lng, icono: "📍" }, false);
+    if (seguirme) Camara.actualizar(true);
+    setEstado("📍 Punto marcado · ruta trazada hacia ahí", "ok");
+  }
+  function alBajar(e) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (timer) { cancelar(); return; }                      // segundo dedo (zoom): se cancela
+    if (!permitido(e)) return;
+    p0 = { x: e.clientX, y: e.clientY }; id = e.pointerId;
+    ll0 = Camara.clienteALatLng(e.clientX, e.clientY);      // se toma al apretar: el mapa puede moverse mientras tanto
+    const a = elAnillo(); a.style.left = e.clientX + "px"; a.style.top = e.clientY + "px";
+    a.classList.remove("oculto"); a.style.animation = "none"; void a.offsetWidth; a.style.animation = "";
+    timer = setTimeout(fijar, MS);
+  }
+  function alMover(e) {
+    if (!p0 || e.pointerId !== id) return;
+    if (Math.hypot(e.clientX - p0.x, e.clientY - p0.y) > TOL) cancelar();
+  }
+  function alSoltar(e) { if (p0 && e.pointerId === id) cancelar(); }
+  function instalar() {
+    if (instalado || !mapa) return;
+    instalado = true;
+    const c = mapa.getContainer();
+    c.addEventListener("pointerdown", alBajar, { passive: true, capture: true });
+    c.addEventListener("pointermove", alMover, { passive: true, capture: true });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((ev) => c.addEventListener(ev, alSoltar, { passive: true, capture: true }));
+    c.addEventListener("contextmenu", (e) => e.preventDefault());
+    c.addEventListener("click", (e) => { if (Date.now() - ultFijado < 700) { e.stopPropagation(); e.preventDefault(); } }, true);
+    mapa.on("dragstart zoomstart", cancelar);
+    document.addEventListener("visibilitychange", cancelar);
+  }
+  return { instalar, cancelar };
+})();
 
 /* ============================================================
    FASE 2 · BANNER TURN-BY-TURN
