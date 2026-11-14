@@ -526,7 +526,7 @@ body.cliente .mf-caja .fac-cuerpo { flex: 1 1 auto; min-height: 0; }
 body.cliente .mf-caja .fac-lista { flex: 1 1 auto; max-height: none; padding: 8px 18px 0; }
 body.cliente .mf-caja .fac-totales { padding: 4px 18px 12px; }
 body.cliente .mf-caja .mf-cerrar { flex: none; width: auto; margin: 0 18px 18px; }
-.leaflet-marker-icon.rep-yo > :first-child { transform: scale(var(--escala-rep, 1)); transform-origin: 50% 28px; transition: transform .35s ease-out; will-change: transform; }
+.leaflet-marker-icon.rep-yo > :first-child { transform: scale(var(--escala-rep, 1)) scaleY(var(--contra-pitch, 1)); transform-origin: 50% 28px; transition: transform .35s ease-out; will-change: transform; }
 @media (prefers-reduced-motion: reduce) { .leaflet-marker-icon.rep-yo > :first-child { transition: none; } }
 body.cliente .btn-seguir { position: fixed; z-index: 1150; left: 50%; transform: translateX(-50%); top: calc(70px + env(safe-area-inset-top)); width: auto; height: 42px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--tinta); color: #fff; font-size: 14px; font-weight: 800; box-shadow: 0 6px 18px rgba(14,20,27,.4); white-space: nowrap; }
 body.cliente .btn-seguir.oculto { display: none !important; }
@@ -2012,3 +2012,10 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 #vistaChats .cn-ancla-txt small { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,.72); }
 #vistaChats .cn-ancla-admin .badge-nav { position: static; margin: 0; flex: none; }
 #vistaChats .cn-ancla-pin { flex: none; font-size: 14px; opacity: .8; }
+
+/* ===== Navegación 3D en tercera persona (pitch CSS + ancla inferior) ===== */
+.escena-3d { position: absolute; inset: 0; overflow: hidden; perspective: var(--persp, 900px); perspective-origin: 50% var(--ancla-y, 72%); background: linear-gradient(180deg, #B9DDF2 0%, #DCEEF8 18%, #E8EEF3 34%, #E8EEF3 100%); }
+.escena-3d #mapaRuta { transform-origin: 50% var(--ancla-y, 72%); transition: transform .65s cubic-bezier(.22,.8,.3,1); will-change: transform; backface-visibility: hidden; }
+.escena-3d.inclinada #mapaRuta { transform: rotateX(var(--pitch, 50deg)) scale(var(--escala3d, 1.8)); }
+.escena-3d.inclinada #mapaRuta .leaflet-control-attribution { display: none; }
+@media (prefers-reduced-motion: reduce) { .escena-3d #mapaRuta { transition: none; } }

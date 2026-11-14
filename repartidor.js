@@ -414,6 +414,7 @@ function initMapa() {
     mapa.createPane("paneYo", base).style.zIndex = 640;
     mapa.getPane("popupPane").style.zIndex = 800; }
   Brujula.iniciar();
+  Camara.iniciarMotor();
   GestosMapa.aplicar(mapa);
   mapa.on("click movestart", cerrarBusquedaRep);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
@@ -457,6 +458,10 @@ const Camara = (() => {
   const MIN_MS = 900;
   const CM_PX = 96 / 2.54;
   let prev = null, suave = 0, tieneRumbo = false, ult = 0, ultGesto = 0;
+  /* Motor 3D (course-up + pitch + ancla inferior + puck interpolado) */
+  const PITCH_GRADOS = 50, ESCALA_3D = 1.8, PERSPECTIVA_PX = 900, CONTRA_PITCH = 1.45, ZOOM_3D = 0.75, VEL_MIN_RUMBO = 1.2;
+  let renderPos = null, anim = null, ultFix = 0, raf = 0, tPrev = 0, hdgR = 0, hdgObj = 0, hdgBrujula = null, velActual = null;
+  let zObj = null, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null;
   let modo = "fitbounds";
   const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
   const rotable = () => !!(mapa && typeof mapa.setBearing === "function");
@@ -471,15 +476,140 @@ const Camara = (() => {
     return (deg(Math.atan2(y, x)) + 360) % 360;
   }
   function giroSuave(a, b) { const d = ((b - a + 540) % 360) - 180; return (a + d * 0.5 + 360) % 360; }
-  function registrar(lat, lng) {
+  function registrar(lat, lng, rumboGps, vel) {
+    velActual = Number.isFinite(vel) ? vel : null;
     const p = { lat, lng };
-    if (!prev) { prev = p; return; }
-    if (distanciaM(prev.lat, prev.lng, lat, lng) < MIN_PASO_M) return;
+    if (Number.isFinite(rumboGps) && rumboGps >= 0 && (velActual === null || velActual >= VEL_MIN_RUMBO)) {
+      const g = ((rumboGps % 360) + 360) % 360;
+      suave = tieneRumbo ? giroSuave(suave, g) : g;
+      tieneRumbo = true; prev = p; fijarObjetivo(); return;
+    }
+    if (!prev) { prev = p; fijarObjetivo(); return; }
+    if (distanciaM(prev.lat, prev.lng, lat, lng) < MIN_PASO_M) { fijarObjetivo(); return; }
     const r = rumboEntre(prev, p);
     prev = p;
     suave = tieneRumbo ? giroSuave(suave, r) : r;
     tieneRumbo = true;
+    fijarObjetivo();
   }
+  /* Rumbo objetivo: en movimiento manda el GPS / trayectoria; detenido, la brújula del dispositivo */
+  function fijarObjetivo() {
+    if (!rotable()) { hdgObj = 0; return; }
+    if (tieneRumbo && (velActual === null || velActual >= VEL_MIN_RUMBO)) hdgObj = suave;
+    else if (hdgBrujula !== null) hdgObj = hdgBrujula;
+    else if (tieneRumbo) hdgObj = suave;
+  }
+  function alOrientacion(e) {
+    let h = null;
+    if (typeof e.webkitCompassHeading === "number") h = e.webkitCompassHeading;
+    else if (e.absolute === true && typeof e.alpha === "number") h = (360 - e.alpha) % 360;
+    if (h === null || !Number.isFinite(h)) return;
+    try { h = (h + ((screen.orientation && screen.orientation.angle) || 0) + 360) % 360; } catch (_) {}
+    if (hdgBrujula === null) hdgBrujula = h;
+    else { const d = ((h - hdgBrujula + 540) % 360) - 180; if (Math.abs(d) < 5) return; hdgBrujula = (hdgBrujula + d * 0.2 + 360) % 360; }
+    if (velActual !== null && velActual >= VEL_MIN_RUMBO) return;
+    fijarObjetivo(); despertar();
+  }
+  function escucharBrujula(on) {
+    if (on === brujulaOn) return;
+    brujulaOn = on;
+    const f = on ? "addEventListener" : "removeEventListener";
+    try { window[f]("deviceorientationabsolute", alOrientacion, true); window[f]("deviceorientation", alOrientacion, true); } catch (_) {}
+    if (!on) { hdgBrujula = null; return; }
+    try {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        const r = DeviceOrientationEvent.requestPermission(); if (r && r.catch) r.catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  /* ---------- Puck: interpolación lineal con requestAnimationFrame entre fixes del GPS ---------- */
+  function anclarYo(lat, lng) { renderPos = { lat, lng }; anim = null; ultFix = performance.now(); }
+  function moverYo(lat, lng) {
+    if (!marcaYo) return;
+    if (!renderPos) { anclarYo(lat, lng); return; }
+    const ahora = performance.now();
+    const intervalo = ultFix ? Math.min(2500, Math.max(450, ahora - ultFix)) : 1000;
+    ultFix = ahora;
+    const d = distanciaM(renderPos.lat, renderPos.lng, lat, lng);
+    if (d < 0.4) return;
+    if (d > 400 || document.hidden || !mapa) { renderPos = { lat, lng }; anim = null; marcaYo.setLatLng([lat, lng]); despertar(); return; }
+    anim = { a: { lat: renderPos.lat, lng: renderPos.lng }, b: { lat, lng }, t0: ahora, dur: intervalo };
+    despertar();
+  }
+  function despertar() { if (!raf) raf = requestAnimationFrame(frame); }
+  function navActiva() {
+    return !!(mapa && ultimaPos) && modo === "navegacion" && seguirme && vistaActual === "mapa" && !marcando
+      && !document.querySelector(".modo-registro") && document.activeElement !== $("busqRep") && $("resBusqRep").classList.contains("oculto");
+  }
+  /* Punto de anclaje: tercio inferior de la pantalla (y por encima de la barra de pedidos) */
+  function calcAncla() {
+    const H = mapa.getSize().y;
+    let refY = H;
+    try { const mr = mapa.getContainer().getBoundingClientRect(), br = $("barraHoja").getBoundingClientRect(); if (br.height) refY = Math.min(H, Math.max(0, br.top - mr.top)); } catch (_) {}
+    return Math.max(H * 0.45, Math.min(H * 0.72, refY - 1.3 * CM_PX));
+  }
+  /* Inclinación 3D (CSS): el pivote de la perspectiva es la posición del repartidor, así queda fija en pantalla */
+  function aplicar3D() {
+    const esc = $("escena3d"); if (!esc || !mapa) return;
+    const on = navActiva();
+    if (on) esc.style.setProperty("--ancla-y", Math.round(calcAncla()) + "px");
+    if (on !== inclinada) {
+      inclinada = on;
+      esc.classList.toggle("inclinada", on);
+      try { mapa.getContainer().style.setProperty("--contra-pitch", on ? String(CONTRA_PITCH) : "1"); } catch (_) {}
+    }
+  }
+  /* Cámara: el mapa gira con el rumbo (course-up) y el punto del repartidor queda en el ancla inferior */
+  function aplicarCamara(snap) {
+    if (!mapa || !renderPos) return;
+    if (zoomando && !snap) return;
+    const zc = mapa.getZoom(), z = zObj !== null ? zObj : zc;
+    const cambiaZoom = snap ? z !== zc : Math.abs(z - zc) >= 0.25;
+    const zu = cambiaZoom ? z : zc;
+    const k = calcAncla() - mapa.getSize().y / 2;
+    const t = rad(hdgR), pr = mapa.project([renderPos.lat, renderPos.lng], zu);
+    const centro = mapa.unproject(L.point(pr.x + Math.sin(t) * k, pr.y - Math.cos(t) * k), zu);
+    if (rotable()) { try { mapa.setBearing((hdgR + 360) % 360); } catch (_) {} }
+    if (cambiaZoom && !snap) {
+      zoomando = true;
+      const fin = () => { zoomando = false; despertar(); };
+      mapa.once("zoomend", fin); setTimeout(() => { if (zoomando) fin(); }, 1400);
+      mapa.setView(centro, zu, { animate: true, duration: 0.7 });
+      return;
+    }
+    mapa.setView(centro, zu, { animate: false, noMoveStart: true });
+  }
+  let ult3d = 0;
+  function frame(t) {
+    raf = 0;
+    if (!mapa || !marcaYo || !renderPos) return;
+    const dt = tPrev ? Math.min(100, Math.max(1, t - tPrev)) : 16; tPrev = t;
+    let activo = false;
+    if (anim) {
+      const f = Math.min(1, (t - anim.t0) / anim.dur);
+      renderPos = { lat: anim.a.lat + (anim.b.lat - anim.a.lat) * f, lng: anim.a.lng + (anim.b.lng - anim.a.lng) * f };
+      marcaYo.setLatLng([renderPos.lat, renderPos.lng]);
+      if (f >= 1) anim = null; else activo = true;
+    }
+    if (t - ult3d > 400) { ult3d = t; aplicar3D(); }
+    if (navActiva()) {
+      const d = ((hdgObj - hdgR + 540) % 360) - 180;
+      if (Math.abs(d) > 0.2) { hdgR = (hdgR + d * (1 - Math.exp(-dt / 240)) + 360) % 360; activo = true; } else hdgR = hdgObj;
+      aplicarCamara(false);
+    }
+    if (activo) raf = requestAnimationFrame(frame); else tPrev = 0;
+  }
+  function iniciarMotor() {
+    const esc = $("escena3d");
+    if (esc) {
+      esc.style.setProperty("--pitch", PITCH_GRADOS + "deg");
+      esc.style.setProperty("--escala3d", String(ESCALA_3D));
+      esc.style.setProperty("--persp", PERSPECTIVA_PX + "px");
+    }
+    if (!timer3d) timer3d = setInterval(() => { if (mapa) aplicar3D(); }, 500);
+  }
+
   function destino() {
     if (lugarDestino) return lugarDestino;
     const v = viajes[seleccionado];
@@ -505,6 +635,7 @@ const Camara = (() => {
     b.setAttribute("aria-pressed", String(activo));
     b.setAttribute("aria-label", activo ? "Salir de la navegación" : "Activar navegación");
     const t = $("btnNavegarTxt"); if (t) t.textContent = activo ? "Salir" : "Navegar";
+    aplicar3D();
   }
   function salir() {
     modo = "fitbounds";
@@ -513,6 +644,7 @@ const Camara = (() => {
   }
   function setModo(m) {
     modo = m === "navegacion" ? "navegacion" : "fitbounds";
+    escucharBrujula(modo === "navegacion");
     refrescarBoton();
   }
   function getModo() { return modo; }
@@ -542,32 +674,31 @@ const Camara = (() => {
     }
 
     const dist = d && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
-    const z = zoomPara(dist), ang = rotable() && tieneRumbo ? suave : 0;
-    /* Estilo Waze: el ícono del repartidor queda fijo a 2 cm (1 cm CSS = 37.8 px) por encima de la barra "Ocultar pedido / Mostrar panel", siempre avanzando hacia arriba */
-    const H = mapa.getSize().y;
-    let refY = H;
-    try { const mr = mapa.getContainer().getBoundingClientRect(), br = $("barraHoja").getBoundingClientRect(); if (br.height) refY = Math.min(H, Math.max(0, br.top - mr.top)); } catch (_) {}
-    const k = Math.max(40 - H / 2, refY - 2 * CM_PX - H / 2);
-    const t = rad(ang), pr = mapa.project([ultimaPos.lat, ultimaPos.lng], z);
-    const centro = mapa.unproject(L.point(pr.x + Math.sin(t) * k, pr.y - Math.cos(t) * k), z);
-    if (rotable()) { try { mapa.setBearing((SIGNO_ROTACION * ang + 360) % 360); } catch (_) {} }
-    mapa.setView(centro, z, { animate: !forzar, duration: 0.8, easeLinearity: 0.5, noMoveStart: true });
+    zObj = Math.max(14, zoomPara(dist) - ZOOM_3D);
+    fijarObjetivo();
+    if (!renderPos) renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
     aplicarEscala();
+    if (forzar) {
+      hdgR = hdgObj; anim = null; renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
+      if (marcaYo) marcaYo.setLatLng([renderPos.lat, renderPos.lng]);
+      zoomando = false;
+      aplicarCamara(true);
+    } else despertar();
     refrescarBoton();
   }
   function norte() {
     if (rotable()) { try { mapa.setBearing(0); } catch (_) {} }
     setTimeout(refrescarBoton, 0);
   }
-  return { opcionesMapa, registrar, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
+  return { opcionesMapa, registrar, anclarYo, moverYo, iniciarMotor, aplicar3D, actualizar, norte, salir, aplicarEscala, marcarIcono, refrescarBoton, gesto, alZoom, setModo, getModo };
 })();
 
 function pintarYo(rumbo) {
   if (!mapa || !ultimaPos) return;
   const p = [ultimaPos.lat, ultimaPos.lng];
-  if (!marcaYo) { marcaYo = L.marker(p, { icon: iconoRepartidorNombre(usuario), zIndexOffset: 1000, pane: "paneYo" }).addTo(mapa); nombreYoMarcado = usuario; }
+  if (!marcaYo) { marcaYo = L.marker(p, { icon: iconoRepartidorNombre(usuario), zIndexOffset: 1000, pane: "paneYo" }).addTo(mapa); nombreYoMarcado = usuario; Camara.anclarYo(p[0], p[1]); }
   else {
-    marcaYo.setLatLng(p);
+    Camara.moverYo(p[0], p[1]);
     if (nombreYoMarcado !== usuario) { marcaYo.setIcon(iconoRepartidorNombre(usuario)); nombreYoMarcado = usuario; }
   }
   Camara.marcarIcono();
@@ -1963,7 +2094,7 @@ function procesarPosicion(c) {
     const ult = rastro[rastro.length - 1];
     if (!ult || distanciaM(ult[0], ult[1], lat, lng) > 4) { rastro.push([lat, lng]); if (rastro.length > 800) rastro.shift(); guardarRastro(); }
   }
-  Camara.registrar(lat, lng);
+  Camara.registrar(lat, lng, c.heading, c.speed);
   pintarYo();
   if (mapa && vistaActual === "mapa") {
     if (seguirme) Camara.actualizar(primera);
