@@ -1924,6 +1924,15 @@ function cancelarRutaManual() {
   setEstado("🚫 Ruta cancelada", "ok");
   if (mapa && seguirme && vistaActual === "mapa") Camara.actualizar(true);
 }
+/* La cápsula de ruta queda a la misma altura que la brújula (centrada con ella) */
+function alinearCapsulaRuta() {
+  const b = $("bannerRuta"), br = $("brujulaNorte"); if (!b || !br) return;
+  try {
+    const cs = getComputedStyle(br), top = parseFloat(cs.top), h = parseFloat(cs.height);
+    if (Number.isFinite(top) && Number.isFinite(h)) b.style.setProperty("top", Math.round(top + (h - 38) / 2) + "px", "important");
+  } catch (_) {}
+}
+window.addEventListener("resize", () => setTimeout(alinearCapsulaRuta, 50));
 function actualizarBanner() {
   const b = $("bannerRuta"); if (!b) return;
   const bc = $("btnCancelarRuta"); if (bc) bc.classList.toggle("oculto", !lugarDestino);
@@ -1957,15 +1966,15 @@ function actualizarBanner() {
     const tiempoTxt = formatoTiempo(seg);
     const giroTxt = aGiro !== null ? "En " + formatoDist(redondearGiro(aGiro)) : "Sigue recto";
     b.className = "info-ruta rb-nav";
-    const dest = titulo.replace(/^\S+\s/, "") || titulo;
-    b.innerHTML = `<div class="rb-fila-giro"><span class="rb-ic">${ico}</span><b class="rb-giro-d">${escHtml(giroTxt)}</b><span class="rb-giro-t">${escHtml(info[1] || "")}</span>${cerrar}</div>
-<div class="rb-fila-datos"><span class="rb-falta"><small>Falta</small> <b>${escHtml(faltaTxt)}</b></span><span class="rb-tiempo"><small>Tiempo</small> <b>${escHtml(tiempoTxt)}</b></span><span class="rb-destino">📍 ${escHtml(dest)}</span></div>`;
+    b.innerHTML = `<span class="rb-ic">${ico}</span><b class="rb-giro-d">${escHtml(giroTxt)}</b><span class="rb-giro-t">${escHtml(info[1] || "")}</span><b class="rb-falta">${escHtml(faltaTxt)}</b><b class="rb-tiempo">${escHtml(tiempoTxt)}</b>${cerrar}`;
     const x2 = $("brX"); if (x2) x2.onclick = cancelarRutaManual;
+    alinearCapsulaRuta();
     return;
   }
   b.className = "info-ruta rb-msg";
   b.innerHTML = `<span class="ir-ic">${ico}</span><span class="ir-txt">${txt}</span>${cerrar}`;
   const x = $("brX"); if (x) x.onclick = cancelarRutaManual;
+  alinearCapsulaRuta();
 }
 
 function renderLista() { renderListaBase(); aplicarHoja(); }

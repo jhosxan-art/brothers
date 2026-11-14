@@ -2047,21 +2047,16 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .mapa-caja.buscando .brujula-norte { display: none !important; }
 
 /* ============================================================
-   TARJETA DE RUTA DISCRETA: franja compacta arriba (junto a la brújula), sin tapar al repartidor
+   RUTA EN UNA SOLA LÍNEA: cápsula translúcida a la altura de la brújula, a su derecha
    ============================================================ */
 #bannerRuta.info-ruta.oculto { display: none !important; }
-#bannerRuta.info-ruta { position: absolute !important; z-index: 950 !important; left: 64px !important; right: 10px !important; top: 66px !important; bottom: auto !important; width: auto !important; max-width: none !important; margin: 0 !important; transform: none !important; background: rgba(255,255,255,.94) !important; color: #0E141B !important; border: 1px solid rgba(0,0,0,.08) !important; border-radius: 14px !important; padding: 6px 10px !important; display: grid !important; gap: 3px !important; box-shadow: 0 2px 8px rgba(0,0,0,.22) !important; }
-#bannerRuta .rb-fila-giro { display: flex; align-items: center; gap: 8px; min-width: 0; }
-#bannerRuta .rb-ic { flex: none; font-size: 20px; line-height: 1; }
-#bannerRuta .rb-giro-d { flex: none; font-size: 16px; font-weight: 800; line-height: 1.1; color: #0E141B; }
-#bannerRuta .rb-giro-t { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: #4B5662; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#bannerRuta .rb-fila-datos { display: flex; align-items: baseline; gap: 12px; min-width: 0; font-size: 12px; }
-#bannerRuta .rb-fila-datos small { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #7A8794; }
-#bannerRuta .rb-fila-datos b { font-size: 14px; font-weight: 800; }
-#bannerRuta .rb-falta { flex: none; } #bannerRuta .rb-falta b { color: #D92D20; }
-#bannerRuta .rb-tiempo { flex: none; } #bannerRuta .rb-tiempo b { color: #0A86C9; }
-#bannerRuta .rb-destino { flex: 1; min-width: 0; font-weight: 700; color: #4B5662; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#bannerRuta #brX { flex: none; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: #EEF2F6; color: #3F4B57; font-size: 12px; }
-#bannerRuta.rb-msg { grid-template-columns: auto 1fr auto; align-items: center; }
-#bannerRuta.rb-msg .ir-ic { font-size: 20px; }
-#bannerRuta.rb-msg .ir-txt { font-size: 13px; font-weight: 700; color: #0E141B; }
+#bannerRuta.info-ruta { position: absolute !important; z-index: 950 !important; left: 64px !important; right: 10px !important; top: 71px; bottom: auto !important; width: auto !important; max-width: none !important; height: 38px !important; margin: 0 !important; transform: none !important; background: rgba(255,255,255,.74) !important; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); color: #0E141B !important; border: 1px solid rgba(255,255,255,.65) !important; border-radius: 999px !important; padding: 0 12px !important; display: flex !important; align-items: center !important; gap: 8px !important; box-shadow: 0 2px 8px rgba(0,0,0,.22) !important; box-sizing: border-box !important; overflow: hidden !important; white-space: nowrap; }
+#bannerRuta .rb-ic { flex: none; font-size: 18px; line-height: 1; }
+#bannerRuta .rb-giro-d { flex: none; font-size: 15px; font-weight: 800; color: #0E141B; }
+#bannerRuta .rb-giro-t { flex: 1 1 0; min-width: 0; font-size: 12px; font-weight: 600; color: #3F4B57; overflow: hidden; text-overflow: ellipsis; }
+#bannerRuta .rb-falta, #bannerRuta .rb-tiempo { flex: none; font-size: 14px; font-weight: 800; }
+#bannerRuta .rb-falta { color: #D92D20; padding-left: 8px; border-left: 1px solid rgba(0,0,0,.15); }
+#bannerRuta .rb-tiempo { color: #0A86C9; }
+#bannerRuta #brX { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.08); color: #3F4B57; font-size: 11px; }
+#bannerRuta.rb-msg .ir-ic { font-size: 18px; }
+#bannerRuta.rb-msg .ir-txt { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 700; color: #0E141B; overflow: hidden; text-overflow: ellipsis; }
