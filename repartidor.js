@@ -924,11 +924,29 @@ function dibujarOtras() {
   });
 }
 $("btnVerTodo").onclick = () => { seguirme = false; Camara.setModo("fitbounds"); encuadrar(false); Camara.refrescarBoton(); };
+/* El botón Navegar siempre queda ~14 px por encima de la barra "Ocultar pedidos" y sube/baja con ella */
+(function botonNavegarSobreBarra() {
+  const caja = document.querySelector(".mapa-caja"), barra = $("barraHoja");
+  if (!caja || !barra) return;
+  let ult = -1;
+  const ajustar = () => {
+    if (vistaActual !== "mapa") return;
+    const mr = caja.getBoundingClientRect(), br = barra.getBoundingClientRect();
+    if (!mr.height || !br.height) return;
+    const px = Math.max(12, Math.round(mr.bottom - br.top + 14));
+    if (px !== ult) { ult = px; caja.style.setProperty("--nav-bottom", px + "px"); }
+  };
+  setInterval(ajustar, 200);
+  window.addEventListener("resize", ajustar);
+  try { new ResizeObserver(ajustar).observe(barra); } catch (_) {}
+  ajustar();
+})();
 $("btnNavegar").onclick = () => {
   if (!ultimaPos) return setEstado("Esperando tu ubicación para navegar…", "error");
   if (Camara.getModo() === "navegacion" && seguirme) {
     Camara.salir();
     seguirme = true;
+    if (lugarDestino) { cancelarRutaManual(); return; }   // sin botón "Ruta": al salir de una ruta libre también se cancela
     setEstado("🧭 Navegación desactivada", "ok");
   } else {
     Camara.setModo("navegacion");

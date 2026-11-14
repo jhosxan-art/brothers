@@ -2036,12 +2036,10 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 /* ============================================================
    BOTONES DEL MAPA ESTILO WAZE: Navegar (círculo), Cancelar ruta (pastilla pequeña) y brújula a la izquierda
    ============================================================ */
-.mapa-caja .btn-navegar { right: 12px !important; bottom: 12px !important; width: 46px; height: 46px !important; padding: 0 !important; gap: 0; justify-content: center; border-radius: 50% !important; font-size: 0 !important; box-shadow: 0 3px 10px rgba(0,0,0,.35) !important; }
+.mapa-caja .btn-navegar { right: 12px !important; bottom: var(--nav-bottom, 52px) !important; transition: bottom .2s ease; width: 46px; height: 46px !important; padding: 0 !important; gap: 0; justify-content: center; border-radius: 50% !important; font-size: 0 !important; box-shadow: 0 3px 10px rgba(0,0,0,.35) !important; }
 .mapa-caja .btn-navegar > span { display: none; }
 .mapa-caja .btn-navegar::before { content: "🧭"; font-size: 23px; line-height: 1; }
 .mapa-caja .btn-navegar.on::before { content: "■"; font-size: 18px; color: #fff; }
-.mapa-caja .btn-cancelar-ruta { left: auto !important; right: 66px !important; top: auto !important; bottom: 17px !important; transform: none !important; height: 36px !important; padding: 0 12px !important; font-size: 12.5px !important; box-shadow: 0 3px 10px rgba(0,0,0,.35) !important; }
-.mapa-caja .btn-cancelar-ruta:active { transform: scale(.96) !important; }
 .mapa-caja .brujula-norte { left: 10px !important; right: auto !important; width: 46px !important; height: 46px !important; }
 .mapa-caja .brujula-norte .brujula-dial { width: 41px !important; height: 41px !important; }
 @media (min-width: 700px) { .mapa-caja .brujula-norte { width: 56px !important; height: 56px !important; } .mapa-caja .brujula-norte .brujula-dial { width: 50px !important; height: 50px !important; } }
