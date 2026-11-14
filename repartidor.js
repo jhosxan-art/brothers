@@ -224,7 +224,28 @@ const etiquetaPedido = (codigo, origen) => (window.Factura && typeof window.Fact
   : (((origen === "app" ? "APP" : "WA") + String(codigo == null ? "" : codigo).replace(/\D/g, "").padStart(5, "0")));
 const etiquetaWA = (v) => etiquetaPedido(v && v.pedido, "wa");
 const num = (x) => (Number.isFinite(x) ? x : null);
-const formatoDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : m + " m");
+const formatoDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m");
+/* Redondeo estilo navegador: cerca del giro de 5 en 5 m, más lejos de 10 en 10 m */
+const redondearGiro = (m) => (m < 50 ? Math.max(5, Math.round(m / 5) * 5) : m < 1000 ? Math.round(m / 10) * 10 : m);
+const formatoTiempo = (seg) => {
+  const min = Math.max(1, Math.round((seg || 0) / 60));
+  if (min < 60) return min + " min";
+  const h = Math.floor(min / 60), r = min % 60;
+  return h + " h " + String(r).padStart(2, "0") + " min";
+};
+/* Metros que FALTAN por la ruta: del punto más cercano de la ruta hasta el final (se actualiza con cada posición) */
+function metrosRestantes(n) {
+  const pts = n && n.rutaPts;
+  if (!pts || !pts.length || !ultimaPos) return null;
+  let mejor = 0, md = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const d = distanciaM(ultimaPos.lat, ultimaPos.lng, pts[i][0], pts[i][1]);
+    if (d < md) { md = d; mejor = i; }
+  }
+  let m = md;
+  for (let i = mejor; i < pts.length - 1; i++) m += distanciaM(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+  return m;
+}
 function distanciaM(lat1, lng1, lat2, lng2) {
   const R = 6371000, rad = (x) => (x * Math.PI) / 180;
   const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
@@ -924,7 +945,7 @@ function dibujarOtras() {
   });
 }
 $("btnVerTodo").onclick = () => { seguirme = false; Camara.setModo("fitbounds"); encuadrar(false); Camara.refrescarBoton(); };
-/* El botón Navegar siempre queda ~14 px por encima de la barra "Ocultar pedidos" y sube/baja con ella */
+/* El botón Navegar (y la tarjeta de ruta) siempre quedan ~30 px por encima de la barra "Ocultar pedidos" y sube/baja con ella */
 (function botonNavegarSobreBarra() {
   const caja = document.querySelector(".mapa-caja"), barra = $("barraHoja");
   if (!caja || !barra) return;
@@ -933,7 +954,7 @@ $("btnVerTodo").onclick = () => { seguirme = false; Camara.setModo("fitbounds");
     if (vistaActual !== "mapa") return;
     const mr = caja.getBoundingClientRect(), br = barra.getBoundingClientRect();
     if (!mr.height || !br.height) return;
-    const px = Math.max(12, Math.round(mr.bottom - br.top + 14));
+    const px = Math.max(12, Math.round(mr.bottom - br.top + 30));
     if (px !== ult) { ult = px; caja.style.setProperty("--nav-bottom", px + "px"); }
   };
   setInterval(ajustar, 200);
@@ -1926,10 +1947,22 @@ function actualizarBanner() {
     const paso = n.rutaPasos[idx];
     const info = paso ? Ordenes.textoPaso(paso) : ["🧭", ""];
     ico = info[0] || "🧭";
-    const dist = formatoDist(n.rutaDist || 0);
-    const min = Math.max(1, Math.round((n.rutaDur || 0) / 60));
-    txt = `<b>${escHtml(info[1] || "")}</b><span>${escHtml(dist)} · ≈ ${min} min · ${escHtml(titulo)}</span>`;
+    /* Distancia hasta el giro, y lo que FALTA de verdad (se recalcula con tu posición; no es el total del inicio) */
+    const aGiro = paso && paso.loc ? distanciaM(ultimaPos.lat, ultimaPos.lng, paso.loc.lat, paso.loc.lng) : null;
+    const falta = metrosRestantes(n);
+    const totalIni = n.rutaDist || 0;
+    const seg = n.rutaDur ? (totalIni > 0 && falta !== null ? n.rutaDur * Math.min(1, falta / totalIni) : n.rutaDur) : 0;
+    const faltaTxt = formatoDist(Math.round(falta !== null ? falta : totalIni));
+    const tiempoTxt = formatoTiempo(seg);
+    const giroTxt = aGiro !== null ? "En " + formatoDist(redondearGiro(aGiro)) : "Sigue recto";
+    b.className = "info-ruta rb-nav";
+    b.innerHTML = `<div class="rb-fila-giro"><span class="rb-ic">${ico}</span><div class="rb-giro"><b class="rb-giro-d">${escHtml(giroTxt)}</b><span class="rb-giro-t">${escHtml(info[1] || "")}</span></div>${cerrar}</div>
+<div class="rb-fila-datos"><div class="rb-dato rb-falta"><small>Falta</small><b>${escHtml(faltaTxt)}</b></div><div class="rb-dato rb-tiempo"><small>Tiempo</small><b>${escHtml(tiempoTxt)}</b></div></div>
+<div class="rb-destino">📍 ${escHtml(titulo.replace(/^\S+\s/, "") || titulo)}</div>`;
+    const x2 = $("brX"); if (x2) x2.onclick = cancelarRutaManual;
+    return;
   }
+  b.className = "info-ruta rb-msg";
   b.innerHTML = `<span class="ir-ic">${ico}</span><span class="ir-txt">${txt}</span>${cerrar}`;
   const x = $("brX"); if (x) x.onclick = cancelarRutaManual;
 }
