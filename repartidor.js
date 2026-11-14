@@ -462,7 +462,7 @@ const Camara = (() => {
   /* Motor 3D (course-up + pitch + ancla inferior + puck interpolado) */
   const PITCH_GRADOS = 50, ESCALA_3D = 1.8, PERSPECTIVA_PX = 900, CONTRA_PITCH = 1.45, ZOOM_3D = 0.75, VEL_MIN_RUMBO = 1.2;
   let renderPos = null, anim = null, ultFix = 0, raf = 0, tPrev = 0, hdgR = 0, hdgObj = 0, hdgBrujula = null, velActual = null;
-  let zObj = null, zAuto = null, zOff = 0, zProg = false, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null, anclaPx = 0;
+  let giroIco = 0, giroAcum = 0, zObj = null, zAuto = null, zOff = 0, zProg = false, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null, anclaPx = 0;
   let modo = "fitbounds";
   const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
   const rotable = () => !!(mapa && typeof mapa.setBearing === "function");
@@ -530,9 +530,8 @@ const Camara = (() => {
   function fijarObjetivo() {
     if (!rotable()) { hdgObj = 0; return; }
     { const rr = modo === "navegacion" ? rumboRuta() : null; if (rr !== null) { hdgObj = rr; return; } }
-    if (tieneRumbo && (velActual === null || velActual >= VEL_MIN_RUMBO)) hdgObj = suave;
-    else if (hdgBrujula !== null) hdgObj = hdgBrujula;
-    else if (tieneRumbo) hdgObj = suave;
+    /* La brújula del teléfono ya no gira el mapa: solo gira al repartidor (ver giroIcono) */
+    if (tieneRumbo) hdgObj = suave;
   }
   function alOrientacion(e) {
     let h = null;
@@ -590,6 +589,7 @@ const Camara = (() => {
     const on = navActiva();
     if (on) { anclaPx = Math.round(calcAncla()); esc.style.setProperty("--ancla-y", anclaPx + "px"); }
     try { if (mapa.dragging) { if (on) mapa.dragging.disable(); else mapa.dragging.enable(); } } catch (_) {}
+    if (!on && giroAcum !== 0) { giroAcum = 0; despertar(); }
     if (on !== inclinada) {
       inclinada = on;
       esc.classList.toggle("inclinada", on);
@@ -611,6 +611,18 @@ const Camara = (() => {
     zProg = true;
     try { mapa.setView(centro, zu, { animate: false, noMoveStart: true }); } finally { zProg = false; }
   }
+  /* Giro de cabeza: el ícono del repartidor gira hacia donde apunta el teléfono (relativo al mapa); el mapa no se mueve */
+  function giroIcono(dt, activa) {
+    const el = marcaYo && marcaYo.getElement && marcaYo.getElement();
+    if (!el) return false;
+    const meta = activa && hdgBrujula !== null ? ((hdgBrujula - hdgR + 540) % 360) - 180 : 0;   // -180..180, 0 = hacia arriba
+    const d = ((meta - giroAcum + 540) % 360) - 180;
+    if (Math.abs(d) < 0.3) { if (giroAcum !== meta) giroAcum = meta; }
+    else giroAcum += d * (1 - Math.exp(-dt / 110));
+    const v = giroAcum.toFixed(1) + "deg";
+    if (v !== giroIco) { giroIco = v; el.style.setProperty("--giro-rep", v); }
+    return Math.abs(d) >= 0.3;
+  }
   let ult3d = 0;
   function frame(t) {
     raf = 0;
@@ -624,7 +636,9 @@ const Camara = (() => {
       if (f >= 1) anim = null; else activo = true;
     }
     if (t - ult3d > 400) { ult3d = t; aplicar3D(); }
-    if (navActiva()) {
+    const nav = navActiva();
+    if (giroIcono(dt, nav)) activo = true;
+    if (nav) {
       const d = ((hdgObj - hdgR + 540) % 360) - 180;
       if (Math.abs(d) > 0.2) { hdgR = (hdgR + d * (1 - Math.exp(-dt / 240)) + 360) % 360; activo = true; } else hdgR = hdgObj;
       aplicarCamara(false);
@@ -665,9 +679,9 @@ const Camara = (() => {
     const z = 19 - Math.log2(Math.max(dist, 80) / 80) * 0.75;
     return Math.round(Math.min(19, Math.max(14.5, z)) * 4) / 4;
   }
-  /* Tamaño del ícono del repartidor: lejos del cliente es compacto (no tapa la calle) y al llegar se reduce hasta
-     quedar IGUAL de grande que el ícono del cliente (TAM_ICONO_CLI) para no taparlo. */
-  const TAM_ICONO = 30, TAM_REP_LEJOS = 36, TAM_REP_CERCA = 30, DIST_CERCA_M = 100, DIST_LEJOS_M = 250;
+  /* Tamaño del ícono del repartidor (3 veces el anterior): lejos del cliente mide TAM_REP_LEJOS y al llegar se reduce
+     hasta TAM_REP_CERCA para no tapar tanto el ícono del cliente. */
+  const TAM_ICONO = 30, TAM_REP_LEJOS = 108, TAM_REP_CERCA = 90, DIST_CERCA_M = 100, DIST_LEJOS_M = 250;
   function escalaPara() {
     const d = destino();
     const dist = d && ultimaPos && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
@@ -682,7 +696,7 @@ const Camara = (() => {
     if (!mapa) return;
     try { mapa.getContainer().style.setProperty("--escala-rep", String(escalaPara())); } catch (_) {}
   }
-  function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) e.classList.add("rep-yo"); }
+  function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) { e.classList.add("rep-yo"); if (giroIco !== 0 && e.style.getPropertyValue("--giro-rep") !== giroIco) giroIco = 0; } }
 
   function refrescarBoton() {
     const b = $("btnNavegar"); if (!b) return;
@@ -770,8 +784,8 @@ function pintarYo(rumbo) {
   const st = document.createElement("style"); st.id = "estiloIconosPng";
   st.textContent = `
 .rep-pin { position: relative; width: 30px; height: 30px; }
-.rep-pin img { width: 30px; height: 30px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); pointer-events: none; }
-.rep-pin .rep-nom { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 1px; background: rgba(17,24,39,.85); color: #fff; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 999px; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+.rep-pin img { width: 30px; height: 30px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); pointer-events: none; transform: rotate(var(--giro-rep, 0deg)); transform-origin: 50% 50%; will-change: transform; }
+.rep-pin .rep-nom { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 1px; background: rgba(17,24,39,.85); color: #fff; font-size: calc(10px / var(--escala-rep, 1)); font-weight: 800; padding: 1px 6px; border-radius: 999px; white-space: nowrap; max-width: calc(90px / var(--escala-rep, 1)); overflow: hidden; text-overflow: ellipsis; }
 .leaflet-marker-icon.rep-yo > :first-child { transform-origin: 50% 15px; }
 .cli-pin { position: relative; width: 30px; height: 30px; transform: scaleY(var(--contra-pitch, 1)); transform-origin: 50% 50%; }
 .cli-pin img { width: 30px; height: 30px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
