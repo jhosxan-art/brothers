@@ -1733,6 +1733,17 @@ function mostrarBusquedaRep(online) {
 }
 $("busqRep").addEventListener("input", () => { resultadosRep = []; $("busqRep").value ? mostrarBusquedaRep() : $("resBusqRep").classList.add("oculto"); });
 $("busqRep").addEventListener("focus", () => mostrarBusquedaRep());
+/* Mientras se busca (teclado abierto, texto o resultados a la vista) se oculta la brújula */
+(function brujulaAlBuscar() {
+  const caja = document.querySelector(".mapa-caja"), inp = $("busqRep"), res = $("resBusqRep");
+  if (!caja || !inp || !res) return;
+  const act = () => caja.classList.toggle("buscando", document.activeElement === inp || !res.classList.contains("oculto"));
+  inp.addEventListener("focus", act);
+  inp.addEventListener("blur", () => setTimeout(act, 200));
+  inp.addEventListener("input", act);
+  try { new MutationObserver(act).observe(res, { attributes: true, attributeFilter: ["class"] }); } catch (_) {}
+  act();
+})();
 $("formBusqRep").onsubmit = (e) => { e.preventDefault(); buscarEnMapa(); };
 async function buscarEnMapa() {
   const q = $("busqRep").value.trim(); if (!q) return;
