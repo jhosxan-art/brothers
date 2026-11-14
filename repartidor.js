@@ -336,29 +336,18 @@ const Nav = (() => {
   const decir = (t) => { if (!vozOn || !t) return; try { Voz.hablar(t, { forzar: true }); } catch (_) {} };
   const metrosHabla = (m) => (m >= 1000 ? (Math.round(m / 100) / 10).toString().replace(".", ",") + " kilómetros" : Math.max(10, Math.round(m / 10) * 10) + " metros");
 
-  /* HTML de la tarjeta de navegación; null si todavía no hay datos de ruta */
+  /* HTML de la cápsula de navegación (UNA sola línea, a la par de la brújula); null si todavía no hay datos de ruta.
+     Tocar el ícono del giro activa / silencia la voz. */
   function banner(n, titulo, cerrar) {
     const e = estado(n);
     if (!e || !e.pasos.length) return null;
-    const seg = segRestantes(n, e), pie =
-      `<div class="rn-pie"><b class="rn-falta">${escHtml(formatoDist(Math.round(e.falta)))}</b><b class="rn-tiempo">${escHtml(formatoTiempo(seg))}</b>` +
-      `<span class="rn-eta">🏁 ${escHtml(hora(seg))}</span><button class="rn-voz${vozOn ? "" : " off"}" data-nav="voz" type="button" aria-label="${vozOn ? "Silenciar voz de navegación" : "Activar voz de navegación"}">${vozOn ? "🔊" : "🔇"}</button></div>`;
-    if (n._llego) {
-      return `<div class="rn-fila"><span class="rn-ic">🏁</span><div class="rn-col"><b class="rn-dist">Has llegado</b><span class="rn-txt">${escHtml(titulo)}</span></div>${cerrar}</div>`;
-    }
-    if (recalculando()) {
-      return `<div class="rn-fila"><span class="rn-ic rn-gira">🔄</span><div class="rn-col"><b class="rn-dist">Recalculando…</b><span class="rn-txt">Te saliste de la ruta; buscando el mejor camino</span></div>${cerrar}</div>${pie}`;
-    }
-    const info = textoDe(e.pasos[e.idx]);
-    const esUlt = e.idx >= e.last;
+    const ic = (x) => `<span class="rb-ic" data-nav="voz" role="button" aria-label="${vozOn ? "Silenciar voz de navegación" : "Activar voz de navegación"}">${x}</span>`;
+    if (n._llego) return { cls: "info-ruta rb-nav", html: `${ic("🏁")}<b class="rb-giro-d">Has llegado</b><span class="rb-giro-t">${escHtml(titulo)}</span>${cerrar}` };
+    if (recalculando()) return { cls: "info-ruta rb-nav", html: `${ic("🔄")}<b class="rb-giro-d">Recalculando…</b><span class="rb-giro-t">Buscando el mejor camino</span>${cerrar}` };
+    const seg = segRestantes(n, e), info = textoDe(e.pasos[e.idx]), esUlt = e.idx >= e.last;
     const dTxt = e.aGiro === null ? "Sigue recto" : e.aGiro < 25 ? "Ahora" : "En " + formatoDist(redondearGiro(e.aGiro));
-    let luego = "";
-    if (!esUlt && e.idx + 1 <= e.last && e.aGiro !== null && e.aGiro < 400) {
-      const sig = e.pasos[e.idx + 1], sepa = e.cum[e.pi[e.idx + 1]] - e.cum[e.pi[e.idx]];
-      const t2 = sig ? textoDe(sig) : null;
-      if (t2 && t2[1] && sepa < 250) luego = `<div class="rn-luego">Luego: ${escHtml(t2[0] + " " + t2[1])}</div>`;
-    }
-    return `<div class="rn-fila"><span class="rn-ic">${escHtml(info[0] || "🧭")}</span><div class="rn-col"><b class="rn-dist">${escHtml(dTxt)}</b><span class="rn-txt">${escHtml(info[1] || (esUlt ? "Tu destino está al frente" : ""))}</span></div>${cerrar}</div>${luego}${pie}`;
+    const txt = info[1] || (esUlt ? "Tu destino está al frente" : "");
+    return { cls: "info-ruta rb-nav", html: `${ic(escHtml(info[0] || "🧭"))}<b class="rb-giro-d">${escHtml(dTxt)}${vozOn ? "" : " 🔇"}</b><span class="rb-giro-t">${escHtml(txt)}</span><b class="rb-falta">${escHtml(formatoDist(Math.round(e.falta)))}</b><b class="rb-tiempo">${escHtml(formatoTiempo(seg))}</b>${cerrar}` };
   }
 
   function alternarVoz() {
@@ -2148,8 +2137,8 @@ function actualizarBanner() {
   } else {
     const h = Nav.banner(n, titulo.replace(/^\S+\s/, ""), cerrar);
     if (h) {
-      b.className = "info-ruta rb-nav2";
-      b.innerHTML = h;
+      b.className = h.cls;
+      b.innerHTML = h.html;
       const x2 = $("brX"); if (x2) x2.onclick = cancelarRutaManual;
       alinearCapsulaRuta();
       return;
