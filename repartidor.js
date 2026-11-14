@@ -1626,6 +1626,7 @@ function irALugar(l, enfocar) {
   if (enfocar) { seguirme = false; mapa.flyTo([l.lat, l.lng], 16); }
   pedirRutaLugar(true); actualizarBanner();
 }
+{ const bcr = $("btnCancelarRuta"); if (bcr) bcr.onclick = cancelarRutaManual; }
 function pintarLugarDestino() {
   if (!mapa) return;
   if (!lugarDestino) { if (marcaLugar) { mapa.removeLayer(marcaLugar); marcaLugar = null; } return; }
@@ -1728,8 +1729,17 @@ const PuntoLargo = (() => {
 /* ============================================================
    FASE 2 · BANNER TURN-BY-TURN
    ============================================================ */
+/* Cancela la ruta manual (punto marcado con pulsación larga, lugar buscado o negocio): quita pin, trazo, flechas y banner */
+function cancelarRutaManual() {
+  if (!lugarDestino) return;
+  quitarLugarDestino();
+  try { navigator.vibrate && navigator.vibrate(30); } catch (_) {}
+  setEstado("🚫 Ruta cancelada", "ok");
+  if (mapa && seguirme && vistaActual === "mapa") Camara.actualizar(true);
+}
 function actualizarBanner() {
   const b = $("bannerRuta"); if (!b) return;
+  const bc = $("btnCancelarRuta"); if (bc) bc.classList.toggle("oculto", !lugarDestino);
   const n = lugarDestino ? rutaLugar : viajes[seleccionado];
   const titulo = lugarDestino ? `${lugarDestino.icono} ${lugarDestino.nombre}` : (n ? "👤 " + nombreDe(n) : "");
   if (!lugarDestino && !(n && n.destino)) { b.classList.add("oculto"); return; }
@@ -1756,7 +1766,7 @@ function actualizarBanner() {
     txt = `<b>${escHtml(info[1] || "")}</b><span>${escHtml(dist)} · ≈ ${min} min · ${escHtml(titulo)}</span>`;
   }
   b.innerHTML = `<span class="ir-ic">${ico}</span><span class="ir-txt">${txt}</span>${cerrar}`;
-  const x = $("brX"); if (x) x.onclick = quitarLugarDestino;
+  const x = $("brX"); if (x) x.onclick = cancelarRutaManual;
 }
 
 function renderLista() { renderListaBase(); aplicarHoja(); }

@@ -2026,3 +2026,8 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .anillo-punto.oculto { display: none !important; }
 @keyframes anilloPunto { from { transform: scale(.35); opacity: .95; } to { transform: scale(1.15); opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .anillo-punto { animation-duration: 1s; } }
+
+/* ===== Botón visible para cancelar la ruta manual ===== */
+.btn-cancelar-ruta { position: absolute; z-index: 1100; left: 50%; top: 62px; transform: translateX(-50%); height: 38px; padding: 0 16px; border: 0; border-radius: 999px; background: #D92D20; color: #fff; font-weight: 800; font-size: 13.5px; box-shadow: 0 4px 14px rgba(0,0,0,.3); white-space: nowrap; }
+.btn-cancelar-ruta:active { transform: translateX(-50%) scale(.97); }
+.btn-cancelar-ruta.oculto { display: none !important; }
