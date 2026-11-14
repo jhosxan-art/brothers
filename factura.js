@@ -157,19 +157,29 @@ window.Factura = {
       if (c && c.cliente && !campo.value.trim()) campo.value = c.cliente;
   }
 
+  /* Código de factura: "BD" + 6 dígitos (BD000001 – BD999999), aleatorio y distinto para TODOS los repartidores.
+     La app del repartidor entrega códigos ya reservados en Firebase (window.Factura.codigoCompartido, nadie recibe el mismo).
+     Solo si no hay ninguno disponible (sin conexión desde el inicio) se sortea uno en el aparato. */
+  const CODIGO_RE = /^BD\d{6}$/;
+  const CLAVE_CODIGOS_USADOS = 'brothersDeliveryCodigosUsados';
+  function leerCodigosUsados() {
+      try { const a = JSON.parse(localStorage.getItem(CLAVE_CODIGOS_USADOS) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; }
+  }
+  function recordarCodigo(c) {
+      try { const a = leerCodigosUsados().filter((x) => x !== c); a.push(c); localStorage.setItem(CLAVE_CODIGOS_USADOS, JSON.stringify(a.slice(-300))); } catch (_) {}
+  }
+  function codigoLocalAleatorio() {
+      const usados = new Set(leerCodigosUsados());
+      let c;
+      do { c = 'BD' + String(1 + (crypto.getRandomValues(new Uint32Array(1))[0] % 999999)).padStart(6, '0'); } while (usados.has(c));
+      return c;
+  }
   function getUniqueCode() {
-      let codes = JSON.parse(localStorage.getItem('brothersDeliveryAvailableCodes'));
-      let today = getBusinessDayString();
-      let lastReset = localStorage.getItem('brothersDeliveryCodeResetDate');
-      if (!codes || codes.length === 0 || lastReset !== today) {
-          codes = [];
-          for (let i = 1; i <= 1500; i++) { codes.push('BD' + i.toString().padStart(4, '0')); }
-          localStorage.setItem('brothersDeliveryCodeResetDate', today);
-      }
-      const randomIndex = Math.floor(Math.random() * codes.length);
-      const selectedCode = codes.splice(randomIndex, 1)[0];
-      localStorage.setItem('brothersDeliveryAvailableCodes', JSON.stringify(codes));
-      return selectedCode;
+      let c = null;
+      try { const f = window.Factura && window.Factura.codigoCompartido; if (typeof f === 'function') c = f(); } catch (_) {}
+      if (!CODIGO_RE.test(String(c || ''))) c = codigoLocalAleatorio();
+      recordarCodigo(c);
+      return c;
   }
   function persistDepositInvoices() { localStorage.setItem('brothersDeliveryDepositInvoices', JSON.stringify(depositInvoices)); }
   function formatMoney(n) { return `C$ ${Number(n || 0).toFixed(2)}`; }

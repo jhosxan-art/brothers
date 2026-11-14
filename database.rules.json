@@ -728,6 +728,14 @@
       }
     },
 
+    "codigosFactura": {
+      "contador": {
+        ".read": "auth != null && (root.child('repartidores').child(auth.uid).exists() || root.child('admins').child(auth.uid).exists())",
+        ".write": "auth != null && root.child('repartidores').child(auth.uid).exists() && newData.isNumber() && ((!data.exists() && newData.val() >= 1 && newData.val() <= 100) || (data.exists() && newData.val() > data.val() && newData.val() - data.val() <= 100))",
+        ".validate": "newData.isNumber() && newData.val() >= 1"
+      }
+    },
+
     "facturas_historial": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$dia": {

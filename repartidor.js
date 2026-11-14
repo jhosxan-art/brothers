@@ -191,21 +191,36 @@ const leyendaEnlace = (link) =>
   "👉 " + link;
 
 const CodigosBD = (() => {
-  const P = 100003, A = 48271, LOTE = 25, MINIMO = 8, CLAVE = "brothersCodigosBDReservados";
+  /* Códigos de factura BD000001 – BD999999: aleatorios y únicos entre TODOS los repartidores.
+     Cada aparato reserva lotes en un contador compartido de Firebase (codigosFactura/contador, transacción atómica: dos
+     repartidores nunca reciben el mismo número) y cada número del contador se mezcla con una permutación (Feistel de 20 bits
+     + "cycle-walking") para que el código parezca sorteado y aun así no se repita hasta agotar los 999 999. */
+  const MAX = 999999, LOTE = 25, MINIMO = 8, CLAVE = "brothersCodigosBD6", RE = /^BD\d{6}$/;
+  const RONDAS = [0x2f1, 0x1a7, 0x3c5, 0x0e9, 0x25b, 0x37d, 0x1c3, 0x30f];
+  function mezclar(x) {
+    let l = x >>> 10, r = x & 1023;
+    for (let i = 0; i < RONDAS.length; i++) {
+      const f = (Math.imul(r ^ RONDAS[i], 0x9e3779b1) >>> 12) & 1023;
+      const t = l ^ f; l = r; r = t;
+    }
+    return ((l << 10) | r) >>> 0;
+  }
+  function codigoDe(k) {
+    let x = ((k - 1) % MAX) + 1;
+    do { x = mezclar(x); } while (x < 1 || x > MAX);
+    return "BD" + String(x).padStart(6, "0");
+  }
   let cola = [], pidiendo = false;
-  try { const a = JSON.parse(localStorage.getItem(CLAVE)); if (Array.isArray(a)) cola = a.filter((c) => /^BD\d{5}$/.test(c)); } catch (_) {}
+  try { const a = JSON.parse(localStorage.getItem(CLAVE)); if (Array.isArray(a)) cola = a.filter((c) => RE.test(c)); } catch (_) {}
   const guardar = () => { try { localStorage.setItem(CLAVE, JSON.stringify(cola)); } catch (_) {} };
   async function reponer() {
     if (pidiendo || !uidActual) return;
     pidiendo = true;
     try {
-      const r = await db.ref("codigosRetiro/contador").transaction((c) => (Number(c) || 0) + LOTE);
+      const r = await db.ref("codigosFactura/contador").transaction((c) => (Number(c) || 0) + LOTE);
       if (r.committed) {
         const fin = Number(r.snapshot.val()) || 0;
-        for (let k = fin - LOTE; k < fin; k++) {
-          const idx = (k % (P - 1)) + 1, v = (idx * A) % P;
-          if (v >= 1 && v <= 99999) cola.push("BD" + String(v).padStart(5, "0"));
-        }
+        for (let k = fin - LOTE + 1; k <= fin; k++) cola.push(codigoDe(k));
         guardar();
       }
     } catch (_) {}
@@ -217,12 +232,14 @@ const CodigosBD = (() => {
     if (cola.length < MINIMO) reponer();
     return c;
   }
-  return { siguiente, reponer };
+  window.addEventListener("online", () => { if (cola.length < MINIMO) reponer(); });
+  return { siguiente, reponer, codigoDe };
 })();
 const etiquetaPedido = (codigo, origen) => (window.Factura && typeof window.Factura.etiquetaPedido === "function")
   ? window.Factura.etiquetaPedido(codigo, origen)
   : (((origen === "app" ? "APP" : "WA") + String(codigo == null ? "" : codigo).replace(/\D/g, "").padStart(5, "0")));
-const etiquetaWA = (v) => etiquetaPedido(v && v.pedido, "wa");
+/* Factura manual: la app muestra EXACTAMENTE el código que recibe el cliente por WhatsApp (BD + dígitos) */
+const etiquetaWA = (v) => { const p = String(v && v.pedido != null ? v.pedido : "").trim(); return /^BD\d+$/i.test(p) ? p.toUpperCase() : etiquetaPedido(v && v.pedido, "wa"); };
 const num = (x) => (Number.isFinite(x) ? x : null);
 const formatoDist = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m");
 /* Redondeo estilo navegador: cerca del giro de 5 en 5 m, más lejos de 10 en 10 m */
@@ -2639,6 +2656,7 @@ const mensajeSeguimiento = (v) =>
 const PagosEntrega = {};
 const CobroEntrega = (() => {
   let resolver = null, ref = null, refDia = "", datos = {};
+  let diaVista = null, refVista = null, datosVista = {}, barra = null, cuerpo = null;   // día elegido en la cortina (null = hoy)
   const moneda = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
   const corto = (s, n) => String(s == null ? "" : s).slice(0, n);
   function isoDia() {
@@ -2688,8 +2706,54 @@ const CobroEntrega = (() => {
   }
   function soltar() {
     if (ref) { ref.off(); ref = null; }
+    soltarVista(); diaVista = null;
     datos = {}; refDia = "";
     pintar();
+  }
+  /* ---- Revisar pagos de días anteriores (selector de día + flechas) ---- */
+  const sumarDias = (iso, n) => { const p = String(iso).split("-"); const d = new Date(+p[0], +p[1] - 1, +p[2] + n, 12); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  const esIso = (x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x || ""));
+  function textoDia(iso) {
+    const hoy = isoDia();
+    if (iso === hoy) return "Hoy";
+    if (iso === sumarDias(hoy, -1)) return "Ayer";
+    try { const p = iso.split("-"); return new Date(+p[0], +p[1] - 1, +p[2], 12).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" }); } catch (_) { return iso; }
+  }
+  function soltarVista() { if (refVista) { refVista.off(); refVista = null; } datosVista = {}; }
+  function elegirDia(iso) {
+    const hoy = isoDia();
+    if (!esIso(iso) || iso > hoy) iso = hoy;
+    diaVista = iso === hoy ? null : iso;
+    soltarVista();
+    if (diaVista && uidActual) {
+      refVista = db.ref("cobrosAdmin/" + uidActual + "/" + diaVista);
+      refVista.on("value", (s) => { datosVista = s.val() || {}; pintar(); }, () => { datosVista = {}; pintar(); });
+    }
+    pintar();
+  }
+  function armarCaja() {
+    const caja = $("cnCobros"); if (!caja) return false;
+    if (barra && barra.parentNode === caja) return true;
+    caja.textContent = "";
+    barra = document.createElement("div"); barra.className = "cobro-nav";
+    barra.innerHTML = '<button type="button" class="cobro-dia-btn" data-d="-1" aria-label="Día anterior">◀</button>' +
+      '<label class="cobro-fecha-caja"><input type="date" class="cobro-fecha" aria-label="Elegir el día de los cobros"><small class="cobro-dia-txt"></small></label>' +
+      '<button type="button" class="cobro-dia-btn" data-d="1" aria-label="Día siguiente">▶</button>';
+    barra.addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-d]"); if (!b || b.disabled) return;
+      elegirDia(sumarDias(diaVista || isoDia(), Number(b.dataset.d)));
+    });
+    barra.querySelector(".cobro-fecha").addEventListener("change", (e) => elegirDia(e.target.value));
+    cuerpo = document.createElement("div"); cuerpo.className = "cobro-cuerpo";
+    caja.appendChild(barra); caja.appendChild(cuerpo);
+    return true;
+  }
+  function pintarBarra() {
+    const hoy = isoDia(), dia = diaVista || hoy, inp = barra.querySelector(".cobro-fecha");
+    inp.max = hoy;
+    if (inp.value !== dia) inp.value = dia;
+    barra.querySelector(".cobro-dia-txt").textContent = textoDia(dia);
+    barra.querySelector('button[data-d="1"]').disabled = dia >= hoy;
   }
   function fila(c) {
     const f = document.createElement("div");
@@ -2708,23 +2772,30 @@ const CobroEntrega = (() => {
     f.appendChild(d); f.appendChild(m); f.appendChild(b);
     return f;
   }
+  const aLista = (o) => Object.keys(o || {}).map((k) => Object.assign({ _k: k }, o[k])).filter((x) => x && x.metodo === "transferencia").sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
   function pintar() {
-    const lista = Object.keys(datos).map((k) => Object.assign({ _k: k }, datos[k])).filter((x) => x && x.metodo === "transferencia").sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
-    const pend = lista.filter((x) => x.estado !== "cobrado");
+    /* La insignia del encabezado siempre cuenta las pendientes de HOY */
+    const pendHoy = aLista(datos).filter((x) => x.estado !== "cobrado");
     const bd = $("cobrosCnt");
-    if (bd) { bd.textContent = pend.length; bd.classList.toggle("oculto", !pend.length); }
+    if (bd) { bd.textContent = pendHoy.length; bd.classList.toggle("oculto", !pendHoy.length); }
     const caja = $("cnCobros");
-    if (!caja) return;
-    caja.textContent = "";
+    if (!caja || !armarCaja()) return;
+    pintarBarra();
+    const esHoy = !diaVista, lista = aLista(esHoy ? datos : datosVista), pend = lista.filter((x) => x.estado !== "cobrado");
+    cuerpo.textContent = "";
     if (!lista.length) {
-      const v = document.createElement("div"); v.className = "cn-vacio"; v.textContent = "Hoy no tienes entregas pagadas por transferencia.";
-      caja.appendChild(v); return;
+      const v = document.createElement("div"); v.className = "cn-vacio";
+      v.textContent = esHoy ? "Hoy no tienes entregas pagadas por transferencia." : "No tienes entregas pagadas por transferencia ese día.";
+      cuerpo.appendChild(v); return;
     }
     const res = document.createElement("div"); res.className = "cobro-resumen";
-    const sumaPend = pend.reduce((t, x) => t + (Number(x.total) || 0), 0);
+    const sumaPend = pend.reduce((t, x) => t + (Number(x.total) || 0), 0), total = lista.reduce((t, x) => t + (Number(x.total) || 0), 0);
     res.textContent = pend.length ? "Pendiente de pago por el admin: " + moneda(sumaPend) + " · " + pend.length + (pend.length === 1 ? " pedido" : " pedidos") : "✅ El admin ya pagó todas tus transferencias";
-    caja.appendChild(res);
-    lista.forEach((c) => caja.appendChild(fila(c)));
+    cuerpo.appendChild(res);
+    const tot = document.createElement("div"); tot.className = "cobro-total";
+    tot.textContent = "Total del día: " + moneda(total) + " · " + lista.length + (lista.length === 1 ? " transferencia" : " transferencias");
+    cuerpo.appendChild(tot);
+    lista.forEach((c) => cuerpo.appendChild(fila(c)));
   }
   { const bt = $("btnCortinaCobros");
     if (bt) bt.addEventListener("click", () => {
@@ -2732,7 +2803,7 @@ const CobroEntrega = (() => {
       caja.classList.toggle("oculto", !abrir);
       bt.setAttribute("aria-expanded", String(abrir));
       bt.classList.toggle("abierta", abrir);
-      if (abrir) { escuchar(); pintar(); }
+      if (abrir) { escuchar(); elegirDia(null); } else { soltarVista(); diaVista = null; }
     }); }
   return { pedir, cancelar, guardar, escuchar, soltar, abierto: () => !$("modalPago").classList.contains("oculto") };
 })();
@@ -4489,4 +4560,79 @@ const NavGL = (() => {
   setInterval(tick, 500);
   window.addEventListener("resize", () => { try { if (gl && visible) gl.resize(); } catch (_) {} });
   return { alPosicion() { tick(); if (visible) pintarRuta(); }, pintarRuta() { if (visible) pintarRuta(); }, clienteALatLng, visible: () => visible };
+})();
+
+/* ============================================================
+   GananciasDia · cortina "Mis ganancias por día" (aditivo, no toca PanelContable)
+   Lee contabilidad/{uid} (campo gananciaRepartidor y fecha AAAA-MM-DD) de los últimos 60 días,
+   agrupa por día, y permite navegar con ◀ ▶ / calendario / lista de días.
+   ============================================================ */
+const GananciasDia = (() => {
+  try {
+    const ancla = $("cnRegistro");
+    if (!ancla || !ancla.parentNode) return {};
+    const DIAS = 60, NOMBRES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"], MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+    const pad = (n) => String(n).padStart(2, "0");
+    const iso = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+    const hoyIso = () => { const t = new Date(); if (t.getHours() < 8) t.setDate(t.getDate() - 1); return iso(t); };
+    const suma = (s, n) => { const p = s.split("-"); return iso(new Date(+p[0], +p[1] - 1, +p[2] + n, 12)); };
+    const moneda = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+    const texto = (s) => { const p = s.split("-"), d = new Date(+p[0], +p[1] - 1, +p[2], 12); return NOMBRES[d.getDay()] + " " + d.getDate() + " de " + MESES[d.getMonth()]; };
+    const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+
+    const btn = el("button", "pc-cortina-btn"); btn.type = "button"; btn.setAttribute("aria-expanded", "false");
+    btn.innerHTML = '<span>💰 Mis ganancias por día</span><span class="pc-cortina-flecha" aria-hidden="true">▾</span>';
+    const caja = el("div", "cobros-caja gd-caja oculto");
+    ancla.parentNode.insertBefore(btn, ancla.nextSibling); ancla.parentNode.insertBefore(caja, btn.nextSibling);
+
+    let ref = null, porDia = {}, dia = null, listo = false;
+    const barra = el("div", "cobro-nav"), izq = el("button", "cobro-dia-btn", "◀"), der = el("button", "cobro-dia-btn", "▶");
+    izq.type = der.type = "button"; izq.setAttribute("aria-label", "Día anterior"); der.setAttribute("aria-label", "Día siguiente");
+    const fcaja = el("label", "cobro-fecha-caja"), inp = el("input", "cobro-fecha"), txt = el("span", "cobro-dia-txt");
+    inp.type = "date"; fcaja.append(inp, txt); barra.append(izq, fcaja, der);
+    const resumen = el("div", "gd-resumen"), detalle = el("div", "gd-detalle"), titulo = el("div", "gd-sub", "Últimos días"), semana = el("div", "gd-dias");
+    caja.append(barra, resumen, detalle, titulo, semana);
+
+    function elegir(d) { const h = hoyIso(); dia = !d || d > h ? h : d; pintar(); }
+    function pintar() {
+      const h = hoyIso(); if (!dia) dia = h;
+      inp.max = h; inp.value = dia; der.disabled = dia >= h;
+      txt.textContent = (dia === h ? "Hoy · " : dia === suma(h, -1) ? "Ayer · " : "") + texto(dia);
+      const lista = porDia[dia] || [], gan = lista.reduce((a, x) => a + (Number(x.gananciaRepartidor) || 0), 0);
+      resumen.innerHTML = ""; detalle.innerHTML = ""; semana.innerHTML = "";
+      resumen.append(el("div", "gd-gan", moneda(gan)), el("div", "gd-nota", lista.length ? "ganaste en " + lista.length + (lista.length === 1 ? " entrega" : " entregas") : "Sin entregas este día"));
+      lista.slice().sort((a, b) => (a.tsLocal || a.ts || 0) - (b.tsLocal || b.ts || 0)).forEach((x) => {
+        const f = el("div", "gd-fila"), t = el("div", "gd-fila-txt");
+        t.append(el("b", "", (x.cliente || "Cliente") + (x.pedido ? " · " + x.pedido : "")), el("small", "", (x.origen || "") + (x.metodoPago ? " · " + x.metodoPago : "")));
+        f.append(t, el("span", "gd-fila-monto", moneda(x.gananciaRepartidor))); detalle.append(f);
+      });
+      let tot = 0, n = 0;
+      for (let i = 0; i < 14; i++) {
+        const d = suma(h, -i), l = porDia[d] || [], g = l.reduce((a, x) => a + (Number(x.gananciaRepartidor) || 0), 0); tot += g; n += l.length;
+        const b = el("button", "gd-dia" + (d === dia ? " activo" : "")); b.type = "button";
+        b.append(el("span", "", texto(d)), el("span", "gd-dia-n", l.length + (l.length === 1 ? " entrega" : " entregas")), el("b", "", moneda(g)));
+        b.onclick = () => elegir(d); semana.append(b);
+      }
+      titulo.textContent = "Últimos 14 días · " + n + " entregas · " + moneda(tot);
+    }
+    function escuchar() {
+      soltar(); if (!uidActual) return;
+      const desde = suma(hoyIso(), -DIAS);
+      ref = db.ref("contabilidad/" + uidActual).orderByChild("fecha").startAt(desde);
+      ref.on("value", (s) => {
+        const o = {}; s.forEach((c) => { const v = c.val(); if (v && v.fecha) (o[v.fecha] = o[v.fecha] || []).push(v); });
+        porDia = o; listo = true; pintar();
+      }, () => { resumen.innerHTML = ""; resumen.append(el("div", "gd-nota", "No se pudo leer tu historial de ganancias.")); });
+    }
+    function soltar() { try { if (ref) ref.off(); } catch (_) {} ref = null; }
+    izq.onclick = () => elegir(suma(dia || hoyIso(), -1));
+    der.onclick = () => elegir(suma(dia || hoyIso(), 1));
+    inp.onchange = () => elegir(inp.value);
+    btn.onclick = () => {
+      const abrir = caja.classList.contains("oculto");
+      caja.classList.toggle("oculto", !abrir); btn.setAttribute("aria-expanded", String(abrir)); btn.classList.toggle("abierta", abrir);
+      if (abrir) { dia = hoyIso(); pintar(); escuchar(); } else soltar();
+    };
+    return { soltar };
+  } catch (e) { try { console.warn("GananciasDia", e); } catch (_) {} return {}; }
 })();

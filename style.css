@@ -2004,7 +2004,7 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 /* ===== Icono de mensajes (encabezado) y chat de administración anclado ===== */
 .salir.chat-admin { color: #12324A; background: rgba(255,255,255,.72); box-shadow: inset 0 0 0 1.5px rgba(18,50,74,.18); }
 .salir.chat-admin svg { width: 22px; height: 22px; display: block; }
-#vistaChats .cn-ancla-admin { position: sticky; top: -14px; z-index: 5; display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; margin-bottom: 2px; text-align: left; border: 1.5px solid #12324A; border-radius: 14px; background: #12324A; color: #fff; box-shadow: 0 6px 16px rgba(18,50,74,.28); }
+#vistaChats .cn-ancla-admin { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; margin-bottom: 2px; text-align: left; border: 1.5px solid #12324A; border-radius: 14px; background: #12324A; color: #fff; box-shadow: 0 6px 16px rgba(18,50,74,.28); }
 #vistaChats .cn-ancla-admin:active { transform: scale(.99); }
 #vistaChats .cn-ancla-ico { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: rgba(255,255,255,.14); color: #7DD3FC; }
 #vistaChats .cn-ancla-ico svg { width: 22px; height: 22px; }
@@ -2120,3 +2120,29 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .gl-dest b { font-size: 28px; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
 .gl-dest span { max-width: 120px; padding: 1px 8px; border-radius: 999px; background: rgba(17,24,39,.86); color: #fff; font: 800 11px/1.4 "Plus Jakarta Sans", system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gl-dest.act b { font-size: 36px; } .gl-dest.act span { background: #D92D20; }
+
+/* ===== Cobros por transferencia · revisar días anteriores (aditivo) ===== */
+.cobros-caja .cobro-nav { display: flex; align-items: stretch; gap: 8px; }
+.cobros-caja .cobro-dia-btn { flex: none; width: 46px; height: 52px; padding: 0; border-radius: 14px; font-size: 17px; line-height: 1; }
+.cobros-caja .cobro-dia-btn:disabled { opacity: .35; cursor: default; }
+.cobros-caja .cobro-fecha-caja { flex: 1; min-width: 0; display: grid; gap: 2px; align-content: center; padding: 6px 10px; border: 1.5px solid var(--linea); border-radius: 14px; background: #fff; text-align: center; }
+.cobros-caja .cobro-fecha { width: 100%; height: 28px; padding: 0; border: 0; background: transparent; font-size: 16px; font-weight: 800; text-align: center; color: var(--tinta); }
+.cobros-caja .cobro-dia-txt { font-size: 12px; font-weight: 700; color: var(--texto2, #5B6672); }
+.cobros-caja .cobro-dia-txt::first-letter { text-transform: uppercase; }
+.cobros-caja .cobro-cuerpo { display: grid; gap: 8px; }
+.cobros-caja .cobro-total { font-size: 12.5px; font-weight: 700; color: #5B6672; text-align: center; }
+
+/* ---- Mis ganancias por día ---- */
+.gd-caja { margin-top: 8px; }
+.gd-resumen { text-align: center; padding: 10px 8px 4px; }
+.gd-gan { font-size: 30px; font-weight: 900; color: var(--tinta, #12202e); }
+.gd-nota { font-size: 13px; font-weight: 700; color: var(--texto2, #5B6672); }
+.gd-fila { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; border-radius: 12px; background: var(--celeste-suave, #eef6fb); margin-top: 6px; }
+.gd-fila-txt { display: grid; min-width: 0; } .gd-fila-txt b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .gd-fila-txt small { color: var(--texto2, #5B6672); }
+.gd-fila-monto { font-weight: 900; white-space: nowrap; }
+.gd-sub { margin-top: 12px; font-size: 12px; font-weight: 800; color: var(--texto2, #5B6672); }
+.gd-dias { display: grid; gap: 6px; }
+.gd-dia { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(0,0,0,.08); background: transparent; font: inherit; text-align: left; color: inherit; cursor: pointer; }
+.gd-dia::first-letter, .gd-dia span:first-child::first-letter { text-transform: uppercase; }
+.gd-dia.activo { border-color: var(--azul, #1a73e8); background: var(--celeste-suave, #eef6fb); }
+.gd-dia-n { font-size: 12px; color: var(--texto2, #5B6672); }
