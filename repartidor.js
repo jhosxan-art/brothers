@@ -431,7 +431,7 @@ function initMapa() {
   mapa.getContainer().classList.add("zoom-lejos");
   mapa.on("popupopen", (e) => {
     const el = e.popup.getElement(); if (!el) return;
-    el.querySelectorAll("button[data-ir]").forEach((b) => b.onclick = () => { mapa.closePopup(); irALugar(lugares[b.dataset.ir], true); });
+    el.querySelectorAll("button[data-ir]").forEach((b) => b.onclick = () => { mapa.closePopup(); irALugar(lugares[b.dataset.ir], true, true); });
   });
   mapa.on("click", (e) => { if (Policia.clickMapa(e.latlng)) return; if (marcando) fijarDestinoManual(e.latlng.lat, e.latlng.lng); });
   mapa.on("dragstart", () => { seguirme = false; Camara.refrescarBoton(); });
@@ -593,6 +593,7 @@ const Camara = (() => {
     if (on !== inclinada) {
       inclinada = on;
       esc.classList.toggle("inclinada", on);
+      aplicarEscala();
       try { mapa.getContainer().style.setProperty("--contra-pitch", on ? String(CONTRA_PITCH) : "1"); } catch (_) {}
     }
   }
@@ -679,10 +680,10 @@ const Camara = (() => {
     const z = 19 - Math.log2(Math.max(dist, 80) / 80) * 0.75;
     return Math.round(Math.min(19, Math.max(14.5, z)) * 4) / 4;
   }
-  /* Tamaño del ícono del repartidor (3 veces el anterior): lejos del cliente mide TAM_REP_LEJOS y al llegar se reduce
-     hasta TAM_REP_CERCA para no tapar tanto el ícono del cliente. */
-  const TAM_ICONO = 30, TAM_REP_LEJOS = 108, TAM_REP_CERCA = 90, DIST_CERCA_M = 100, DIST_LEJOS_M = 250;
-  function escalaPara() {
+  /* Tamaño del ícono del repartidor, igual al de la flecha de Waze (~46 px reales de pantalla; al llegar al cliente baja a 38 px
+     para no taparlo). Se compensa la escala 3D del mapa para que en pantalla mida siempre lo mismo. */
+  const TAM_REP_LEJOS = 46, TAM_REP_CERCA = 38, DIST_CERCA_M = 100, DIST_LEJOS_M = 250;
+  function tamRepPx() {
     const d = destino();
     const dist = d && ultimaPos && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
     let tam = TAM_REP_LEJOS;
@@ -690,11 +691,15 @@ const Camara = (() => {
       const f = Math.min(1, Math.max(0, (dist - DIST_CERCA_M) / (DIST_LEJOS_M - DIST_CERCA_M)));
       tam = TAM_REP_CERCA + (TAM_REP_LEJOS - TAM_REP_CERCA) * f;
     }
-    return Math.round((tam / TAM_ICONO) * 100) / 100;
+    return tam;
   }
   function aplicarEscala() {
     if (!mapa) return;
-    try { mapa.getContainer().style.setProperty("--escala-rep", String(escalaPara())); } catch (_) {}
+    try {
+      const c = mapa.getContainer(), comp = inclinada ? ESCALA_3D : 1;
+      c.style.setProperty("--tam-rep", (Math.round((tamRepPx() / comp) * 10) / 10) + "px");
+      c.style.setProperty("--comp3d", String(comp));
+    } catch (_) {}
   }
   function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) { e.classList.add("rep-yo"); if (giroIco !== 0 && e.style.getPropertyValue("--giro-rep") !== giroIco) giroIco = 0; } }
 
@@ -778,43 +783,83 @@ function pintarYo(rumbo) {
   dibujarOtras();
 }
 
-/* ---- Íconos PNG (raíz del repositorio): repartidor.png y cliente.png. Ambos miden 30 px, así quedan del mismo tamaño ---- */
+/* ---- Íconos vectoriales (SVG) del repartidor y del cliente: nunca se pixelan ni se deforman ---- */
 (function estilosIconosPng() {
   if (document.getElementById("estiloIconosPng")) return;
   const st = document.createElement("style"); st.id = "estiloIconosPng";
   st.textContent = `
-.rep-pin { position: relative; width: 30px; height: 30px; }
-.rep-pin img { width: 30px; height: 30px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); pointer-events: none; transform: rotate(var(--giro-rep, 0deg)); transform-origin: 50% 50%; will-change: transform; }
-.rep-pin .rep-nom { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 1px; background: rgba(17,24,39,.85); color: #fff; font-size: calc(10px / var(--escala-rep, 1)); font-weight: 800; padding: 1px 6px; border-radius: 999px; white-space: nowrap; max-width: calc(90px / var(--escala-rep, 1)); overflow: hidden; text-overflow: ellipsis; }
-.leaflet-marker-icon.rep-yo > :first-child { transform-origin: 50% 15px; }
-.cli-pin { position: relative; width: 30px; height: 30px; transform: scaleY(var(--contra-pitch, 1)); transform-origin: 50% 50%; }
-.cli-pin img { width: 30px; height: 30px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
-.cli-pin.sel img { filter: drop-shadow(0 0 0 #fff) drop-shadow(0 0 5px #3DB8F5) drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
-.cli-pin.vivo img { animation: pulsoCliPng 2s infinite; }
-.cli-pin .cli-num { position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--cli-c, #E5322D); color: #fff; border: 2px solid #fff; font-size: 10px; font-weight: 800; display: grid; place-items: center; padding: 0 2px; box-sizing: border-box; }
-@keyframes pulsoCliPng { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }`;
+.rep-pin { position: absolute; left: 15px; top: 15px; width: var(--tam-rep, 46px); height: var(--tam-rep, 46px); margin: calc(var(--tam-rep, 46px) / -2) 0 0 calc(var(--tam-rep, 46px) / -2); }
+.rep-pin svg { width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; transform: rotate(var(--giro-rep, 0deg)); transform-origin: 50% 50%; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.rep-pin .rep-nom { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 2px; background: rgba(17,24,39,.85); color: #fff; font-size: calc(11px / var(--comp3d, 1)); font-weight: 800; padding: 1px 7px; border-radius: 999px; white-space: nowrap; max-width: calc(110px / var(--comp3d, 1)); overflow: hidden; text-overflow: ellipsis; }
+.leaflet-marker-icon.rep-yo > :first-child { transform: scaleY(var(--contra-pitch, 1)); transform-origin: 50% 50%; transition: transform .35s ease-out; }
+.cli-per { position: relative; width: 34px; height: 44px; transform: scaleY(var(--contra-pitch, 1)); transform-origin: 50% 95%; }
+.cli-per svg { width: 100%; height: 100%; display: block; overflow: visible; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.cli-per::before { content: ""; position: absolute; left: 50%; bottom: -2px; width: 34px; height: 12px; margin-left: -17px; border-radius: 50%; box-sizing: border-box; border: 3px solid transparent; }
+.cli-per.sel::before { border-color: rgba(61,184,245,.95); background: rgba(61,184,245,.25); }
+.cli-per.vivo::before { animation: pulsoCliPer 1.8s infinite; }
+.cli-per .brazo { transform-origin: 28px 21px; animation: saludoCli 1.1s ease-in-out infinite; }
+.cli-per .cli-num { position: absolute; top: -4px; right: -8px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--cli-c, #2F6FED); color: #fff; border: 2px solid #fff; font-size: 10px; font-weight: 800; display: grid; place-items: center; padding: 0 2px; box-sizing: border-box; }
+.etq-cli-per { position: absolute; top: 48px; left: 50%; transform: translateX(-50%); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #fff; border: 1px solid #D5DEE6; color: #0E141B; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 999px; }
+@keyframes saludoCli { 0%,100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+@keyframes pulsoCliPer { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(1.35); } }
+@media (prefers-reduced-motion: reduce) { .cli-per .brazo, .cli-per.vivo::before { animation: none; } }`;
   document.head.appendChild(st);
 })();
+
+/* Repartidor en moto con mochila celeste, vista desde arriba (SVG vectorial: nunca se pixela ni se deforma, a cualquier tamaño) */
+const SVG_REPARTIDOR = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<ellipse cx="50" cy="54" rx="26" ry="42" fill="rgba(0,0,0,.16)"/>
+<rect x="44" y="4" width="12" height="24" rx="6" fill="#1F2937"/>
+<rect x="43" y="72" width="14" height="25" rx="7" fill="#1F2937"/>
+<rect x="36" y="20" width="28" height="60" rx="14" fill="#E5322D" stroke="#fff" stroke-width="2.5"/>
+<rect x="46" y="22" width="8" height="10" rx="4" fill="#FDE68A"/>
+<rect x="20" y="26" width="60" height="7" rx="3.5" fill="#374151" stroke="#fff" stroke-width="1.5"/>
+<circle cx="20" cy="29.5" r="5" fill="#111827"/><circle cx="80" cy="29.5" r="5" fill="#111827"/>
+<path d="M37 47 L24 31 M63 47 L76 31" stroke="#1E3A5F" stroke-width="8" stroke-linecap="round" fill="none"/>
+<ellipse cx="50" cy="50" rx="19" ry="12" fill="#1E3A5F" stroke="#fff" stroke-width="2"/>
+<rect x="30" y="52" width="40" height="34" rx="9" fill="#4FC3F7" stroke="#0277BD" stroke-width="2.5"/>
+<rect x="30" y="52" width="40" height="13" rx="7" fill="#81D4FA" stroke="#0277BD" stroke-width="2.5"/>
+<rect x="36" y="71" width="28" height="11" rx="4" fill="#29B6F6" stroke="#0277BD" stroke-width="1.5"/>
+<rect x="47" y="52" width="6" height="34" fill="#fff" opacity=".85"/>
+<circle cx="50" cy="45" r="10.5" fill="#111827" stroke="#fff" stroke-width="2"/>
+<path d="M43 42 Q50 36 57 42" stroke="#9CA3AF" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+</svg>`;
 
 function iconoRepartidorNombre(nombre) {
   const n = nombre ? `<span class="rep-nom">${escHtml(nombre)}</span>` : "";
   return L.divIcon({
     className: "",
-    html: `<div class="rep-pin"><img src="repartidor.png" alt="" draggable="false">${n}</div>`,
+    html: `<div class="rep-pin">${SVG_REPARTIDOR}${n}</div>`,
     iconSize: [30, 30], iconAnchor: [15, 15]
   });
 }
 
-function iconoCliente(n, nombre, sel, vivo) {
-  const color = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2"][(Number(n) - 1 + 6) % 6];
-  const num = Number.isFinite(Number(n)) && n !== "" ? `<span class="cli-num" style="--cli-c:${color}">${n}</span>` : "";
-  return L.divIcon({
-    className: "",
-    html: `<div class="cli-pin${sel ? " sel" : ""}${vivo ? " vivo" : ""}"><img src="cliente.png" alt="" draggable="false">${num}</div><span class="etq-cli-min"><b>${n}</b> · ${escHtml(nombre)}</span>`,
-    iconSize: [30, 30], iconAnchor: [15, 15]
-  });
+/* Cliente: personita esperando y saludando (SVG vectorial: no se pixela ni se deforma). El punto exacto es donde pisa (los pies). */
+const COLORES_CLI = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2"];
+function svgPersona() {
+  return `<svg viewBox="0 0 40 52" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<ellipse cx="20" cy="49" rx="11" ry="3" fill="rgba(0,0,0,.25)"/>
+<rect x="13" y="33" width="6.5" height="15" rx="3" fill="#1F2937"/><rect x="20.5" y="33" width="6.5" height="15" rx="3" fill="#1F2937"/>
+<path d="M12 21 L7.5 33" stroke="var(--cli-c,#2F6FED)" stroke-width="5.5" stroke-linecap="round" fill="none"/><circle cx="7.5" cy="34.5" r="2.8" fill="#F8C9A0"/>
+<g class="brazo"><path d="M28 21 L34 9" stroke="var(--cli-c,#2F6FED)" stroke-width="5.5" stroke-linecap="round" fill="none"/><circle cx="34.5" cy="7" r="3" fill="#F8C9A0"/></g>
+<rect x="11" y="18" width="18" height="19" rx="7" fill="var(--cli-c,#2F6FED)" stroke="#fff" stroke-width="1.6"/>
+<circle cx="20" cy="11" r="7.5" fill="#F8C9A0" stroke="#fff" stroke-width="1.4"/>
+<path d="M12.3 10.5 Q12.5 3 20 3 Q27.5 3 27.7 10.5 Q24 7 20 7.6 Q16 7 12.3 10.5Z" fill="#3B2A20"/>
+<circle cx="17.3" cy="12" r=".9" fill="#222"/><circle cx="22.7" cy="12" r=".9" fill="#222"/>
+<path d="M17.6 15 Q20 17.2 22.4 15" stroke="#9A3412" stroke-width="1.1" stroke-linecap="round" fill="none"/>
+</svg>`;
 }
-const iconoClienteDot = L.divIcon({ className: "", html: '<div class="marca-cliente"><span>Cliente</span></div>', iconSize: [26, 26], iconAnchor: [13, 13] });
+function htmlCliente(color, num, etiqueta, sel, vivo) {
+  const b = num !== "" && num != null ? `<span class="cli-num">${num}</span>` : "";
+  return `<div class="cli-per${sel ? " sel" : ""}${vivo ? " vivo" : ""}" style="--cli-c:${color}">${svgPersona()}${b}</div><span class="etq-cli-per">${etiqueta}</span>`;
+}
+function iconoCliente(n, nombre, sel, vivo) {
+  const esNum = Number.isFinite(Number(n)) && n !== "";
+  const color = esNum ? COLORES_CLI[(Number(n) - 1 + 6) % 6] : "#2F6FED";
+  const etq = (esNum ? `<b>${n}</b> · ` : "") + escHtml(nombre);
+  return L.divIcon({ className: "", html: htmlCliente(color, esNum ? n : "", etq, sel, vivo), iconSize: [34, 44], iconAnchor: [17, 42] });
+}
+const iconoClienteDot = L.divIcon({ className: "", html: htmlCliente("#2F6FED", "", "Cliente", false, true), iconSize: [34, 44], iconAnchor: [17, 42] });
 
 function pintarCliente(v) {
   if (!mapa || !v) return;
@@ -1595,7 +1640,7 @@ function escucharAdmin() {
     aplicarGuia(g, nueva);
   }, () => {});
 }
-const iconoGuia = L.divIcon({ className: "", html: '<div class="pin-cli sel"><b>🏠</b></div><span class="etq-cli">Cliente (Brothers)</span>', iconSize: [34, 34], iconAnchor: [17, 17] });
+const iconoGuia = L.divIcon({ className: "", html: htmlCliente("#2F6FED", "", "Cliente (Brothers)", true, true), iconSize: [34, 44], iconAnchor: [17, 42] });
 const guiaCliente = () => (guiaActual && guiaActual.tipo !== "negocio" ? guiaActual : null);
 function pintarGuia() {
   if (!mapa) return;
@@ -1700,16 +1745,20 @@ $("resBusqRep").onclick = (e) => {
   const k = it.dataset.k;
   if (k === "__cerrar") return cerrarBusquedaRep();
   if (k === "buscar") return buscarEnMapa();
-  if (k.startsWith("l:")) return irALugar(lugares[k.slice(2)], true);
-  const r = resultadosRep[+k.slice(2)]; if (r) irALugar({ nombre: r.nombre, lat: r.lat, lng: r.lng, icono: "📍" }, true);
+  if (k.startsWith("l:")) return irALugar(lugares[k.slice(2)], true, true);
+  const r = resultadosRep[+k.slice(2)]; if (r) irALugar({ nombre: r.nombre, lat: r.lat, lng: r.lng, icono: "📍" }, true, true);
 };
-function irALugar(l, enfocar) {
+function irALugar(l, enfocar, navegar) {
   if (!l) return;
   lugarDestino = { nombre: l.nombre, lat: l.lat, lng: l.lng, icono: l.icono || "📍", producto: l.producto || "", etiqueta: !!l.etiqueta, clase: l.clase || "retiro" }; rutaLugar = null;
   $("resBusqRep").classList.add("oculto"); $("busqRep").blur();
   if (enfocar && vistaActual !== "mapa") irA("mapa");
   initMapa(); pintarLugarDestino();
-  if (enfocar) { seguirme = false; mapa.flyTo([l.lat, l.lng], 16); }
+  if (navegar && ultimaPos) {
+    /* Navegación libre: mismo estilo que la de pedidos (mapa girando con la calle al frente, repartidor fijo, 3D) */
+    seguirme = true; Camara.setModo("navegacion"); Camara.refrescarBoton(); Camara.actualizar(true);
+    setEstado("🧭 Navegación activa hacia " + (l.nombre || "el punto"), "ok");
+  } else if (enfocar) { seguirme = false; mapa.flyTo([l.lat, l.lng], 16); }
   pedirRutaLugar(true); actualizarBanner();
 }
 { const bcr = $("btnCancelarRuta"); if (bcr) bcr.onclick = cancelarRutaManual; }
@@ -1725,6 +1774,7 @@ function quitarLugarDestino() {
   if (capaLugar) capaLugar.setLatLngs([]);
   if (flechasLugar) flechasLugar.clearLayers();
   pintarLugarDestino(); actualizarBanner();
+  { const vv = viajes[seleccionado]; if (Camara.getModo() === "navegacion" && !(vv && vv.destino)) { Camara.salir(); } }
 }
 async function pedirRutaLugar(forzar) {
   if (!lugarDestino || !ultimaPos) return;
@@ -1778,7 +1828,7 @@ const PuntoLargo = (() => {
     if (!ll || !Number.isFinite(ll.lat) || !Number.isFinite(ll.lng)) return;
     ultFijado = Date.now();
     try { navigator.vibrate && navigator.vibrate(60); } catch (_) {}
-    irALugar({ nombre: "Punto marcado", lat: ll.lat, lng: ll.lng, icono: "📍" }, false);
+    irALugar({ nombre: "Punto marcado", lat: ll.lat, lng: ll.lng, icono: "📍" }, false, true);
     if (seguirme) Camara.actualizar(true);
     setEstado("📍 Punto marcado · ruta trazada hacia ahí", "ok");
   }
@@ -2205,9 +2255,9 @@ async function recibirUbicacion(texto) {
   }
   if (!c) return alert("No encontré una ubicación en lo que compartiste. Comparte un enlace de Google Maps, Waze, geo: o las coordenadas.\n\nNota: la ubicación EN TIEMPO REAL de WhatsApp solo se ve dentro de WhatsApp; usa “Contactarme al cliente” para que el cliente comparta la suya con tu app.");
   const lugar = { nombre, lat: c.lat, lng: c.lng, icono: "📍" };
-  if (!orden.length) return irALugar(lugar, true);
+  if (!orden.length) return irALugar(lugar, true, true);
   elegirPedido("📍 " + nombre + "\n¿Qué hacemos con esta ubicación?", (v, modo) => {
-    if (modo === "ir" || !v) return irALugar(lugar, true);
+    if (modo === "ir" || !v) return irALugar(lugar, true, true);
     irA("mapa"); seleccionar(v.token, false);
     fijarDestino(v, c.lat, c.lng);
     seguirme = false; encuadrar(true);
@@ -2909,11 +2959,11 @@ const ChatsEntrantes = (() => {
       db.ref(RAIZ + "/" + id).update(cambios).catch(() => {});
     });
   }
-  function marca(coleccion, id, p, html, tam, alTocar) {
+  function marca(coleccion, id, p, html, tam, alTocar, ancla) {
     if (!p) { if (coleccion[id]) { mapa.removeLayer(coleccion[id]); delete coleccion[id]; } return; }
     const ll = [p.lat, p.lng];
     if (!coleccion[id]) {
-      coleccion[id] = L.marker(ll, { icon: L.divIcon({ className: "", html, iconSize: tam, iconAnchor: [tam[0] / 2, tam[1] / 2] }), zIndexOffset: 900 }).addTo(mapa);
+      coleccion[id] = L.marker(ll, { icon: L.divIcon({ className: "", html, iconSize: tam, iconAnchor: ancla || [tam[0] / 2, tam[1] / 2] }), zIndexOffset: 900 }).addTo(mapa);
       if (alTocar) coleccion[id].on("click", alTocar);
     } else coleccion[id].setLatLng(ll);
   }
@@ -2922,7 +2972,7 @@ const ChatsEntrantes = (() => {
     Object.keys(lista).forEach((id) => {
       const d = lista[id];
       marca(marcasSol, id, libre(d) ? puntoDe(d) : null, '<div class="sol-pin calculando"><span>📥</span>…</div>', [190, 44], () => vistaPrevia(id));
-      marca(marcasCli, id, mio(d) && !viajes[id] ? puntoDe(d) : null, '<div class="pin-cli-hit"><div class="pin-cli-min" style="--pin-cli-c:#2F6FED"></div></div><span class="etq-cli-min">' + escHtml(cortar(d && d.nombre || "Cliente", 16)) + "</span>", [28, 28], () => tocarCliente(id));
+      marca(marcasCli, id, mio(d) && !viajes[id] ? puntoDe(d) : null, htmlCliente("#2F6FED", "", escHtml(cortar(d && d.nombre || "Cliente", 16)), false, false), [34, 44], () => tocarCliente(id), [17, 42]);
     });
     [marcasSol, marcasCli].forEach((c) => Object.keys(c).forEach((id) => { if (!lista[id]) { mapa.removeLayer(c[id]); delete c[id]; } }));
     pintarRutasPendientes();
