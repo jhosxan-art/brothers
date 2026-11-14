@@ -307,6 +307,7 @@ public class NativoPlugin extends Plugin {
             lp.gravity = Gravity.TOP | Gravity.START;
             lp.x = (int) (16 * d);
             lp.y = (int) (220 * d);
+            limitarEnPantalla(px);
 
             caja.setOnTouchListener(new View.OnTouchListener() {
                 private int x0;
@@ -336,6 +337,7 @@ public class NativoPlugin extends Plugin {
                                 mostrarZonaX();
                                 lp.x = x0 + dx;
                                 lp.y = y0 + dy;
+                                limitarEnPantalla(px);
                                 /* Cerca de la zona "X": la burbuja se imanta al centro de la X y la X se resalta */
                                 int[] c = centroZonaX();
                                 int cx = lp.x + px / 2;
@@ -395,6 +397,18 @@ public class NativoPlugin extends Plugin {
     }
 
     /* ---------- Zona "X" para cerrar la burbuja (aparece abajo mientras se arrastra) ---------- */
+
+    /* La burbuja nunca sale de la pantalla: se limita a los bordes (izquierda, derecha, arriba y abajo) */
+    private void limitarEnPantalla(int tam) {
+        try {
+            if (wm == null || lp == null) return;
+            DisplayMetrics dm = new DisplayMetrics();
+            wm.getDefaultDisplay().getRealMetrics(dm);
+            lp.x = Math.max(0, Math.min(lp.x, dm.widthPixels - tam));
+            lp.y = Math.max(0, Math.min(lp.y, dm.heightPixels - tam));
+        } catch (Exception ignored) {
+        }
+    }
 
     private int[] centroZonaX() {
         try {
