@@ -255,6 +255,202 @@ function distanciaM(lat1, lng1, lat2, lng2) {
 const nombreDe = (v) => v.cliente || ("Pedido " + etiquetaWA(v));
 const esVivo = (v) => !!(v.cliPos && !v.cliPos.manual && v.cliPos.ts && Date.now() - v.cliPos.ts < FRESCO_MS);
 
+/* ============================================================
+   NAV · motor de navegación guiada (aditivo)
+   - Sigue tu avance por la ruta: ya no se dibuja el tramo recorrido y el paso actual no depende de pasar a <30 m del giro.
+   - Detecta desvíos (>45 m) y recalcula sola. Voz de giros (300 m · 100 m · ahora) y aviso de llegada.
+   - Tarjeta de giro legible (instrucción completa, distancia, tiempo, hora de llegada) y botón "Iniciar / Continuar".
+   - Ver ruta completa mientras navegas (⛶) con regreso automático a los 12 s.
+   ============================================================ */
+const Nav = (() => {
+  const OFF_M = 45, R_LLEGADA = 30, UMBRALES = [300, 100, 25], REGRESO_MS = 12000;
+  let recalc = null, ultRecalc = 0, iniciada = false, general = false, tmGeneral = null, pill = null, vozOn = true, bindBanner = false;
+  try { vozOn = localStorage.getItem("navVoz") !== "0"; } catch (_) {}
+
+  const rutaActiva = () => (lugarDestino ? rutaLugar : (viajes[seleccionado] || null));
+  const destinoActivo = () => {
+    if (lugarDestino) return lugarDestino;
+    const v = viajes[seleccionado]; return v && v.destino ? v.destino : null;
+  };
+  const hayDestino = () => !!destinoActivo();
+  const enNavegacion = () => Camara.getModo() === "navegacion" && !!seguirme;
+
+  /* Distancia de un punto a un segmento (plano local, suficiente para calles) */
+  function proy(p, a, b) {
+    const k = Math.cos((p[0] * Math.PI) / 180), M = 111320;
+    const ax = (a[1] - p[1]) * k * M, ay = (a[0] - p[0]) * M, bx = (b[1] - p[1]) * k * M, by = (b[0] - p[0]) * M;
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    let t = l2 ? -(ax * dx + ay * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
+    return { d: Math.hypot(ax + t * dx, ay + t * dy), t, len: Math.sqrt(l2) };
+  }
+  /* Dónde vas sobre la ruta: tramo recorrido, distancia a la calle, paso actual y lo que falta (con caché por posición) */
+  function estado(n) {
+    const pts = n && n.rutaPts;
+    if (!pts || pts.length < 2 || !ultimaPos) return null;
+    if (n._nPts !== pts) { n._nPts = pts; n._ni = 0; n._cum = null; n._pi = null; n._e = null; n._vIdx = null; n._vDicho = {}; }
+    if (n._e && n._eP === ultimaPos) return n._e;
+    const N = pts.length, P = [ultimaPos.lat, ultimaPos.lng];
+    if (!n._cum) { const c = [0]; for (let i = 1; i < N; i++) c[i] = c[i - 1] + distanciaM(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]); n._cum = c; }
+    const cum = n._cum;
+    let mejor = 0, md = Infinity;
+    const buscar = (a, b) => { for (let i = a; i < b; i++) { const d = distanciaM(P[0], P[1], pts[i][0], pts[i][1]); if (d < md) { md = d; mejor = i; } } };
+    buscar(Math.max(0, n._ni - 3), Math.min(N, n._ni + 150));
+    if (md > 60) { md = Infinity; buscar(0, N); }
+    n._ni = mejor;
+    let best = { d: md, t: 0, len: 0 }, seg = mejor;
+    if (mejor < N - 1) { const s = proy(P, pts[mejor], pts[mejor + 1]); if (s.d <= best.d + 0.01) { best = s; seg = mejor; } }
+    if (mejor > 0) { const s = proy(P, pts[mejor - 1], pts[mejor]); if (s.d < best.d) { best = s; seg = mejor - 1; } }
+    const pos = cum[seg] + best.t * best.len, off = best.d;
+    const falta = Math.max(0, cum[N - 1] - pos) + off;
+    const ini = Math.min(N - 1, seg + (best.t > 0 ? 1 : 0));
+    const pasos = n.rutaPasos || [], last = pasos.length - 1;
+    let idx = 0, aGiro = null;
+    if (pasos.length) {
+      if (!n._pi || n._piP !== pasos) {
+        let from = 0;
+        n._piP = pasos;
+        n._pi = pasos.map((p, k) => {
+          if (!p || !p.loc || !Number.isFinite(p.loc.lat)) return k === last ? N - 1 : from;
+          let b = from, bd = Infinity;
+          for (let i = from; i < N; i++) { const d = distanciaM(p.loc.lat, p.loc.lng, pts[i][0], pts[i][1]); if (d < bd) { bd = d; b = i; } }
+          from = b; return b;
+        });
+      }
+      while (idx < last && cum[n._pi[idx]] - pos < 12) idx++;
+      aGiro = Math.max(0, cum[n._pi[idx]] - pos);
+    }
+    const e = { off, ini, idx, last, aGiro, falta, total: cum[N - 1], cum, pi: n._pi, pasos };
+    n._e = e; n._eP = ultimaPos;
+    return e;
+  }
+  /* Parte de la ruta que aún falta (para dibujarla sin el tramo ya recorrido) */
+  function restante(n) {
+    const pts = n && n.rutaPts; if (!pts) return [];
+    const e = estado(n);
+    return e && e.off <= 70 ? pts.slice(e.ini) : pts;
+  }
+  const recalculando = () => !!(recalc && recalc.n.rutaPts === recalc.pts && Date.now() - recalc.t < 12000);
+  const hora = (seg) => { try { return new Date(Date.now() + seg * 1000).toLocaleTimeString("es-NI", { hour: "numeric", minute: "2-digit" }); } catch (_) { return ""; } };
+  const segRestantes = (n, e) => (n.rutaDur ? n.rutaDur * Math.min(1, e.falta / Math.max(1, n.rutaDist || e.total || 1)) : 0);
+  const textoDe = (paso) => { try { const i = Ordenes.textoPaso(paso); return i || ["🧭", ""]; } catch (_) { return ["🧭", ""]; } };
+  const decir = (t) => { if (!vozOn || !t) return; try { Voz.hablar(t, { forzar: true }); } catch (_) {} };
+  const metrosHabla = (m) => (m >= 1000 ? (Math.round(m / 100) / 10).toString().replace(".", ",") + " kilómetros" : Math.max(10, Math.round(m / 10) * 10) + " metros");
+
+  /* HTML de la tarjeta de navegación; null si todavía no hay datos de ruta */
+  function banner(n, titulo, cerrar) {
+    const e = estado(n);
+    if (!e || !e.pasos.length) return null;
+    const seg = segRestantes(n, e), pie =
+      `<div class="rn-pie"><b class="rn-falta">${escHtml(formatoDist(Math.round(e.falta)))}</b><b class="rn-tiempo">${escHtml(formatoTiempo(seg))}</b>` +
+      `<span class="rn-eta">🏁 ${escHtml(hora(seg))}</span><button class="rn-voz${vozOn ? "" : " off"}" data-nav="voz" type="button" aria-label="${vozOn ? "Silenciar voz de navegación" : "Activar voz de navegación"}">${vozOn ? "🔊" : "🔇"}</button></div>`;
+    if (n._llego) {
+      return `<div class="rn-fila"><span class="rn-ic">🏁</span><div class="rn-col"><b class="rn-dist">Has llegado</b><span class="rn-txt">${escHtml(titulo)}</span></div>${cerrar}</div>`;
+    }
+    if (recalculando()) {
+      return `<div class="rn-fila"><span class="rn-ic rn-gira">🔄</span><div class="rn-col"><b class="rn-dist">Recalculando…</b><span class="rn-txt">Te saliste de la ruta; buscando el mejor camino</span></div>${cerrar}</div>${pie}`;
+    }
+    const info = textoDe(e.pasos[e.idx]);
+    const esUlt = e.idx >= e.last;
+    const dTxt = e.aGiro === null ? "Sigue recto" : e.aGiro < 25 ? "Ahora" : "En " + formatoDist(redondearGiro(e.aGiro));
+    let luego = "";
+    if (!esUlt && e.idx + 1 <= e.last && e.aGiro !== null && e.aGiro < 400) {
+      const sig = e.pasos[e.idx + 1], sepa = e.cum[e.pi[e.idx + 1]] - e.cum[e.pi[e.idx]];
+      const t2 = sig ? textoDe(sig) : null;
+      if (t2 && t2[1] && sepa < 250) luego = `<div class="rn-luego">Luego: ${escHtml(t2[0] + " " + t2[1])}</div>`;
+    }
+    return `<div class="rn-fila"><span class="rn-ic">${escHtml(info[0] || "🧭")}</span><div class="rn-col"><b class="rn-dist">${escHtml(dTxt)}</b><span class="rn-txt">${escHtml(info[1] || (esUlt ? "Tu destino está al frente" : ""))}</span></div>${cerrar}</div>${luego}${pie}`;
+  }
+
+  function alternarVoz() {
+    vozOn = !vozOn;
+    try { localStorage.setItem("navVoz", vozOn ? "1" : "0"); } catch (_) {}
+    if (vozOn) decir("Voz de navegación activada");
+    try { actualizarBanner(); } catch (_) {}
+  }
+  function enlazarBanner() {
+    if (bindBanner) return; const b = $("bannerRuta"); if (!b) return;
+    bindBanner = true;
+    b.addEventListener("click", (ev) => { const x = ev.target.closest && ev.target.closest('[data-nav="voz"]'); if (x) { ev.stopPropagation(); alternarVoz(); } });
+  }
+
+  /* Botón grande "Iniciar / Continuar navegación" cuando hay destino y la cámara no está navegando */
+  function actualizarPill() {
+    const caja = document.querySelector("#vistaMapa .mapa-caja"); if (!caja) return;
+    if (!pill) {
+      pill = document.createElement("button"); pill.type = "button"; pill.id = "navIniciar"; pill.className = "nav-iniciar oculto";
+      pill.onclick = () => { const b = $("btnNavegar"); if (b) b.click(); };
+      caja.appendChild(pill);
+    }
+    const n = rutaActiva(), mostrar = !!(hayDestino() && ultimaPos && vistaActual === "mapa" && !marcando && !enNavegacion()
+      && $("resBusqRep") && $("resBusqRep").classList.contains("oculto") && document.activeElement !== $("busqRep"));
+    pill.classList.toggle("oculto", !mostrar);
+    if (!mostrar) return;
+    const e = estado(n), extra = e && n.rutaDur ? ` · ${formatoTiempo(segRestantes(n, e))} · ${formatoDist(Math.round(e.falta))}` : "";
+    const t = `🧭 ${general ? "Continuar" : "Iniciar"} navegación${extra}`;
+    if (pill.textContent !== t) pill.textContent = t;
+  }
+
+  function reanudar() {
+    clearTimeout(tmGeneral); tmGeneral = null;
+    if (!general) return;
+    general = false;
+    if (!hayDestino() || vistaActual !== "mapa") return;
+    seguirme = true; Camara.setModo("navegacion"); Camara.actualizar(true); Camara.aplicar3D();
+  }
+  /* Ver la ruta completa sin perder la navegación: vuelve sola a los 12 s */
+  function vistaGeneral() {
+    general = true; clearTimeout(tmGeneral);
+    seguirme = true; Camara.setModo("fitbounds"); Camara.norte(); Camara.actualizar(true); Camara.refrescarBoton();
+    tmGeneral = setTimeout(reanudar, REGRESO_MS);
+    setEstado("🗺️ Ruta completa · la navegación continúa en unos segundos", "ok");
+    actualizarPill();
+  }
+
+  function alPosicion(c) {
+    enlazarBanner();
+    if (general && enNavegacion()) { general = false; clearTimeout(tmGeneral); }
+    actualizarPill();
+    const n = rutaActiva(), dest = destinoActivo();
+    if (!n || !dest || !ultimaPos) { iniciada = false; return; }
+    const e = estado(n);
+    if (!e) return;
+    n.rutaIdx = e.idx;
+    const directa = distanciaM(ultimaPos.lat, ultimaPos.lng, dest.lat, dest.lng), ahora = Date.now();
+    /* Llegada */
+    if (!n._llego && (directa <= R_LLEGADA || e.falta <= 20) && enNavegacion()) {
+      n._llego = true;
+      try { navigator.vibrate && navigator.vibrate([250, 120, 250]); } catch (_) {}
+      decir("Has llegado a tu destino");
+      setEstado("🏁 Has llegado a tu destino", "ok");
+    } else if (n._llego && directa > 150) n._llego = false;
+    if (!enNavegacion()) { iniciada = false; return; }
+    /* Desvío: se sale de la calle trazada → recalcula */
+    const tol = Math.max(OFF_M, ((c && c.accuracy) || 0) * 1.5);
+    n._offN = e.off > tol && !n._llego ? (n._offN || 0) + 1 : 0;
+    if (n._offN >= 2 && ahora - ultRecalc > 8000) {
+      ultRecalc = ahora; n._offN = 0; recalc = { n, pts: n.rutaPts, t: ahora };
+      decir("Recalculando ruta");
+      try { if (n === rutaLugar) pedirRutaLugar(true); else pedirRuta(viajes[seleccionado], true); } catch (_) {}
+      return;
+    }
+    if (recalculando() || n._llego) return;
+    /* Voz de inicio y de giros */
+    if (!iniciada && e.pasos.length) {
+      iniciada = true;
+      const s = segRestantes(n, e);
+      decir("Navegación iniciada. " + formatoTiempo(s).replace(" min", " minutos").replace(" h ", " horas ") + " hasta tu destino");
+    }
+    if (e.aGiro === null || e.idx >= e.last) return;
+    if (n._vIdx !== e.idx) { n._vIdx = e.idx; n._vDicho = {}; }
+    let u = null; for (const t of UMBRALES) if (e.aGiro <= t) u = t;
+    if (u === null || n._vDicho[u]) return;
+    UMBRALES.forEach((t) => { if (t >= u) n._vDicho[t] = true; });
+    const txt = textoDe(e.pasos[e.idx])[1];
+    if (txt) decir(u === 25 ? "Ahora, " + txt : "En " + metrosHabla(e.aGiro) + ", " + txt);
+  }
+  return { estado, restante, banner, alPosicion, hayDestino, enNavegacion, vistaGeneral, reanudar, recalculando, actualizarPill };
+})();
+
 function mostrar(vista) {
   $("splash").classList.add("oculto");
   $("mainAuth").classList.toggle("oculto", vista === "app");
@@ -944,7 +1140,7 @@ function dibujarOtras() {
     } else if (lineasOtras[t]) { mapa.removeLayer(lineasOtras[t]); delete lineasOtras[t]; }
   });
 }
-$("btnVerTodo").onclick = () => { seguirme = false; Camara.setModo("fitbounds"); encuadrar(false); Camara.refrescarBoton(); };
+$("btnVerTodo").onclick = () => { if (Nav.enNavegacion() && Nav.hayDestino()) { Nav.vistaGeneral(); return; } seguirme = false; Camara.setModo("fitbounds"); encuadrar(false); Camara.refrescarBoton(); };
 /* El botón Navegar (y la tarjeta de ruta) siempre quedan ~30 px por encima de la barra "Ocultar pedidos" y sube/baja con ella */
 (function botonNavegarSobreBarra() {
   const caja = document.querySelector(".mapa-caja"), barra = $("barraHoja");
@@ -972,7 +1168,7 @@ $("btnNavegar").onclick = () => {
   } else {
     seguirme = true;
     Camara.setModo("navegacion");
-    setEstado("🧭 Navegación activa · el mapa avanza hacia arriba", "ok");
+    setEstado(Nav.hayDestino() ? "🧭 Navegación activa · el mapa avanza hacia arriba" : "🧭 Navegación libre · toca un pedido o mantén pulsado el mapa para elegir destino", "ok");
   }
   Camara.actualizar(true);
   Camara.aplicar3D();
@@ -1006,7 +1202,7 @@ function dibujarRuta() {
   const v = viajes[seleccionado];
   let pts = [];
   if (v && v.destino && ultimaPos) {
-    pts = v.rutaPts ? [[ultimaPos.lat, ultimaPos.lng], ...v.rutaPts] : [];
+    pts = v.rutaPts ? [[ultimaPos.lat, ultimaPos.lng], ...Nav.restante(v)] : [];
   }
   capaRuta.setLatLngs(pts); capaFlujo.setLatLngs(pts);
   capaRuta.setStyle({ opacity: v && v.rutaPts ? .9 : .5 });
@@ -1851,7 +2047,7 @@ function dibujarRutaLugar() {
   if (!capaLugar) return;
   if (!lugarDestino || !ultimaPos) return capaLugar.setLatLngs([]);
   const aqui = [ultimaPos.lat, ultimaPos.lng];
-  capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...rutaLugar.rutaPts] : []);
+  capaLugar.setLatLngs(rutaLugar && rutaLugar.rutaPts ? [aqui, ...Nav.restante(rutaLugar)] : []);
   capaLugar.setStyle({ opacity: rutaLugar && rutaLugar.rutaPts ? .9 : .5 });
 }
 
@@ -1950,26 +2146,15 @@ function actualizarBanner() {
   } else if (!n.rutaPasos || !n.rutaPasos.length) {
     txt = escHtml(`Calculando ruta a ${titulo}…`);
   } else {
-    let idx = Math.max(0, Math.min(n.rutaIdx || 0, n.rutaPasos.length - 1));
-    while (idx < n.rutaPasos.length - 1 && n.rutaPasos[idx] && n.rutaPasos[idx].loc &&
-           distanciaM(ultimaPos.lat, ultimaPos.lng, n.rutaPasos[idx].loc.lat, n.rutaPasos[idx].loc.lng) < 30) idx++;
-    n.rutaIdx = idx;
-    const paso = n.rutaPasos[idx];
-    const info = paso ? Ordenes.textoPaso(paso) : ["🧭", ""];
-    ico = info[0] || "🧭";
-    /* Distancia hasta el giro, y lo que FALTA de verdad (se recalcula con tu posición; no es el total del inicio) */
-    const aGiro = paso && paso.loc ? distanciaM(ultimaPos.lat, ultimaPos.lng, paso.loc.lat, paso.loc.lng) : null;
-    const falta = metrosRestantes(n);
-    const totalIni = n.rutaDist || 0;
-    const seg = n.rutaDur ? (totalIni > 0 && falta !== null ? n.rutaDur * Math.min(1, falta / totalIni) : n.rutaDur) : 0;
-    const faltaTxt = formatoDist(Math.round(falta !== null ? falta : totalIni));
-    const tiempoTxt = formatoTiempo(seg);
-    const giroTxt = aGiro !== null ? "En " + formatoDist(redondearGiro(aGiro)) : "Sigue recto";
-    b.className = "info-ruta rb-nav";
-    b.innerHTML = `<span class="rb-ic">${ico}</span><b class="rb-giro-d">${escHtml(giroTxt)}</b><span class="rb-giro-t">${escHtml(info[1] || "")}</span><b class="rb-falta">${escHtml(faltaTxt)}</b><b class="rb-tiempo">${escHtml(tiempoTxt)}</b>${cerrar}`;
-    const x2 = $("brX"); if (x2) x2.onclick = cancelarRutaManual;
-    alinearCapsulaRuta();
-    return;
+    const h = Nav.banner(n, titulo.replace(/^\S+\s/, ""), cerrar);
+    if (h) {
+      b.className = "info-ruta rb-nav2";
+      b.innerHTML = h;
+      const x2 = $("brX"); if (x2) x2.onclick = cancelarRutaManual;
+      alinearCapsulaRuta();
+      return;
+    }
+    txt = escHtml(`Calculando ruta a ${titulo}…`);
   }
   b.className = "info-ruta rb-msg";
   b.innerHTML = `<span class="ir-ic">${ico}</span><span class="ir-txt">${txt}</span>${cerrar}`;
@@ -2385,6 +2570,8 @@ function procesarPosicion(c) {
     if (!ult || distanciaM(ult[0], ult[1], lat, lng) > 4) { rastro.push([lat, lng]); if (rastro.length > 800) rastro.shift(); guardarRastro(); }
   }
   Camara.registrar(lat, lng, c.heading, c.speed);
+  try { Extras.alPosicion(c); } catch (_) {}
+  try { Nav.alPosicion(c); } catch (_) {}
   pintarYo();
   if (mapa && vistaActual === "mapa") {
     if (seguirme) Camara.actualizar(primera);
@@ -3807,3 +3994,56 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener("scroll", ajustarViewportRep);
   ajustarViewportRep();
 }
+
+/* ============================================================
+   EXTRAS (aditivo, no modifica la lógica existente)
+   - Indicador "Sin conexión" en la cabecera (Firebase .info/connected + eventos online/offline).
+   - Chip de velocidad (km/h) sobre el mapa mientras te mueves.
+   ============================================================ */
+const Extras = (() => {
+  const ESPERA_MS = 3000, VEL_MIN_MS = 1;   // 1 m/s ≈ 3.6 km/h
+  let firebaseOk = true, tmRed = null, chipRed = null, chipVel = null, ultVel = 0;
+  function crearChipRed() {
+    if (chipRed) return chipRed;
+    const host = document.querySelector(".barra-marca .titulo small");
+    if (!host) return null;
+    chipRed = document.createElement("span");
+    chipRed.id = "chipSinRed"; chipRed.className = "chip-sin-red oculto";
+    chipRed.setAttribute("role", "status"); chipRed.setAttribute("aria-live", "polite");
+    chipRed.textContent = "📡 Sin conexión";
+    host.appendChild(chipRed);
+    return chipRed;
+  }
+  function evaluarRed() {
+    const sinRed = !firebaseOk || navigator.onLine === false;
+    clearTimeout(tmRed);
+    if (!sinRed) { const c = crearChipRed(); if (c) c.classList.add("oculto"); return; }
+    tmRed = setTimeout(() => {   // espera unos segundos para no parpadear en cortes breves
+      if (!firebaseOk || navigator.onLine === false) { const c = crearChipRed(); if (c) c.classList.remove("oculto"); }
+    }, ESPERA_MS);
+  }
+  function crearChipVel() {
+    if (chipVel) return chipVel;
+    const caja = document.querySelector("#vistaMapa .mapa-caja");
+    if (!caja) return null;
+    chipVel = document.createElement("div");
+    chipVel.id = "chipVelocidad"; chipVel.className = "chip-velocidad oculto";
+    chipVel.setAttribute("aria-label", "Velocidad actual");
+    caja.appendChild(chipVel);
+    return chipVel;
+  }
+  function alPosicion(c) {
+    const v = c && Number.isFinite(c.speed) ? c.speed : null, ahora = Date.now();
+    if (ahora - ultVel < 1000) return; ultVel = ahora;
+    const chip = crearChipVel(); if (!chip) return;
+    if (v === null || v < VEL_MIN_MS) { chip.classList.add("oculto"); return; }
+    chip.textContent = "🏍️ " + Math.round(v * 3.6) + " km/h";
+    chip.classList.remove("oculto");
+  }
+  try {
+    db.ref(".info/connected").on("value", (s) => { firebaseOk = s.val() === true; evaluarRed(); }, () => {});
+    window.addEventListener("online", evaluarRed);
+    window.addEventListener("offline", evaluarRed);
+  } catch (_) {}
+  return { alPosicion, evaluarRed };
+})();
