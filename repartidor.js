@@ -462,12 +462,20 @@ const Camara = (() => {
   /* Motor 3D (course-up + pitch + ancla inferior + puck interpolado) */
   const PITCH_GRADOS = 50, ESCALA_3D = 1.8, PERSPECTIVA_PX = 900, CONTRA_PITCH = 1.45, ZOOM_3D = 0.75, VEL_MIN_RUMBO = 1.2;
   let renderPos = null, anim = null, ultFix = 0, raf = 0, tPrev = 0, hdgR = 0, hdgObj = 0, hdgBrujula = null, velActual = null;
-  let zObj = null, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null, anclaPx = 0;
+  let zObj = null, zAuto = null, zOff = 0, zProg = false, zoomando = false, inclinada = false, brujulaOn = false, timer3d = null, anclaPx = 0;
   let modo = "fitbounds";
   const rad = (x) => (x * Math.PI) / 180, deg = (x) => (x * 180) / Math.PI;
   const rotable = () => !!(mapa && typeof mapa.setBearing === "function");
   const gesto = () => { ultGesto = Date.now(); };
-  const alZoom = () => { if (Date.now() - ultGesto < 1500 && seguirme) { seguirme = false; refrescarBoton(); } };
+  const alZoom = () => {
+    if (zProg || Date.now() - ultGesto >= 1500 || !seguirme) return;
+    if (modo === "navegacion") {                     // en navegación el zoom manual NO suelta la cámara: se guarda como ajuste
+      zoomando = true;
+      mapa.once("zoomend", () => { zoomando = false; if (zAuto !== null) zOff = Math.max(-3, Math.min(3, mapa.getZoom() - zAuto)); despertar(); });
+      return;
+    }
+    seguirme = false; refrescarBoton();
+  };
   const opcionesMapa = () => ({ rotate: true, bearing: 0, touchRotate: false, rotateControl: false, zoomSnap: 0.25, zoomDelta: 1 });
 
   function rumboEntre(a, b) {
@@ -494,8 +502,34 @@ const Camara = (() => {
     fijarObjetivo();
   }
   /* Rumbo objetivo: en movimiento manda el GPS / trayectoria; detenido, la brújula del dispositivo */
+  /* Rumbo de la CALLE que falta por recorrer: apunta ~40 m adelante sobre la ruta activa, así la calle siempre queda al frente */
+  const ADELANTE_M = 40;
+  function rumboRuta() {
+    if (!ultimaPos) return null;
+    let pts = null;
+    if (lugarDestino && rutaLugar && rutaLugar.rutaPts) pts = rutaLugar.rutaPts;
+    else { const v = viajes[seleccionado]; if (v && v.destino && v.rutaPts) pts = v.rutaPts; }
+    if (!pts || !pts.length) return null;
+    let mejor = 0, md = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const d = distanciaM(ultimaPos.lat, ultimaPos.lng, pts[i][0], pts[i][1]);
+      if (d < md) { md = d; mejor = i; }
+    }
+    if (md > 70) return null;                       // fuera de la ruta: se usa GPS / brújula
+    let acum = 0, ant = { lat: ultimaPos.lat, lng: ultimaPos.lng }, objetivo = null;
+    for (let i = mejor; i < pts.length; i++) {
+      const q = { lat: pts[i][0], lng: pts[i][1] };
+      const seg = distanciaM(ant.lat, ant.lng, q.lat, q.lng);
+      if (i === mejor && seg < 3 && i + 1 < pts.length) { ant = q; continue; }
+      acum += seg; ant = q; objetivo = q;
+      if (acum >= ADELANTE_M) break;
+    }
+    if (!objetivo || distanciaM(ultimaPos.lat, ultimaPos.lng, objetivo.lat, objetivo.lng) < 3) return null;
+    return rumboEntre(ultimaPos, objetivo);
+  }
   function fijarObjetivo() {
     if (!rotable()) { hdgObj = 0; return; }
+    { const rr = modo === "navegacion" ? rumboRuta() : null; if (rr !== null) { hdgObj = rr; return; } }
     if (tieneRumbo && (velActual === null || velActual >= VEL_MIN_RUMBO)) hdgObj = suave;
     else if (hdgBrujula !== null) hdgObj = hdgBrujula;
     else if (tieneRumbo) hdgObj = suave;
@@ -555,6 +589,7 @@ const Camara = (() => {
     const esc = $("escena3d"); if (!esc || !mapa) return;
     const on = navActiva();
     if (on) { anclaPx = Math.round(calcAncla()); esc.style.setProperty("--ancla-y", anclaPx + "px"); }
+    try { if (mapa.dragging) { if (on) mapa.dragging.disable(); else mapa.dragging.enable(); } } catch (_) {}
     if (on !== inclinada) {
       inclinada = on;
       esc.classList.toggle("inclinada", on);
@@ -572,14 +607,9 @@ const Camara = (() => {
     const t = rad(hdgR), pr = mapa.project([renderPos.lat, renderPos.lng], zu);
     const centro = mapa.unproject(L.point(pr.x + Math.sin(t) * k, pr.y - Math.cos(t) * k), zu);
     if (rotable()) { try { mapa.setBearing((hdgR + 360) % 360); } catch (_) {} }
-    if (cambiaZoom && !snap) {
-      zoomando = true;
-      const fin = () => { zoomando = false; despertar(); };
-      mapa.once("zoomend", fin); setTimeout(() => { if (zoomando) fin(); }, 1400);
-      mapa.setView(centro, zu, { animate: true, duration: 0.7 });
-      return;
-    }
-    mapa.setView(centro, zu, { animate: false, noMoveStart: true });
+    /* Sin animación de zoom: así el ícono del repartidor NUNCA se despega del punto fijo de la pantalla */
+    zProg = true;
+    try { mapa.setView(centro, zu, { animate: false, noMoveStart: true }); } finally { zProg = false; }
   }
   let ult3d = 0;
   function frame(t) {
@@ -635,10 +665,22 @@ const Camara = (() => {
     const z = 19 - Math.log2(Math.max(dist, 80) / 80) * 0.75;
     return Math.round(Math.min(19, Math.max(14.5, z)) * 4) / 4;
   }
-  function escalaPara(z) { return Math.round(Math.min(1.6, Math.max(0.7, 0.7 * Math.pow(2, (z - 15) * 0.3))) * 100) / 100; }
+  /* Tamaño del ícono del repartidor: lejos del cliente es compacto (no tapa la calle) y al llegar se reduce hasta
+     quedar IGUAL de grande que el ícono del cliente (TAM_ICONO_CLI) para no taparlo. */
+  const TAM_ICONO = 30, TAM_REP_LEJOS = 36, TAM_REP_CERCA = 30, DIST_CERCA_M = 100, DIST_LEJOS_M = 250;
+  function escalaPara() {
+    const d = destino();
+    const dist = d && ultimaPos && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
+    let tam = TAM_REP_LEJOS;
+    if (dist !== null) {
+      const f = Math.min(1, Math.max(0, (dist - DIST_CERCA_M) / (DIST_LEJOS_M - DIST_CERCA_M)));
+      tam = TAM_REP_CERCA + (TAM_REP_LEJOS - TAM_REP_CERCA) * f;
+    }
+    return Math.round((tam / TAM_ICONO) * 100) / 100;
+  }
   function aplicarEscala() {
     if (!mapa) return;
-    try { mapa.getContainer().style.setProperty("--escala-rep", String(escalaPara(mapa.getZoom()))); } catch (_) {}
+    try { mapa.getContainer().style.setProperty("--escala-rep", String(escalaPara())); } catch (_) {}
   }
   function marcarIcono() { const e = marcaYo && marcaYo.getElement && marcaYo.getElement(); if (e) e.classList.add("rep-yo"); }
 
@@ -658,6 +700,7 @@ const Camara = (() => {
   }
   function setModo(m) {
     modo = m === "navegacion" ? "navegacion" : "fitbounds";
+    if (modo !== "navegacion") zOff = 0;
     escucharBrujula(modo === "navegacion");
     refrescarBoton();
   }
@@ -688,7 +731,8 @@ const Camara = (() => {
     }
 
     const dist = d && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
-    zObj = Math.max(14, zoomPara(dist) - ZOOM_3D);
+    zAuto = Math.max(14, zoomPara(dist) - ZOOM_3D);
+    zObj = Math.min(19, Math.max(12, zAuto + zOff));
     fijarObjetivo();
     if (!renderPos) renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
     aplicarEscala();
@@ -720,12 +764,40 @@ function pintarYo(rumbo) {
   dibujarOtras();
 }
 
-function iconoCliente(n, nombre, sel, vivo) {
-  const color = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2"][(Number(n) - 1 + 6) % 6];
+/* ---- Íconos PNG (raíz del repositorio): repartidor.png y cliente.png. Ambos miden 30 px, así quedan del mismo tamaño ---- */
+(function estilosIconosPng() {
+  if (document.getElementById("estiloIconosPng")) return;
+  const st = document.createElement("style"); st.id = "estiloIconosPng";
+  st.textContent = `
+.rep-pin { position: relative; width: 30px; height: 30px; }
+.rep-pin img { width: 30px; height: 30px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); pointer-events: none; }
+.rep-pin .rep-nom { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 1px; background: rgba(17,24,39,.85); color: #fff; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 999px; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+.leaflet-marker-icon.rep-yo > :first-child { transform-origin: 50% 15px; }
+.cli-pin { position: relative; width: 30px; height: 30px; transform: scaleY(var(--contra-pitch, 1)); transform-origin: 50% 50%; }
+.cli-pin img { width: 30px; height: 30px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
+.cli-pin.sel img { filter: drop-shadow(0 0 0 #fff) drop-shadow(0 0 5px #3DB8F5) drop-shadow(0 2px 3px rgba(0,0,0,.4)); }
+.cli-pin.vivo img { animation: pulsoCliPng 2s infinite; }
+.cli-pin .cli-num { position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--cli-c, #E5322D); color: #fff; border: 2px solid #fff; font-size: 10px; font-weight: 800; display: grid; place-items: center; padding: 0 2px; box-sizing: border-box; }
+@keyframes pulsoCliPng { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }`;
+  document.head.appendChild(st);
+})();
+
+function iconoRepartidorNombre(nombre) {
+  const n = nombre ? `<span class="rep-nom">${escHtml(nombre)}</span>` : "";
   return L.divIcon({
     className: "",
-    html: `<div class="pin-cli-hit"><div class="pin-cli-min${sel ? " sel" : ""}${vivo ? " vivo" : ""}" style="--pin-cli-c:${color}"></div></div><span class="etq-cli-min"><b>${n}</b> · ${escHtml(nombre)}</span>`,
-    iconSize: [28, 28], iconAnchor: [14, 14]
+    html: `<div class="rep-pin"><img src="repartidor.png" alt="" draggable="false">${n}</div>`,
+    iconSize: [30, 30], iconAnchor: [15, 15]
+  });
+}
+
+function iconoCliente(n, nombre, sel, vivo) {
+  const color = ["#E5322D", "#2F6FED", "#12A150", "#F59E0B", "#9333EA", "#0891B2"][(Number(n) - 1 + 6) % 6];
+  const num = Number.isFinite(Number(n)) && n !== "" ? `<span class="cli-num" style="--cli-c:${color}">${n}</span>` : "";
+  return L.divIcon({
+    className: "",
+    html: `<div class="cli-pin${sel ? " sel" : ""}${vivo ? " vivo" : ""}"><img src="cliente.png" alt="" draggable="false">${num}</div><span class="etq-cli-min"><b>${n}</b> · ${escHtml(nombre)}</span>`,
+    iconSize: [30, 30], iconAnchor: [15, 15]
   });
 }
 const iconoClienteDot = L.divIcon({ className: "", html: '<div class="marca-cliente"><span>Cliente</span></div>', iconSize: [26, 26], iconAnchor: [13, 13] });
