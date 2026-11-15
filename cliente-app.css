@@ -778,3 +778,13 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
 
 /* El logo siempre tapa por completo la letra de respaldo */
 .wa-cliente .wa-avatar img.wa-avatar-logo.oculto { display: none !important; }
+
+/* ===== Negociación de tarifa ===== */
+.neg-cliente { margin: 10px 12px; padding: 10px 12px; border-radius: 14px; background: #FFF9E5; border: 1px solid #E0A800; color: #0E141B; display: grid; gap: 6px; }
+.neg-cliente.oculto { display: none; }
+.neg-total { font-size: 22px; }
+.neg-tit { font-weight: 700; margin-top: 4px; }
+.neg-of { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: #fff; border: 1px solid #D5DDE5; }
+.neg-of-i { flex: 1; min-width: 0; display: grid; }
+.neg-of strong { font-size: 16px; white-space: nowrap; }
+.neg-of button { height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid #1E9B5A; background: #E8F6EE; color: #0E141B; font-size: 13px; }

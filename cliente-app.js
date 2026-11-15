@@ -336,6 +336,42 @@
     limpiarMapa();
   }
 
+  /* ---------- Negociación de tarifa (tipo inDriver): tarifa publicada + ofertas de repartidores en vivo ---------- */
+  function pintarNegociacion(d, asignadoYa) {
+    const n = d.negociacion, activa = !!n && n.estado === "pendiente_ofertas" && !!n.tarifa && !asignadoYa;
+    let c = $("negCliente");
+    if (!c) {
+      if (!activa) return;
+      c = document.createElement("div"); c.id = "negCliente"; c.className = "neg-cliente";
+      const ref = $("avisoEspera"); ref.parentNode.insertBefore(c, ref);
+    }
+    c.classList.toggle("oculto", !activa);
+    if (!activa) { c.textContent = ""; return; }
+    const t = n.tarifa, mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    c.textContent = "";
+    c.appendChild(mk("small", "", "💰 Tarifa de tu pedido"));
+    c.appendChild(mk("b", "neg-total", "C$ " + Math.round(t.total)));
+    const det = [Number(t.km).toFixed(1) + " km", t.paradas > 1 ? (t.paradas - 1) + " parada(s) extra" : ""].filter(Boolean).join(" · ");
+    c.appendChild(mk("small", "", det));
+    const of = Object.entries(n.ofertas || {}).filter(([, o]) => o && o.tipo !== "rechazo" && Number(o.monto) > 0).sort((a, b) => a[1].monto - b[1].monto);
+    if (!of.length) { c.appendChild(mk("small", "neg-esp", "Esperando ofertas de los repartidores…")); return; }
+    c.appendChild(mk("small", "neg-tit", "Ofertas recibidas"));
+    of.forEach(([uid, o]) => {
+      const fila = mk("div", "neg-of"), info = mk("div", "neg-of-i");
+      info.appendChild(mk("b", "", String(o.nombre || "Repartidor").slice(0, 40)));
+      info.appendChild(mk("small", "", o.tipo === "directa" ? "Acepta la tarifa" : "Contraoferta"));
+      fila.appendChild(info); fila.appendChild(mk("strong", "", "C$ " + Math.round(o.monto)));
+      const elegida = n.elegida && n.elegida.uid === uid;
+      const b = mk("button", "", elegida ? "⭐ Elegida" : "Elegir"); b.type = "button"; b.disabled = elegida;
+      b.addEventListener("click", () => {
+        b.disabled = true;
+        refSolicitud.child("negociacion/elegida").set({ uid, monto: Math.round(o.monto), ts: firebase.database.ServerValue.TIMESTAMP })
+          .catch(() => { b.disabled = false; avisoSistema("No se pudo elegir esa oferta. Intenta de nuevo."); });
+      });
+      fila.appendChild(b); c.appendChild(fila);
+    });
+  }
+
   /* ---------- Estado de la solicitud ---------- */
   function escucharSolicitud() {
     refSolicitud.on("value", (s) => {
@@ -358,6 +394,7 @@
       const ahoraAsignado = d.estado === "atendido" && typeof d.repartidorUid === "string" && d.repartidorUid.length > 0;
       const nombreRep = typeof d.repartidorNombre === "string" ? d.repartidorNombre.slice(0, 40) : "";
       pintarEstado(ahoraAsignado, nombreRep, d.repartidorUid);
+      pintarNegociacion(d, ahoraAsignado);
       pintarResumen();
       pintarHistorialLocal();
       if (!ahoraAsignado) pintarResumenLocal();

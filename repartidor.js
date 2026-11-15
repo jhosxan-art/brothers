@@ -3444,6 +3444,60 @@ const ChatsEntrantes = (() => {
     });
     if (ms.length) h.insertBefore(el("small", "", "Historial del chat"), h.firstChild);
     h.classList.toggle("oculto", !ms.length);
+    pintarOferta(d);
+  }
+
+  /* ---------- Negociación tipo inDriver: tarifa publicada por el admin → aceptar / contraoferta / rechazar ---------- */
+  let sigOferta = "";
+  (function () {
+    const st = document.createElement("style");
+    st.textContent = ".sp-oferta{margin:10px 0;padding:10px 12px;border-radius:12px;background:#FFF9E5;border:1px solid #E0A800;color:#0E141B;display:grid;gap:8px}.sp-oferta b{font-size:18px}.sp-oferta small{opacity:.85}.sp-of-bt{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sp-of-bt button,.sp-of-con button{height:42px;border-radius:12px;border:1px solid #C9D2DC;background:#F3F6F9;color:#0E141B;font-size:14px}.sp-of-bt .ok{background:#E8F6EE;border-color:#1E9B5A}.sp-of-bt .no{background:#FDECEB;border-color:#E5322D;color:#8E1B17}.sp-of-con{display:flex;gap:8px}.sp-of-con input{flex:1;min-width:0;height:42px;padding:0 10px;border-radius:12px;border:1px solid #C9D2DC;font-size:16px}.sp-of-est{font-weight:700}";
+    document.head.appendChild(st);
+  })();
+  function contOferta() {
+    let c = $("spOferta");
+    if (!c) { c = el("div", "sp-oferta oculto"); c.id = "spOferta"; $("spAtender").parentNode.insertBefore(c, $("spAtender")); }
+    return c;
+  }
+  function pintarOferta(d) {
+    const n = d && d.negociacion, c = contOferta(), activa = !!n && n.estado === "pendiente_ofertas" && !!n.tarifa;
+    $("spAtender").classList.toggle("oculto", activa);
+    if (!activa) { c.textContent = ""; c.classList.add("oculto"); sigOferta = ""; return; }
+    const mi = (n.ofertas && n.ofertas[uidActual]) || null, t = n.tarifa;
+    const sig = previoId + "|" + t.total + "|" + (mi ? mi.tipo + mi.monto : "");
+    if (sig === sigOferta && !c.classList.contains("oculto")) return;
+    sigOferta = sig; c.classList.remove("oculto"); c.textContent = "";
+    c.appendChild(el("small", "", "💰 Tarifa sugerida por la central"));
+    c.appendChild(el("b", "", "C$ " + Math.round(t.total)));
+    const det = [Number(t.km).toFixed(1) + " km", t.paradas > 1 ? (t.paradas - 1) + " parada(s) extra (+C$ " + Math.round(t.extra || 0) + ")" : "", n.origen && n.origen.nombre ? "Retiro en " + cortar(n.origen.nombre, 50) : "", t.zona ? "Zona: " + cortar(t.zona, 40) : ""].filter(Boolean).join(" · ");
+    c.appendChild(el("small", "", det));
+    if (mi) c.appendChild(el("div", "sp-of-est", mi.tipo === "directa" ? "✅ Aceptaste C$ " + Math.round(mi.monto) : mi.tipo === "contraoferta" ? "💬 Tu contraoferta: C$ " + Math.round(mi.monto) : "🚫 Rechazaste esta tarifa"));
+    const bt = el("div", "sp-of-bt");
+    const ok = el("button", "ok", "✅ Aceptar C$ " + Math.round(t.total)); ok.type = "button";
+    ok.addEventListener("click", () => enviarOferta("directa", t.total));
+    const no = el("button", "no", "🚫 Rechazar"); no.type = "button";
+    no.addEventListener("click", () => enviarOferta("rechazo", 0));
+    bt.appendChild(ok); bt.appendChild(no); c.appendChild(bt);
+    const con = el("div", "sp-of-con");
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = "1"; inp.step = "1"; inp.inputMode = "numeric"; inp.placeholder = "Tu precio C$"; inp.setAttribute("aria-label", "Tu contraoferta en córdobas");
+    const cb = el("button", "", "💬 Contraoferta"); cb.type = "button";
+    cb.addEventListener("click", () => {
+      const v = Math.round(parseFloat(inp.value));
+      if (!(v > 0) || v > 100000) { $("spAviso").textContent = "Escribe un precio válido para tu contraoferta."; $("spAviso").classList.remove("oculto"); return; }
+      enviarOferta("contraoferta", v);
+    });
+    con.appendChild(inp); con.appendChild(cb); c.appendChild(con);
+  }
+  async function enviarOferta(tipo, monto) {
+    if (!previoId || !uidActual || !usuario) return;
+    $("spAviso").classList.add("oculto");
+    try {
+      await db.ref(RAIZ + "/" + previoId + "/negociacion/ofertas/" + uidActual).set({ tipo, monto: Math.round(Number(monto) || 0), nombre: usuario, ts: TS });
+      toast("💰", "Oferta enviada", tipo === "rechazo" ? "Rechazaste la tarifa." : "Tu oferta de C$ " + Math.round(monto) + " llegó a la central y al cliente.", null, 3500);
+    } catch (e) {
+      $("spAviso").textContent = "No se pudo enviar la oferta: " + (e.code || e.message);
+      $("spAviso").classList.remove("oculto");
+    }
   }
   function refrescarPrevia() {
     const d = lista[previoId];
@@ -3456,6 +3510,7 @@ const ChatsEntrantes = (() => {
   }
   function cerrarPrevia() {
     previoId = null;
+    sigOferta = "";
     $("modalSolicitud").classList.add("oculto");
   }
   $("spCerrar").addEventListener("click", cerrarPrevia);
