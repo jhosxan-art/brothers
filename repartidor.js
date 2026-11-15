@@ -3170,6 +3170,7 @@ const ChatsEntrantes = (() => {
       if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();
       if (previoId) refrescarPrevia();
       atenderAcordadas();
+      avisarAsignaciones();
       resolverSolPendiente();
       pintarLista();
       pintarMapa();
@@ -3527,8 +3528,24 @@ const ChatsEntrantes = (() => {
     return mejor;
   }
   const avisoNeg = (t) => { const a = $("spAviso"); if (!a) return; a.textContent = t || ""; a.classList.toggle("oculto", !t); };
-  const acordadoDe = (d) => { const a = d && d.negociacion && d.negociacion.aceptada; return a && a.uid === uidActual ? Math.round(Number(a.monto) || 0) : 0; };
+  const acordadoDe = (d) => {
+    const n = d && d.negociacion; if (!n) return 0;
+    if (n.aceptada && n.aceptada.uid === uidActual) return Math.round(Number(n.aceptada.monto) || 0);
+    if (!n.aceptada && n.fijo && d.repartidorUid === uidActual) return Math.round(Number(n.fijo.monto) || 0);
+    return 0;
+  };
+  /* Tarifa fija de un pedido devuelto o asignado por la central (el cliente ya la aceptó) */
+  const precioFijoDe = (d) => { const n = d && d.negociacion; return n && !n.aceptada && n.fijo ? Math.round(Number(n.fijo.monto) || 0) : 0; };
+  /* Precio ya acordado con el cliente (aceptada o fija): se conserva cuando el pedido pasa a otro repartidor */
+  const precioAcordadoDe = (d) => { const n = d && d.negociacion; if (!n) return 0; const m = n.aceptada ? n.aceptada.monto : n.fijo ? n.fijo.monto : 0; return Math.round(Number(m) || 0); };
 
+  function sigFijo(c, monto) {
+    c.textContent = "";
+    c.appendChild(el("div", "sp-neg-t", "💰 Envío ya acordado con el cliente"));
+    c.appendChild(el("b", "", money(monto)));
+    c.appendChild(el("small", "", "La tarifa no cambia: el cliente ya la aceptó. Abajo puedes ver el chat que tenía con el repartidor anterior."));
+    c.classList.remove("oculto");
+  }
   function contNeg() {
     let c = $("spNeg");
     if (!c) { c = el("div", "sp-neg oculto"); c.id = "spNeg"; $("spAtender").parentNode.insertBefore(c, $("spAtender")); }
@@ -3688,12 +3705,17 @@ const ChatsEntrantes = (() => {
     const si = $("spNegSubeIn");
     if (si) { si.min = String(piso); si.placeholder = "Tu precio C$ (mínimo " + piso + ")"; }
     let texto = "";
-    if (acep) texto = acep.uid === uidActual ? "🎉 El cliente aceptó tu tarifa de " + money(acep.monto) + ". Te estamos asignando el pedido…" : "ℹ️ El cliente ya eligió a otro repartidor.";
+    if (acep) texto = acep.uid === uidActual ? "🎉 El cliente aceptó tu tarifa de " + money(acep.monto) + ". Te estamos asignando el pedido…" : acep.uid === "central" ? "ℹ️ La central está asignando este pedido con la tarifa que aceptó el cliente." : "ℹ️ El cliente ya eligió a otro repartidor.";
     else if (mi) texto = "✅ Tu oferta: " + money(mi.monto) + (mi.monto > mi.sugerida ? " (sugerida " + money(mi.sugerida) + ")" : "") + (desc === Math.round(mi.monto) ? " · El cliente no aceptó " + money(desc) + ". Puedes cambiar tu precio (mínimo " + money(mi.sugerida) + ")." : " · Esperando al cliente…");
     est.textContent = texto; mostrar("spNegEst", !!texto);
   }
   function pintarNegociacion(d) {
-    const c = contNeg();
+    const c = contNeg(), fijo = precioFijoDe(d);
+    if (fijo) {
+      negForm = null; cancelarPick(); sigFijo(c, fijo);
+      $("spAtender").classList.remove("oculto");
+      return;
+    }
     $("spAtender").classList.add("oculto");
     if (!negForm || negForm.id !== previoId) { negForm = iniciarNeg(previoId, d); construirNeg(c); recalcularNeg(); }
     actualizarNeg(d);
@@ -3722,6 +3744,22 @@ const ChatsEntrantes = (() => {
     } catch (e) {
       avisoNeg("No se pudo enviar la oferta: " + (e.code === "PERMISSION_DENIED" ? "el cliente ya decidió o faltan las reglas de Firebase." : (e.code || e.message)));
     }
+  }
+  /* La central (admin) me asignó un pedido: me cae directo a mis chats */
+  const tomadoPorMi = new Set();
+  let asigVisto = null, asigUid = null;
+  function avisarAsignaciones() {
+    if (!uidActual) return;
+    const mios = Object.keys(lista).filter((id) => mio(lista[id]) && lista[id].estado === "atendido");
+    if (asigVisto === null || asigUid !== uidActual) { asigVisto = new Set(mios); asigUid = uidActual; return; }
+    [...asigVisto].forEach((id) => { if (!mios.includes(id)) { asigVisto.delete(id); tomadoPorMi.delete(id); } });
+    mios.forEach((id) => {
+      if (asigVisto.has(id)) return;
+      asigVisto.add(id);
+      if (tomadoPorMi.has(id)) return;
+      toast("📌", "La central te asignó un pedido", cortar(lista[id].nombre || "Cliente", 30) + " · ya está en tus chats", null, 6000);
+      try { marcarConPedido(); pintarMapa(); actualizarNav(); } catch (_) {}
+    });
   }
   /* El cliente aceptó MI oferta → el pedido se me asigna solo */
   function atenderAcordadas() {
@@ -3770,6 +3808,7 @@ const ChatsEntrantes = (() => {
   async function atender(id, btn) {
     if (!uidActual || !usuario) return;
     btn.disabled = true;
+    tomadoPorMi.add(id);
     cancelarNotif({ solicitud: id });
     try {
       const r = await db.ref(RAIZ + "/" + id + "/repartidorUid").transaction((cur) => (cur === null ? uidActual : undefined));
@@ -4334,7 +4373,7 @@ const ChatsEntrantes = (() => {
     $("modalCancelar").classList.add("oculto");
     if (!mio(d)) return;
     const cambios = tipo === "pasar"
-      ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, negociacion: null, reasignadoTs: TS, ts: TS }
+      ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, negociacion: precioAcordadoDe(d) > 0 ? { fijo: { monto: precioAcordadoDe(d), ts: TS } } : null, reasignadoTs: TS, ts: TS }
       : { estado: "cancelado", motivoCancelacion: "cliente", canceladoTs: TS, repartidorGps: null };
     if (tipo === "pasar") cambios["omitidoPor/" + uidActual] = true;
     try { await db.ref(RAIZ + "/" + id).update(cambios); }

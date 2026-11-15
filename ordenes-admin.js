@@ -1686,6 +1686,7 @@ const SolicitudesAdmin = (() => {
       b.type = "button"; b.addEventListener("click", () => abrirVisor(k, PANEL));
       acc.appendChild(b);
       if (d.negociacion && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.boton(k, d));
+      if (!d.repartidorUid && (d.estado === "nuevo" || d.estado == null) && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.botonAsignar(k));
 
       // Estados finales (Entregado / Cancelado): NO se muestran botones de forzar ni cancelar.
       if (d.repartidorUid && !finalizada) {
@@ -3488,67 +3489,178 @@ const AlertasPush = (() => {
 
 
 /* ============================================================
-   NEGOCIACIÓN DEL ENVÍO (Admin · solo lectura)
-   El repartidor marca el producto, el sistema calcula la tarifa sugerida, el repartidor solo puede subirla y el
-   cliente elige. Al administrador solo le llega la negociación y cuánto quedó el envío; no modifica nada.
+   NEGOCIACIÓN DEL ENVÍO + ASIGNACIÓN MANUAL (Admin)
+   · La negociación es de solo lectura: el admin ve las tarifas de los repartidores y cuánto quedó el envío.
+   · Si ningún repartidor toma el pedido, el admin lo asigna a un repartidor: le cae directo a sus chats.
+   · Si el pedido ya tenía tarifa acordada (o devuelta por otro repartidor), esa tarifa queda fija.
    ============================================================ */
 const TarifaAdmin = (() => {
   const RAIZ = "solicitudes_entrantes";
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const dinero = (n) => "C$ " + Math.round(Number(n) || 0);
   const hora = (ts) => { try { return new Date(Number(ts)).toLocaleTimeString("es-NI", { hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } };
-  let sol = {}, ref = null, abierto = null;
+  let sol = {}, reps = {}, ref = null, refR = null, abierto = null, modo = "neg", F = null, propVal = "";
 
   const ofertasDe = (d) => Object.entries((d && d.negociacion && d.negociacion.ofertas) || {}).filter(([, o]) => o && Number(o.monto) > 0).sort((a, b) => a[1].monto - b[1].monto);
+  const acordadoDe = (d) => {
+    const n = d && d.negociacion; if (!n) return null;
+    if (n.aceptada && Number(n.aceptada.monto) > 0) return { monto: Number(n.aceptada.monto), nombre: n.aceptada.nombre || "", ts: n.aceptada.ts };
+    if (n.fijo && Number(n.fijo.monto) > 0) return { monto: Number(n.fijo.monto), nombre: "", ts: n.fijo.ts, fijo: true };
+    return null;
+  };
+  const nombreRep = (uid) => { const r = reps[uid] || {}; return String(r.usuario || r.nombre || (typeof nombreUid === "function" ? nombreUid(uid) : "") || "Repartidor"); };
+  const libre = (d) => !!d && !d.repartidorUid && (d.estado === "nuevo" || d.estado == null);
 
-  function html(d) {
-    const n = d.negociacion || {}, p = d.pedido || {}, a = n.aceptada, desc = n.descartadas || {}, ff = d.facturaFinal;
-    const of = ofertasDe(d);
+  /* ---------- Vista de negociación + propuesta de la central ---------- */
+  function htmlNeg(d) {
+    const n = d.negociacion || {}, p = d.pedido || {}, a = acordadoDe(d), desc = n.descartadas || {}, ff = d.facturaFinal;
+    const of = ofertasDe(d), lib = libre(d), cen = n.ofertas && n.ofertas.central;
     const caja = a
-      ? `<div class="tf-acu"><small>✅ Envío acordado</small><b>${dinero(a.monto)}</b><small>Con ${esc(a.nombre || "repartidor")} · ${hora(a.ts)}${ff && ff.delivery != null ? " · Delivery en factura: <b>" + dinero(ff.delivery) + "</b>" : ""}</small></div>`
+      ? `<div class="tf-acu"><small>✅ Envío acordado${a.fijo ? " (tarifa fija)" : ""}</small><b>${dinero(a.monto)}</b><small>${a.nombre ? "Con " + esc(a.nombre) + " · " : ""}${a.ts ? hora(a.ts) : ""}${ff && ff.delivery != null ? " · Delivery en factura: <b>" + dinero(ff.delivery) + "</b>" : ""}</small></div>`
       : `<div class="tf-acu pen"><small>⏳ Negociando</small><b>${of.length ? "Desde " + dinero(of[0][1].monto) : "Sin ofertas"}</b><small>El cliente aún no acepta ninguna tarifa.</small></div>`;
     const filas = of.map(([uid, o]) => {
-      const gan = a && a.uid === uid, subio = Number(o.monto) > Number(o.sugerida), no = Number(desc[uid]) === Number(o.monto);
-      const det = [o.origen && o.origen.nombre ? "🏪 " + esc(o.origen.nombre) : "", Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", Number(o.nParadas) > 1 ? (o.nParadas - 1) + " parada(s) extra" : "", hora(o.ts)].filter(Boolean).join(" · ");
-      return `<div class="tf-of${gan ? " gan" : ""}${no && !gan ? " no" : ""}"><div class="tf-of-i"><b>${esc(o.nombre || "Repartidor")}${gan ? " ⭐" : ""}</b><small>${det}</small><small>Sugerida ${dinero(o.sugerida)}${subio ? " → <b>subió a " + dinero(o.monto) + "</b>" : " · en la sugerida"}${no && !gan ? " · el cliente no aceptó" : ""}</small></div><strong>${dinero(o.monto)}</strong></div>`;
+      const gan = n.aceptada && n.aceptada.uid === uid, esC = o.tipo === "central", subio = !esC && Number(o.monto) > Number(o.sugerida), no = Number(desc[uid]) === Number(o.monto);
+      const det = esC ? "" : [o.origen && o.origen.nombre ? "🏪 " + esc(o.origen.nombre) : "", Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", Number(o.nParadas) > 1 ? (o.nParadas - 1) + " parada(s) extra" : "", hora(o.ts)].filter(Boolean).join(" · ");
+      const l2 = esC ? "Propuesta de la central" : "Sugerida " + dinero(o.sugerida) + (subio ? " → <b>" + dinero(o.monto) + "</b>" : " · en la sugerida");
+      return `<div class="tf-of${gan ? " gan" : ""}${no && !gan ? " no" : ""}"><div class="tf-of-i"><b>${esC ? "Central (tú)" : esc(o.nombre || "Repartidor")}${gan ? " ⭐" : ""}</b>${det ? "<small>" + det + "</small>" : ""}<small>${l2}${no && !gan ? " · el cliente no aceptó" : ""}</small></div><strong>${dinero(o.monto)}</strong></div>`;
     }).join("");
+    const sug = of.filter(([, o]) => o.tipo !== "central" && Number(o.sugerida) > 0).map(([, o]) => Number(o.sugerida));
+    const prop = lib && !n.aceptada
+      ? `<h3 class="tf-h3">Mi propuesta al cliente</h3>
+        <p class="tf-ayuda">${sug.length ? "Sugerida más baja: <b>" + dinero(Math.min(...sug)) + "</b> · " : ""}${cen ? "Propuesta actual: <b>" + dinero(cen.monto) + "</b>" + (Number(desc.central) === Number(cen.monto) ? " (el cliente no la aceptó)" : " (esperando al cliente)") : "Aún no envías propuesta."}</p>
+        <div class="tf-prop"><input id="tfProp" class="tf-precio" type="number" min="1" step="1" inputmode="numeric" placeholder="Precio C$" value="${esc(propVal)}"><button type="button" class="tf-asig" data-tf="proponer">📢 Enviar propuesta</button></div>
+        <div id="tfMsg" class="tf-ayuda"></div>`
+      : "";
     return `<h2>💰 Negociación del envío</h2>
       <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>
       ${caja}
-      <h3 class="tf-h3">Tarifas de los repartidores</h3>
-      ${filas || `<p class="tf-ayuda">Todavía ningún repartidor envía su tarifa.</p>`}
+      <h3 class="tf-h3">Tarifas</h3>
+      ${filas || `<p class="tf-ayuda">Todavía no hay tarifas.</p>`}
+      ${prop}
+      ${lib ? `<button type="button" class="tf-asig" data-tf="irasignar">${a ? "👤 Asignar con este precio" : "👤 Asignar a un repartidor"}</button>` : ""}
       <button type="button" class="tf-sec" data-tf="cerrar">Cerrar</button>`;
   }
+  async function proponer() {
+    const d = sol[abierto]; if (!d || !libre(d)) return;
+    const pe = document.getElementById("tfProp"), monto = Math.round(parseFloat(pe && pe.value));
+    if (!(monto > 0) || monto > 100000) return msg("Escribe un monto válido en córdobas.");
+    if (d.negociacion && d.negociacion.aceptada) return msg("El cliente ya aceptó una tarifa.");
+    try {
+      await db.ref(RAIZ + "/" + abierto + "/negociacion/ofertas/central").set({ nombre: "Central", tipo: "central", monto, ts: firebase.database.ServerValue.TIMESTAMP });
+      propVal = ""; toast("Propuesta de " + dinero(monto) + " enviada al cliente ✓");
+    } catch (e) { msg("No se pudo enviar" + (e && e.code === "PERMISSION_DENIED" ? ": sube las reglas de Firebase nuevas." : ".")); }
+  }
+
+  /* ---------- Asignación manual ---------- */
+  function precioSugerido(d, uid) {
+    const a = acordadoDe(d); if (a) return a.monto;
+    const of = ofertasDe(d), mia = of.find(([u]) => u === uid);
+    if (mia) return Math.round(mia[1].monto);
+    const m = Math.min(...of.map(([, o]) => Number(o.sugerida) || Infinity));
+    return isFinite(m) ? Math.round(m) : "";
+  }
+  function htmlAsignar(d) {
+    const p = d.pedido || {}, omit = d.omitidoPor || {}, a = acordadoDe(d);
+    const ids = Object.keys(reps).sort((x, y) => nombreRep(x).localeCompare(nombreRep(y)));
+    const filas = ids.map((uid) => `<button type="button" class="tf-rep${F.sel === uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(uid)}"><span>${esc(nombreRep(uid))}</span>${omit[uid] ? "<small>devolvió este pedido</small>" : ""}</button>`).join("");
+    return `<h2>👤 Asignar pedido</h2>
+      <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>
+      <h3 class="tf-h3">Repartidor</h3>
+      <div class="tf-reps">${filas || `<p class="tf-ayuda">No hay repartidores registrados.</p>`}</div>
+      <h3 class="tf-h3">Envío acordado (C$)</h3>
+      <input id="tfPrecio" class="tf-precio" type="number" min="0" step="1" inputmode="numeric" placeholder="Opcional" value="${F.precio == null ? "" : esc(F.precio)}" ${a ? "readonly" : ""}>
+      <p class="tf-ayuda">${a ? "Este pedido ya tiene tarifa acordada con el cliente: se mantiene y el repartidor no puede cambiarla." : "Déjalo vacío si el repartidor va a fijar el delivery en la factura."}</p>
+      <div id="tfMsg" class="tf-ayuda"></div>
+      <button type="button" class="tf-asig" data-tf="asignar"${F.sel ? "" : " disabled"}>✅ Asignar y enviar al repartidor</button>
+      <button type="button" class="tf-sec" data-tf="vuelta">Volver</button>`;
+  }
+  const msg = (t) => { const m = document.getElementById("tfMsg"); if (m) m.textContent = t || ""; };
+  async function asignar() {
+    const d = sol[abierto]; if (!d || !F || !F.sel) return;
+    if (!libre(d)) return msg("Este pedido ya no está libre.");
+    const uid = F.sel, nombre = nombreRep(uid).slice(0, 60), a = acordadoDe(d);
+    const el = document.getElementById("tfPrecio"), monto = a ? a.monto : Math.round(parseFloat(el && el.value) || 0);
+    if (monto < 0 || monto > 100000) return msg("Escribe un monto válido.");
+    if (!confirm("¿Asignar este pedido a " + nombre + (monto > 0 ? " con envío de " + dinero(monto) : "") + "?")) return;
+    const base = RAIZ + "/" + abierto;
+    try {
+      const r = await db.ref(base + "/repartidorUid").transaction((cur) => (cur === null ? uid : undefined));
+      if (!r.committed || r.snapshot.val() !== uid) return msg("Otro repartidor ya tomó este pedido.");
+      const TS = firebase.database.ServerValue.TIMESTAMP;
+      const upd = { estado: "atendido", repartidorNombre: nombre, atendidoTs: TS, negociacion: monto > 0 ? { fijo: { monto, ts: TS } } : null };
+      upd["omitidoPor/" + uid] = null;
+      try { await db.ref(base).update(upd); }
+      catch (e) { try { await db.ref(base + "/repartidorUid").set(null); } catch (_) {} throw e; }
+      toast("Pedido asignado a " + nombre + " ✓ Ya le llegó a sus chats.");
+      abierto = null; F = null; cerrarModal();
+    } catch (e) { msg("No se pudo asignar" + (e && e.code === "PERMISSION_DENIED" ? ": revisa que las reglas de Firebase estén publicadas." : ".")); }
+  }
+
+  /* ---------- Modal ---------- */
   function pintar() {
     const c = document.getElementById("modalCaja"); if (!c || abierto == null) return;
     const d = sol[abierto]; if (!d) return;
-    c.innerHTML = html(d);
-    c.onclick = (e) => { const b = e.target.closest("[data-tf]"); if (b && b.dataset.tf === "cerrar") { abierto = null; cerrarModal(); } };
+    if (modo === "asig" && !libre(d)) modo = "neg";
+    if (modo === "asig") {
+      const ant = document.getElementById("tfPrecio"); if (ant && !ant.readOnly) { F.precio = ant.value; F.editado = true; }
+      c.innerHTML = htmlAsignar(d);
+    } else {
+      const pe = document.getElementById("tfProp"), enfocado = !!pe && document.activeElement === pe;
+      if (pe) propVal = pe.value;
+      c.innerHTML = htmlNeg(d);
+      if (enfocado) { const ne = document.getElementById("tfProp"); if (ne) { ne.focus(); try { ne.setSelectionRange(ne.value.length, ne.value.length); } catch (_) {} } }
+    }
+    c.onclick = alClick;
+    c.onchange = (e) => { if (e.target && e.target.id === "tfPrecio" && F) { F.precio = e.target.value; F.editado = true; } };
+  }
+  function alClick(e) {
+    const b = e.target.closest("[data-tf]"); if (!b) return;
+    const a = b.dataset.tf, d = sol[abierto];
+    if (a === "cerrar") { abierto = null; F = null; return cerrarModal(); }
+    if (a === "irasignar") { modo = "asig"; F = { sel: "", precio: precioSugerido(d, ""), editado: false }; return pintar(); }
+    if (a === "vuelta") { modo = "neg"; return pintar(); }
+    if (a === "sel") { F.sel = b.dataset.uid; if (!F.editado) F.precio = precioSugerido(d, F.sel); return pintar(); }
+    if (a === "asignar") return asignar();
+    if (a === "proponer") return proponer();
   }
   function iniciar() {
     detener();
     ref = db.ref(RAIZ).limitToLast(60);
     ref.on("value", (s) => { sol = s.val() || {}; if (abierto != null) pintar(); }, () => { sol = {}; });
+    refR = db.ref("repartidores");
+    refR.on("value", (s) => { const v = s.val(); reps = v && typeof v === "object" ? v : {}; if (abierto != null && modo === "asig") pintar(); }, () => { reps = {}; });
   }
-  function detener() { if (ref) { ref.off(); ref = null; } sol = {}; }
+  function detener() {
+    if (ref) { ref.off(); ref = null; }
+    if (refR) { refR.off(); refR = null; }
+    sol = {}; reps = {};
+  }
   try { APP.auth().onAuthStateChanged((u) => { if (u) iniciar(); else detener(); }); } catch (_) {}
 
-  function abrir(id) {
+  function abrir(id, m) {
     if (!sol[id]) return toast("Solicitud no disponible todavía.");
-    abierto = id; modal(""); pintar();
+    abierto = id; modo = "neg"; F = null; propVal = ""; modal("");
+    if (m === "asig" && libre(sol[id])) { modo = "asig"; F = { sel: "", precio: precioSugerido(sol[id], ""), editado: false }; }
+    pintar();
   }
   function boton(id, d) {
-    const b = document.createElement("button"), a = d && d.negociacion && d.negociacion.aceptada, n = ofertasDe(d).length;
+    const b = document.createElement("button"), a = acordadoDe(d), n = ofertasDe(d).length;
     b.type = "button"; b.className = "tf-btn"; b.title = "Negociación del envío";
     b.textContent = a ? "💰 Envío " + dinero(a.monto) : "💰 Ofertas (" + n + ")";
     b.addEventListener("click", () => abrir(id));
     return b;
   }
+  function botonAsignar(id) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "tf-btn"; b.title = "Asignar a un repartidor"; b.textContent = "👤 Asignar";
+    b.addEventListener("click", () => abrir(id, "asig"));
+    return b;
+  }
   function resumen(d) {
-    const n = d && d.negociacion; if (!n) return "";
-    if (n.aceptada) return "💰 Envío acordado " + dinero(n.aceptada.monto) + " · " + (n.aceptada.nombre || "repartidor");
+    const a = acordadoDe(d);
+    if (a) return "💰 Envío acordado " + dinero(a.monto) + (a.nombre ? " · " + a.nombre : a.fijo ? " · tarifa fija" : "");
     const of = ofertasDe(d);
     return of.length ? "💰 " + of.length + (of.length === 1 ? " oferta" : " ofertas") + " · desde " + dinero(of[0][1].monto) : "";
   }
-  return { abrir, boton, resumen };
+  return { abrir, boton, botonAsignar, resumen };
 })();

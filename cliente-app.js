@@ -340,7 +340,8 @@
   function pintarNegociacion(d, asignadoYa) {
     const n = d.negociacion, ref = $("avisoEspera");
     const ofertas = n && n.ofertas && typeof n.ofertas === "object" ? Object.entries(n.ofertas) : [];
-    const acep = n && n.aceptada && typeof n.aceptada === "object" ? n.aceptada : null;
+    const fij = n && n.fijo && Number(n.fijo.monto) > 0 ? n.fijo : null;
+    const acep = n && n.aceptada && typeof n.aceptada === "object" ? n.aceptada : fij;
     const activa = !!acep || ofertas.length > 0;
     let c = $("negCliente");
     if (!c) {
@@ -357,7 +358,7 @@
       c.classList.add("neg-ok");
       c.appendChild(mk("small", "", "✅ Envío acordado"));
       c.appendChild(mk("b", "neg-total", money(acep.monto)));
-      c.appendChild(mk("small", "", (acep.nombre ? "Con " + String(acep.nombre).slice(0, 40) + ". " : "") + (asignadoYa ? "Tu repartidor ya está en camino." : "Esperando que tu repartidor confirme…")));
+      c.appendChild(mk("small", "", (acep.nombre ? "Con " + String(acep.nombre).slice(0, 40) + ". " : "") + (asignadoYa ? "Tu repartidor ya está en camino." : acep.uid === "central" ? "La central te asignará un repartidor con esta tarifa…" : acep === fij ? "Buscando otro repartidor con esta misma tarifa…" : "Esperando que tu repartidor confirme…")));
       return;
     }
     c.classList.remove("neg-ok");
@@ -370,7 +371,7 @@
     vivas.forEach(([uid, o]) => {
       const fila = mk("div", "neg-of"), info = mk("div", "neg-of-i");
       info.appendChild(mk("b", "", String(o.nombre || "Repartidor").slice(0, 40)));
-      const sub = [Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", Number(o.nParadas) > 1 ? (o.nParadas - 1) + " parada(s) extra" : "", Number(o.monto) > Number(o.sugerida) ? "Sugerida " + money(o.sugerida) + " → subió" : "Tarifa sugerida"].filter(Boolean).join(" · ");
+      const sub = [Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", Number(o.nParadas) > 1 ? (o.nParadas - 1) + " parada(s) extra" : "", o.tipo === "central" ? "Propuesta de la central" : Number(o.monto) > Number(o.sugerida) ? "Sugerida " + money(o.sugerida) + " → subió" : "Tarifa sugerida"].filter(Boolean).join(" · ");
       info.appendChild(mk("small", "", sub));
       fila.appendChild(info);
       fila.appendChild(mk("strong", "", money(o.monto)));
