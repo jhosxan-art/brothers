@@ -650,10 +650,11 @@
           ".validate": "newData.isNumber()"
         },
         "negociacion": {
+          ".write": "auth != null && !newData.exists() && (root.child('admins').child(auth.uid).exists() || (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid))",
           "ofertas": {
             "$uid": {
               ".write": "auth != null && ((auth.uid === $uid && root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').exists() && !root.child('solicitudes_entrantes').child($solicitudId).child('negociacion').child('aceptada').exists()) || root.child('admins').child(auth.uid).exists())",
-              ".validate": "!newData.exists() || (newData.hasChildren(['nombre', 'tipo', 'monto', 'sugerida', 'km', 'regimen', 'nParadas', 'origen', 'ts']) && newData.child('monto').isNumber() && newData.child('monto').val() > 0 && newData.child('monto').val() <= 100000 && newData.child('sugerida').isNumber() && newData.child('sugerida').val() > 0 && newData.child('monto').val() >= newData.child('sugerida').val() && (!data.exists() || newData.child('monto').val() >= data.child('monto').val()) && (newData.child('tipo').val() === 'sugerida' || newData.child('tipo').val() === 'subida') && newData.child('ts').isNumber() && newData.child('ts').val() <= now)",
+              ".validate": "!newData.exists() || (newData.hasChildren(['nombre', 'tipo', 'monto', 'sugerida', 'km', 'regimen', 'nParadas', 'origen', 'ts']) && newData.child('monto').isNumber() && newData.child('monto').val() > 0 && newData.child('monto').val() <= 100000 && newData.child('sugerida').isNumber() && newData.child('sugerida').val() > 0 && newData.child('monto').val() >= newData.child('sugerida').val() && (!data.exists() || newData.child('sugerida').val() === data.child('sugerida').val()) && (newData.child('tipo').val() === 'sugerida' || newData.child('tipo').val() === 'subida') && newData.child('ts').isNumber() && newData.child('ts').val() <= now)",
               "nombre": { ".validate": "newData.isString() && newData.val().length <= 60" },
               "tipo": {},
               "monto": {},

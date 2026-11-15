@@ -3508,9 +3508,9 @@ const TarifaAdmin = (() => {
       ? `<div class="tf-acu"><small>✅ Envío acordado</small><b>${dinero(a.monto)}</b><small>Con ${esc(a.nombre || "repartidor")} · ${hora(a.ts)}${ff && ff.delivery != null ? " · Delivery en factura: <b>" + dinero(ff.delivery) + "</b>" : ""}</small></div>`
       : `<div class="tf-acu pen"><small>⏳ Negociando</small><b>${of.length ? "Desde " + dinero(of[0][1].monto) : "Sin ofertas"}</b><small>El cliente aún no acepta ninguna tarifa.</small></div>`;
     const filas = of.map(([uid, o]) => {
-      const gan = a && a.uid === uid, subio = Number(o.monto) > Number(o.sugerida), no = Number(desc[uid]) >= Number(o.monto);
+      const gan = a && a.uid === uid, subio = Number(o.monto) > Number(o.sugerida), no = Number(desc[uid]) === Number(o.monto);
       const det = [o.origen && o.origen.nombre ? "🏪 " + esc(o.origen.nombre) : "", Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", Number(o.nParadas) > 1 ? (o.nParadas - 1) + " parada(s) extra" : "", hora(o.ts)].filter(Boolean).join(" · ");
-      return `<div class="tf-of${gan ? " gan" : ""}${no && !gan ? " no" : ""}"><div class="tf-of-i"><b>${esc(o.nombre || "Repartidor")}${gan ? " ⭐" : ""}</b><small>${det}</small><small>Sugerida ${dinero(o.sugerida)}${subio ? " → <b>subió a " + dinero(o.monto) + "</b>" : " · sin subir"}${no && !gan ? " · el cliente no aceptó" : ""}</small></div><strong>${dinero(o.monto)}</strong></div>`;
+      return `<div class="tf-of${gan ? " gan" : ""}${no && !gan ? " no" : ""}"><div class="tf-of-i"><b>${esc(o.nombre || "Repartidor")}${gan ? " ⭐" : ""}</b><small>${det}</small><small>Sugerida ${dinero(o.sugerida)}${subio ? " → <b>subió a " + dinero(o.monto) + "</b>" : " · en la sugerida"}${no && !gan ? " · el cliente no aceptó" : ""}</small></div><strong>${dinero(o.monto)}</strong></div>`;
     }).join("");
     return `<h2>💰 Negociación del envío</h2>
       <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>

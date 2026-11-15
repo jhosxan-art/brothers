@@ -3565,12 +3565,18 @@ const ChatsEntrantes = (() => {
     const env = el("button", "sp-neg-btn ok", "✅ Enviar tarifa sugerida"); env.type = "button"; env.id = "spNegEnv";
     env.addEventListener("click", () => { const f = negForm; if (f && f.calc) enviarNeg(f.calc.sugerida); });
     acc.appendChild(env);
+    const vol = el("button", "sp-neg-btn ok", "↩ Volver a la tarifa sugerida"); vol.type = "button"; vol.id = "spNegVolver";
+    vol.addEventListener("click", () => {
+      const f = negForm, n = f && lista[f.id] && lista[f.id].negociacion, mi = n && n.ofertas && n.ofertas[uidActual];
+      if (mi) enviarNeg(Math.round(mi.sugerida));
+    });
+    acc.appendChild(vol);
     const sube = el("div", "sp-neg-sube"); sube.id = "spNegSube";
     const si = document.createElement("input"); si.type = "number"; si.step = "1"; si.inputMode = "numeric"; si.id = "spNegSubeIn"; si.setAttribute("aria-label", "Subir tu tarifa en córdobas");
-    const sb = el("button", "sp-neg-btn", "⬆ Subir y enviar"); sb.type = "button"; sb.id = "spNegSubeBt";
+    const sb = el("button", "sp-neg-btn", "💬 Enviar mi precio"); sb.type = "button"; sb.id = "spNegSubeBt";
     sb.addEventListener("click", () => { enviarNeg(Math.round(parseFloat(si.value))); });
     sube.appendChild(si); sube.appendChild(sb); acc.appendChild(sube);
-    acc.appendChild(el("small", "", "Solo puedes subir la tarifa, nunca bajarla."));
+    acc.appendChild(el("small", "", "Puedes subir o bajar tu precio cuando quieras, pero nunca por debajo de la tarifa sugerida."));
     c.appendChild(acc);
     const est = el("div", "sp-neg-est oculto"); est.id = "spNegEst"; c.appendChild(est);
     c.classList.remove("oculto");
@@ -3674,15 +3680,16 @@ const ChatsEntrantes = (() => {
     }
     mostrar("spNegRes", !!t && !acep);
     msg.textContent = f.msg || ""; mostrar("spNegMsg", !!f.msg && editando);
-    const piso = mi ? Math.round(mi.monto) : t ? t.sugerida : 0;
+    const piso = t ? Math.round(t.sugerida) : 0;
     const puedeOfertar = !acep && !!t;
     acc.style.display = puedeOfertar ? "grid" : "none";
     mostrar("spNegEnv", puedeOfertar && !mi);
+    mostrar("spNegVolver", puedeOfertar && !!mi && Math.round(mi.monto) > Math.round(mi.sugerida));
     const si = $("spNegSubeIn");
-    if (si) { si.min = String(piso + 1); si.placeholder = "Subir a C$ (más de " + piso + ")"; }
+    if (si) { si.min = String(piso); si.placeholder = "Tu precio C$ (mínimo " + piso + ")"; }
     let texto = "";
     if (acep) texto = acep.uid === uidActual ? "🎉 El cliente aceptó tu tarifa de " + money(acep.monto) + ". Te estamos asignando el pedido…" : "ℹ️ El cliente ya eligió a otro repartidor.";
-    else if (mi) texto = "✅ Tu oferta: " + money(mi.monto) + (mi.monto > mi.sugerida ? " (sugerida " + money(mi.sugerida) + ")" : "") + (desc >= mi.monto ? " · El cliente no aceptó " + money(desc) + ". Puedes subirla." : " · Esperando al cliente…");
+    else if (mi) texto = "✅ Tu oferta: " + money(mi.monto) + (mi.monto > mi.sugerida ? " (sugerida " + money(mi.sugerida) + ")" : "") + (desc === Math.round(mi.monto) ? " · El cliente no aceptó " + money(desc) + ". Puedes cambiar tu precio (mínimo " + money(mi.sugerida) + ")." : " · Esperando al cliente…");
     est.textContent = texto; mostrar("spNegEst", !!texto);
   }
   function pintarNegociacion(d) {
@@ -3700,8 +3707,10 @@ const ChatsEntrantes = (() => {
     avisoNeg("");
     try {
       if (mi) {
-        if (!(monto > Math.round(mi.monto))) return avisoNeg("Solo puedes subir: el monto debe ser mayor a " + money(mi.monto) + ".");
-        await db.ref(path).update({ monto, tipo: "subida", ts: TS });
+        const piso = Math.round(mi.sugerida);
+        if (monto < piso) return avisoNeg("No puedes bajar de la tarifa sugerida (" + money(piso) + ").");
+        if (monto === Math.round(mi.monto)) return avisoNeg("Esa ya es tu oferta actual.");
+        await db.ref(path).update({ monto, tipo: monto > piso ? "subida" : "sugerida", ts: TS });
       } else {
         const c = f.calc; if (!c) return avisoNeg("Primero marca el producto para calcular la tarifa.");
         if (monto < c.sugerida) return avisoNeg("No puedes bajar de la tarifa sugerida (" + money(c.sugerida) + ").");
@@ -4325,7 +4334,7 @@ const ChatsEntrantes = (() => {
     $("modalCancelar").classList.add("oculto");
     if (!mio(d)) return;
     const cambios = tipo === "pasar"
-      ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, reasignadoTs: TS, ts: TS }
+      ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, negociacion: null, reasignadoTs: TS, ts: TS }
       : { estado: "cancelado", motivoCancelacion: "cliente", canceladoTs: TS, repartidorGps: null };
     if (tipo === "pasar") cambios["omitidoPor/" + uidActual] = true;
     try { await db.ref(RAIZ + "/" + id).update(cambios); }

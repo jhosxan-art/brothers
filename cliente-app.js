@@ -362,7 +362,7 @@
     }
     c.classList.remove("neg-ok");
     const desc = n.descartadas && typeof n.descartadas === "object" ? n.descartadas : {};
-    const vivas = ofertas.filter(([uid, o]) => o && Number(o.monto) > 0 && Number(o.monto) > (Number(desc[uid]) || 0)).sort((a, b) => a[1].monto - b[1].monto);
+    const vivas = ofertas.filter(([uid, o]) => o && Number(o.monto) > 0 && Number(o.monto) !== Number(desc[uid])).sort((a, b) => a[1].monto - b[1].monto);
     c.appendChild(mk("small", "", "💰 Tarifa de tu envío"));
     if (!vivas.length) { c.appendChild(mk("small", "neg-esp", "No hay ofertas disponibles ahora. Esperando nuevas tarifas de los repartidores…")); return; }
     c.appendChild(mk("b", "neg-total", "Desde " + money(vivas[0][1].monto)));
