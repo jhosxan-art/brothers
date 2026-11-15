@@ -3587,7 +3587,7 @@ const TarifaAdmin = (() => {
       const r = await db.ref(base + "/repartidorUid").transaction((cur) => (cur === null ? uid : undefined));
       if (!r.committed || r.snapshot.val() !== uid) return msg("Otro repartidor ya tomó este pedido.");
       const TS = firebase.database.ServerValue.TIMESTAMP;
-      const upd = { estado: "atendido", repartidorNombre: nombre, atendidoTs: TS, negociacion: monto > 0 ? { fijo: { monto, ts: TS } } : null };
+      const upd = { estado: "atendido", asignadoPor: "admin", repartidorNombre: nombre, atendidoTs: TS, negociacion: monto > 0 ? { fijo: { monto, ts: TS } } : null };
       upd["omitidoPor/" + uid] = null;
       try { await db.ref(base).update(upd); }
       catch (e) { try { await db.ref(base + "/repartidorUid").set(null); } catch (_) {} throw e; }

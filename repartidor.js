@@ -4373,7 +4373,7 @@ const ChatsEntrantes = (() => {
     $("modalCancelar").classList.add("oculto");
     if (!mio(d)) return;
     const cambios = tipo === "pasar"
-      ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, negociacion: precioAcordadoDe(d) > 0 ? { fijo: { monto: precioAcordadoDe(d), ts: TS } } : null, reasignadoTs: TS, ts: TS }
+      ? { estado: "nuevo", repartidorUid: null, repartidorNombre: null, atendidoTs: null, repartidorGps: null, facturaFinal: null, subfactura: null, asignadoPor: null, negociacion: precioAcordadoDe(d) > 0 ? { fijo: { monto: precioAcordadoDe(d), ts: TS } } : null, reasignadoTs: TS, ts: TS }
       : { estado: "cancelado", motivoCancelacion: "cliente", canceladoTs: TS, repartidorGps: null };
     if (tipo === "pasar") cambios["omitidoPor/" + uidActual] = true;
     try { await db.ref(RAIZ + "/" + id).update(cambios); }
