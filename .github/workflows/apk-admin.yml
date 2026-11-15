@@ -67,6 +67,28 @@ jobs:
           sed -i -E "s/const APP_VERSION_ADMIN = [0-9]+;/const APP_VERSION_ADMIN = $N;/" www/ordenes-admin.js
           grep -n "APP_VERSION_ADMIN =" www/ordenes-admin.js
 
+      # Garantiza que Capacitor (core, android y CLI) estén bien instalados justo antes de crear el proyecto Android.
+      # Repara el error "npm error could not determine executable to run" (el comando cap no existe en node_modules/.bin).
+      - name: Verificar Capacitor
+        run: |
+          [ -f package.json ] || { echo "::warning::No hay package.json en la raíz: se crea uno."; npm init -y > /dev/null; }
+          V=$(node -p "const p=require('./package.json');((p.dependencies||{})['@capacitor/core']||(p.devDependencies||{})['@capacitor/core']||'^6.1.2')")
+          echo "Versión de Capacitor: $V"
+          echo "--- @capacitor instalado:"; ls node_modules/@capacitor 2>/dev/null || echo "(no existe)"
+          for P in core android cli; do
+            if [ ! -d "node_modules/@capacitor/$P" ]; then
+              echo "Instalando @capacitor/$P@$V"
+              npm install --legacy-peer-deps --save "@capacitor/$P@$V"
+            fi
+          done
+          if [ ! -x node_modules/.bin/cap ]; then
+            echo "::warning::Falta el comando cap: se reinstalan las dependencias."
+            npm install --legacy-peer-deps
+            [ -x node_modules/.bin/cap ] || npm install --legacy-peer-deps --no-save "@capacitor/cli@$V"
+          fi
+          [ -x node_modules/.bin/cap ] || { echo "::error::No se encontró el comando cap (@capacitor/cli) en node_modules/.bin."; exit 1; }
+          npx cap --version
+
       - name: Crear proyecto Android
         run: npx cap add android
 
