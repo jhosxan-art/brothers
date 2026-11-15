@@ -1,11 +1,16 @@
 {
-  "name": "brothers-functions",
+  "name": "brothers-repartidor",
+  "version": "1.1.1",
   "private": true,
-  "main": "index.js",
-  "engines": { "node": "20" },
-  "scripts": { "deploy": "firebase deploy --only functions", "logs": "firebase functions:log" },
   "dependencies": {
-    "firebase-admin": "^12.7.0",
-    "firebase-functions": "^6.1.0"
+    "@capacitor-community/background-geolocation": "^1.2.0",
+    "@capacitor-community/text-to-speech": "^5.0.0",
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/camera": "^6.0.0",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/filesystem": "^6.0.0",
+    "@capacitor/local-notifications": "^6.1.0",
+    "@capacitor/push-notifications": "^6.0.0"
   }
 }
