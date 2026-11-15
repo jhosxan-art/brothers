@@ -2147,34 +2147,18 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .gd-dia.activo { border-color: var(--azul, #1a73e8); background: var(--celeste-suave, #eef6fb); }
 .gd-dia-n { font-size: 12px; color: var(--texto2, #5B6672); }
 
-/* ===== Tarifa y negociación (admin) ===== */
+/* ===== Negociación del envío (admin, solo lectura) ===== */
 .tf-btn { background: #FFF4D6; border-color: #E0A800; color: #5C4300; }
-.sa-tarifa { color: #8A5A00; font-weight: 700; }
-.tf-ayuda { margin: 6px 0; font-size: 13px; opacity: .85; }
-.tf-h3 { margin: 14px 0 6px; font-size: 15px; }
-.tf-fila { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
-.tf-fila input { flex: 1 1 140px; min-width: 0; height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #C9D2DC; font-size: 15px; }
-.tf-lbl { flex: 0 0 82px; font-size: 13px; font-weight: 700; }
-.tf-dest { flex: 1 1 140px; font-size: 14px; word-break: break-word; }
-.tf-ok { font-size: 12px; color: #1E9B5A; font-weight: 700; }
-.tf-no { font-size: 12px; color: #C23B1E; font-weight: 700; }
-.tf-x { width: 34px; height: 34px; border-radius: 10px; border: 1px solid #E5322D; background: #FDECEB; color: #8E1B17; }
-.tf-sec { width: 100%; height: 40px; margin: 4px 0; border-radius: 12px; border: 1px solid #C9D2DC; background: #F3F6F9; color: #0E141B; font-size: 14px; }
-.tf-calc { width: auto; flex: 0 0 auto; padding: 0 12px; }
-.tf-res { display: grid; gap: 4px; padding: 10px 12px; margin: 8px 0; border-radius: 12px; background: #EEF6FF; color: #0E141B; }
-.tf-res div { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
-.tf-res .tf-tot { margin-top: 4px; padding-top: 6px; border-top: 1px solid #B9D3EE; font-size: 17px; }
-.tf-cab { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; font-size: 13px; }
-.tf-chip { padding: 3px 9px; border-radius: 999px; background: #E6EBF0; font-weight: 700; font-size: 12px; }
-.tf-chip.on { background: #FFF4D6; color: #5C4300; }
-.tf-chip.cer { background: #E8F6EE; color: #0E6B3B; }
-.tf-chip.can { background: #FDECEB; color: #8E1B17; }
-.tf-of { display: flex; align-items: center; gap: 8px; padding: 8px 10px; margin: 6px 0; border-radius: 12px; border: 1px solid #D5DDE5; color: #0E141B; background: #fff; }
-.tf-of.directa { border-color: #1E9B5A; background: #F1FBF5; }
-.tf-of.contraoferta { border-color: #E0A800; background: #FFFAEB; }
-.tf-of.rechazo { border-color: #E5322D; background: #FEF3F2; opacity: .8; }
-.tf-of.gan { box-shadow: 0 0 0 2px #1E9B5A; }
-.tf-of-i { flex: 1 1 auto; min-width: 0; display: grid; }
-.tf-of-i small { font-size: 12px; opacity: .8; }
-.tf-of strong { font-size: 16px; white-space: nowrap; }
-.tf-asig { height: 36px; padding: 0 10px; border-radius: 10px; border: 1px solid #1E9B5A; background: #E8F6EE; color: #0E141B; font-size: 13px; white-space: nowrap; }
+.sa-tarifa { color: #8A5A00; font-weight: 700; overflow-wrap: anywhere; }
+#modalCaja .tf-ayuda { margin: 6px 0; font-size: 13px; opacity: .85; overflow-wrap: anywhere; }
+#modalCaja .tf-h3 { margin: 14px 0 6px; font-size: 15px; }
+#modalCaja .tf-acu { display: grid; gap: 2px; padding: 10px 12px; margin: 8px 0; border-radius: 12px; background: #E8F6EE; border: 1px solid #1E9B5A; color: #0E141B; overflow-wrap: anywhere; }
+#modalCaja .tf-acu.pen { background: #FFF9E5; border-color: #E0A800; }
+#modalCaja .tf-acu b { font-size: 24px; }
+#modalCaja .tf-of { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 8px 10px; margin: 6px 0; border-radius: 12px; border: 1px solid #D5DDE5; background: #fff; color: #0E141B; }
+#modalCaja .tf-of.gan { border-color: #1E9B5A; box-shadow: 0 0 0 2px #1E9B5A; background: #F1FBF5; }
+#modalCaja .tf-of.no { opacity: .65; }
+#modalCaja .tf-of-i { flex: 1 1 180px; min-width: 0; display: grid; gap: 1px; }
+#modalCaja .tf-of-i small { font-size: 12px; opacity: .85; overflow-wrap: anywhere; }
+#modalCaja .tf-of strong { font-size: 17px; white-space: nowrap; }
+#modalCaja .tf-sec { width: 100%; min-height: 44px; margin: 10px 0 0; border-radius: 12px; border: 1px solid #C9D2DC; background: #F3F6F9; color: #0E141B; font-size: 14px; }

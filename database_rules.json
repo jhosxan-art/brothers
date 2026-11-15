@@ -618,7 +618,7 @@
         },
         "facturaFinal": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()))",
-          ".validate": "!newData.exists() || (newData.hasChildren(['total','totalFinal']) && newData.child('total').isNumber() && newData.child('total').val() >= 0 && newData.child('totalFinal').isNumber() && newData.child('totalFinal').val() >= 0)",
+          ".validate": "!newData.exists() || (newData.hasChildren(['total','totalFinal']) && newData.child('total').isNumber() && newData.child('total').val() >= 0 && newData.child('totalFinal').isNumber() && newData.child('totalFinal').val() >= 0 && (!root.child('solicitudes_entrantes').child($solicitudId).child('negociacion').child('aceptada').child('monto').exists() || newData.child('delivery').val() >= root.child('solicitudes_entrantes').child($solicitudId).child('negociacion').child('aceptada').child('monto').val()))",
           "productos": {}, "subtotal": {}, "delivery": {}, "mandadoExtra": {}, "prioridad": {}, "deposito": {}, "total": {}, "totalFinal": {}, "pedido": {}, "cliente": {}
         },
         "subfactura": {
@@ -650,70 +650,53 @@
           ".validate": "newData.isNumber()"
         },
         "negociacion": {
-          "estado": {
-            ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-            ".validate": "newData.isString() && (newData.val() === 'pendiente_ofertas' || newData.val() === 'cerrada' || newData.val() === 'cancelada')"
-          },
-          "ts": {
-            ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-            ".validate": "newData.isNumber()"
-          },
-          "tarifa": {
-            ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-            ".validate": "newData.hasChildren(['km', 'total', 'regimen']) && newData.child('km').isNumber() && newData.child('km').val() >= 0 && newData.child('total').isNumber() && newData.child('total').val() >= 0 && newData.child('total').val() <= 100000 && (newData.child('regimen').val() === 'urbano' || newData.child('regimen').val() === 'rural')",
-            "km": {}, "regimen": {},
-            "base": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-            "paradas": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20" },
-            "extra": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-            "total": {},
-            "zona": { ".validate": "newData.isString() && newData.val().length <= 60" },
-            "$otro": { ".validate": false }
-          },
-          "origen": {
-            ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-            ".validate": "newData.hasChildren(['nombre', 'lat', 'lng'])",
-            "nombre": { ".validate": "newData.isString() && newData.val().length <= 80" },
-            "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
-            "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
-            "lid": { ".validate": "newData.isString() && newData.val().length <= 80" },
-            "$otro": { ".validate": false }
-          },
-          "paradas": {
-            ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-            "$i": {
-              ".validate": "newData.hasChildren(['texto', 'lat', 'lng'])",
-              "texto": { ".validate": "newData.isString() && newData.val().length <= 80" },
-              "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
-              "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
-              "$otro": { ".validate": false }
-            }
-          },
           "ofertas": {
             "$uid": {
-              ".write": "auth != null && ((auth.uid === $uid && root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('negociacion').child('estado').val() === 'pendiente_ofertas') || root.child('admins').child(auth.uid).exists())",
-              ".validate": "!newData.exists() || (newData.hasChildren(['monto', 'tipo', 'ts']) && newData.child('monto').isNumber() && newData.child('monto').val() >= 0 && newData.child('monto').val() <= 100000 && (newData.child('tipo').val() === 'directa' || newData.child('tipo').val() === 'contraoferta' || newData.child('tipo').val() === 'rechazo') && newData.child('ts').isNumber() && newData.child('ts').val() <= now)",
-              "monto": {}, "tipo": {}, "ts": {},
+              ".write": "auth != null && ((auth.uid === $uid && root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').exists() && !root.child('solicitudes_entrantes').child($solicitudId).child('negociacion').child('aceptada').exists()) || root.child('admins').child(auth.uid).exists())",
+              ".validate": "!newData.exists() || (newData.hasChildren(['nombre', 'tipo', 'monto', 'sugerida', 'km', 'regimen', 'nParadas', 'origen', 'ts']) && newData.child('monto').isNumber() && newData.child('monto').val() > 0 && newData.child('monto').val() <= 100000 && newData.child('sugerida').isNumber() && newData.child('sugerida').val() > 0 && newData.child('monto').val() >= newData.child('sugerida').val() && (!data.exists() || newData.child('monto').val() >= data.child('monto').val()) && (newData.child('tipo').val() === 'sugerida' || newData.child('tipo').val() === 'subida') && newData.child('ts').isNumber() && newData.child('ts').val() <= now)",
               "nombre": { ".validate": "newData.isString() && newData.val().length <= 60" },
+              "tipo": {},
+              "monto": {},
+              "sugerida": {},
+              "km": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000" },
+              "regimen": { ".validate": "newData.val() === 'urbano' || newData.val() === 'rural'" },
+              "base": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+              "extra": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+              "nParadas": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 10" },
+              "origen": {
+                ".validate": "newData.hasChildren(['nombre', 'lat', 'lng'])",
+                "nombre": { ".validate": "newData.isString() && newData.val().length <= 80" },
+                "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+                "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+                "$otro": { ".validate": false }
+              },
+              "paradas": {
+                "$i": {
+                  ".validate": "newData.hasChildren(['nombre', 'lat', 'lng'])",
+                  "nombre": { ".validate": "newData.isString() && newData.val().length <= 80" },
+                  "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+                  "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+                  "$otro": { ".validate": false }
+                }
+              },
+              "ts": {},
               "$otro": { ".validate": false }
             }
           },
-          "elegida": {
-            ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val() && root.child('solicitudes_entrantes').child($solicitudId).child('negociacion').child('estado').val() === 'pendiente_ofertas'))",
-            ".validate": "newData.hasChildren(['uid', 'monto', 'ts']) && newData.child('uid').isString() && newData.child('monto').isNumber() && newData.child('ts').isNumber()",
-            "uid": {}, "monto": {}, "ts": {},
+          "descartadas": {
+            "$uid": {
+              ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('negociacion').child('aceptada').exists()",
+              ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 100000"
+            }
+          },
+          "aceptada": {
+            ".write": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val() && !data.exists() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').exists() && newData.child('uid').isString() && root.child('solicitudes_entrantes').child($solicitudId).child('negociacion').child('ofertas').child(newData.child('uid').val()).child('monto').val() === newData.child('monto').val()",
+            ".validate": "newData.hasChildren(['uid', 'monto', 'ts']) && newData.child('uid').isString() && newData.child('monto').isNumber() && newData.child('ts').isNumber() && newData.child('ts').val() <= now",
+            "uid": {},
+            "monto": {},
+            "ts": {},
+            "nombre": { ".validate": "newData.isString() && newData.val().length <= 60" },
             "$otro": { ".validate": false }
-          },
-          "ganador": {
-            ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-            ".validate": "newData.isString() && newData.val().length <= 80"
-          },
-          "montoFinal": {
-            ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-            ".validate": "newData.isNumber() && newData.val() >= 0"
-          },
-          "cerradaTs": {
-            ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-            ".validate": "newData.isNumber()"
           },
           "$otro": { ".validate": false }
         },

@@ -3169,6 +3169,7 @@ const ChatsEntrantes = (() => {
       revisarCambios();
       if (abiertoId && !mio(lista[abiertoId])) cerrarConversacion();
       if (previoId) refrescarPrevia();
+      atenderAcordadas();
       resolverSolPendiente();
       pintarLista();
       pintarMapa();
@@ -3422,6 +3423,7 @@ const ChatsEntrantes = (() => {
     if (mio(d)) { irA("chats"); return abrir(id); }
     if (!libre(d)) return toast("ℹ️", "Solicitud", "Esa solicitud ya no está disponible.", null, 4000);
     previoId = id;
+    negForm = null;
     pintarPrevia(d);
     $("spAviso").classList.add("oculto");
     $("spAtender").disabled = false;
@@ -3444,60 +3446,299 @@ const ChatsEntrantes = (() => {
     });
     if (ms.length) h.insertBefore(el("small", "", "Historial del chat"), h.firstChild);
     h.classList.toggle("oculto", !ms.length);
-    pintarOferta(d);
+    pintarNegociacion(d);
   }
 
-  /* ---------- Negociación tipo inDriver: tarifa publicada por el admin → aceptar / contraoferta / rechazar ---------- */
-  let sigOferta = "";
+  /* ============================================================
+     TARIFA Y NEGOCIACIÓN (repartidor, SIN aceptar el pedido)
+     1) Marca dónde está el producto (mapa / negocio registrado / "estoy aquí") y, si hace falta, paradas extra.
+     2) El sistema calcula la ruta por calles y la tarifa sugerida:
+        · urbano ≤ 4.0 km: 42, 52, 62, 72, 82 (+10 por cada 0.8 km) · termina en 2
+        · rural  > 4.0 km: Math.round((57 + 12·km) / 10) · 10 − 3 · termina en 7
+        · cada parada extra en la ruta: +C$ 20
+     3) Envía la sugerida o la SUBE (nunca baja). El cliente elige entre todas las ofertas.
+     4) Si el cliente acepta, el pedido se le asigna solo y el delivery queda fijo en la factura.
+     ============================================================ */
+  const EXTRA_PARADA = 20, LIM_URBANO = 4.0, PASO_KM = 0.8, MAX_PARADAS = 6;
+  let negForm = null, negSeq = 0, pickCancel = null;
+  const autoAtendido = new Set();
+  const money = (n) => "C$ " + Math.round(Number(n) || 0);
+  const okPt = (p) => !!p && typeof p.lat === "number" && typeof p.lng === "number" && isFinite(p.lat) && isFinite(p.lng);
   (function () {
     const st = document.createElement("style");
-    st.textContent = ".sp-oferta{margin:10px 0;padding:10px 12px;border-radius:12px;background:#FFF9E5;border:1px solid #E0A800;color:#0E141B;display:grid;gap:8px}.sp-oferta b{font-size:18px}.sp-oferta small{opacity:.85}.sp-of-bt{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sp-of-bt button,.sp-of-con button{height:42px;border-radius:12px;border:1px solid #C9D2DC;background:#F3F6F9;color:#0E141B;font-size:14px}.sp-of-bt .ok{background:#E8F6EE;border-color:#1E9B5A}.sp-of-bt .no{background:#FDECEB;border-color:#E5322D;color:#8E1B17}.sp-of-con{display:flex;gap:8px}.sp-of-con input{flex:1;min-width:0;height:42px;padding:0 10px;border-radius:12px;border:1px solid #C9D2DC;font-size:16px}.sp-of-est{font-weight:700}";
+    st.textContent = [
+      ".sp-neg{display:grid;gap:10px;margin:10px 0;padding:12px;border-radius:14px;background:#FFF9E5;border:1px solid #E0A800;color:#0E141B;box-sizing:border-box;max-width:100%;min-width:0}",
+      ".sp-neg *{box-sizing:border-box;min-width:0}",
+      ".sp-neg-t{font-size:16px;font-weight:800}",
+      ".sp-neg small{opacity:.85;overflow-wrap:anywhere}",
+      ".sp-neg-lbl{font-size:13px;font-weight:700}",
+      ".sp-st{display:flex;flex-wrap:wrap;align-items:center;gap:6px}",
+      ".sp-st-n{flex:1 1 160px;height:44px;padding:0 10px;border-radius:12px;border:1px solid #C9D2DC;font-size:16px;background:#fff;color:#0E141B}",
+      ".sp-st-b{flex:0 0 44px;width:44px;height:44px;border-radius:12px;border:1px solid #C9D2DC;background:#F3F6F9;font-size:18px;padding:0}",
+      ".sp-st-ok{flex:1 0 100%;font-size:12px;font-weight:700;color:#1E9B5A}",
+      ".sp-st-no{flex:1 0 100%;font-size:12px;font-weight:700;color:#C23B1E}",
+      ".sp-neg-btn{width:100%;min-height:44px;padding:8px 12px;border-radius:12px;border:1px solid #C9D2DC;background:#F3F6F9;color:#0E141B;font-size:14px;font-weight:700}",
+      ".sp-neg-btn.ok{background:#E8F6EE;border-color:#1E9B5A}",
+      ".sp-neg-btn:disabled{opacity:.5}",
+      ".sp-neg-res{display:grid;gap:4px;padding:10px 12px;border-radius:12px;background:#EEF6FF;border:1px solid #B9D3EE}",
+      ".sp-neg-res b{font-size:24px}",
+      ".sp-neg-km{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
+      ".sp-neg-km input,.sp-neg-sube input{flex:1 1 120px;height:44px;padding:0 10px;border-radius:12px;border:1px solid #C9D2DC;font-size:16px;background:#fff;color:#0E141B}",
+      ".sp-neg-sube{display:flex;flex-wrap:wrap;gap:8px}",
+      ".sp-neg-sube .sp-neg-btn{flex:1 1 150px;width:auto}",
+      ".sp-neg-est{font-size:14px;font-weight:700;overflow-wrap:anywhere}",
+      ".sp-neg.oculto,.sp-neg .oculto{display:none!important}",
+      "#spPick{position:fixed;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top,0px));z-index:99999;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-radius:14px;background:#0E141B;color:#fff;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.35)}",
+      "#spPick span{flex:1 1 180px}",
+      "#spPick button{min-height:40px;padding:0 14px;border-radius:12px;border:0;background:#fff;color:#0E141B;font-weight:700}"
+    ].join("\n");
     document.head.appendChild(st);
   })();
-  function contOferta() {
-    let c = $("spOferta");
-    if (!c) { c = el("div", "sp-oferta oculto"); c.id = "spOferta"; $("spAtender").parentNode.insertBefore(c, $("spAtender")); }
+
+  function haversine(a, b) {
+    const R = 6371000, r = Math.PI / 180, dLa = (b.lat - a.lat) * r, dLo = (b.lng - a.lng) * r;
+    const x = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+  function tarifaBase(km) {
+    const k = Math.max(0, Number(km) || 0);
+    if (k <= LIM_URBANO) return { regimen: "urbano", base: 42 + 10 * (Math.max(1, Math.ceil(k / PASO_KM - 1e-9)) - 1) };
+    return { regimen: "rural", base: Math.round((57 + 12 * k) / 10) * 10 - 3 };
+  }
+  function calcTarifa(km, nParadas) {
+    const t = tarifaBase(km), extras = Math.max(0, nParadas - 1), extra = extras * EXTRA_PARADA;
+    return { km: Math.round(km * 100) / 100, regimen: t.regimen, base: t.base, extras, extra, sugerida: t.base + extra };
+  }
+  function destinoDe(d) {
+    const p = d && d.pedido, g = d && d.clienteGps;
+    if (p && okPt(p.destino)) return { lat: p.destino.lat, lng: p.destino.lng };
+    if (okPt(g)) return { lat: g.lat, lng: g.lng };
+    return null;
+  }
+  const lugaresValidos = () => Object.entries(lugares || {}).filter(([, l]) => l && l.nombre && okPt(l));
+  function lugarPorNombre(txt) {
+    const q = norm(txt); if (q.length < 2) return null;
+    const v = lugaresValidos(), h = v.find(([, l]) => norm(l.nombre) === q) || v.find(([, l]) => { const n = norm(l.nombre); return n.includes(q) || q.includes(n); });
+    return h ? { nombre: h[1].nombre, lat: h[1].lat, lng: h[1].lng } : null;
+  }
+  function lugarCercano(pt, maxM) {
+    let mejor = null, md = maxM || 80;
+    lugaresValidos().forEach(([, l]) => { const m = haversine(pt, l); if (m <= md) { md = m; mejor = { nombre: l.nombre, lat: l.lat, lng: l.lng }; } });
+    return mejor;
+  }
+  const avisoNeg = (t) => { const a = $("spAviso"); if (!a) return; a.textContent = t || ""; a.classList.toggle("oculto", !t); };
+  const acordadoDe = (d) => { const a = d && d.negociacion && d.negociacion.aceptada; return a && a.uid === uidActual ? Math.round(Number(a.monto) || 0) : 0; };
+
+  function contNeg() {
+    let c = $("spNeg");
+    if (!c) { c = el("div", "sp-neg oculto"); c.id = "spNeg"; $("spAtender").parentNode.insertBefore(c, $("spAtender")); }
     return c;
   }
-  function pintarOferta(d) {
-    const n = d && d.negociacion, c = contOferta(), activa = !!n && n.estado === "pendiente_ofertas" && !!n.tarifa;
-    $("spAtender").classList.toggle("oculto", activa);
-    if (!activa) { c.textContent = ""; c.classList.add("oculto"); sigOferta = ""; return; }
-    const mi = (n.ofertas && n.ofertas[uidActual]) || null, t = n.tarifa;
-    const sig = previoId + "|" + t.total + "|" + (mi ? mi.tipo + mi.monto : "");
-    if (sig === sigOferta && !c.classList.contains("oculto")) return;
-    sigOferta = sig; c.classList.remove("oculto"); c.textContent = "";
-    c.appendChild(el("small", "", "💰 Tarifa sugerida por la central"));
-    c.appendChild(el("b", "", "C$ " + Math.round(t.total)));
-    const det = [Number(t.km).toFixed(1) + " km", t.paradas > 1 ? (t.paradas - 1) + " parada(s) extra (+C$ " + Math.round(t.extra || 0) + ")" : "", n.origen && n.origen.nombre ? "Retiro en " + cortar(n.origen.nombre, 50) : "", t.zona ? "Zona: " + cortar(t.zona, 40) : ""].filter(Boolean).join(" · ");
-    c.appendChild(el("small", "", det));
-    if (mi) c.appendChild(el("div", "sp-of-est", mi.tipo === "directa" ? "✅ Aceptaste C$ " + Math.round(mi.monto) : mi.tipo === "contraoferta" ? "💬 Tu contraoferta: C$ " + Math.round(mi.monto) : "🚫 Rechazaste esta tarifa"));
-    const bt = el("div", "sp-of-bt");
-    const ok = el("button", "ok", "✅ Aceptar C$ " + Math.round(t.total)); ok.type = "button";
-    ok.addEventListener("click", () => enviarOferta("directa", t.total));
-    const no = el("button", "no", "🚫 Rechazar"); no.type = "button";
-    no.addEventListener("click", () => enviarOferta("rechazo", 0));
-    bt.appendChild(ok); bt.appendChild(no); c.appendChild(bt);
-    const con = el("div", "sp-of-con");
-    const inp = document.createElement("input"); inp.type = "number"; inp.min = "1"; inp.step = "1"; inp.inputMode = "numeric"; inp.placeholder = "Tu precio C$"; inp.setAttribute("aria-label", "Tu contraoferta en córdobas");
-    const cb = el("button", "", "💬 Contraoferta"); cb.type = "button";
-    cb.addEventListener("click", () => {
-      const v = Math.round(parseFloat(inp.value));
-      if (!(v > 0) || v > 100000) { $("spAviso").textContent = "Escribe un precio válido para tu contraoferta."; $("spAviso").classList.remove("oculto"); return; }
-      enviarOferta("contraoferta", v);
-    });
-    con.appendChild(inp); con.appendChild(cb); c.appendChild(con);
+  function iniciarNeg(id, d) {
+    const p = (d && d.pedido) || {}, h = p.origen ? lugarPorNombre(p.origen) : null;
+    return { id, stops: [h ? { nombre: h.nombre, lat: h.lat, lng: h.lng } : { nombre: cortar(p.origen || "", 80), lat: null, lng: null }], km: 0, manual: false, needKm: false, calc: null, msg: "" };
   }
-  async function enviarOferta(tipo, monto) {
-    if (!previoId || !uidActual || !usuario) return;
-    $("spAviso").classList.add("oculto");
-    try {
-      await db.ref(RAIZ + "/" + previoId + "/negociacion/ofertas/" + uidActual).set({ tipo, monto: Math.round(Number(monto) || 0), nombre: usuario, ts: TS });
-      toast("💰", "Oferta enviada", tipo === "rechazo" ? "Rechazaste la tarifa." : "Tu oferta de C$ " + Math.round(monto) + " llegó a la central y al cliente.", null, 3500);
-    } catch (e) {
-      $("spAviso").textContent = "No se pudo enviar la oferta: " + (e.code || e.message);
-      $("spAviso").classList.remove("oculto");
+  function construirNeg(c) {
+    c.textContent = "";
+    c.appendChild(el("div", "sp-neg-t", "💰 Tarifa del envío"));
+    const dl = document.createElement("datalist"); dl.id = "spNegLug";
+    lugaresValidos().forEach(([, l]) => { const o = document.createElement("option"); o.value = l.nombre; dl.appendChild(o); });
+    c.appendChild(dl);
+    const paso = el("div", ""); paso.id = "spNegPaso"; paso.style.display = "grid"; paso.style.gap = "8px";
+    paso.appendChild(el("div", "sp-neg-lbl", "1. Marca dónde está el producto (sin aceptar el pedido)"));
+    const stops = el("div", ""); stops.id = "spNegStops"; stops.style.display = "grid"; stops.style.gap = "8px"; paso.appendChild(stops);
+    const mas = el("button", "sp-neg-btn", "➕ Otra parada en la ruta (+" + money(EXTRA_PARADA) + ")"); mas.type = "button"; mas.id = "spNegMas";
+    mas.addEventListener("click", () => {
+      const f = negForm; if (!f || f.stops.length >= MAX_PARADAS) return;
+      f.stops.push({ nombre: "", lat: null, lng: null }); pintarStopsNeg(); recalcularNeg();
+    });
+    paso.appendChild(mas);
+    const km = el("div", "sp-neg-km oculto"); km.id = "spNegKmBox";
+    km.appendChild(el("span", "sp-neg-lbl", "🛣 Km"));
+    const ki = document.createElement("input"); ki.type = "number"; ki.min = "0"; ki.step = "0.1"; ki.inputMode = "decimal"; ki.id = "spNegKm"; ki.placeholder = "0.0"; ki.setAttribute("aria-label", "Kilómetros del recorrido");
+    ki.addEventListener("change", () => { const f = negForm; if (!f) return; f.manual = true; f.km = Math.max(0, parseFloat(ki.value) || 0); recalcularNeg(); });
+    km.appendChild(ki); paso.appendChild(km);
+    c.appendChild(paso);
+    const res = el("div", "sp-neg-res oculto"); res.id = "spNegRes"; c.appendChild(res);
+    const msg = el("small", "oculto"); msg.id = "spNegMsg"; c.appendChild(msg);
+    const acc = el("div", ""); acc.id = "spNegAcc"; acc.style.display = "grid"; acc.style.gap = "8px";
+    const env = el("button", "sp-neg-btn ok", "✅ Enviar tarifa sugerida"); env.type = "button"; env.id = "spNegEnv";
+    env.addEventListener("click", () => { const f = negForm; if (f && f.calc) enviarNeg(f.calc.sugerida); });
+    acc.appendChild(env);
+    const sube = el("div", "sp-neg-sube"); sube.id = "spNegSube";
+    const si = document.createElement("input"); si.type = "number"; si.step = "1"; si.inputMode = "numeric"; si.id = "spNegSubeIn"; si.setAttribute("aria-label", "Subir tu tarifa en córdobas");
+    const sb = el("button", "sp-neg-btn", "⬆ Subir y enviar"); sb.type = "button"; sb.id = "spNegSubeBt";
+    sb.addEventListener("click", () => { enviarNeg(Math.round(parseFloat(si.value))); });
+    sube.appendChild(si); sube.appendChild(sb); acc.appendChild(sube);
+    acc.appendChild(el("small", "", "Solo puedes subir la tarifa, nunca bajarla."));
+    c.appendChild(acc);
+    const est = el("div", "sp-neg-est oculto"); est.id = "spNegEst"; c.appendChild(est);
+    c.classList.remove("oculto");
+    pintarStopsNeg();
+  }
+  function pintarStopsNeg() {
+    const f = negForm, cont = $("spNegStops"); if (!f || !cont) return;
+    cont.textContent = "";
+    f.stops.forEach((s, i) => {
+      const fila = el("div", "sp-st");
+      const inp = document.createElement("input"); inp.className = "sp-st-n"; inp.setAttribute("list", "spNegLug"); inp.maxLength = 80; inp.autocomplete = "off";
+      inp.placeholder = i === 0 ? "🏪 Negocio o lugar del producto" : "➕ Parada " + i; inp.value = s.nombre || "";
+      inp.addEventListener("change", () => {
+        const h = lugarPorNombre(inp.value), prev = f.stops[i];
+        f.stops[i] = h ? h : { nombre: cortar(inp.value, 80), lat: okPt(prev) ? prev.lat : null, lng: okPt(prev) ? prev.lng : null };
+        pintarStopsNeg(); recalcularNeg();
+      });
+      fila.appendChild(inp);
+      const bm = el("button", "sp-st-b", "🗺️"); bm.type = "button"; bm.title = "Marcar en el mapa"; bm.setAttribute("aria-label", "Marcar en el mapa");
+      bm.addEventListener("click", () => marcarEnMapaNeg(i));
+      const bh = el("button", "sp-st-b", "📌"); bh.type = "button"; bh.title = "Estoy aquí"; bh.setAttribute("aria-label", "Usar mi ubicación actual");
+      bh.addEventListener("click", () => {
+        if (!okPt(ultimaPos)) return avisoNeg("Aún no tengo tu ubicación GPS. Márcalo en el mapa.");
+        avisoNeg(""); aplicarPuntoNeg(i, ultimaPos.lat, ultimaPos.lng, true);
+      });
+      fila.appendChild(bm); fila.appendChild(bh);
+      if (i > 0) { const bx = el("button", "sp-st-b", "✕"); bx.type = "button"; bx.setAttribute("aria-label", "Quitar parada"); bx.addEventListener("click", () => { f.stops.splice(i, 1); pintarStopsNeg(); recalcularNeg(); }); fila.appendChild(bx); }
+      fila.appendChild(el("span", okPt(s) ? "sp-st-ok" : "sp-st-no", okPt(s) ? "✓ Ubicación marcada" : "⚠ Falta marcar la ubicación"));
+      cont.appendChild(fila);
+    });
+    const mas = $("spNegMas"); if (mas) mas.classList.toggle("oculto", f.stops.length >= MAX_PARADAS);
+  }
+  function aplicarPuntoNeg(i, lat, lng, ajustar) {
+    const f = negForm; if (!f || !f.stops[i]) return;
+    const pt = { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 }, l = ajustar ? lugarCercano(pt) : null;
+    f.stops[i] = l ? l : { nombre: f.stops[i].nombre || "Punto marcado en el mapa", lat: pt.lat, lng: pt.lng };
+    pintarStopsNeg(); recalcularNeg();
+  }
+  function cancelarPick() {
+    if (pickCancel) { const c = pickCancel; pickCancel = null; c(); }
+    const b = $("spPick"); if (b) b.remove();
+  }
+  function marcarEnMapaNeg(i) {
+    if (!negForm || typeof mapa === "undefined" || !mapa) return avisoNeg("El mapa no está disponible. Usa 📌 «Estoy aquí» o escribe el negocio.");
+    cancelarPick(); avisoNeg("");
+    const modal = $("modalSolicitud"), idPick = negForm.id;
+    modal.classList.add("oculto"); irA("mapa");
+    const banner = el("div", ""); banner.id = "spPick";
+    banner.appendChild(el("span", "", "📍 Toca el mapa donde está el producto"));
+    const cb = el("button", "", "Cancelar"); cb.type = "button"; banner.appendChild(cb);
+    document.body.appendChild(banner);
+    const fin = () => { mapa.off("click", h); pickCancel = null; const b = $("spPick"); if (b) b.remove(); if (previoId === idPick) modal.classList.remove("oculto"); };
+    const h = (e) => { fin(); aplicarPuntoNeg(i, e.latlng.lat, e.latlng.lng, true); };
+    pickCancel = fin; mapa.on("click", h);
+    cb.addEventListener("click", cancelarPick);
+  }
+
+  async function recalcularNeg() {
+    const f = negForm; if (!f) return;
+    const seq = ++negSeq, d = lista[f.id], dest = destinoDe(d);
+    f.calc = null; f.msg = "";
+    if (!f.stops.every(okPt)) { f.msg = "Marca en el mapa dónde está el producto para calcular la tarifa."; return refrescarNeg(); }
+    let km = f.manual ? f.km : 0;
+    if (!f.manual) {
+      if (!dest) { f.needKm = true; f.msg = "El cliente aún no comparte su ubicación de entrega. Escribe los km."; return refrescarNeg(); }
+      f.msg = "Calculando ruta por calles…"; refrescarNeg();
+      const pts = f.stops.map((s) => ({ lat: s.lat, lng: s.lng })).concat([dest]);
+      let dist = 0;
+      for (let k = 0; k < pts.length - 1; k++) {
+        let r = null;
+        try { r = await Ordenes.rutaCalles(pts[k], pts[k + 1]); } catch (_) {}
+        if (seq !== negSeq || negForm !== f) return;
+        if (!r || !isFinite(r.dist)) { f.needKm = true; f.msg = "No se pudo calcular la ruta por calles. Escribe los km."; return refrescarNeg(); }
+        dist += r.dist;
+      }
+      km = Math.round(dist / 10) / 100; f.km = km; f.needKm = false;
     }
+    if (!(km > 0)) { f.needKm = true; f.msg = "Escribe los km del recorrido."; return refrescarNeg(); }
+    f.calc = calcTarifa(km, f.stops.length); f.msg = "";
+    refrescarNeg();
+  }
+  const refrescarNeg = () => { if (negForm && lista[negForm.id]) actualizarNeg(lista[negForm.id]); };
+
+  function actualizarNeg(d) {
+    const f = negForm; if (!f) return;
+    const n = d.negociacion || {}, acep = n.aceptada, mi = (n.ofertas && n.ofertas[uidActual]) || null;
+    const desc = n.descartadas && Number(n.descartadas[uidActual]) || 0, c = f.calc;
+    const mostrar = (id, v) => { const e = $(id); if (e) e.classList.toggle("oculto", !v); };
+    const paso = $("spNegPaso"), res = $("spNegRes"), msg = $("spNegMsg"), est = $("spNegEst"), acc = $("spNegAcc");
+    if (!paso || !res || !acc) return;
+    const editando = !acep && !mi;
+    paso.style.display = editando ? "grid" : "none";
+    mostrar("spNegKmBox", editando && (f.needKm || f.manual));
+    const ki = $("spNegKm"); if (ki && document.activeElement !== ki) ki.value = f.km > 0 ? f.km : "";
+    res.textContent = "";
+    const t = mi ? { km: mi.km, regimen: mi.regimen, base: mi.base, extra: mi.extra, sugerida: mi.sugerida, extras: Math.max(0, (Number(mi.nParadas) || 1) - 1) } : c;
+    if (t) {
+      res.appendChild(el("small", "", "Tarifa sugerida por el sistema"));
+      res.appendChild(el("b", "", money(t.sugerida)));
+      res.appendChild(el("small", "", Number(t.km).toFixed(2) + " km · " + (t.regimen === "urbano" ? "urbano" : "rural") + (t.extras > 0 ? " · " + t.extras + " parada(s) extra (+" + money(t.extra) + ")" : "")));
+    }
+    mostrar("spNegRes", !!t && !acep);
+    msg.textContent = f.msg || ""; mostrar("spNegMsg", !!f.msg && editando);
+    const piso = mi ? Math.round(mi.monto) : t ? t.sugerida : 0;
+    const puedeOfertar = !acep && !!t;
+    acc.style.display = puedeOfertar ? "grid" : "none";
+    mostrar("spNegEnv", puedeOfertar && !mi);
+    const si = $("spNegSubeIn");
+    if (si) { si.min = String(piso + 1); si.placeholder = "Subir a C$ (más de " + piso + ")"; }
+    let texto = "";
+    if (acep) texto = acep.uid === uidActual ? "🎉 El cliente aceptó tu tarifa de " + money(acep.monto) + ". Te estamos asignando el pedido…" : "ℹ️ El cliente ya eligió a otro repartidor.";
+    else if (mi) texto = "✅ Tu oferta: " + money(mi.monto) + (mi.monto > mi.sugerida ? " (sugerida " + money(mi.sugerida) + ")" : "") + (desc >= mi.monto ? " · El cliente no aceptó " + money(desc) + ". Puedes subirla." : " · Esperando al cliente…");
+    est.textContent = texto; mostrar("spNegEst", !!texto);
+  }
+  function pintarNegociacion(d) {
+    const c = contNeg();
+    $("spAtender").classList.add("oculto");
+    if (!negForm || negForm.id !== previoId) { negForm = iniciarNeg(previoId, d); construirNeg(c); recalcularNeg(); }
+    actualizarNeg(d);
+  }
+  async function enviarNeg(monto) {
+    const f = negForm; if (!f || !uidActual || !usuario) return;
+    const d = lista[f.id] || {}, n = d.negociacion || {}, mi = n.ofertas && n.ofertas[uidActual];
+    if (n.aceptada) return avisoNeg("El cliente ya aceptó una oferta.");
+    if (!isFinite(monto) || monto <= 0 || monto > 100000) return avisoNeg("Escribe un monto válido en córdobas.");
+    const path = RAIZ + "/" + f.id + "/negociacion/ofertas/" + uidActual;
+    avisoNeg("");
+    try {
+      if (mi) {
+        if (!(monto > Math.round(mi.monto))) return avisoNeg("Solo puedes subir: el monto debe ser mayor a " + money(mi.monto) + ".");
+        await db.ref(path).update({ monto, tipo: "subida", ts: TS });
+      } else {
+        const c = f.calc; if (!c) return avisoNeg("Primero marca el producto para calcular la tarifa.");
+        if (monto < c.sugerida) return avisoNeg("No puedes bajar de la tarifa sugerida (" + money(c.sugerida) + ").");
+        const pts = f.stops.map((s, i) => ({ nombre: cortar(s.nombre || (i === 0 ? "Punto marcado" : "Parada " + i), 80), lat: s.lat, lng: s.lng }));
+        await db.ref(path).set({ nombre: cortar(usuario, 60), tipo: monto > c.sugerida ? "subida" : "sugerida", monto, sugerida: c.sugerida, km: c.km, regimen: c.regimen, base: c.base, extra: c.extra, nParadas: f.stops.length, origen: pts[0], paradas: pts, ts: TS });
+      }
+      const si = $("spNegSubeIn"); if (si) si.value = "";
+      toast("💰", "Oferta enviada", money(monto) + " · el cliente ya puede verla.", null, 3500);
+    } catch (e) {
+      avisoNeg("No se pudo enviar la oferta: " + (e.code === "PERMISSION_DENIED" ? "el cliente ya decidió o faltan las reglas de Firebase." : (e.code || e.message)));
+    }
+  }
+  /* El cliente aceptó MI oferta → el pedido se me asigna solo */
+  function atenderAcordadas() {
+    if (!uidActual || !usuario) return;
+    Object.keys(lista).forEach((id) => {
+      const d = lista[id], a = d && d.negociacion && d.negociacion.aceptada;
+      if (!a || a.uid !== uidActual || !libre(d) || autoAtendido.has(id)) return;
+      autoAtendido.add(id);
+      toast("🎉", "¡El cliente aceptó tu tarifa!", money(a.monto) + " · " + cortar(d.nombre || "Cliente", 30), null, 5000);
+      atender(id, { disabled: false }).catch(() => {});
+    });
+  }
+  /* Delivery acordado: en la factura queda fijo y el repartidor no puede cambiarlo */
+  function aplicarDeliveryAcordado(id) {
+    const m = acordadoDe(lista[id]), man = $("deliveryManual"), sis = $("deliverySistema"), inp = $("deliveryPrice"), mo = $("deliverySistemaMonto");
+    if (!man || !sis || !inp) return;
+    const peq = sis.querySelector("small");
+    if (!m) {
+      if (man.dataset.acord) { man.style.display = ""; sis.style.display = "none"; inp.readOnly = false; if (peq && sis.dataset.orig) peq.textContent = sis.dataset.orig; delete man.dataset.acord; }
+      return;
+    }
+    if (peq && !sis.dataset.orig) sis.dataset.orig = peq.textContent;
+    man.dataset.acord = "1"; inp.value = m; inp.readOnly = true; man.style.display = "none"; sis.style.display = "";
+    if (mo) mo.textContent = "C$ " + m.toFixed(2);
+    if (peq) peq.textContent = "Acordado con el cliente (no se puede cambiar)";
+    try { calculateTotal(); } catch (_) {}
   }
   function refrescarPrevia() {
     const d = lista[previoId];
@@ -3509,8 +3750,9 @@ const ChatsEntrantes = (() => {
     } else pintarPrevia(d);
   }
   function cerrarPrevia() {
+    cancelarPick();
     previoId = null;
-    sigOferta = "";
+    negForm = null;
     $("modalSolicitud").classList.add("oculto");
   }
   $("spCerrar").addEventListener("click", cerrarPrevia);
@@ -3916,6 +4158,9 @@ const ChatsEntrantes = (() => {
     if (!mio(d)) return;
     Factura.prepararChat({ solicitudId: abiertoId, cliente: d.nombre || "" });
     irA("factura");
+    const idFac = abiertoId;
+    aplicarDeliveryAcordado(idFac);
+    setTimeout(() => { if (abiertoId === idFac) aplicarDeliveryAcordado(idFac); }, 300);
   });
   $("cnMandado").addEventListener("click", () => {
     const id = abiertoId, d = id && lista[id];
@@ -4035,6 +4280,8 @@ const ChatsEntrantes = (() => {
     if (!id) throw new Error("Falta el chat de destino.");
     const d = lista[id];
     if (!mio(d)) throw new Error("Este chat ya no está asignado a ti.");
+    const acordado = acordadoDe(d);
+    if (acordado && Math.abs((Number(f.delivery) || 0) - acordado) > 0.005) throw new Error("El delivery acordado con el cliente es " + money(acordado) + " y no se puede modificar.");
     const fac = JSON.parse(JSON.stringify({
       productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre), precio: Number(p.precio) || 0 })),
       subtotal: f.subtotal, delivery: f.delivery, mandadoExtra: f.mandadoExtra || 0, prioridad: f.prioridad || 0, ivasExtras: f.ivasExtras || 0,

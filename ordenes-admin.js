@@ -1685,7 +1685,7 @@ const SolicitudesAdmin = (() => {
       const b = el("button", "oscuro", "👁 Ver");
       b.type = "button"; b.addEventListener("click", () => abrirVisor(k, PANEL));
       acc.appendChild(b);
-      if (!finalizada && !d.repartidorUid && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.boton(k));
+      if (d.negociacion && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.boton(k, d));
 
       // Estados finales (Entregado / Cancelado): NO se muestran botones de forzar ni cancelar.
       if (d.repartidorUid && !finalizada) {
@@ -3488,270 +3488,67 @@ const AlertasPush = (() => {
 
 
 /* ============================================================
-   TARIFA SUGERIDA + NEGOCIACIÓN TIPO inDriver (Admin)
-   · Negocio de origen emparejado con los establecimientos registrados (nodo "lugares", con lat/lng).
-   · Distancia por calles: origen → paradas extra → entrega del cliente (Ordenes.rutaCalles).
-   · Régimen urbano (≤ 4.0 km): 42, 52, 62, 72, 82 (+10 por cada 0.8 km extra) · termina en 2.
-   · Régimen rural (> 4.0 km): Math.round((57 + 12·km) / 10) · 10 − 3 · termina en 7.
-   · Cada parada extra en la ruta suma C$ 20.
-   · Estado solicitudes_entrantes/{id}/negociacion/estado = "pendiente_ofertas" → ofertas de repartidores en vivo
-     (directa / contraoferta / rechazo) → el admin asigna al elegido → "cerrada".
+   NEGOCIACIÓN DEL ENVÍO (Admin · solo lectura)
+   El repartidor marca el producto, el sistema calcula la tarifa sugerida, el repartidor solo puede subirla y el
+   cliente elige. Al administrador solo le llega la negociación y cuánto quedó el envío; no modifica nada.
    ============================================================ */
 const TarifaAdmin = (() => {
-  const RAIZ = "solicitudes_entrantes", EXTRA_PARADA = 20, LIM_URBANO = 4.0, PASO_KM = 0.8;
+  const RAIZ = "solicitudes_entrantes";
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const norm = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-  const okLL = (p) => !!p && typeof p.lat === "number" && typeof p.lng === "number" && isFinite(p.lat) && isFinite(p.lng);
   const dinero = (n) => "C$ " + Math.round(Number(n) || 0);
   const hora = (ts) => { try { return new Date(Number(ts)).toLocaleTimeString("es-NI", { hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } };
-  const $ = (id) => document.getElementById(id);
+  let sol = {}, ref = null, abierto = null;
 
-  let sol = {}, zonas = {}, refSol = null, refZon = null, abierto = null, F = null, calculando = 0;
+  const ofertasDe = (d) => Object.entries((d && d.negociacion && d.negociacion.ofertas) || {}).filter(([, o]) => o && Number(o.monto) > 0).sort((a, b) => a[1].monto - b[1].monto);
 
-  /* ---------- Motor tarifario ---------- */
-  function tarifaBase(km) {
-    const k = Math.max(0, Number(km) || 0);
-    if (k <= LIM_URBANO) {
-      const escalones = Math.max(1, Math.ceil(k / PASO_KM - 1e-9));
-      return { regimen: "urbano", base: 42 + 10 * (escalones - 1) };
-    }
-    return { regimen: "rural", base: Math.round((57 + 12 * k) / 10) * 10 - 3 };
-  }
-  function calcular(km, nParadas) {
-    const t = tarifaBase(km), extras = Math.max(0, (Number(nParadas) || 0) - 1), extra = extras * EXTRA_PARADA;
-    return { km: Math.round((Number(km) || 0) * 100) / 100, regimen: t.regimen, base: t.base, paradas: Number(nParadas) || 0, extras, extra, total: t.base + extra };
-  }
-
-  /* ---------- Zonas / barrios ---------- */
-  const puntosDe = (z) => (Array.isArray(z && z.puntos) ? z.puntos : Object.values((z && z.puntos) || {})).filter((p) => p && isFinite(p.lat) && isFinite(p.lng));
-  function enPoligono(p, pts) {
-    let dentro = false;
-    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      const a = pts[i], b = pts[j];
-      if ((a.lat > p.lat) !== (b.lat > p.lat) && p.lng < ((b.lng - a.lng) * (p.lat - a.lat)) / (b.lat - a.lat) + a.lng) dentro = !dentro;
-    }
-    return dentro;
-  }
-  function zonaDe(p) {
-    if (!okLL(p)) return "";
-    const prio = { barrio: 0, reparto: 1, comarca: 2 };
-    const hit = Object.values(zonas || {}).filter((z) => { const pts = puntosDe(z); return pts.length >= 3 && enPoligono(p, pts); })
-      .sort((a, b) => (prio[a.tipo] == null ? 9 : prio[a.tipo]) - (prio[b.tipo] == null ? 9 : prio[b.tipo]));
-    return hit.length ? String(hit[0].nombre || "") : "";
-  }
-
-  /* ---------- Negocios registrados por el admin ---------- */
-  function validos() {
-    return Object.entries(typeof lugares !== "undefined" && lugares ? lugares : {}).filter(([, l]) => l && l.nombre && okLL(l));
-  }
-  function buscarNegocio(txt) {
-    const q = norm(txt); if (q.length < 2) return null;
-    const v = validos();
-    return v.find(([, l]) => norm(l.nombre) === q) || v.find(([, l]) => { const n = norm(l.nombre); return n.includes(q) || q.includes(n); }) || null;
-  }
-  function parada(texto, par) {
-    const t = String(texto || "").trim();
-    if (par && okLL(par)) return { texto: t, lid: par.lid || "", lat: par.lat, lng: par.lng };
-    const h = buscarNegocio(t);
-    return h ? { texto: t, lid: h[0], lat: h[1].lat, lng: h[1].lng } : { texto: t, lid: "", lat: null, lng: null };
-  }
-
-  /* ---------- Formulario ---------- */
-  function iniciarForma(id) {
-    const d = sol[id] || {}, p = d.pedido || {}, n = d.negociacion || {};
-    let stops;
-    if (Array.isArray(n.paradas) && n.paradas.length) stops = n.paradas.map((x) => parada(x.texto, x));
-    else {
-      const s0 = parada(p.origen);
-      if (!okLL(s0) && p.retiro && okLL(p.retiro)) { s0.lat = p.retiro.lat; s0.lng = p.retiro.lng; }
-      stops = [s0];
-    }
-    let dest = null, destTxt = "";
-    if (p.destino && okLL(p.destino)) { dest = { lat: p.destino.lat, lng: p.destino.lng }; destTxt = p.destino.texto || "Punto del cliente"; }
-    else if (d.clienteGps && okLL(d.clienteGps)) { dest = { lat: d.clienteGps.lat, lng: d.clienteGps.lng }; destTxt = "GPS del cliente"; }
-    else if (p.destino && p.destino.texto) destTxt = p.destino.texto;
-    const km = n.tarifa && Number(n.tarifa.km) > 0 ? Number(n.tarifa.km) : 0;
-    F = { id, stops, dest, destTxt, km, total: n.tarifa ? Number(n.tarifa.total) || 0 : 0 };
-  }
-  const nStops = () => F.stops.length;
-  const conPuntos = () => F.stops.every((s) => okLL(s));
-
-  function htmlParadas() {
-    return F.stops.map((s, i) => {
-      const est = okLL(s) ? `<span class="tf-ok">✓ Registrado</span>` : s.texto ? `<span class="tf-no">⚠ No registrado</span>` : `<span class="tf-no">Pendiente</span>`;
-      return `<div class="tf-fila"><span class="tf-lbl">${i === 0 ? "🏪 Origen" : "➕ Parada " + i}</span>
-        <input data-tf="parada" data-i="${i}" list="tfNeg" maxlength="80" autocomplete="off" placeholder="Nombre del negocio" value="${esc(s.texto)}">
-        ${est}${i > 0 ? `<button type="button" class="tf-x" data-tf="quitar" data-i="${i}" aria-label="Quitar parada">✕</button>` : ""}</div>`;
-    }).join("");
-  }
-  function htmlResumen() {
-    const c = calcular(F.km, nStops()), zona = zonaDe(F.dest);
-    if (!(F.km > 0)) return `<p class="tf-ayuda">Calcula la ruta o escribe los km para ver la tarifa sugerida.</p>`;
-    return `<div class="tf-res">
-      <div><span>Régimen</span><b>${c.regimen === "urbano" ? "Urbano (termina en 2)" : "Rural (termina en 7)"}</b></div>
-      <div><span>Distancia</span><b>${c.km.toFixed(2)} km</b></div>
-      ${zona ? `<div><span>Zona de entrega</span><b>${esc(zona)}</b></div>` : ""}
-      <div><span>Tarifa base</span><b>${dinero(c.base)}</b></div>
-      <div><span>Paradas extra (${c.extras} × ${EXTRA_PARADA})</span><b>${dinero(c.extra)}</b></div>
-      <div class="tf-tot"><span>Sugerida</span><b>${dinero(c.total)}</b></div></div>`;
-  }
-  function htmlOfertas(d) {
-    const n = d && d.negociacion;
-    if (!n) return `<p class="tf-ayuda">Aún no publicas la tarifa a los repartidores.</p>`;
-    const abiertaNeg = n.estado === "pendiente_ofertas";
-    const chip = { pendiente_ofertas: ["tf-chip on", "⏳ Pendiente de ofertas"], cerrada: ["tf-chip cer", "✅ Cerrada"], cancelada: ["tf-chip can", "🚫 Cancelada"] }[n.estado] || ["tf-chip", esc(n.estado || "")];
-    const of = Object.entries(n.ofertas || {}).filter(([, o]) => o).sort((a, b) => (a[1].ts || 0) - (b[1].ts || 0));
-    const t = n.tarifa || {};
+  function html(d) {
+    const n = d.negociacion || {}, p = d.pedido || {}, a = n.aceptada, desc = n.descartadas || {}, ff = d.facturaFinal;
+    const of = ofertasDe(d);
+    const caja = a
+      ? `<div class="tf-acu"><small>✅ Envío acordado</small><b>${dinero(a.monto)}</b><small>Con ${esc(a.nombre || "repartidor")} · ${hora(a.ts)}${ff && ff.delivery != null ? " · Delivery en factura: <b>" + dinero(ff.delivery) + "</b>" : ""}</small></div>`
+      : `<div class="tf-acu pen"><small>⏳ Negociando</small><b>${of.length ? "Desde " + dinero(of[0][1].monto) : "Sin ofertas"}</b><small>El cliente aún no acepta ninguna tarifa.</small></div>`;
     const filas = of.map(([uid, o]) => {
-      const tipo = o.tipo === "directa" ? "Acepta tu tarifa" : o.tipo === "contraoferta" ? "Contraoferta" : "Rechazó";
-      const gan = n.ganador === uid;
-      const elegida = n.elegida && n.elegida.uid === uid;
-      return `<div class="tf-of ${esc(o.tipo)}${gan ? " gan" : ""}"><div class="tf-of-i"><b>${esc(o.nombre || "Repartidor")}</b><small>${tipo} · ${hora(o.ts)}${elegida ? " · ⭐ elegida por el cliente" : ""}${gan ? " · asignado" : ""}</small></div>
-        <strong>${o.tipo === "rechazo" ? "—" : dinero(o.monto)}</strong>
-        ${abiertaNeg && o.tipo !== "rechazo" ? `<button type="button" class="tf-asig" data-tf="asignar" data-uid="${esc(uid)}">✅ Asignar</button>` : ""}</div>`;
+      const gan = a && a.uid === uid, subio = Number(o.monto) > Number(o.sugerida), no = Number(desc[uid]) >= Number(o.monto);
+      const det = [o.origen && o.origen.nombre ? "🏪 " + esc(o.origen.nombre) : "", Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", Number(o.nParadas) > 1 ? (o.nParadas - 1) + " parada(s) extra" : "", hora(o.ts)].filter(Boolean).join(" · ");
+      return `<div class="tf-of${gan ? " gan" : ""}${no && !gan ? " no" : ""}"><div class="tf-of-i"><b>${esc(o.nombre || "Repartidor")}${gan ? " ⭐" : ""}</b><small>${det}</small><small>Sugerida ${dinero(o.sugerida)}${subio ? " → <b>subió a " + dinero(o.monto) + "</b>" : " · sin subir"}${no && !gan ? " · el cliente no aceptó" : ""}</small></div><strong>${dinero(o.monto)}</strong></div>`;
     }).join("");
-    return `<div class="tf-cab"><span class="${chip[0]}">${chip[1]}</span><span>Tarifa publicada: <b>${dinero(t.total)}</b>${n.montoFinal ? ` · Final: <b>${dinero(n.montoFinal)}</b>` : ""}</span></div>
-      ${filas || `<p class="tf-ayuda">Esperando ofertas de los repartidores…</p>`}
-      ${abiertaNeg ? `<button type="button" class="tf-sec" data-tf="cancelar">🚫 Cerrar negociación</button>` : ""}`;
+    return `<h2>💰 Negociación del envío</h2>
+      <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>
+      ${caja}
+      <h3 class="tf-h3">Tarifas de los repartidores</h3>
+      ${filas || `<p class="tf-ayuda">Todavía ningún repartidor envía su tarifa.</p>`}
+      <button type="button" class="tf-sec" data-tf="cerrar">Cerrar</button>`;
   }
   function pintar() {
-    const d = sol[F.id] || {}, p = d.pedido || {};
-    const caja = $("modalCaja"); if (!caja) return;
-    caja.innerHTML = `<h2>💰 Tarifa y ofertas</h2>
-      <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>
-      <datalist id="tfNeg">${validos().map(([, l]) => `<option value="${esc(l.nombre)}"></option>`).join("")}</datalist>
-      <div id="tfParadas">${htmlParadas()}</div>
-      <button type="button" class="tf-sec" data-tf="mas">➕ Parada extra en la ruta (+${dinero(EXTRA_PARADA)})</button>
-      <div class="tf-fila"><span class="tf-lbl">📍 Entrega</span><span class="tf-dest">${F.dest ? "✓ " : "⚠ "}${esc(F.destTxt || "Sin ubicación del cliente")}</span></div>
-      <div class="tf-fila"><span class="tf-lbl">🛣 Km</span><input id="tfKm" type="number" min="0" step="0.1" inputmode="decimal" value="${F.km || ""}" placeholder="0.0"><button type="button" class="tf-sec tf-calc" data-tf="ruta">Calcular ruta</button></div>
-      <div id="tfMsg" class="tf-ayuda"></div>
-      <div id="tfResumen">${htmlResumen()}</div>
-      <div class="tf-fila"><span class="tf-lbl">💵 Publicar</span><input id="tfTotal" type="number" min="0" step="1" inputmode="numeric" value="${F.total || ""}" placeholder="Total"></div>
-      <div class="dos-botones"><button type="button" class="primario" data-tf="publicar">${d.negociacion ? "📢 Actualizar tarifa" : "📢 Publicar a repartidores"}</button><button type="button" data-tf="cerrar">Cerrar</button></div>
-      <h3 class="tf-h3">Ofertas en vivo</h3><div id="tfOfertas">${htmlOfertas(d)}</div>`;
-    caja.onclick = alClick; caja.onchange = alCambio;
-  }
-  function refrescarResumen(rellenar) {
-    const r = $("tfResumen"); if (r) r.innerHTML = htmlResumen();
-    if (rellenar && F.km > 0) { F.total = calcular(F.km, nStops()).total; const t = $("tfTotal"); if (t) t.value = F.total; }
-  }
-  const msg = (t) => { const m = $("tfMsg"); if (m) m.textContent = t || ""; };
-
-  async function calcularRuta() {
-    if (!conPuntos()) return msg("Cada negocio debe estar registrado en el mapa (➕ Agregar) para calcular la ruta exacta.");
-    if (!F.dest) return msg("El cliente aún no compartió su ubicación de entrega. Escribe los km a mano.");
-    const pts = F.stops.map((s) => ({ lat: s.lat, lng: s.lng })).concat([F.dest]);
-    const mio = ++calculando; msg("Calculando ruta por calles…");
-    let dist = 0;
-    for (let k = 0; k < pts.length - 1; k++) {
-      let r = null;
-      try { r = await Ordenes.rutaCalles(pts[k], pts[k + 1]); } catch (_) {}
-      if (mio !== calculando) return;
-      if (!r || !isFinite(r.dist)) return msg("No se pudo calcular la ruta por calles. Escribe los km a mano.");
-      dist += r.dist;
-    }
-    F.km = Math.round(dist / 10) / 100;
-    const k = $("tfKm"); if (k) k.value = F.km;
-    msg(""); refrescarResumen(true);
-  }
-
-  function alCambio(e) {
-    const t = e.target; if (!F || !t) return;
-    if (t.dataset.tf === "parada") {
-      const i = +t.dataset.i; F.stops[i] = parada(t.value);
-      const b = $("tfParadas"); if (b) b.innerHTML = htmlParadas();
-      F.km = 0; const k = $("tfKm"); if (k) k.value = ""; refrescarResumen(false);
-    } else if (t.id === "tfKm") { F.km = Math.max(0, parseFloat(t.value) || 0); refrescarResumen(true); }
-    else if (t.id === "tfTotal") F.total = Math.max(0, Math.round(parseFloat(t.value) || 0));
-  }
-  function alClick(e) {
-    const b = e.target.closest("[data-tf]"); if (!b || !F) return;
-    const a = b.dataset.tf;
-    if (a === "cerrar") { abierto = null; F = null; return cerrarModal(); }
-    if (a === "mas") { F.stops.push(parada("")); const c = $("tfParadas"); if (c) c.innerHTML = htmlParadas(); F.km = 0; const k = $("tfKm"); if (k) k.value = ""; return refrescarResumen(false); }
-    if (a === "quitar") { F.stops.splice(+b.dataset.i, 1); const c = $("tfParadas"); if (c) c.innerHTML = htmlParadas(); F.km = 0; const k = $("tfKm"); if (k) k.value = ""; return refrescarResumen(false); }
-    if (a === "ruta") return calcularRuta();
-    if (a === "publicar") return publicar();
-    if (a === "asignar") return asignar(b.dataset.uid);
-    if (a === "cancelar") return cancelarNeg();
-  }
-
-  /* ---------- Escritura ---------- */
-  const TS = () => firebase.database.ServerValue.TIMESTAMP;
-  async function publicar() {
-    const d = sol[F.id] || {};
-    if (!conPuntos()) return msg("Registra el negocio de origen (y cada parada) para poder publicar.");
-    if (!(F.km > 0)) return msg("Falta la distancia en km.");
-    const total = Math.max(0, Math.round(parseFloat(($("tfTotal") || {}).value) || F.total || 0));
-    if (!(total > 0)) return msg("Escribe el total a publicar.");
-    const hayOfertas = d.negociacion && d.negociacion.ofertas && Object.keys(d.negociacion.ofertas).length;
-    if (hayOfertas && !confirm("Actualizar la tarifa borra las ofertas recibidas. ¿Continuar?")) return;
-    const c = calcular(F.km, nStops());
-    const neg = {
-      estado: "pendiente_ofertas", ts: TS(),
-      tarifa: { km: c.km, regimen: c.regimen, base: c.base, paradas: c.paradas, extra: c.extra, total },
-      origen: { nombre: F.stops[0].texto.slice(0, 80), lat: F.stops[0].lat, lng: F.stops[0].lng },
-      paradas: F.stops.map((s) => ({ texto: s.texto.slice(0, 80), lat: s.lat, lng: s.lng }))
-    };
-    const z = zonaDe(F.dest); if (z) neg.tarifa.zona = z.slice(0, 60);
-    if (F.stops[0].lid) neg.origen.lid = F.stops[0].lid;
-    try { await db.ref(RAIZ + "/" + F.id + "/negociacion").set(neg); toast("Tarifa publicada ✓ Los repartidores ya pueden ofertar."); }
-    catch (e) { msg("No se pudo publicar" + (e && e.code === "PERMISSION_DENIED" ? ": faltan las reglas de Firebase (sube database_rules.json)." : ".")); }
-  }
-  async function asignar(uid) {
-    const d = sol[F.id] || {}, n = d.negociacion || {}, o = (n.ofertas || {})[uid];
-    if (!o || o.tipo === "rechazo") return;
-    const nombre = o.nombre || "Repartidor", monto = Math.round(Number(o.monto) || 0);
-    if (!confirm(`¿Asignar a ${nombre} por ${dinero(monto)}?`)) return;
-    const base = RAIZ + "/" + F.id + "/", upd = {};
-    upd[base + "negociacion/estado"] = "cerrada"; upd[base + "negociacion/ganador"] = uid; upd[base + "negociacion/montoFinal"] = monto; upd[base + "negociacion/cerradaTs"] = TS();
-    upd[base + "repartidorUid"] = uid; upd[base + "repartidorNombre"] = String(nombre).slice(0, 60); upd[base + "estado"] = "atendido"; upd[base + "atendidoTs"] = TS();
-    try { await db.ref().update(upd); toast(`Asignado a ${nombre} por ${dinero(monto)} ✓`); abierto = null; F = null; cerrarModal(); }
-    catch (e) { msg("No se pudo asignar" + (e && e.code === "PERMISSION_DENIED" ? ": revisa las reglas de Firebase." : ".")); }
-  }
-  async function cancelarNeg() {
-    if (!confirm("¿Cerrar la negociación sin asignar a nadie?")) return;
-    try { await db.ref(RAIZ + "/" + F.id + "/negociacion/estado").set("cancelada"); toast("Negociación cerrada."); } catch (_) { msg("No se pudo cerrar."); }
-  }
-
-  /* ---------- Tiempo real ---------- */
-  function alDatos() {
-    if (!abierto || !F || F.id !== abierto) return;
-    const o = $("tfOfertas"); if (o) o.innerHTML = htmlOfertas(sol[abierto] || {});
+    const c = document.getElementById("modalCaja"); if (!c || abierto == null) return;
+    const d = sol[abierto]; if (!d) return;
+    c.innerHTML = html(d);
+    c.onclick = (e) => { const b = e.target.closest("[data-tf]"); if (b && b.dataset.tf === "cerrar") { abierto = null; cerrarModal(); } };
   }
   function iniciar() {
     detener();
-    refSol = db.ref(RAIZ).limitToLast(60);
-    refSol.on("value", (s) => { sol = s.val() || {}; alDatos(); }, () => { sol = {}; });
-    refZon = db.ref("zonas");
-    refZon.on("value", (s) => { zonas = s.val() || {}; }, () => { zonas = {}; });
+    ref = db.ref(RAIZ).limitToLast(60);
+    ref.on("value", (s) => { sol = s.val() || {}; if (abierto != null) pintar(); }, () => { sol = {}; });
   }
-  function detener() {
-    if (refSol) { refSol.off(); refSol = null; }
-    if (refZon) { refZon.off(); refZon = null; }
-    sol = {}; zonas = {};
-  }
+  function detener() { if (ref) { ref.off(); ref = null; } sol = {}; }
   try { APP.auth().onAuthStateChanged((u) => { if (u) iniciar(); else detener(); }); } catch (_) {}
 
-  /* ---------- API para el panel de Solicitudes ---------- */
   function abrir(id) {
     if (!sol[id]) return toast("Solicitud no disponible todavía.");
-    abierto = id; iniciarForma(id); modal("");
-    pintar();
-    if (F.km <= 0 && conPuntos() && F.dest) calcularRuta();
+    abierto = id; modal(""); pintar();
   }
-  function boton(id) {
-    const b = document.createElement("button");
-    const d = sol[id] || {}, n = d.negociacion, cant = n && n.ofertas ? Object.keys(n.ofertas).length : 0;
-    b.type = "button"; b.className = "tf-btn"; b.title = "Tarifa y ofertas";
-    b.textContent = n && n.estado === "pendiente_ofertas" ? "💰 Ofertas" + (cant ? " (" + cant + ")" : "") : "💰 Tarifa";
+  function boton(id, d) {
+    const b = document.createElement("button"), a = d && d.negociacion && d.negociacion.aceptada, n = ofertasDe(d).length;
+    b.type = "button"; b.className = "tf-btn"; b.title = "Negociación del envío";
+    b.textContent = a ? "💰 Envío " + dinero(a.monto) : "💰 Ofertas (" + n + ")";
     b.addEventListener("click", () => abrir(id));
     return b;
   }
   function resumen(d) {
-    const n = d && d.negociacion; if (!n || n.estado !== "pendiente_ofertas") return "";
-    const cant = n.ofertas ? Object.keys(n.ofertas).length : 0;
-    return "💰 Tarifa " + dinero(n.tarifa && n.tarifa.total) + " · " + (cant ? cant + (cant === 1 ? " oferta" : " ofertas") : "esperando ofertas");
+    const n = d && d.negociacion; if (!n) return "";
+    if (n.aceptada) return "💰 Envío acordado " + dinero(n.aceptada.monto) + " · " + (n.aceptada.nombre || "repartidor");
+    const of = ofertasDe(d);
+    return of.length ? "💰 " + of.length + (of.length === 1 ? " oferta" : " ofertas") + " · desde " + dinero(of[0][1].monto) : "";
   }
-  return { abrir, boton, resumen, calcular, tarifaBase };
+  return { abrir, boton, resumen };
 })();

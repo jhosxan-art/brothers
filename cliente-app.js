@@ -336,39 +336,60 @@
     limpiarMapa();
   }
 
-  /* ---------- Negociación de tarifa (tipo inDriver): tarifa publicada + ofertas de repartidores en vivo ---------- */
+  /* ---------- Negociación de tarifa: el cliente ve las tarifas de todos los repartidores y elige ---------- */
   function pintarNegociacion(d, asignadoYa) {
-    const n = d.negociacion, activa = !!n && n.estado === "pendiente_ofertas" && !!n.tarifa && !asignadoYa;
+    const n = d.negociacion, ref = $("avisoEspera");
+    const ofertas = n && n.ofertas && typeof n.ofertas === "object" ? Object.entries(n.ofertas) : [];
+    const acep = n && n.aceptada && typeof n.aceptada === "object" ? n.aceptada : null;
+    const activa = !!acep || ofertas.length > 0;
     let c = $("negCliente");
     if (!c) {
-      if (!activa) return;
+      if (!activa || !ref) return;
       c = document.createElement("div"); c.id = "negCliente"; c.className = "neg-cliente";
-      const ref = $("avisoEspera"); ref.parentNode.insertBefore(c, ref);
+      ref.parentNode.insertBefore(c, ref);
     }
     c.classList.toggle("oculto", !activa);
     if (!activa) { c.textContent = ""; return; }
-    const t = n.tarifa, mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    const mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    const money = (x) => "C$ " + Math.round(Number(x) || 0);
     c.textContent = "";
-    c.appendChild(mk("small", "", "💰 Tarifa de tu pedido"));
-    c.appendChild(mk("b", "neg-total", "C$ " + Math.round(t.total)));
-    const det = [Number(t.km).toFixed(1) + " km", t.paradas > 1 ? (t.paradas - 1) + " parada(s) extra" : ""].filter(Boolean).join(" · ");
-    c.appendChild(mk("small", "", det));
-    const of = Object.entries(n.ofertas || {}).filter(([, o]) => o && o.tipo !== "rechazo" && Number(o.monto) > 0).sort((a, b) => a[1].monto - b[1].monto);
-    if (!of.length) { c.appendChild(mk("small", "neg-esp", "Esperando ofertas de los repartidores…")); return; }
-    c.appendChild(mk("small", "neg-tit", "Ofertas recibidas"));
-    of.forEach(([uid, o]) => {
+    if (acep) {
+      c.classList.add("neg-ok");
+      c.appendChild(mk("small", "", "✅ Envío acordado"));
+      c.appendChild(mk("b", "neg-total", money(acep.monto)));
+      c.appendChild(mk("small", "", (acep.nombre ? "Con " + String(acep.nombre).slice(0, 40) + ". " : "") + (asignadoYa ? "Tu repartidor ya está en camino." : "Esperando que tu repartidor confirme…")));
+      return;
+    }
+    c.classList.remove("neg-ok");
+    const desc = n.descartadas && typeof n.descartadas === "object" ? n.descartadas : {};
+    const vivas = ofertas.filter(([uid, o]) => o && Number(o.monto) > 0 && Number(o.monto) > (Number(desc[uid]) || 0)).sort((a, b) => a[1].monto - b[1].monto);
+    c.appendChild(mk("small", "", "💰 Tarifa de tu envío"));
+    if (!vivas.length) { c.appendChild(mk("small", "neg-esp", "No hay ofertas disponibles ahora. Esperando nuevas tarifas de los repartidores…")); return; }
+    c.appendChild(mk("b", "neg-total", "Desde " + money(vivas[0][1].monto)));
+    c.appendChild(mk("small", "neg-tit", "Elige con qué repartidor quieres tu pedido"));
+    vivas.forEach(([uid, o]) => {
       const fila = mk("div", "neg-of"), info = mk("div", "neg-of-i");
       info.appendChild(mk("b", "", String(o.nombre || "Repartidor").slice(0, 40)));
-      info.appendChild(mk("small", "", o.tipo === "directa" ? "Acepta la tarifa" : "Contraoferta"));
-      fila.appendChild(info); fila.appendChild(mk("strong", "", "C$ " + Math.round(o.monto)));
-      const elegida = n.elegida && n.elegida.uid === uid;
-      const b = mk("button", "", elegida ? "⭐ Elegida" : "Elegir"); b.type = "button"; b.disabled = elegida;
-      b.addEventListener("click", () => {
-        b.disabled = true;
-        refSolicitud.child("negociacion/elegida").set({ uid, monto: Math.round(o.monto), ts: firebase.database.ServerValue.TIMESTAMP })
-          .catch(() => { b.disabled = false; avisoSistema("No se pudo elegir esa oferta. Intenta de nuevo."); });
+      const sub = [Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", Number(o.nParadas) > 1 ? (o.nParadas - 1) + " parada(s) extra" : "", Number(o.monto) > Number(o.sugerida) ? "Sugerida " + money(o.sugerida) + " → subió" : "Tarifa sugerida"].filter(Boolean).join(" · ");
+      info.appendChild(mk("small", "", sub));
+      fila.appendChild(info);
+      fila.appendChild(mk("strong", "", money(o.monto)));
+      const bt = mk("div", "neg-bt");
+      const ok = mk("button", "neg-si", "Aceptar"); ok.type = "button";
+      ok.addEventListener("click", () => {
+        if (!window.confirm("¿Aceptar " + money(o.monto) + " con " + String(o.nombre || "este repartidor").slice(0, 40) + "?")) return;
+        ok.disabled = true;
+        refSolicitud.child("negociacion/aceptada").set({ uid, nombre: String(o.nombre || "Repartidor").slice(0, 60), monto: Math.round(o.monto), ts: firebase.database.ServerValue.TIMESTAMP })
+          .catch(() => { ok.disabled = false; avisoSistema("No se pudo aceptar esa oferta. Intenta de nuevo."); });
       });
-      fila.appendChild(b); c.appendChild(fila);
+      const no = mk("button", "neg-no", "No acepto"); no.type = "button";
+      no.addEventListener("click", () => {
+        no.disabled = true;
+        refSolicitud.child("negociacion/descartadas/" + uid).set(Math.round(o.monto))
+          .catch(() => { no.disabled = false; avisoSistema("No se pudo descartar esa oferta."); });
+      });
+      bt.appendChild(ok); bt.appendChild(no); fila.appendChild(bt);
+      c.appendChild(fila);
     });
   }
 
