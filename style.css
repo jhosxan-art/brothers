@@ -2174,3 +2174,6 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 #modalCaja .tf-prop { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #modalCaja .tf-prop .tf-precio { flex: 1 1 120px; width: auto; }
 #modalCaja .tf-prop .tf-asig { flex: 1 1 150px; width: auto; margin: 0; }
+
+/* Lista de iconos de negocio: más iconos, con desplazamiento */
+.icon-grid { max-height: 236px; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 2px; }

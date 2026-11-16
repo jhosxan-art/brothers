@@ -743,12 +743,28 @@ $("btnNegocio").onclick = () => {
 };
 /* FASE 3 · La gestión de negocios se hace solo desde el mapa (botón ➕ Agregar). */
 
+/* Iconos extra de restaurantes y comida para elegir al crear un negocio (se suman a Lugares.ICONOS) */
+const ICONOS_RESTAURANTE = [
+  "🍽️", "🍴", "🥢", "👨‍🍳", "🔥",
+  "🍔", "🍟", "🌭", "🍕", "🥪", "🌮", "🌯", "🥙", "🧆",
+  "🍗", "🍖", "🥩", "🥓", "🍤", "🦐", "🦞", "🦀", "🐟", "🍣",
+  "🍱", "🥟", "🥡", "🍜", "🍝", "🍛", "🍲", "🥘", "🍚", "🍙",
+  "🥗", "🍳", "🥞", "🧇", "🥚", "🧀", "🍞", "🥐", "🥖", "🥨", "🥯", "🍿",
+  "🍦", "🍧", "🍨", "🍩", "🍪", "🎂", "🍰", "🧁", "🥧", "🍫", "🍬", "🍮",
+  "☕", "🍵", "🧋", "🥤", "🧃", "🍹", "🍸", "🍺", "🍻", "🥂", "🍷",
+  "🍉", "🍓", "🍍", "🥑", "🌽", "🥕"
+];
+function iconosNegocio(actual) {
+  const v = new Set([...(typeof Lugares !== "undefined" && Array.isArray(Lugares.ICONOS) ? Lugares.ICONOS : []), ...ICONOS_RESTAURANTE]);
+  if (actual) v.add(actual);
+  return [...v];
+}
 function formNegocio(d, id) {
   let icono = d.icono || "🏪";
   modal(`<h2>${id ? "✏️ Editar negocio" : "➕ Nuevo negocio"}</h2>
     <label>Nombre<input id="nNombre" maxlength="60" value="${esc(d.nombre || "")}" placeholder="Ej. Pizzería La Esquina"></label>
     <label>Dirección o referencia (opcional)<input id="nDir" maxlength="120" value="${esc(d.dir || "")}" placeholder="Frente al parque…"></label>
-    <div><small>Icono que verán los repartidores</small><div class="icon-grid">${Lugares.ICONOS.map((i) => `<button type="button" class="ic${i === icono ? " on" : ""}" data-ic="${i}">${i}</button>`).join("")}</div></div>
+    <div><small>Icono que verán los repartidores</small><div class="icon-grid">${iconosNegocio(icono).map((i) => `<button type="button" class="ic${i === icono ? " on" : ""}" data-ic="${i}">${i}</button>`).join("")}</div></div>
     <div class="dos-botones"><label>Latitud<input id="nLat" type="number" step="0.000001" value="${d.lat}"></label><label>Longitud<input id="nLng" type="number" step="0.000001" value="${d.lng}"></label></div>
     <small>Para afinar la ubicación escribe las coordenadas (6 decimales ≈ 10 cm).</small>
     <button id="nOk" class="primario" type="button">Guardar</button><button id="nNo" class="oscuro" type="button">Cancelar</button>`);
