@@ -2177,3 +2177,82 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 
 /* Lista de iconos de negocio: más iconos, con desplazamiento */
 .icon-grid { max-height: 236px; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-right: 2px; }
+
+/* ============================================================
+   BURBUJA DE INFORMACIÓN (mapa): la X es un círculo exacto y todo el círculo cierra la tarjeta
+   ============================================================ */
+.leaflet-container a.leaflet-popup-close-button {
+  top: 8px; right: 8px; width: 32px; height: 32px; padding: 0; border-radius: 50%;
+  background: #EEF1F4; color: #3C4043; display: grid; place-items: center;
+  font: 700 18px/1 system-ui, sans-serif; text-align: center; text-indent: 0; box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+.leaflet-container a.leaflet-popup-close-button span { display: block; line-height: 1; pointer-events: none; }
+.leaflet-container a.leaflet-popup-close-button:hover, .leaflet-container a.leaflet-popup-close-button:active { background: #DDE2E7; color: #0E141B; }
+.leaflet-popup-content { margin: 14px 46px 14px 14px; }
+.pop-neg { min-width: 0; }
+.pop-neg strong { overflow-wrap: anywhere; }
+
+/* ============================================================
+   SOLICITUDES · estilo lista de issues de GitHub
+   Pestañas con contador, buscador, filas con ícono de estado, etiquetas y acciones compactas.
+   ============================================================ */
+#panelSolicitudes .sa-cab-sol h2 { font-size: 18px; }
+#panelSolicitudes .sa-buscar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border: 1px solid #D0D7DE; border-radius: 10px; background: #F6F8FA; }
+#panelSolicitudes .sa-buscar:focus-within { border-color: #0969DA; background: #fff; box-shadow: 0 0 0 3px rgba(9, 105, 218, .15); }
+#panelSolicitudes .sa-buscar input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; font-size: 16px; outline: 0; box-shadow: none; }
+#panelSolicitudes #saFiltros { display: flex; flex-wrap: nowrap; gap: 0; overflow-x: auto; border-bottom: 1px solid #D0D7DE; scrollbar-width: none; }
+#panelSolicitudes #saFiltros::-webkit-scrollbar { display: none; }
+#panelSolicitudes #saFiltros button { flex: none; width: auto; height: 44px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #57606A; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: visible; }
+#panelSolicitudes #saFiltros button.on { background: transparent; color: #1F2328; font-weight: 800; border-bottom-color: #FD8C73; }
+#panelSolicitudes .sa-n { display: inline-block; min-width: 20px; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: #AFB8C133; color: #1F2328; font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; }
+#panelSolicitudes .sa-herr-det { border: 1px solid #D0D7DE; border-radius: 10px; background: #fff; }
+#panelSolicitudes .sa-herr-det > summary { padding: 10px 12px; font-size: 14px; font-weight: 700; cursor: pointer; list-style: none; }
+#panelSolicitudes .sa-herr-det > summary::-webkit-details-marker { display: none; }
+#panelSolicitudes .sa-herr-det[open] > summary { border-bottom: 1px solid #D0D7DE; }
+#panelSolicitudes .sa-herr-det > .sa-herr { border: 0; border-radius: 0 0 10px 10px; }
+
+#panelSolicitudes #saLista { display: block; border: 1px solid #D0D7DE; border-radius: 10px; background: #fff; overflow: hidden; }
+#panelSolicitudes #saLista .sa-vacio { padding: 28px 16px; text-align: center; color: #57606A; }
+#panelSolicitudes #saLista .sa-item { gap: 10px; padding: 12px; border: 0; border-bottom: 1px solid #D8DEE4; border-radius: 0; box-shadow: none; background: #fff; }
+#panelSolicitudes #saLista .sa-item:last-child { border-bottom: 0; }
+#panelSolicitudes #saLista .sa-item.nuevo { background: #F5FAFF; }
+#panelSolicitudes #saLista .sa-item.fin { background: #FAFBFC; }
+#panelSolicitudes #saLista .sa-item:hover { background: #F6F8FA; }
+#panelSolicitudes .sa-item .sa-fila { align-items: flex-start; gap: 10px; }
+#panelSolicitudes .sa-item .sa-chk { margin-top: 2px; }
+#panelSolicitudes .sa-st { flex: none; box-sizing: border-box; width: 22px; height: 22px; margin-top: 1px; border: 2px solid currentColor; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; line-height: 1; }
+#panelSolicitudes .sa-st::before { content: ""; }
+#panelSolicitudes .sa-st.nuevo { color: #1A7F37; }
+#panelSolicitudes .sa-st.nuevo::before { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+#panelSolicitudes .sa-st.atendido { color: #0969DA; }
+#panelSolicitudes .sa-st.atendido::before { width: 8px; height: 8px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; transform: rotate(45deg); box-sizing: border-box; }
+#panelSolicitudes .sa-st.entregado { color: #fff; background: #8250DF; border-color: #8250DF; }
+#panelSolicitudes .sa-st.entregado::before { content: "✓"; }
+#panelSolicitudes .sa-st.cancelado { color: #fff; background: #6E7781; border-color: #6E7781; }
+#panelSolicitudes .sa-st.cancelado::before { content: "✕"; }
+#panelSolicitudes .sa-dat { gap: 3px; }
+#panelSolicitudes .sa-dat strong { font-size: 15px; font-weight: 700; color: #1F2328; }
+#panelSolicitudes .sa-meta { font-size: 12px; font-weight: 500; color: #57606A; }
+#panelSolicitudes .sa-quiere { font-size: 13px; font-weight: 500; color: #1F2328; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+#panelSolicitudes .sa-ult { font-size: 12.5px; color: #57606A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#panelSolicitudes .sa-labels { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0; }
+#panelSolicitudes .sa-labels .sa-estado, #panelSolicitudes .sa-lbl { display: inline-flex; align-items: center; gap: 4px; width: fit-content; padding: 0 8px; border: 1px solid transparent; border-radius: 999px; font-size: 12px; font-weight: 700; line-height: 20px; }
+#panelSolicitudes .sa-labels .sa-estado { background: #DDF4FF; color: #0969DA; border-color: #54AEFF66; }
+#panelSolicitudes .sa-labels .sa-estado.wa { background: #DAFBE1; color: #1A7F37; border-color: #4AC26B66; }
+#panelSolicitudes .sa-labels .sa-estado.entregado { background: #FBEFFF; color: #8250DF; border-color: #C297FF66; }
+#panelSolicitudes .sa-labels .sa-estado.cancelado { background: #FFEBE9; color: #CF222E; border-color: #FF818266; }
+#panelSolicitudes .sa-lbl.tarifa, #panelSolicitudes .sa-lbl.estrellas { background: #FFF8C5; color: #7D4E00; border-color: #D4A72C66; }
+#panelSolicitudes #saLista .sa-acc { display: flex; flex-wrap: wrap; gap: 6px; }
+#panelSolicitudes #saLista .sa-acc button { flex: 0 1 auto; width: auto; height: 34px; padding: 0 12px; border: 1px solid #D0D7DE; border-radius: 8px; background: #F6F8FA; color: #24292F; font-size: 13px; font-weight: 600; }
+#panelSolicitudes #saLista .sa-acc button:hover { background: #EAEEF2; }
+#panelSolicitudes #saLista .sa-acc button.primario, #panelSolicitudes #saLista .sa-acc button[title="Forzar entregado"] { background: #DAFBE1; border-color: #4AC26B; color: #1A7F37; }
+#panelSolicitudes #saLista .sa-acc button.peligro, #panelSolicitudes #saLista .sa-acc button[title="Forzar cancelado"] { background: #FFEBE9; border-color: #FF8182; color: #CF222E; }
+#panelSolicitudes #saLista .sa-acc button.tf-btn { background: #FFF8C5; border-color: #D4A72C; color: #7D4E00; }
+@media (min-width: 900px) {
+  #panelSolicitudes #saLista { display: block; }
+  #panelSolicitudes #saLista .sa-item { padding: 14px 16px; }
+}
+@media (max-width: 360px) {
+  #panelSolicitudes #saLista .sa-acc button { flex: 1 1 calc(50% - 6px); }
+}

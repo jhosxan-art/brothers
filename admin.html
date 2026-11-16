@@ -410,22 +410,29 @@
       </div>
       <div id="saResumen" class="sa-resumen"></div>
       <div id="saServicio" class="sa-servicio oculto" aria-label="Repartidores con pedido"></div>
-      <div class="sa-filtros" id="saFiltros">
-        <button class="on" type="button" data-f="todos">Todos</button>
-        <button type="button" data-f="nuevo">Sin atender</button>
-        <button type="button" data-f="atendido">Con pedido</button>
-        <button type="button" data-f="finalizado">Finalizados</button>
+      <div class="sa-buscar">
+        <span aria-hidden="true">🔎</span>
+        <input id="saBuscar" type="search" placeholder="Buscar por cliente, pedido o repartidor" autocomplete="off" aria-label="Buscar solicitudes">
       </div>
-      <div class="sa-herr">
-        <div class="sa-fecha-fila">
-          <label class="sa-fecha" for="saFecha">📅 Fecha del pedido</label>
-          <input id="saFecha" type="date" aria-label="Filtrar por fecha">
-          <button id="saFechaLimpiar" type="button">Quitar</button>
+      <div class="sa-filtros" id="saFiltros" role="tablist">
+        <button class="on" type="button" data-f="todos">Todos <span class="sa-n" id="saN_todos">0</span></button>
+        <button type="button" data-f="nuevo">Sin atender <span class="sa-n" id="saN_nuevo">0</span></button>
+        <button type="button" data-f="atendido">Con pedido <span class="sa-n" id="saN_atendido">0</span></button>
+        <button type="button" data-f="finalizado">Finalizados <span class="sa-n" id="saN_finalizado">0</span></button>
+      </div>
+      <details class="sa-herr-det">
+        <summary>⚙️ Fecha y limpieza</summary>
+        <div class="sa-herr">
+          <div class="sa-fecha-fila">
+            <label class="sa-fecha" for="saFecha">📅 Fecha del pedido</label>
+            <input id="saFecha" type="date" aria-label="Filtrar por fecha">
+            <button id="saFechaLimpiar" type="button">Quitar</button>
+          </div>
+          <label class="sa-selall" for="saSelTodas"><input id="saSelTodas" type="checkbox" disabled> Seleccionar los finalizados que se ven</label>
+          <button id="saBorrarSel" class="peligro" type="button" disabled>🗑 Eliminar seleccionadas (0)</button>
+          <button id="saBorrarFecha" class="peligro" type="button" disabled>🗑 Elige una fecha para borrar por día</button>
         </div>
-        <label class="sa-selall" for="saSelTodas"><input id="saSelTodas" type="checkbox" disabled> Seleccionar los finalizados que se ven</label>
-        <button id="saBorrarSel" class="peligro" type="button" disabled>🗑 Eliminar seleccionadas (0)</button>
-        <button id="saBorrarFecha" class="peligro" type="button" disabled>🗑 Elige una fecha para borrar por día</button>
-      </div>
+      </details>
       <div id="saMsg" class="sa-msg oculto" role="status"></div>
       <div id="saLista" class="acciones"></div>
     </section>

@@ -1923,9 +1923,33 @@ function iconoLugarPlano(l, destacado) {
   const ico = escHtml(Array.from(String((l && l.icono) || "📍")).slice(0, 2).join(""));
   return L.divIcon({ className: "lg-plano-wrap", html: `<div class="lg-plano${destacado ? " dest" : ""}"><span class="lg-ic">${ico}</span><span class="lg-nom">${escHtml(String((l && l.nombre) || "").slice(0, 40))}</span></div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
 }
+/* Tarjeta de información del negocio (burbuja): 1 toque en el ícono la abre con sus opciones, otro toque la cierra.
+   La X es un círculo de 32 px (ver style.css) y toda el área del círculo cierra la tarjeta. */
+let tarjetaNeg = null, tarjetaNegId = null;
+function cerrarTarjetaNeg() { if (tarjetaNeg && mapa) mapa.closePopup(tarjetaNeg); tarjetaNegId = null; }
+function contenidoTarjetaNeg(id, l) {
+  const km = ultimaPos ? distanciaM(ultimaPos.lat, ultimaPos.lng, l.lat, l.lng) / 1000 : null;
+  const dist = km == null ? "" : km < 1 ? Math.round(km * 1000) + " m" : km.toFixed(1) + " km";
+  const caja = document.createElement("div");
+  caja.className = "pop-rep pop-neg";
+  caja.innerHTML = `<strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong>${l.dir ? `<small>📍 ${escHtml(l.dir)}</small>` : ""}${dist ? `<small>🛣 A ${dist} de ti (en línea recta)</small>` : ""}
+    <div class="acciones-fila"><button class="mini pri" type="button">🧭 Ir aquí</button></div>`;
+  caja.querySelector("button").addEventListener("click", () => { cerrarTarjetaNeg(); irALugar(lugares[id], true, true); });
+  return caja;
+}
+function alternarTarjetaNeg(id) {
+  const l = lugares[id]; if (!l || !mapa || typeof l.lat !== "number") return;
+  if (tarjetaNegId === id && tarjetaNeg && mapa.hasLayer(tarjetaNeg)) return cerrarTarjetaNeg();
+  if (!tarjetaNeg) {
+    tarjetaNeg = L.popup({ offset: [0, -14], minWidth: 210, maxWidth: 280, autoPan: true, autoPanPadding: [16, 90], closeButton: true, className: "pop-neg-caja" });
+    mapa.on("popupclose", (e) => { if (e.popup === tarjetaNeg) tarjetaNegId = null; });
+  }
+  tarjetaNegId = id;
+  tarjetaNeg.setLatLng([l.lat, l.lng]).setContent(contenidoTarjetaNeg(id, l)).openOn(mapa);
+}
 function pintarLugares() {
   if (!mapa) return;
-  Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
+  Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { if (tarjetaNegId === id) cerrarTarjetaNeg(); mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
   Object.entries(lugares).forEach(([id, l]) => {
     if (typeof l.lat !== "number") return;
     const clave = [l.nombre, l.icono].join("|");
@@ -1934,8 +1958,7 @@ function pintarLugares() {
       m = lugarMarks[id] = L.marker([l.lat, l.lng], { icon: iconoLugarPlano(l), pane: "paneLugares" });
       if (verNegociosRep) m.addTo(mapa);
       m._clave = clave;
-      m.bindPopup(() => `<div class="pop-rep"><strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong>${l.dir ? `<small>${escHtml(l.dir)}</small>` : ""}
-        <div class="acciones-fila"><button class="mini pri" data-ir="${escHtml(id)}" type="button">🧭 Ir aquí</button></div></div>`, { offset: [0, -14], minWidth: 200 });
+      m.on("click", (ev) => { L.DomEvent.stopPropagation(ev); alternarTarjetaNeg(id); });
     } else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(iconoLugarPlano(l)); m._clave = clave; } }
   });
 }

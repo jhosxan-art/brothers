@@ -1453,7 +1453,7 @@ const CortinasEquipo = (() => {
 const SolicitudesAdmin = (() => {
   const RAIZ = "solicitudes_entrantes", RAIZ_FOTOS = "solicitudes_fotos", RAIZ_CLIENTES = "clientes", PANEL = "panelSolicitudes";
   const g = (id) => document.getElementById(id);
-  let consulta = null, lista = {}, filtro = "todos", fecha = "", visorId = null, consultaMsgs = null, ultDia = null, origenVisor = "";
+  let consulta = null, lista = {}, filtro = "todos", fecha = "", texto = "", visorId = null, consultaMsgs = null, ultDia = null, origenVisor = "";
   let refUbic = null, ubic = {};
   let refLeidos = null, refUltimaDir = null, lect = {}, ultimaDirCliente = null;
   let mapa = null, marcaCli = null, marcaRep = null, linea = null, encuadrado = false;
@@ -1510,6 +1510,15 @@ const SolicitudesAdmin = (() => {
     if (est === "atendido") { const c = el("span", "sa-estado wa"); c.appendChild(iconoWA()); c.appendChild(document.createTextNode(" Con pedido · " + nom)); return c; }
     if (est === "entregado") return el("span", "sa-estado entregado", "✅ Entregado" + (d.repartidorNombre ? " · " + nom : "") + (d.forzadoPorAdmin ? " · forzado" : ""));
     return el("span", "sa-estado cancelado", "🚫 Cancelado" + (d.motivoCancelacion === "cliente" ? " · lo decidió el cliente" : "") + (d.forzadoPorAdmin ? " · forzado" : ""));
+  }
+  const nrm = (x) => String(x == null ? "" : x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  function hace(ts) {
+    const t = Number(ts); if (!t) return "";
+    const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (m < 1) return "ahora";
+    if (m < 60) return "hace " + m + " min";
+    const h = Math.round(m / 60); if (h < 24) return "hace " + h + " h";
+    const dd = Math.round(h / 24); return "hace " + dd + (dd === 1 ? " día" : " días");
   }
   const estrellas = (n) => "★".repeat(n) + "☆".repeat(5 - n);
   const valoracion = (d) => { const n = Number(d && d.valoracion && d.valoracion.estrellas); return n >= 1 && n <= 5 ? Math.round(n) : 0; };
@@ -1625,18 +1634,26 @@ const SolicitudesAdmin = (() => {
     ids.forEach((u) => { const x = el("span", "sa-estado wa"); x.appendChild(iconoWA()); x.appendChild(document.createTextNode(" " + cortar(ubic[u].usuario || "Repartidor", 24) + " · con pedido")); c.appendChild(x); });
     c.classList.toggle("oculto", !ids.length);
   }
+  function coincide(k) {
+    const q = nrm(texto).trim(); if (!q) return true;
+    const d = lista[k], p = d.pedido || {};
+    return nrm([d.nombre, p.quiere, p.origen, d.repartidorNombre, k, d.ultimoMensaje].join(" ")).includes(q);
+  }
+  function baseKeys() {
+    return Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object" && (!fecha || diaDe(lista[k]) === fecha) && coincide(k));
+  }
   function visibles() {
-    return Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object")
+    return baseKeys()
       .filter((k) => {
         const e = estadoDe(lista[k]);
         if (filtro === "nuevo" && e !== "nuevo") return false;
         if (filtro === "atendido" && e !== "atendido") return false;
         if (filtro === "finalizado" && !fin(lista[k])) return false;
-        return !fecha || diaDe(lista[k]) === fecha;
+        return true;
       })
       .sort((a, b) => (Number(lista[b].ts) || 0) - (Number(lista[a].ts) || 0));
   }
-  
+
   function pintar(error) {
     const caja = g("saLista"); if (!caja) return;
     caja.textContent = "";
@@ -1646,6 +1663,8 @@ const SolicitudesAdmin = (() => {
     if (badge) { badge.textContent = String(sinAtender); badge.classList.toggle("oculto", !sinAtender); }
     const vals = todas.map((k) => valoracion(lista[k])).filter(Boolean);
     g("saResumen").textContent = vals.length ? "⭐ " + (vals.reduce((t, n) => t + n, 0) / vals.length).toFixed(1) + " de promedio · " + vals.length + " valoración" + (vals.length > 1 ? "es" : "") : "";
+    const bk = baseKeys(), cnt = { todos: bk.length, nuevo: bk.filter((k) => estadoDe(lista[k]) === "nuevo").length, atendido: bk.filter((k) => estadoDe(lista[k]) === "atendido").length, finalizado: bk.filter((k) => fin(lista[k])).length };
+    Object.keys(cnt).forEach((c) => { const n = g("saN_" + c); if (n) n.textContent = String(cnt[c]); });
     if (error) { caja.appendChild(el("div", "sa-vacio", error)); pintarHerramientas([]); return; }
     
     const vis = visibles();
@@ -1659,7 +1678,7 @@ const SolicitudesAdmin = (() => {
     vis.forEach((k) => {
       const d = lista[k], est = estadoDe(d), p = d.pedido || {};
       const finalizada = fin(d);
-      const f = el("div", "sa-item" + (est === "nuevo" ? " nuevo" : est === "atendido" ? " activo" : "") + (finalizada ? " fin" : ""));
+      const f = el("article", "sa-item " + est + (finalizada ? " fin" : ""));
       const fila = el("div", "sa-fila");
       if (finalizada) {
         const c = el("input", "sa-chk");
@@ -1668,16 +1687,24 @@ const SolicitudesAdmin = (() => {
         c.addEventListener("change", () => { if (c.checked) sel.add(k); else sel.delete(k); pintarHerramientas(visibles()); });
         fila.appendChild(c);
       }
+      const ico = el("span", "sa-st " + est);
+      ico.title = est === "nuevo" ? "Sin atender" : est === "atendido" ? "Con pedido" : est === "entregado" ? "Entregado" : "Cancelado";
+      ico.setAttribute("role", "img"); ico.setAttribute("aria-label", ico.title);
+      fila.appendChild(ico);
       const nombre = cortar(d.nombre || "Cliente", 40);
-      fila.appendChild(el("span", "sa-av", nombre.charAt(0).toUpperCase()));
       const dat = el("div", "sa-dat");
       dat.appendChild(el("strong", "", nombre));
-      dat.appendChild(chipEstado(d));
-      if (p.quiere) dat.appendChild(el("small", "", "🛍️ " + cortar(p.quiere, 70) + (p.origen ? " · de " + cortar(p.origen, 40) : "")));
-      if (typeof TarifaAdmin !== "undefined" && TarifaAdmin.resumen(d)) dat.appendChild(el("small", "sa-tarifa", TarifaAdmin.resumen(d)));
+      const meta = ["#" + String(k).slice(-5).toUpperCase(), (finalizada ? "cerrada " : "abierta ") + hace(d.creado || d.ts), d.repartidorNombre ? "🛵 " + cortar(d.repartidorNombre, 24) : ""].filter(Boolean).join(" · ");
+      dat.appendChild(el("span", "sa-meta", meta));
+      if (p.quiere) dat.appendChild(el("span", "sa-quiere", "🛍️ " + cortar(p.quiere, 90) + (p.origen ? " · de " + cortar(p.origen, 40) : "")));
+      const etiquetas = el("div", "sa-labels");
+      etiquetas.appendChild(chipEstado(d));
+      const tf = typeof TarifaAdmin !== "undefined" ? TarifaAdmin.resumen(d) : "";
+      if (tf) etiquetas.appendChild(el("span", "sa-lbl tarifa", tf));
+      if (valoracion(d)) etiquetas.appendChild(el("span", "sa-lbl estrellas", estrellas(valoracion(d))));
+      dat.appendChild(etiquetas);
       const ult = d.ultimoMensaje ? (d.ultimoDe === "cliente" ? "Cliente: " : d.ultimoDe === "repartidor" ? "Repartidor: " : "") + String(d.ultimoMensaje) : "Sin mensajes todavía";
-      dat.appendChild(el("small", "", ult + (d.ts ? " · " + horaDe(d.ts) : "")));
-      if (valoracion(d)) dat.appendChild(el("small", "sa-estrellas", estrellas(valoracion(d))));
+      dat.appendChild(el("span", "sa-ult", "💬 " + ult + (d.ts ? " · " + horaDe(d.ts) : "")));
       fila.appendChild(dat);
       f.appendChild(fila);
 
@@ -2044,6 +2071,7 @@ const SolicitudesAdmin = (() => {
     });
     fecha = hoyClave(); g("saFecha").value = fecha;   // por defecto: pedidos de hoy
     g("saFecha").addEventListener("change", () => { fecha = g("saFecha").value || ""; pintar(); });
+    const bq = g("saBuscar"); if (bq) bq.addEventListener("input", () => { texto = bq.value; pintar(); });
     const cort = g("saCortina");
     if (cort) cort.addEventListener("click", () => { cortinaAbierta = !cortinaAbierta; try { localStorage.setItem(CLAVE_CORTINA, cortinaAbierta ? "1" : "0"); } catch (_) {} aplicarCortina(); });
     aplicarCortina();
