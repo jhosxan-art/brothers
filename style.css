@@ -2201,7 +2201,7 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 #panelSolicitudes .sa-buscar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border: 1px solid #D0D7DE; border-radius: 10px; background: #F6F8FA; }
 #panelSolicitudes .sa-buscar:focus-within { border-color: #0969DA; background: #fff; box-shadow: 0 0 0 3px rgba(9, 105, 218, .15); }
 #panelSolicitudes .sa-buscar input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; font-size: 16px; outline: 0; box-shadow: none; }
-#panelSolicitudes #saFiltros { display: flex; flex-wrap: nowrap; gap: 0; overflow-x: auto; border-bottom: 1px solid #D0D7DE; scrollbar-width: none; }
+#panelSolicitudes #saFiltros { display: flex; flex-wrap: nowrap; gap: 0; min-height: 46px; overflow-x: auto; border-bottom: 1px solid #D0D7DE; scrollbar-width: none; }
 #panelSolicitudes #saFiltros::-webkit-scrollbar { display: none; }
 #panelSolicitudes #saFiltros button { flex: none; width: auto; height: 44px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #57606A; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: visible; }
 #panelSolicitudes #saFiltros button.on { background: transparent; color: #1F2328; font-weight: 800; border-bottom-color: #FD8C73; }
@@ -2212,7 +2212,10 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 #panelSolicitudes .sa-herr-det[open] > summary { border-bottom: 1px solid #D0D7DE; }
 #panelSolicitudes .sa-herr-det > .sa-herr { border: 0; border-radius: 0 0 10px 10px; }
 
-#panelSolicitudes #saLista { display: block; border: 1px solid #D0D7DE; border-radius: 10px; background: #fff; overflow: hidden; }
+/* OJO: sin overflow:hidden en la lista; dentro de la cuadrícula del panel la recorta y no deja bajar. Las esquinas se redondean en la primera y la última fila. */
+#panelSolicitudes #saLista { display: block; border: 1px solid #D0D7DE; border-radius: 10px; background: #fff; overflow: visible; min-height: min-content; height: auto; }
+#panelSolicitudes #saLista > :first-child { border-top-left-radius: 9px; border-top-right-radius: 9px; }
+#panelSolicitudes #saLista > :last-child { border-bottom-left-radius: 9px; border-bottom-right-radius: 9px; }
 #panelSolicitudes #saLista .sa-vacio { padding: 28px 16px; text-align: center; color: #57606A; }
 #panelSolicitudes #saLista .sa-item { gap: 10px; padding: 12px; border: 0; border-bottom: 1px solid #D8DEE4; border-radius: 0; box-shadow: none; background: #fff; }
 #panelSolicitudes #saLista .sa-item:last-child { border-bottom: 0; }
