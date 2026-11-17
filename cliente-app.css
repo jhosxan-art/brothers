@@ -795,3 +795,7 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
 .neg-bt .neg-si { background: #E8F6EE; border-color: #1E9B5A; }
 .neg-bt .neg-no { background: #FDECEB; border-color: #E5322D; color: #8E1B17; }
 .neg-bt button:disabled { opacity: .5; }
+
+/* Aviso breve de tarifa aceptada (se quita solo, sin ocupar pantalla) */
+.toast-neg { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 12px); max-width: calc(100% - 32px); padding: 8px 14px; border-radius: 999px; background: rgba(17, 27, 33, .92); color: #fff; font-size: 13px; font-weight: 600; text-align: center; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 50; }
+.toast-neg.ver { opacity: 1; transform: translate(-50%, 0); }

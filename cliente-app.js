@@ -337,12 +337,24 @@
   }
 
   /* ---------- Negociación de tarifa: el cliente ve las tarifas de todos los repartidores y elige ---------- */
+  let negAcepVisto = null;
+  function toastNeg(texto) {
+    let t = $("toastNeg");
+    if (!t) { t = document.createElement("div"); t.id = "toastNeg"; t.className = "toast-neg"; t.setAttribute("role", "status"); document.body.appendChild(t); }
+    t.textContent = texto; t.classList.add("ver");
+    clearTimeout(toastNeg._t); toastNeg._t = setTimeout(() => t.classList.remove("ver"), 3500);
+  }
   function pintarNegociacion(d, asignadoYa) {
     const n = d.negociacion, ref = $("avisoEspera");
     const ofertas = n && n.ofertas && typeof n.ofertas === "object" ? Object.entries(n.ofertas) : [];
     const fij = n && n.fijo && Number(n.fijo.monto) > 0 ? n.fijo : null;
     const acep = n && n.aceptada && typeof n.aceptada === "object" ? n.aceptada : fij;
-    const activa = !!acep || ofertas.length > 0;
+    /* Tarifa aceptada: NO se deja nada en pantalla (como WhatsApp). Solo un aviso breve que se quita solo. */
+    const claveAcep = acep ? String(acep.uid || "fijo") + ":" + Math.round(Number(acep.monto) || 0) : "";
+    if (negAcepVisto === null) negAcepVisto = claveAcep;
+    else if (claveAcep && claveAcep !== negAcepVisto) { negAcepVisto = claveAcep; toastNeg("✅ Tarifa aceptada · C$ " + Math.round(Number(acep.monto) || 0)); }
+    else if (!claveAcep) negAcepVisto = "";
+    const activa = !acep && ofertas.length > 0;
     let c = $("negCliente");
     if (!c) {
       if (!activa || !ref) return;
@@ -354,14 +366,6 @@
     const mk = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
     const money = (x) => "C$ " + Math.round(Number(x) || 0);
     c.textContent = "";
-    if (acep) {
-      c.classList.add("neg-ok");
-      c.appendChild(mk("small", "", "✅ Envío acordado"));
-      c.appendChild(mk("b", "neg-total", money(acep.monto)));
-      c.appendChild(mk("small", "", (acep.nombre ? "Con " + String(acep.nombre).slice(0, 40) + ". " : "") + (asignadoYa ? "Tu repartidor ya está en camino." : acep.uid === "central" ? "La central te asignará un repartidor con esta tarifa…" : acep === fij ? "Buscando otro repartidor con esta misma tarifa…" : "Esperando que tu repartidor confirme…")));
-      return;
-    }
-    c.classList.remove("neg-ok");
     const desc = n.descartadas && typeof n.descartadas === "object" ? n.descartadas : {};
     const vivas = ofertas.filter(([uid, o]) => o && Number(o.monto) > 0 && Number(o.monto) !== Number(desc[uid])).sort((a, b) => a[1].monto - b[1].monto);
     c.appendChild(mk("small", "", "💰 Tarifa de tu envío"));
@@ -1880,11 +1884,12 @@
       detenerGps();
       ultimoDe = null;
       $("vChat").classList.add("cerrado");
+      { const nc = $("negCliente"); if (nc) { nc.classList.add("oculto"); nc.textContent = ""; } }   // ya no hay negociación que mostrar
       setMapaVisible(false);
       mostrarError("");
       $("btnCambiarNombre").classList.add("oculto");
       programarCaducidad(tsCierre);
-      habilitarEscribirTrasCierre();
+      habilitarEscribirTrasCierre(!entregado);
     }
     const est = d.valoracion && Number(d.valoracion.estrellas);
     if (est >= 1 && est <= 5) valorada = true;
@@ -1898,27 +1903,29 @@
       $("vCierre").classList.remove("oculto");
     } else {
       $("vCierre").classList.add("oculto");
-      mostrarAgradecimiento(entregado);
+      mostrarAgradecimiento(entregado, d);
     }
   }
 
-  function habilitarEscribirTrasCierre() {
+  function habilitarEscribirTrasCierre(cancelado) {
     const inp = $("inMensaje");
     inp.disabled = false;
     inp.placeholder = "Escribe aquí para hacer otro pedido…";
     $("btnEnviar").disabled = false;
     $("btnFoto").disabled = true;
     const sub = $("subChat");
-    sub.textContent = "Pedido finalizado";
+    sub.textContent = cancelado ? "Pedido cancelado" : "Pedido finalizado";
     sub.classList.remove("escribiendo");
   }
 
-  function mostrarAgradecimiento(entregado) {
+  function mostrarAgradecimiento(entregado, d) {
     if ($("msgCierre")) return;
     const caja = el("div", "wa-msg cierre");
     caja.id = "msgCierre";
     const intro = entregado
       ? "💚 ¡Gracias por confiar en Brother’s Deliverys! Tu pedido fue entregado.\n\nEste chat se borrará automáticamente 12 horas después de la entrega."
+      : d && /tarifa/i.test(String(d.motivoForzado || "")) ? "🚫 Tu pedido fue cancelado porque no se llegó a un acuerdo con la tarifa del envío."
+      : d && d.canceladoPor === "admin" ? "🚫 Tu pedido fue cancelado por la central."
       : "Tu pedido fue cancelado.";
     caja.appendChild(el("p", "", intro + "\n\nSi deseas algo más, escríbenos aquí y te guiaremos para hacer tu nuevo pedido. 🏍️"));
     caja.appendChild(el("span", "wa-hora", hora(Date.now())));

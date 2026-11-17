@@ -2259,3 +2259,8 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 @media (max-width: 360px) {
   #panelSolicitudes #saLista .sa-acc button { flex: 1 1 calc(50% - 6px); }
 }
+
+/* ===== Tarifa rechazada por el cliente (admin) ===== */
+#modalCaja .tf-rech { display: grid; gap: 6px; margin: 10px 0; padding: 10px 12px; border-radius: 12px; border: 1px solid #FF8182; background: #FFEBE9; color: #82071E; }
+#modalCaja .tf-rech small { color: #82071E; opacity: .9; }
+#modalCaja .tf-canc { min-height: 44px; border-radius: 10px; border: 1px solid #CF222E; background: #CF222E; color: #fff; font-size: 15px; font-weight: 700; }

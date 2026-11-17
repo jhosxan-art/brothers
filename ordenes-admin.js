@@ -137,6 +137,12 @@ const PedidosAdmin = (() => {
     return ids.sort((a, b) => ((rango[estadoDe(a)] != null ? rango[estadoDe(a)] : 9) - (rango[estadoDe(b)] != null ? rango[estadoDe(b)] : 9)) || nombreUid(a).localeCompare(nombreUid(b)));
   }
 
+  /* Lista completa del Equipo (la misma de la ventana "Equipo"): activos, inactivos, sin señal o desconectados. */
+  window.repsEquipoAdmin = () => repsTodos().map((u) => {
+    const e = estadoDe(u), et = ETIQUETA[e];
+    return { uid: u, nombre: nombreUid(u), estado: e, etiqueta: et ? et[0] : "", conPedido: !!viajeDe(u), invitado: !!O.esInvitadoUid(u) };
+  });
+
   // FASE 1 · Capas del mapa: los negocios (.neg-ico) siempre quedan POR DEBAJO de repartidores y demás marcadores.
   // Leaflet asigna z-index inline según la latitud; aquí se fuerza un valor bajo fijo para los negocios y se mantiene
   // aunque Leaflet reposicione los íconos (zoom, movimiento, actualización en vivo).
@@ -1714,6 +1720,7 @@ const SolicitudesAdmin = (() => {
       acc.appendChild(b);
       if (d.negociacion && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.boton(k, d));
       if (!d.repartidorUid && (d.estado === "nuevo" || d.estado == null) && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.botonAsignar(k));
+      if (typeof TarifaAdmin !== "undefined" && TarifaAdmin.rechazada(d)) acc.appendChild(TarifaAdmin.botonCancelar(k));
 
       // Estados finales (Entregado / Cancelado): NO se muestran botones de forzar ni cancelar.
       if (d.repartidorUid && !finalizada) {
@@ -2309,7 +2316,9 @@ const ActualizacionAdmin = (() => {
     g("modalActualizacion").classList.add("oculto");
     document.body.classList.remove("upd-bloqueado");
   }
-  function evaluar(d) { if (d && Number(d.version) > APP_VERSION_ADMIN) mostrar(d); else ocultar(); }
+  /* Las actualizaciones son solo para el APK: en la versión web nunca se muestra ni se bloquea la pantalla. */
+  const esApk = () => typeof adminEsNativo === "function" && adminEsNativo();
+  function evaluar(d) { if (esApk() && d && Number(d.version) > APP_VERSION_ADMIN) mostrar(d); else ocultar(); }
   function vigilar() {
     const base = bd(); if (ref || !base) return;
     ref = base.ref(BASE + "admin");
@@ -3208,7 +3217,12 @@ const EntregasAdmin = (() => {
       const r = cobros[e.diaNeg] && cobros[e.diaNeg][e.cobroKey];
       e.cobro = r && typeof r === "object" ? r : null;
       if (e.cobro && e.cobro.metodo === "transferencia") e.transf = true;
-      if (e.transf && e.cobro && e.cobro.total != null && Number.isFinite(Number(e.cobro.total))) { e.total = r2(Number(e.cobro.total)); e.debe = e.total; }   // monto que registró el repartidor
+      if (e.transf && e.cobro && e.cobro.total != null && Number.isFinite(Number(e.cobro.total))) {
+        if (e.cobro.mixto && Number(e.cobro.totalPedido) > 0) {
+          /* Pago MIXTO: la factura vale el total del pedido; se le debe al repartidor solo lo que quedó por transferencia (total − efectivo) */
+          e.total = r2(Number(e.cobro.totalPedido)); e.debe = r2(Number(e.cobro.total)); e.mixto = { efectivo: r2(Number(e.cobro.efectivo) || 0) };
+        } else { e.total = r2(Number(e.cobro.total)); e.debe = e.total; }
+      }   // monto que registró el repartidor
       e.estadoPago = e.cobro && e.cobro.estado === "cobrado" ? "pagada" : "pendiente";
     });
     return lista;
@@ -3283,7 +3297,7 @@ const EntregasAdmin = (() => {
     const filas = l.map((e) => {
       const p = pagada(uid, e);
       if (p) pag += e.debe; else pend += e.debe;
-      return `<div class="tr-fila${p ? " pagada" : ""}"><span class="tr-cod">🧾 ${esc(e.codigo)}<small>${esc(e.cliente)}${e.tsReal && e.ts ? " · " + esc(fechaHora(e.ts)) : ""} · factura ${esc(dinero(e.total))}</small></span><span class="tr-der"><b>${esc(dinero(e.debe))}</b><button type="button" class="tr-estado ${p ? "pagada" : "pendiente"}" data-tpago="${esc(e.k)}" data-uid="${esc(uid)}" aria-pressed="${p ? "true" : "false"}" aria-label="Factura ${esc(e.codigo)}: ${p ? "pagada, tocar para dejar pendiente" : "pendiente, tocar para marcar pagada"}">${p ? "✔ Pagada" : "⏳ Pendiente"}</button></span></div>`;
+      return `<div class="tr-fila${p ? " pagada" : ""}"><span class="tr-cod">🧾 ${esc(e.codigo)}<small>${esc(e.cliente)}${e.tsReal && e.ts ? " · " + esc(fechaHora(e.ts)) : ""} · factura ${esc(dinero(e.total))}${e.mixto ? " · efectivo " + esc(dinero(e.mixto.efectivo)) : ""}</small></span><span class="tr-der"><b>${esc(dinero(e.debe))}</b><button type="button" class="tr-estado ${p ? "pagada" : "pendiente"}" data-tpago="${esc(e.k)}" data-uid="${esc(uid)}" aria-pressed="${p ? "true" : "false"}" aria-label="Factura ${esc(e.codigo)}: ${p ? "pagada, tocar para dejar pendiente" : "pendiente, tocar para marcar pagada"}">${p ? "✔ Pagada" : "⏳ Pendiente"}</button></span></div>`;
     }).join("");
     pend = r2(pend); pag = r2(pag);
     const html = `<div class="tr-transf" role="group" aria-label="Pagos por transferencia"><div class="tr-tit"><b>🏦 Pagos por transferencia</b><small>${esc(periodoTxt)}</small></div>${filas}<div class="tr-total"><span>Pendiente de pagarle</span><b>${esc(dinero(pend))}</b></div><small class="tr-nota">Se le debe el total de cada factura pagada por transferencia (el cliente pagó a Brother’s). Toca “Pendiente/Pagada” para declarar el pago; el repartidor lo verá en su app.</small></div>`;
@@ -3296,7 +3310,7 @@ const EntregasAdmin = (() => {
   const item = (e) => `<button type="button" class="en-item" data-k="${esc(e.k)}">
       <span class="en-cod">${esc(e.codigo)}</span><b class="en-monto">${esc(dinero(e.total))}</b>
       <span class="en-cli">${esc(e.cliente)}</span>${tagPago(ban.uid, e)}
-      <small class="en-meta">${e.tsReal && e.ts ? "🕒 " + esc(ban.modoDia ? horaDe(e.ts) : fechaHora(e.ts)) + " · " : ""}${esc(e.origen)}${e.transf ? " · se le debe " + esc(dinero(e.debe)) : ""}</small></button>`;
+      <small class="en-meta">${e.tsReal && e.ts ? "🕒 " + esc(ban.modoDia ? horaDe(e.ts) : fechaHora(e.ts)) + " · " : ""}${esc(e.origen)}${e.transf ? (e.mixto ? " · 🔀 mixto" : "") + " · se le debe " + esc(dinero(e.debe)) : ""}</small></button>`;
 
   function pintarLista() {
     const caja = g("enLista"), res = g("enResumen"); if (!caja || !res || !ban) return;
@@ -3397,7 +3411,7 @@ const EntregasAdmin = (() => {
     const t = (txt, v, c) => `<div class="fa-t${c ? " " + c : ""}"><span>${txt}</span><b>${esc(dinero(v))}</b></div>`;
     const tot = `<div class="fa-tot">${t("🛍️ Total de productos", d.prod)}${t("🛵 Delivery", d.deliv)}${d.ex > 0 ? t("➕ Extras / mandados", d.ex, "ex") : ""}${d.otros > 0 ? t("⚡ Prioridad / IVA", d.otros) : ""}${d.ajuste ? t("Ajustes", d.ajuste) : ""}${t("Total general", e.total, "total")}</div>`;
     const caja = e.transf
-      ? `<div class="en-transf-box"><div><b>🏦 Pago por transferencia</b><span>Se le debe <b>${esc(dinero(e.debe))}</b> a ${esc(nom)}</span><small>= total de la factura (el cliente pagó a Brother’s)</small></div><button type="button" id="enPago" class="tr-estado ${pg ? "pagada" : "pendiente"}" aria-pressed="${pg ? "true" : "false"}">${pg ? "✔ Pagada" : "⏳ Pendiente"}</button></div>`
+      ? `<div class="en-transf-box"><div><b>${e.mixto ? "🔀 Pago mixto" : "🏦 Pago por transferencia"}</b><span>Se le debe <b>${esc(dinero(e.debe))}</b> a ${esc(nom)}</span><small>${e.mixto ? "= total " + esc(dinero(e.total)) + " − " + esc(dinero(e.mixto.efectivo)) + " que el cliente dio en efectivo al repartidor" : "= total de la factura (el cliente pagó a Brother’s)"}</small></div><button type="button" id="enPago" class="tr-estado ${pg ? "pagada" : "pendiente"}" aria-pressed="${pg ? "true" : "false"}">${pg ? "✔ Pagada" : "⏳ Pendiente"}</button></div>`
       : "";
     const cont = e.cont
       ? `<details class="fa-det"><summary>Contabilidad del repartidor</summary><div class="fa-tot">${t("Ingresos brutos", e.cont.bruto)}${t("− Deducciones fijas", e.cont.fijo)}${t("Remanente", e.cont.bolsa)}${t("30 % Brother’s", e.cont.com)}${t("70 % repartidor", e.cont.rep)}${t("💵 Entregar a Brother’s", e.cont.entregar, "total")}</div></details>`
@@ -3536,8 +3550,36 @@ const TarifaAdmin = (() => {
     if (n.fijo && Number(n.fijo.monto) > 0) return { monto: Number(n.fijo.monto), nombre: "", ts: n.fijo.ts, fijo: true };
     return null;
   };
-  const nombreRep = (uid) => { const r = reps[uid] || {}; return String(r.usuario || r.nombre || (typeof nombreUid === "function" ? nombreUid(uid) : "") || "Repartidor"); };
+  const nombreRep = (uid) => { const r = reps[uid] || {}; return String((typeof nombreUid === "function" ? nombreUid(uid) : "") || r.usuario || r.nombre || "Repartidor"); };
+  /* Todos los repartidores registrados del Equipo (activos, inactivos, sin señal o desconectados); nunca se filtran por estado. */
+  function listaEquipo() {
+    const base = typeof repsEquipoAdmin === "function" ? repsEquipoAdmin().filter((r) => !r.invitado) : [];
+    const vistos = new Set(base.map((r) => r.uid));
+    Object.keys(reps).forEach((uid) => { if (!vistos.has(uid)) base.push({ uid, nombre: nombreRep(uid), etiqueta: "", conPedido: false }); });
+    return base;
+  }
   const libre = (d) => !!d && !d.repartidorUid && (d.estado === "nuevo" || d.estado == null);
+  /* El cliente rechazó TODAS las tarifas recibidas (y no hay ninguna aceptada): el admin puede cancelar el pedido */
+  function rechazada(d) {
+    if (!libre(d)) return false;
+    const n = d.negociacion; if (!n || n.aceptada || n.fijo) return false;
+    const of = ofertasDe(d); if (!of.length) return false;
+    const desc = n.descartadas || {};
+    return of.every(([uid, o]) => Number(desc[uid]) === Number(o.monto));
+  }
+  async function cancelarPorTarifa(id) {
+    const d = sol[id];
+    if (!d || !libre(d)) return toast("Este pedido ya no está disponible.");
+    if (!confirm("¿Cancelar el pedido de " + String(d.nombre || "Cliente").slice(0, 30) + "?\n\nAl cliente le aparecerá que su pedido fue cancelado porque no se llegó a un acuerdo con la tarifa.")) return;
+    const base = RAIZ + "/" + id + "/", TS = firebase.database.ServerValue.TIMESTAMP, upd = {};
+    upd[base + "estado"] = "cancelado"; upd[base + "canceladoPor"] = "admin"; upd[base + "canceladoTs"] = TS;
+    upd[base + "forzadoPorAdmin"] = true; upd[base + "forzadoTs"] = TS; upd[base + "motivoForzado"] = "Tarifa rechazada por el cliente";
+    try {
+      await db.ref().update(upd);
+      toast("Pedido cancelado ✓ El cliente ya lo ve cancelado.");
+      if (abierto === id) { abierto = null; F = null; cerrarModal(); }
+    } catch (e) { msg("No se pudo cancelar" + (e && e.code === "PERMISSION_DENIED" ? ": revisa que las reglas de Firebase estén publicadas." : ".")); }
+  }
 
   /* ---------- Vista de negociación + propuesta de la central ---------- */
   function htmlNeg(d) {
@@ -3553,6 +3595,9 @@ const TarifaAdmin = (() => {
       return `<div class="tf-of${gan ? " gan" : ""}${no && !gan ? " no" : ""}"><div class="tf-of-i"><b>${esC ? "Central (tú)" : esc(o.nombre || "Repartidor")}${gan ? " ⭐" : ""}</b>${det ? "<small>" + det + "</small>" : ""}<small>${l2}${no && !gan ? " · el cliente no aceptó" : ""}</small></div><strong>${dinero(o.monto)}</strong></div>`;
     }).join("");
     const sug = of.filter(([, o]) => o.tipo !== "central" && Number(o.sugerida) > 0).map(([, o]) => Number(o.sugerida));
+    const rech = rechazada(d)
+      ? `<div class="tf-rech"><b>⚠️ El cliente rechazó la tarifa</b><small>Rechazó todas las ofertas recibidas. Puedes enviarle otra propuesta, asignar el pedido o cancelarlo.</small><button type="button" class="tf-canc" data-tf="cancelarped">🚫 Cancelar pedido</button></div>`
+      : "";
     const prop = lib && !n.aceptada
       ? `<h3 class="tf-h3">Mi propuesta al cliente</h3>
         <p class="tf-ayuda">${sug.length ? "Sugerida más baja: <b>" + dinero(Math.min(...sug)) + "</b> · " : ""}${cen ? "Propuesta actual: <b>" + dinero(cen.monto) + "</b>" + (Number(desc.central) === Number(cen.monto) ? " (el cliente no la aceptó)" : " (esperando al cliente)") : "Aún no envías propuesta."}</p>
@@ -3562,6 +3607,7 @@ const TarifaAdmin = (() => {
     return `<h2>💰 Negociación del envío</h2>
       <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>
       ${caja}
+      ${rech}
       <h3 class="tf-h3">Tarifas</h3>
       ${filas || `<p class="tf-ayuda">Todavía no hay tarifas.</p>`}
       ${prop}
@@ -3589,12 +3635,14 @@ const TarifaAdmin = (() => {
   }
   function htmlAsignar(d) {
     const p = d.pedido || {}, omit = d.omitidoPor || {}, a = acordadoDe(d);
-    const ids = Object.keys(reps).sort((x, y) => nombreRep(x).localeCompare(nombreRep(y)));
-    const filas = ids.map((uid) => `<button type="button" class="tf-rep${F.sel === uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(uid)}"><span>${esc(nombreRep(uid))}</span>${omit[uid] ? "<small>devolvió este pedido</small>" : ""}</button>`).join("");
+    const filas = listaEquipo().map((r) => {
+      const nota = [r.etiqueta, r.conPedido ? "con pedido" : "", omit[r.uid] ? "devolvió este pedido" : ""].filter(Boolean).join(" · ");
+      return `<button type="button" class="tf-rep${F.sel === r.uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(r.uid)}"><span>${esc(r.nombre || nombreRep(r.uid))}</span>${nota ? "<small>" + esc(nota) + "</small>" : ""}</button>`;
+    }).join("");
     return `<h2>👤 Asignar pedido</h2>
       <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>
-      <h3 class="tf-h3">Repartidor</h3>
-      <div class="tf-reps">${filas || `<p class="tf-ayuda">No hay repartidores registrados.</p>`}</div>
+      <h3 class="tf-h3">Repartidor (todo el equipo, esté activo o no)</h3>
+      <div class="tf-reps">${filas || `<p class="tf-ayuda">Aún no hay repartidores en el equipo.</p>`}</div>
       <h3 class="tf-h3">Envío acordado (C$)</h3>
       <input id="tfPrecio" class="tf-precio" type="number" min="0" step="1" inputmode="numeric" placeholder="Opcional" value="${F.precio == null ? "" : esc(F.precio)}" ${a ? "readonly" : ""}>
       <p class="tf-ayuda">${a ? "Este pedido ya tiene tarifa acordada con el cliente: se mantiene y el repartidor no puede cambiarla." : "Déjalo vacío si el repartidor va a fijar el delivery en la factura."}</p>
@@ -3650,6 +3698,7 @@ const TarifaAdmin = (() => {
     if (a === "sel") { F.sel = b.dataset.uid; if (!F.editado) F.precio = precioSugerido(d, F.sel); return pintar(); }
     if (a === "asignar") return asignar();
     if (a === "proponer") return proponer();
+    if (a === "cancelarped") return cancelarPorTarifa(abierto);
   }
   function iniciar() {
     detener();
@@ -3684,11 +3733,18 @@ const TarifaAdmin = (() => {
     b.addEventListener("click", () => abrir(id, "asig"));
     return b;
   }
+  function botonCancelar(id) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "peligro"; b.title = "Cancelar pedido (tarifa rechazada)"; b.textContent = "🚫 Cancelar pedido";
+    b.addEventListener("click", () => cancelarPorTarifa(id));
+    return b;
+  }
   function resumen(d) {
+    if (rechazada(d)) return "⚠️ El cliente rechazó la tarifa";
     const a = acordadoDe(d);
     if (a) return "💰 Envío acordado " + dinero(a.monto) + (a.nombre ? " · " + a.nombre : a.fijo ? " · tarifa fija" : "");
     const of = ofertasDe(d);
     return of.length ? "💰 " + of.length + (of.length === 1 ? " oferta" : " ofertas") + " · desde " + dinero(of[0][1].monto) : "";
   }
-  return { abrir, boton, botonAsignar, resumen };
+  return { abrir, boton, botonAsignar, botonCancelar, rechazada, resumen };
 })();
