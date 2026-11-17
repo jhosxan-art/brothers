@@ -1427,7 +1427,7 @@ const PedidoRep = (() => {
       const c = Contabilidad.desdePedido(p, fallback), pago = PagosEntrega[token] || null;
       delete PagosEntrega[token];
       CobroEntrega.guardar({ id: token, origen: "admin", cliente: o.cliente || "Cliente", pedido: o.codigo || "", total: fallback }, pago);
-      await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "admin", repartidorNombre: usuario, cliente: o.cliente || "Cliente", pedido: o.codigo || "", metodoPago: pago }, c));
+      await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "admin", repartidorNombre: usuario, cliente: o.cliente || "Cliente", pedido: o.codigo || "", metodoPago: metodoContable(pago) }, c));
     } catch (_) {}
   }
   const prioridad = () => prio || prioPed;
@@ -2677,8 +2677,12 @@ const mensajeSeguimiento = (v) =>
    FASE 2 · PAGO POST-ENTREGA (Efectivo / Transferencia) + BANDEJA DE COBROS AL ADMIN
    ============================================================ */
 const PagosEntrega = {};
+/* El pago "mixto" (parte en efectivo y parte por transferencia) se contabiliza como transferencia por el resto. */
+const metodoContable = (p) => (p === "mixto" ? "transferencia" : p);
 const CobroEntrega = (() => {
   let resolver = null, ref = null, refDia = "", datos = {};
+  let infoPago = null;
+  const mixtoDatos = {};   // id → { efectivo, total } mientras se confirma el pago mixto
   let diaVista = null, refVista = null, datosVista = {}, barra = null, cuerpo = null;   // día elegido en la cortina (null = hoy)
   const moneda = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
   const corto = (s, n) => String(s == null ? "" : s).slice(0, n);
@@ -2699,6 +2703,8 @@ const CobroEntrega = (() => {
       $("pagoNota").classList.toggle("oculto", !info.nota);
       $("pagoMonto").textContent = info.total != null ? "Total: " + moneda(info.total) : "";
       $("pagoMonto").classList.toggle("oculto", info.total == null);
+      infoPago = info; cerrarMixto();
+      $("btnPagoMixto").classList.toggle("oculto", !(Number(info.total) > 0));
       $("modalPago").classList.remove("oculto");
     });
   }
@@ -2710,12 +2716,62 @@ const CobroEntrega = (() => {
   const cancelar = () => elegir(null);
   $("btnPagoEfectivo").onclick = () => elegir("efectivo");
   $("btnPagoTransferencia").onclick = () => elegir("transferencia");
+
+  /* ---- Pago MIXTO: el cliente pagó una parte en efectivo y el resto por transferencia ---- */
+  (function () {
+    const st = document.createElement("style");
+    st.textContent = ".pago-mixto{display:grid;gap:10px;margin-top:6px}.pago-mixto.oculto{display:none}.pago-mixto input{box-sizing:border-box;width:100%;height:58px;padding:0 12px;border:2px solid #C9D2DC;border-radius:14px;font-size:26px;font-weight:800;text-align:center;background:#fff;color:#0E141B}.pago-mixto input:focus{outline:0;border-color:#0969DA;box-shadow:0 0 0 3px rgba(9,105,218,.18)}.pago-mixto-calc{margin:0;font-size:15px;font-weight:700;overflow-wrap:anywhere}.pago-mixto-calc.ok{color:#167A43}.pago-mixto-calc.err{color:#C23B1E}";
+    document.head.appendChild(st);
+  })();
+  const dosDec = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const grupoPago = ["pagoPregunta", "btnPagoEfectivo", "btnPagoTransferencia", "btnPagoMixto"];
+  function cerrarMixto() {
+    grupoPago.forEach((id) => { const e = $(id); if (e) e.style.display = ""; });
+    $("pagoMixtoCaja").classList.add("oculto");
+    $("pagoMixtoEfectivo").value = ""; $("pagoMixtoCalc").textContent = ""; $("pagoMixtoCalc").className = "pago-mixto-calc"; $("btnMixtoOk").disabled = true;
+  }
+  function abrirMixto() {
+    grupoPago.forEach((id) => { const e = $(id); if (e) e.style.display = "none"; });
+    $("pagoMixtoCaja").classList.remove("oculto");
+    setTimeout(() => { try { $("pagoMixtoEfectivo").focus(); } catch (_) {} }, 60);
+  }
+  /* Solo números: permite un punto decimal y máximo 2 decimales */
+  function soloNumero(v) {
+    v = String(v).replace(",", ".").replace(/[^0-9.]/g, "");
+    const p = v.split(".");
+    if (p.length > 1) v = p.shift() + "." + p.join("").slice(0, 2);
+    return v.slice(0, 9);
+  }
+  $("pagoMixtoEfectivo").addEventListener("input", () => {
+    const inp = $("pagoMixtoEfectivo"), calc = $("pagoMixtoCalc"), ok = $("btnMixtoOk");
+    inp.value = soloNumero(inp.value);
+    const total = Number(infoPago && infoPago.total) || 0, ef = parseFloat(inp.value);
+    calc.className = "pago-mixto-calc"; ok.disabled = true;
+    if (!(ef > 0)) { calc.textContent = ""; return; }
+    if (ef >= total) { calc.textContent = "El efectivo debe ser menor al total (" + moneda(total) + "). Si pagó todo en efectivo, usa «Efectivo»."; calc.classList.add("err"); return; }
+    calc.textContent = "Total " + moneda(total) + " − efectivo " + moneda(ef) + " = " + moneda(total - ef) + " por transferencia (lo que el admin le debe al repartidor).";
+    calc.classList.add("ok"); ok.disabled = false;
+  });
+  $("btnMixtoOk").onclick = () => {
+    const total = dosDec(infoPago && infoPago.total), ef = dosDec(parseFloat($("pagoMixtoEfectivo").value));
+    if (!infoPago || !(ef > 0 && ef < total)) return;
+    mixtoDatos[String(infoPago.id)] = { efectivo: ef, total };
+    elegir("mixto");
+  };
+  $("btnMixtoAtras").onclick = cerrarMixto;
+  $("btnPagoMixto").onclick = abrirMixto;
   $("btnPagoVolver").onclick = cancelar;
 
   /* Solo las transferencias entran a la bandeja del día para cobrarlas al admin */
   function guardar(info, metodo) {
-    if (metodo !== "transferencia" || !uidActual || !info || !info.id) return;
+    if ((metodo !== "transferencia" && metodo !== "mixto") || !uidActual || !info || !info.id) return;
     const reg = { id: String(info.id), origen: info.origen || "manual", cliente: corto(info.cliente || "Cliente", 40), pedido: corto(info.pedido || "", 30), total: info.total != null ? Number(info.total) || 0 : null, metodo: "transferencia", estado: "pendiente", repartidorNombre: corto(usuario, 60), ts: TS };
+    if (metodo === "mixto") {
+      /* Mixto: "total" = lo que quedó por transferencia (total del pedido − efectivo): es lo que el admin le debe al repartidor */
+      const mx = mixtoDatos[String(info.id)]; delete mixtoDatos[String(info.id)];
+      if (!mx || !(mx.efectivo > 0)) return;
+      reg.mixto = true; reg.totalPedido = mx.total; reg.efectivo = mx.efectivo; reg.total = dosDec(Math.max(0, mx.total - mx.efectivo));
+    }
     db.ref("cobrosAdmin/" + uidActual + "/" + isoDia() + "/" + claveSegura(info.id)).set(JSON.parse(JSON.stringify(reg))).catch(() => {});
   }
   function escuchar() {
@@ -2784,7 +2840,7 @@ const CobroEntrega = (() => {
     const d = document.createElement("div"), n = document.createElement("strong"), s = document.createElement("small");
     n.textContent = (c.cliente || "Cliente");
     const hora = Number(c.ts) ? new Date(Number(c.ts)).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "";
-    s.textContent = [c.pedido ? "Pedido " + c.pedido : "", hora].filter(Boolean).join(" · ");
+    s.textContent = [c.pedido ? "Pedido " + c.pedido : "", c.mixto ? "Mixto · efectivo " + moneda(c.efectivo) + " de " + moneda(c.totalPedido) : "", hora].filter(Boolean).join(" · ");
     d.appendChild(n); d.appendChild(s);
     const m = document.createElement("b");
     m.textContent = c.total != null ? moneda(c.total) : "—";
@@ -2878,7 +2934,7 @@ async function registrarEntregaViaje(v, token, pago) {
     const c = Contabilidad.desdePedido(p, 0);
     const cliente = v.cliente || p.clienteNombre || "Cliente", pedido = v.pedido || p.pedido || "";
     CobroEntrega.guardar({ id: token, origen: "manual", cliente, pedido, total: totalDeViaje(v, token) }, pago);
-    await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "manual", repartidorNombre: usuario, cliente, pedido, metodoPago: pago || null }, c));
+    await Contabilidad.registrar(db, uidActual, Object.assign({ id: token, origen: "manual", repartidorNombre: usuario, cliente, pedido, metodoPago: metodoContable(pago) || null }, c));
   } catch (_) {}
 }
 function mostrarEntregado(quien) {
@@ -4286,7 +4342,7 @@ const ChatsEntrantes = (() => {
     CobroEntrega.guardar({ id, origen: "chat", cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", total: reg && reg.actual ? Number(reg.actual.totalFinal) || 0 : null }, pago);
     { /* FASE 2 · Contabilidad unificada (origen "chat"): base = 1.ª factura, extras = mandados acumulados */
       const c = Contabilidad.desdeFacturas(reg && reg.base, reg && reg.actual);
-      Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", metodoPago: pago || null, pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, ivasExtras: c.ivasExtras, sinFactura: c.sinFactura });
+      Contabilidad.registrar(db, uidActual, { id, origen: "chat", repartidorNombre: usuario, cliente: d.nombre || "Cliente", pedido: reg && reg.actual ? reg.actual.pedido : "", metodoPago: metodoContable(pago) || null, pBase: c.pBase, extras: c.extras, prioridad: c.prioridad, ivasExtras: c.ivasExtras, sinFactura: c.sinFactura });
     }
     const a = leerRegistro();
     if (a.some((x) => x.id === id)) return;

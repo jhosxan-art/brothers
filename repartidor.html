@@ -452,9 +452,17 @@
       <p id="pagoCliente"></p>
       <p id="pagoMonto" class="pago-monto oculto"></p>
       <p id="pagoNota" class="oculto"></p>
-      <p class="pago-pregunta">¿Cómo pagó el cliente?</p>
+      <p id="pagoPregunta" class="pago-pregunta">¿Cómo pagó el cliente?</p>
       <button id="btnPagoEfectivo" class="primario pago-btn" type="button">💵 Efectivo</button>
       <button id="btnPagoTransferencia" class="oscuro pago-btn" type="button">🏦 Transferencia</button>
+      <button id="btnPagoMixto" class="oscuro pago-btn oculto" type="button">🔀 Mixto</button>
+      <div id="pagoMixtoCaja" class="pago-mixto oculto">
+        <label for="pagoMixtoEfectivo" class="pago-pregunta">¿Cuánto te dio en efectivo el cliente?</label>
+        <input id="pagoMixtoEfectivo" type="text" inputmode="decimal" autocomplete="off" maxlength="9" placeholder="0.00" aria-describedby="pagoMixtoCalc">
+        <p id="pagoMixtoCalc" class="pago-mixto-calc" aria-live="polite"></p>
+        <button id="btnMixtoOk" class="primario pago-btn" type="button" disabled>Confirmar pago mixto</button>
+        <button id="btnMixtoAtras" class="pago-volver" type="button">Atrás</button>
+      </div>
       <button id="btnPagoVolver" class="pago-volver" type="button">Volver sin entregar</button>
     </div>
   </div>
