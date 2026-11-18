@@ -1709,7 +1709,7 @@ const SolicitudesAdmin = (() => {
       if (tf) etiquetas.appendChild(el("span", "sa-lbl tarifa", tf));
       if (valoracion(d)) etiquetas.appendChild(el("span", "sa-lbl estrellas", estrellas(valoracion(d))));
       dat.appendChild(etiquetas);
-      const ult = d.ultimoMensaje ? (d.ultimoDe === "cliente" ? "Cliente: " : d.ultimoDe === "repartidor" ? "Repartidor: " : "") + String(d.ultimoMensaje) : "Sin mensajes todavía";
+      const ult = d.ultimoMensaje ? (d.ultimoDe === "cliente" ? "Cliente: " : d.ultimoDe === "repartidor" ? "Repartidor: " : d.ultimoDe === "admin" ? "Central: " : "") + String(d.ultimoMensaje) : "Sin mensajes todavía";
       dat.appendChild(el("span", "sa-ult", "💬 " + ult + (d.ts ? " · " + horaDe(d.ts) : "")));
       fila.appendChild(dat);
       f.appendChild(fila);
@@ -1720,7 +1720,7 @@ const SolicitudesAdmin = (() => {
       acc.appendChild(b);
       if (d.negociacion && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.boton(k, d));
       if (!d.repartidorUid && (d.estado === "nuevo" || d.estado == null) && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.botonAsignar(k));
-      if (typeof TarifaAdmin !== "undefined" && TarifaAdmin.rechazada(d)) acc.appendChild(TarifaAdmin.botonCancelar(k));
+      if (typeof TarifaAdmin !== "undefined" && TarifaAdmin.libre(d)) acc.appendChild(TarifaAdmin.botonCancelar(k));
 
       // Estados finales (Entregado / Cancelado): NO se muestran botones de forzar ni cancelar.
       if (d.repartidorUid && !finalizada) {
@@ -1821,12 +1821,11 @@ const SolicitudesAdmin = (() => {
     const p = d.pedido;
     const r = g("saPedido");
     
-    let info = "";
-    if (p && p.quiere) info = "🛍️ " + cortar(p.quiere, 160) + " · de " + cortar(p.origen, 80);
-    if (ultimaDirCliente) info += (info ? " · " : "") + "📮 <b>Última dirección:</b> " + esc(ultimaDirCliente.texto);
-    
-    r.innerHTML = info;
-    r.classList.toggle("oculto", !info);
+    const hayPedido = !!(p && (p.quiere || p.origen));
+    r.classList.add("tk-wrap");
+    if (hayPedido) r.innerHTML = TicketPedido.html(d, visorId, ultimaDirCliente ? ultimaDirCliente.texto : "");
+    else r.innerHTML = ultimaDirCliente ? "📮 <b>Última dirección:</b> " + esc(ultimaDirCliente.texto) : "";
+    r.classList.toggle("oculto", !hayPedido && !ultimaDirCliente);
   }
   
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -1928,13 +1927,13 @@ const SolicitudesAdmin = (() => {
   }
 
   function pintarMensaje(m, clave) {
-    const c = g("saMsgs"), ts = Number(m.ts) || Date.now(), rep = m.de === "repartidor";
+    const c = g("saMsgs"), ts = Number(m.ts) || Date.now(), adm = m.de === "admin", rep = m.de === "repartidor" || adm;
     const pegado = c.scrollHeight - c.scrollTop - c.clientHeight < 80;
     const dia = new Date(ts).toDateString();
     if (dia !== ultDia) { ultDia = dia; c.appendChild(el("div", "sa-dia", etiquetaDia(ts))); }
     const d = lista[visorId] || {};
     const b = el("div", "sa-b" + (rep ? " rep" : ""));
-    b.appendChild(el("div", "sa-quien", rep ? cortar(d.repartidorNombre || "Repartidor", 40) : cortar(d.nombre || "Cliente", 40)));
+    b.appendChild(el("div", "sa-quien", adm ? "Central" : rep ? cortar(d.repartidorNombre || "Repartidor", 40) : cortar(d.nombre || "Cliente", 40)));
     if (m.tipo === "factura" && m.factura && typeof m.factura === "object") {
       b.classList.add("fac");
       b.appendChild(tarjetaFactura(m.factura));
@@ -3531,17 +3530,31 @@ const AlertasPush = (() => {
 
 
 /* ============================================================
-   NEGOCIACIÓN DEL ENVÍO + ASIGNACIÓN MANUAL (Admin)
-   · La negociación es de solo lectura: el admin ve las tarifas de los repartidores y cuánto quedó el envío.
-   · Si ningún repartidor toma el pedido, el admin lo asigna a un repartidor: le cae directo a sus chats.
-   · Si el pedido ya tenía tarifa acordada (o devuelta por otro repartidor), esa tarifa queda fija.
+   NEGOCIACIÓN DEL ENVÍO (Admin) · ventana compacta por pestañas, sin scroll
+   Pestañas: 💬 Ofertas · 📢 Proponer · 👤 Asignar · ✉️ Mensaje al cliente
+   · El admin ve las tarifas, propone un precio, asigna a cualquier repartidor del Equipo,
+     escribe al cliente y puede cancelar el pedido.
    ============================================================ */
 const TarifaAdmin = (() => {
   const RAIZ = "solicitudes_entrantes";
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const dinero = (n) => "C$ " + Math.round(Number(n) || 0);
   const hora = (ts) => { try { return new Date(Number(ts)).toLocaleTimeString("es-NI", { hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } };
-  let sol = {}, reps = {}, ref = null, refR = null, abierto = null, modo = "neg", F = null, propVal = "";
+  const hace = (ts) => {
+    const t = Number(ts); if (!t) return "";
+    const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (m < 1) return "ahora"; if (m < 60) return "hace " + m + " min";
+    const h = Math.round(m / 60); if (h < 24) return "hace " + h + " h";
+    const dd = Math.round(h / 24); return "hace " + dd + (dd === 1 ? " día" : " días");
+  };
+  const RESPUESTAS = [
+    "✅ Estamos atendiendo tu pedido, ya lo estamos gestionando.",
+    "⏳ Un momento, estamos buscando un repartidor para tu pedido.",
+    "📞 Estamos confirmando tu pedido con el restaurante.",
+    "🙏 Por el momento no estamos atendiendo. Disculpa las molestias."
+  ];
+  let sol = {}, reps = {}, ref = null, refR = null, abierto = null, modo = "ofertas", F = { sel: "" };
+  let tmp = { prop: "", msg: "", precio: "", editado: false };
 
   const ofertasDe = (d) => Object.entries((d && d.negociacion && d.negociacion.ofertas) || {}).filter(([, o]) => o && Number(o.monto) > 0).sort((a, b) => a[1].monto - b[1].monto);
   const acordadoDe = (d) => {
@@ -3551,15 +3564,7 @@ const TarifaAdmin = (() => {
     return null;
   };
   const nombreRep = (uid) => { const r = reps[uid] || {}; return String((typeof nombreUid === "function" ? nombreUid(uid) : "") || r.usuario || r.nombre || "Repartidor"); };
-  /* Todos los repartidores registrados del Equipo (activos, inactivos, sin señal o desconectados); nunca se filtran por estado. */
-  function listaEquipo() {
-    const base = typeof repsEquipoAdmin === "function" ? repsEquipoAdmin().filter((r) => !r.invitado) : [];
-    const vistos = new Set(base.map((r) => r.uid));
-    Object.keys(reps).forEach((uid) => { if (!vistos.has(uid)) base.push({ uid, nombre: nombreRep(uid), etiqueta: "", conPedido: false }); });
-    return base;
-  }
   const libre = (d) => !!d && !d.repartidorUid && (d.estado === "nuevo" || d.estado == null);
-  /* El cliente rechazó TODAS las tarifas recibidas (y no hay ninguna aceptada): el admin puede cancelar el pedido */
   function rechazada(d) {
     if (!libre(d)) return false;
     const n = d.negociacion; if (!n || n.aceptada || n.fijo) return false;
@@ -3567,95 +3572,111 @@ const TarifaAdmin = (() => {
     const desc = n.descartadas || {};
     return of.every(([uid, o]) => Number(desc[uid]) === Number(o.monto));
   }
-  async function cancelarPorTarifa(id) {
+  function listaEquipo() {
+    const base = typeof repsEquipoAdmin === "function" ? repsEquipoAdmin().filter((r) => !r.invitado) : [];
+    const vistos = new Set(base.map((r) => r.uid));
+    Object.keys(reps).forEach((uid) => { if (!vistos.has(uid)) base.push({ uid, nombre: nombreRep(uid), etiqueta: "", conPedido: false }); });
+    return base;
+  }
+  const msg = (t, ok) => { const m = document.getElementById("ngMsg2"); if (m) { m.textContent = t || ""; m.className = "ng-msg" + (ok ? " ok" : ""); } };
+
+  /* ---------- Cancelar pedido ---------- */
+  async function cancelarPedido(id) {
     const d = sol[id];
     if (!d || !libre(d)) return toast("Este pedido ya no está disponible.");
-    if (!confirm("¿Cancelar el pedido de " + String(d.nombre || "Cliente").slice(0, 30) + "?\n\nAl cliente le aparecerá que su pedido fue cancelado porque no se llegó a un acuerdo con la tarifa.")) return;
+    const porTarifa = rechazada(d), nom = String(d.nombre || "Cliente").slice(0, 30);
+    if (!confirm("¿Cancelar el pedido de " + nom + "?\n\nAl cliente le aparecerá que su pedido fue cancelado" + (porTarifa ? " porque no se llegó a un acuerdo con la tarifa." : " por la central."))) return;
     const base = RAIZ + "/" + id + "/", TS = firebase.database.ServerValue.TIMESTAMP, upd = {};
     upd[base + "estado"] = "cancelado"; upd[base + "canceladoPor"] = "admin"; upd[base + "canceladoTs"] = TS;
-    upd[base + "forzadoPorAdmin"] = true; upd[base + "forzadoTs"] = TS; upd[base + "motivoForzado"] = "Tarifa rechazada por el cliente";
+    upd[base + "forzadoPorAdmin"] = true; upd[base + "forzadoTs"] = TS;
+    upd[base + "motivoForzado"] = porTarifa ? "Tarifa rechazada por el cliente" : "Cancelado por la central";
     try {
       await db.ref().update(upd);
       toast("Pedido cancelado ✓ El cliente ya lo ve cancelado.");
-      if (abierto === id) { abierto = null; F = null; cerrarModal(); }
-    } catch (e) { msg("No se pudo cancelar" + (e && e.code === "PERMISSION_DENIED" ? ": revisa que las reglas de Firebase estén publicadas." : ".")); }
+      if (abierto === id) { abierto = null; cerrarModal(); }
+    } catch (e) { toast("No se pudo cancelar" + (e && e.code === "PERMISSION_DENIED" ? ": revisa que las reglas de Firebase estén publicadas." : ".")); }
   }
 
-  /* ---------- Vista de negociación + propuesta de la central ---------- */
-  function htmlNeg(d) {
-    const n = d.negociacion || {}, p = d.pedido || {}, a = acordadoDe(d), desc = n.descartadas || {}, ff = d.facturaFinal;
-    const of = ofertasDe(d), lib = libre(d), cen = n.ofertas && n.ofertas.central;
-    const caja = a
-      ? `<div class="tf-acu"><small>✅ Envío acordado${a.fijo ? " (tarifa fija)" : ""}</small><b>${dinero(a.monto)}</b><small>${a.nombre ? "Con " + esc(a.nombre) + " · " : ""}${a.ts ? hora(a.ts) : ""}${ff && ff.delivery != null ? " · Delivery en factura: <b>" + dinero(ff.delivery) + "</b>" : ""}</small></div>`
-      : `<div class="tf-acu pen"><small>⏳ Negociando</small><b>${of.length ? "Desde " + dinero(of[0][1].monto) : "Sin ofertas"}</b><small>El cliente aún no acepta ninguna tarifa.</small></div>`;
+  /* ---------- Paneles ---------- */
+  function panelOfertas(d) {
+    const n = d.negociacion || {}, desc = n.descartadas || {}, of = ofertasDe(d);
+    const alerta = rechazada(d) ? `<div class="ng-alerta">⚠️ El cliente rechazó todas las ofertas. Envíale otra propuesta, asigna el pedido o cancélalo.</div>` : "";
     const filas = of.map(([uid, o]) => {
       const gan = n.aceptada && n.aceptada.uid === uid, esC = o.tipo === "central", subio = !esC && Number(o.monto) > Number(o.sugerida), no = Number(desc[uid]) === Number(o.monto);
-      const det = esC ? "" : [o.origen && o.origen.nombre ? "🏪 " + esc(o.origen.nombre) : "", Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", Number(o.nParadas) > 1 ? (o.nParadas - 1) + " parada(s) extra" : "", hora(o.ts)].filter(Boolean).join(" · ");
-      const l2 = esC ? "Propuesta de la central" : "Sugerida " + dinero(o.sugerida) + (subio ? " → <b>" + dinero(o.monto) + "</b>" : " · en la sugerida");
-      return `<div class="tf-of${gan ? " gan" : ""}${no && !gan ? " no" : ""}"><div class="tf-of-i"><b>${esC ? "Central (tú)" : esc(o.nombre || "Repartidor")}${gan ? " ⭐" : ""}</b>${det ? "<small>" + det + "</small>" : ""}<small>${l2}${no && !gan ? " · el cliente no aceptó" : ""}</small></div><strong>${dinero(o.monto)}</strong></div>`;
+      const det = esC ? "Propuesta de la central" : [o.origen && o.origen.nombre ? "🏪 " + esc(o.origen.nombre) : "", Number(o.km) > 0 ? Number(o.km).toFixed(1) + " km" : "", subio ? "sugerida " + dinero(o.sugerida) : "en la sugerida"].filter(Boolean).join(" · ");
+      return `<div class="ng-of${gan ? " gan" : ""}${no && !gan ? " no" : ""}"><div class="ng-of-i"><b>${esC ? "Central (tú)" : esc(o.nombre || "Repartidor")}${gan ? " ⭐" : ""}</b><small>${det}${no && !gan ? " · el cliente no aceptó" : ""}</small></div><strong>${dinero(o.monto)}</strong></div>`;
     }).join("");
-    const sug = of.filter(([, o]) => o.tipo !== "central" && Number(o.sugerida) > 0).map(([, o]) => Number(o.sugerida));
-    const rech = rechazada(d)
-      ? `<div class="tf-rech"><b>⚠️ El cliente rechazó la tarifa</b><small>Rechazó todas las ofertas recibidas. Puedes enviarle otra propuesta, asignar el pedido o cancelarlo.</small><button type="button" class="tf-canc" data-tf="cancelarped">🚫 Cancelar pedido</button></div>`
-      : "";
-    const prop = lib && !n.aceptada
-      ? `<h3 class="tf-h3">Mi propuesta al cliente</h3>
-        <p class="tf-ayuda">${sug.length ? "Sugerida más baja: <b>" + dinero(Math.min(...sug)) + "</b> · " : ""}${cen ? "Propuesta actual: <b>" + dinero(cen.monto) + "</b>" + (Number(desc.central) === Number(cen.monto) ? " (el cliente no la aceptó)" : " (esperando al cliente)") : "Aún no envías propuesta."}</p>
-        <div class="tf-prop"><input id="tfProp" class="tf-precio" type="number" min="1" step="1" inputmode="numeric" placeholder="Precio C$" value="${esc(propVal)}"><button type="button" class="tf-asig" data-tf="proponer">📢 Enviar propuesta</button></div>
-        <div id="tfMsg" class="tf-ayuda"></div>`
-      : "";
-    return `<h2>💰 Negociación del envío</h2>
-      <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>
-      ${caja}
-      ${rech}
-      <h3 class="tf-h3">Tarifas</h3>
-      ${filas || `<p class="tf-ayuda">Todavía no hay tarifas.</p>`}
-      ${prop}
-      ${lib ? `<button type="button" class="tf-asig" data-tf="irasignar">${a ? "👤 Asignar con este precio" : "👤 Asignar a un repartidor"}</button>` : ""}
-      <button type="button" class="tf-sec" data-tf="cerrar">Cerrar</button>`;
+    return `${alerta}<div class="ng-lista">${filas || `<div class="ng-vacio"><span>🕒</span>Todavía ningún repartidor envía su tarifa.<small>Mientras tanto puedes proponer un precio o asignar el pedido.</small></div>`}</div>`;
   }
+  function panelProponer(d) {
+    const n = d.negociacion || {}, a = acordadoDe(d), of = ofertasDe(d), cen = n.ofertas && n.ofertas.central, desc = n.descartadas || {};
+    if (!libre(d)) return `<div class="ng-vacio"><span>🔒</span>Este pedido ya no está libre.</div>`;
+    if (n.aceptada) return `<div class="ng-vacio"><span>✅</span>El cliente ya aceptó <b>${dinero(n.aceptada.monto)}</b>.<small>Ve a «Asignar» para elegir al repartidor.</small></div>`;
+    const sug = of.filter(([, o]) => o.tipo !== "central" && Number(o.sugerida) > 0).map(([, o]) => Math.round(Number(o.sugerida)));
+    const base = sug.length ? Math.min(...sug) : 0;
+    const chips = (base ? [base, base + 10, base + 20] : [52, 82, 117]).map((v) => `<button type="button" class="ng-chip" data-tf="chip" data-v="${v}">${dinero(v)}</button>`).join("");
+    const estado = cen ? `Tu propuesta: <b>${dinero(cen.monto)}</b> ${Number(desc.central) === Number(cen.monto) ? "· el cliente no la aceptó" : "· esperando al cliente"}` : "Aún no envías propuesta.";
+    return `<p class="ng-ayuda">${base ? "Sugerida más baja: <b>" + dinero(base) + "</b> · " : ""}${estado}</p>
+      <div class="ng-chips">${chips}</div>
+      <div class="ng-fila"><input id="ngProp" type="number" min="1" step="1" inputmode="numeric" placeholder="Precio C$" value="${esc(tmp.prop)}"><button type="button" class="ng-pri" data-tf="proponer">📢 Enviar</button></div>`;
+  }
+  function panelAsignar(d) {
+    if (!libre(d)) return `<div class="ng-vacio"><span>🔒</span>Este pedido ya no está libre.</div>`;
+    const omit = d.omitidoPor || {}, a = acordadoDe(d);
+    const filas = listaEquipo().map((r) => {
+      const nota = [r.etiqueta, r.conPedido ? "con pedido" : "", omit[r.uid] ? "lo devolvió" : ""].filter(Boolean).join(" · ");
+      return `<button type="button" class="ng-rep${F.sel === r.uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(r.uid)}"><b>${esc(r.nombre || nombreRep(r.uid))}</b>${nota ? "<small>" + esc(nota) + "</small>" : ""}</button>`;
+    }).join("");
+    const precio = a ? a.monto : tmp.precio;
+    return `<div class="ng-reps">${filas || `<div class="ng-vacio">Aún no hay repartidores en el equipo.</div>`}</div>
+      <div class="ng-fila"><label for="ngPrecio">💵 Envío</label><input id="ngPrecio" type="number" min="0" step="1" inputmode="numeric" placeholder="${a ? "" : "Opcional"}" value="${esc(precio)}" ${a ? "readonly" : ""}><button type="button" class="ng-pri" data-tf="asignar"${F.sel ? "" : " disabled"}>✅ Asignar</button></div>
+      <p class="ng-ayuda">${a ? "Tarifa acordada con el cliente: se mantiene y el repartidor no puede cambiarla." : "Déjalo vacío si el repartidor fija el delivery en la factura."}</p>`;
+  }
+  function panelMensaje(d) {
+    const chips = RESPUESTAS.map((t, i) => `<button type="button" class="ng-resp" data-tf="resp" data-i="${i}">${esc(t)}</button>`).join("");
+    return `<div class="ng-resps">${chips}</div>
+      <textarea id="ngMsg" rows="2" maxlength="500" placeholder="Escribe un mensaje para ${esc(String(d.nombre || "el cliente").slice(0, 24))}…">${esc(tmp.msg)}</textarea>
+      <button type="button" class="ng-pri ancho" data-tf="enviarmsg">✉️ Enviar al cliente</button>`;
+  }
+
+  function html(d) {
+    const a = acordadoDe(d), of = ofertasDe(d), p = d.pedido || {}, rech = rechazada(d), lib = libre(d);
+    const hero = a ? { c: "ok", t: "✅ Envío acordado" + (a.fijo ? " · fijo" : ""), v: dinero(a.monto) }
+      : rech ? { c: "mal", t: "⚠️ Tarifa rechazada", v: "—" }
+      : of.length ? { c: "pen", t: "⏳ Negociando", v: "desde " + dinero(of[0][1].monto) }
+      : { c: "nue", t: "🆕 Sin ofertas", v: "—" };
+    const tabs = [["ofertas", "💬", "Ofertas", of.length], ["proponer", "📢", "Proponer", 0], ["asignar", "👤", "Asignar", 0], ["mensaje", "✉️", "Mensaje", 0]]
+      .map(([m, i, t, n]) => `<button type="button" role="tab" class="ng-tab${modo === m ? " on" : ""}" data-tf="tab" data-m="${m}" aria-selected="${modo === m}"><span>${i}</span>${t}${n ? `<em>${n}</em>` : ""}</button>`).join("");
+    const panel = modo === "proponer" ? panelProponer(d) : modo === "asignar" ? panelAsignar(d) : modo === "mensaje" ? panelMensaje(d) : panelOfertas(d);
+    return `<div class="ng">
+      <div class="ng-cab"><div class="ng-av">${esc((String(d.nombre || "?").trim()[0] || "?").toUpperCase())}</div>
+        <div class="ng-t"><b>${esc(d.nombre || "Cliente")}</b><small>#${esc(String(abierto).slice(-5).toUpperCase())} · ${hace(d.creado || d.ts)}</small></div>
+        <button type="button" class="ng-x" data-tf="cerrar" aria-label="Cerrar">✕</button></div>
+      <div class="ng-ped">🛍️ ${esc(p.quiere || "Pedido")}${p.origen ? " · 🏪 " + esc(p.origen) : ""}</div>
+      <div class="ng-hero ${hero.c}"><span>${hero.t}</span><b>${hero.v}</b></div>
+      <div class="ng-tabs" role="tablist">${tabs}</div>
+      <div class="ng-panel">${panel}</div>
+      <div id="ngMsg2" class="ng-msg" aria-live="polite"></div>
+      <div class="ng-pie">${lib ? `<button type="button" class="ng-canc" data-tf="cancelarped">🚫 Cancelar pedido</button>` : ""}<button type="button" class="ng-cerrar" data-tf="cerrar">Cerrar</button></div>
+    </div>`;
+  }
+
+  /* ---------- Acciones ---------- */
   async function proponer() {
     const d = sol[abierto]; if (!d || !libre(d)) return;
-    const pe = document.getElementById("tfProp"), monto = Math.round(parseFloat(pe && pe.value));
+    const pe = document.getElementById("ngProp"), monto = Math.round(parseFloat(pe && pe.value));
     if (!(monto > 0) || monto > 100000) return msg("Escribe un monto válido en córdobas.");
     if (d.negociacion && d.negociacion.aceptada) return msg("El cliente ya aceptó una tarifa.");
     try {
       await db.ref(RAIZ + "/" + abierto + "/negociacion/ofertas/central").set({ nombre: "Central", tipo: "central", monto, ts: firebase.database.ServerValue.TIMESTAMP });
-      propVal = ""; toast("Propuesta de " + dinero(monto) + " enviada al cliente ✓");
+      tmp.prop = ""; toast("Propuesta de " + dinero(monto) + " enviada al cliente ✓"); modo = "ofertas"; pintar();
     } catch (e) { msg("No se pudo enviar" + (e && e.code === "PERMISSION_DENIED" ? ": sube las reglas de Firebase nuevas." : ".")); }
   }
-
-  /* ---------- Asignación manual ---------- */
-  function precioSugerido(d, uid) {
-    const a = acordadoDe(d); if (a) return a.monto;
-    const of = ofertasDe(d), mia = of.find(([u]) => u === uid);
-    if (mia) return Math.round(mia[1].monto);
-    const m = Math.min(...of.map(([, o]) => Number(o.sugerida) || Infinity));
-    return isFinite(m) ? Math.round(m) : "";
-  }
-  function htmlAsignar(d) {
-    const p = d.pedido || {}, omit = d.omitidoPor || {}, a = acordadoDe(d);
-    const filas = listaEquipo().map((r) => {
-      const nota = [r.etiqueta, r.conPedido ? "con pedido" : "", omit[r.uid] ? "devolvió este pedido" : ""].filter(Boolean).join(" · ");
-      return `<button type="button" class="tf-rep${F.sel === r.uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(r.uid)}"><span>${esc(r.nombre || nombreRep(r.uid))}</span>${nota ? "<small>" + esc(nota) + "</small>" : ""}</button>`;
-    }).join("");
-    return `<h2>👤 Asignar pedido</h2>
-      <p class="tf-ayuda"><b>${esc(d.nombre || "Cliente")}</b>${p.quiere ? " · 🛍️ " + esc(p.quiere) : ""}</p>
-      <h3 class="tf-h3">Repartidor (todo el equipo, esté activo o no)</h3>
-      <div class="tf-reps">${filas || `<p class="tf-ayuda">Aún no hay repartidores en el equipo.</p>`}</div>
-      <h3 class="tf-h3">Envío acordado (C$)</h3>
-      <input id="tfPrecio" class="tf-precio" type="number" min="0" step="1" inputmode="numeric" placeholder="Opcional" value="${F.precio == null ? "" : esc(F.precio)}" ${a ? "readonly" : ""}>
-      <p class="tf-ayuda">${a ? "Este pedido ya tiene tarifa acordada con el cliente: se mantiene y el repartidor no puede cambiarla." : "Déjalo vacío si el repartidor va a fijar el delivery en la factura."}</p>
-      <div id="tfMsg" class="tf-ayuda"></div>
-      <button type="button" class="tf-asig" data-tf="asignar"${F.sel ? "" : " disabled"}>✅ Asignar y enviar al repartidor</button>
-      <button type="button" class="tf-sec" data-tf="vuelta">Volver</button>`;
-  }
-  const msg = (t) => { const m = document.getElementById("tfMsg"); if (m) m.textContent = t || ""; };
   async function asignar() {
-    const d = sol[abierto]; if (!d || !F || !F.sel) return;
+    const d = sol[abierto]; if (!d || !F.sel) return;
     if (!libre(d)) return msg("Este pedido ya no está libre.");
     const uid = F.sel, nombre = nombreRep(uid).slice(0, 60), a = acordadoDe(d);
-    const el = document.getElementById("tfPrecio"), monto = a ? a.monto : Math.round(parseFloat(el && el.value) || 0);
+    const el = document.getElementById("ngPrecio"), monto = a ? a.monto : Math.round(parseFloat(el && el.value) || 0);
     if (monto < 0 || monto > 100000) return msg("Escribe un monto válido.");
     if (!confirm("¿Asignar este pedido a " + nombre + (monto > 0 ? " con envío de " + dinero(monto) : "") + "?")) return;
     const base = RAIZ + "/" + abierto;
@@ -3668,44 +3689,54 @@ const TarifaAdmin = (() => {
       try { await db.ref(base).update(upd); }
       catch (e) { try { await db.ref(base + "/repartidorUid").set(null); } catch (_) {} throw e; }
       toast("Pedido asignado a " + nombre + " ✓ Ya le llegó a sus chats.");
-      abierto = null; F = null; cerrarModal();
+      abierto = null; cerrarModal();
     } catch (e) { msg("No se pudo asignar" + (e && e.code === "PERMISSION_DENIED" ? ": revisa que las reglas de Firebase estén publicadas." : ".")); }
+  }
+  async function enviarMensaje() {
+    const d = sol[abierto]; if (!d) return;
+    const el = document.getElementById("ngMsg"), t = String((el && el.value) || "").trim().slice(0, 500);
+    if (!t) return msg("Escribe un mensaje para el cliente.");
+    const base = RAIZ + "/" + abierto, TS = firebase.database.ServerValue.TIMESTAMP;
+    try {
+      await db.ref(base + "/mensajes").push({ de: "admin", tipo: "texto", texto: t, ts: TS });
+      await db.ref(base).update({ ultimoMensaje: t.slice(0, 200), ultimoDe: "admin", ts: TS });
+      tmp.msg = ""; if (el) el.value = "";
+      msg("✓ Mensaje enviado al cliente", true); toast("Mensaje enviado al cliente ✓");
+    } catch (e) { msg("No se pudo enviar" + (e && e.code === "PERMISSION_DENIED" ? ": sube las reglas de Firebase nuevas." : ".")); }
   }
 
   /* ---------- Modal ---------- */
   function pintar() {
     const c = document.getElementById("modalCaja"); if (!c || abierto == null) return;
     const d = sol[abierto]; if (!d) return;
-    if (modo === "asig" && !libre(d)) modo = "neg";
-    if (modo === "asig") {
-      const ant = document.getElementById("tfPrecio"); if (ant && !ant.readOnly) { F.precio = ant.value; F.editado = true; }
-      c.innerHTML = htmlAsignar(d);
-    } else {
-      const pe = document.getElementById("tfProp"), enfocado = !!pe && document.activeElement === pe;
-      if (pe) propVal = pe.value;
-      c.innerHTML = htmlNeg(d);
-      if (enfocado) { const ne = document.getElementById("tfProp"); if (ne) { ne.focus(); try { ne.setSelectionRange(ne.value.length, ne.value.length); } catch (_) {} } }
-    }
+    const act = document.activeElement && document.activeElement.id;
+    const pe = document.getElementById("ngProp"), me = document.getElementById("ngMsg"), pr = document.getElementById("ngPrecio");
+    if (pe) tmp.prop = pe.value; if (me) tmp.msg = me.value; if (pr && !pr.readOnly) { tmp.precio = pr.value; tmp.editado = true; }
+    c.innerHTML = html(d);
     c.onclick = alClick;
-    c.onchange = (e) => { if (e.target && e.target.id === "tfPrecio" && F) { F.precio = e.target.value; F.editado = true; } };
+    if (act && ["ngProp", "ngMsg", "ngPrecio"].includes(act)) {
+      const ne = document.getElementById(act); if (ne) { ne.focus(); try { ne.setSelectionRange(ne.value.length, ne.value.length); } catch (_) {} }
+    }
   }
   function alClick(e) {
     const b = e.target.closest("[data-tf]"); if (!b) return;
     const a = b.dataset.tf, d = sol[abierto];
-    if (a === "cerrar") { abierto = null; F = null; return cerrarModal(); }
-    if (a === "irasignar") { modo = "asig"; F = { sel: "", precio: precioSugerido(d, ""), editado: false }; return pintar(); }
-    if (a === "vuelta") { modo = "neg"; return pintar(); }
-    if (a === "sel") { F.sel = b.dataset.uid; if (!F.editado) F.precio = precioSugerido(d, F.sel); return pintar(); }
-    if (a === "asignar") return asignar();
+    if (a === "cerrar") { abierto = null; return cerrarModal(); }
+    if (a === "tab") { modo = b.dataset.m; return pintar(); }
+    if (a === "chip") { tmp.prop = b.dataset.v; const pe = document.getElementById("ngProp"); if (pe) { pe.value = b.dataset.v; pe.focus(); } return; }
+    if (a === "resp") { tmp.msg = RESPUESTAS[+b.dataset.i] || ""; const me = document.getElementById("ngMsg"); if (me) { me.value = tmp.msg; me.focus(); } return; }
+    if (a === "sel") { F.sel = b.dataset.uid; if (!tmp.editado) { const ac = acordadoDe(d); if (!ac) { const mia = ofertasDe(d).find(([u]) => u === F.sel); tmp.precio = mia ? String(Math.round(mia[1].monto)) : ""; } } return pintar(); }
     if (a === "proponer") return proponer();
-    if (a === "cancelarped") return cancelarPorTarifa(abierto);
+    if (a === "asignar") return asignar();
+    if (a === "enviarmsg") return enviarMensaje();
+    if (a === "cancelarped") return cancelarPedido(abierto);
   }
   function iniciar() {
     detener();
     ref = db.ref(RAIZ).limitToLast(60);
     ref.on("value", (s) => { sol = s.val() || {}; if (abierto != null) pintar(); }, () => { sol = {}; });
     refR = db.ref("repartidores");
-    refR.on("value", (s) => { const v = s.val(); reps = v && typeof v === "object" ? v : {}; if (abierto != null && modo === "asig") pintar(); }, () => { reps = {}; });
+    refR.on("value", (s) => { const v = s.val(); reps = v && typeof v === "object" ? v : {}; if (abierto != null && modo === "asignar") pintar(); }, () => { reps = {}; });
   }
   function detener() {
     if (ref) { ref.off(); ref = null; }
@@ -3716,9 +3747,8 @@ const TarifaAdmin = (() => {
 
   function abrir(id, m) {
     if (!sol[id]) return toast("Solicitud no disponible todavía.");
-    abierto = id; modo = "neg"; F = null; propVal = ""; modal("");
-    if (m === "asig" && libre(sol[id])) { modo = "asig"; F = { sel: "", precio: precioSugerido(sol[id], ""), editado: false }; }
-    pintar();
+    abierto = id; modo = m || (ofertasDe(sol[id]).length ? "ofertas" : "proponer"); F = { sel: "" }; tmp = { prop: "", msg: "", precio: "", editado: false };
+    modal(""); pintar();
   }
   function boton(id, d) {
     const b = document.createElement("button"), a = acordadoDe(d), n = ofertasDe(d).length;
@@ -3730,13 +3760,13 @@ const TarifaAdmin = (() => {
   function botonAsignar(id) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "tf-btn"; b.title = "Asignar a un repartidor"; b.textContent = "👤 Asignar";
-    b.addEventListener("click", () => abrir(id, "asig"));
+    b.addEventListener("click", () => abrir(id, "asignar"));
     return b;
   }
   function botonCancelar(id) {
     const b = document.createElement("button");
-    b.type = "button"; b.className = "peligro"; b.title = "Cancelar pedido (tarifa rechazada)"; b.textContent = "🚫 Cancelar pedido";
-    b.addEventListener("click", () => cancelarPorTarifa(id));
+    b.type = "button"; b.className = "peligro"; b.title = "Cancelar pedido"; b.textContent = "🚫 Cancelar pedido";
+    b.addEventListener("click", () => cancelarPedido(id));
     return b;
   }
   function resumen(d) {
@@ -3746,5 +3776,144 @@ const TarifaAdmin = (() => {
     const of = ofertasDe(d);
     return of.length ? "💰 " + of.length + (of.length === 1 ? " oferta" : " ofertas") + " · desde " + dinero(of[0][1].monto) : "";
   }
-  return { abrir, boton, botonAsignar, botonCancelar, rechazada, resumen };
+  const acordadoTxt = (d) => { const a = acordadoDe(d); return a ? dinero(a.monto) : ""; };
+  return { abrir, boton, botonAsignar, botonCancelar, rechazada, libre, resumen, acordadoTxt };
+})();
+
+/* ============================================================
+   TICKET DEL PEDIDO (visor del admin) · tarjeta clara + hoja limpia para captura y envío al restaurante
+   ============================================================ */
+const TicketPedido = (() => {
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  let ultimo = null;
+  function datos(d, id, dir) {
+    const p = d.pedido || {}, f = new Date(Number(d.creado || d.ts) || Date.now());
+    const lugar = (x) => (x && x.texto) ? String(x.texto) : (x && typeof x.lat === "number" ? "Pin del mapa" : "");
+    return {
+      codigo: "#" + String(id).slice(-5).toUpperCase(),
+      fecha: f.toLocaleDateString("es", { day: "numeric", month: "short" }),
+      hora: f.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }),
+      cliente: String(d.nombre || "Cliente"), quiere: String(p.quiere || ""), origen: String(p.origen || ""),
+      destino: lugar(p.destino) || String(dir || ""), contacto: String(p.contacto || ""),
+      rep: String(d.repartidorNombre || ""), envio: TarifaAdmin.acordadoTxt(d)
+    };
+  }
+  const fila = (ic, tit, val) => val ? `<div class="tk-f"><span class="tk-i">${ic}</span><div><small>${tit}</small><b>${esc(val)}</b></div></div>` : "";
+  function html(d, id, dir) {
+    const t = datos(d, id, dir); ultimo = { d, id, dir };
+    return `<div class="tk">
+      <div class="tk-h"><b>🧾 Pedido ${esc(t.codigo)}</b><small>${esc(t.fecha)} · ${esc(t.hora)}</small></div>
+      ${fila("🛍️", "Pedido", t.quiere)}${fila("🏪", "Comprar en", t.origen)}${fila("📍", "Entregar en", t.destino)}${fila("📞", "Contacto", t.contacto)}
+      <div class="tk-p"><span class="tk-chip">👤 ${esc(t.cliente)}</span>${t.envio ? `<span class="tk-chip g">💰 Envío ${esc(t.envio)}</span>` : ""}${t.rep ? `<span class="tk-chip">🛵 ${esc(t.rep)}</span>` : ""}</div>
+      <div class="tk-b"><button type="button" data-tk="captura">📸 Ticket para el restaurante</button><button type="button" data-tk="copiar">📋 Copiar</button></div>
+    </div>`;
+  }
+  const texto = (t) => ["🧾 Pedido " + t.codigo + " · Brother’s Deliverys", "Para: " + (t.origen || "—"), "A nombre de: " + t.cliente, "Pedido: " + (t.quiere || "—"), t.rep ? "Repartidor: " + t.rep : "", "Hora: " + t.fecha + " " + t.hora].filter(Boolean).join("\n");
+  function copiar() {
+    if (!ultimo) return;
+    const tx = texto(datos(ultimo.d, ultimo.id, ultimo.dir));
+    const ok = () => toast("Pedido copiado ✓ Pégalo en WhatsApp.");
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tx).then(ok, () => toast("No se pudo copiar."));
+    else { const a = document.createElement("textarea"); a.value = tx; document.body.appendChild(a); a.select(); try { document.execCommand("copy"); ok(); } catch (_) { toast("No se pudo copiar."); } a.remove(); }
+  }
+  function cerrarCaptura() { const o = document.getElementById("tkOverlay"); if (o) o.remove(); }
+  function captura() {
+    if (!ultimo) return;
+    cerrarCaptura();
+    const t = datos(ultimo.d, ultimo.id, ultimo.dir);
+    const o = document.createElement("div");
+    o.id = "tkOverlay"; o.className = "tk-ov"; o.setAttribute("role", "dialog"); o.setAttribute("aria-modal", "true");
+    o.innerHTML = `<div class="tk-hoja">
+        <div class="tk-hoja-cab"><span class="tk-logo">🛵</span><div><b>Brother’s Deliverys</b><small>Pedido para preparar</small></div></div>
+        <div class="tk-cod">${esc(t.codigo)}</div><div class="tk-fh">${esc(t.fecha)} · ${esc(t.hora)}</div>
+        <div class="tk-bl"><small>🏪 Restaurante / lugar</small><b class="g">${esc(t.origen || "—")}</b></div>
+        <div class="tk-bl"><small>👤 A nombre de</small><b>${esc(t.cliente)}</b></div>
+        <div class="tk-bl grande"><small>🛍️ Pedido</small><b>${esc(t.quiere || "—")}</b></div>
+        ${t.rep ? `<div class="tk-bl"><small>🛵 Repartidor que recoge</small><b>${esc(t.rep)}</b></div>` : ""}
+        <div class="tk-gr">Gracias por preparar el pedido 🙏</div>
+      </div>
+      <div class="tk-ov-bt"><button type="button" data-tk="copiar">📋 Copiar texto</button><button type="button" data-tk="cerrarov">Cerrar</button></div>`;
+    document.body.appendChild(o);
+  }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-tk]"); if (!b) return;
+    const a = b.dataset.tk;
+    if (a === "captura") captura(); else if (a === "copiar") copiar(); else if (a === "cerrarov") cerrarCaptura();
+  });
+  return { html };
+})();
+
+/* ============================================================
+   HORARIO DE ATENCIÓN + MENSAJE DE AUSENCIA (Admin)
+   Guarda configuracion/horarioAtencion. Fuera de horario (o con "cerrado ahora"), la Cloud Function
+   respuestaAusencia le escribe al cliente el mensaje de ausencia en cuanto hace su pedido.
+   ============================================================ */
+const HorarioAdmin = (() => {
+  const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+  const ORDEN = [1, 2, 3, 4, 5, 6, 0];
+  const ZONA = "America/Managua";
+  const MENSAJE = "👋 ¡Hola! En este momento estamos fuera de nuestro horario de atención. Recibimos tu pedido y lo atenderemos en cuanto abramos. ¡Gracias por escribirnos! 🛵";
+  const g = (id) => document.getElementById(id);
+  let cfg = null, ref = null, sucio = false;
+  const defecto = () => ({ activo: false, cerradoManual: false, zona: ZONA, mensaje: MENSAJE, dias: DIAS.map((_, i) => ({ abierto: i !== 0, desde: "08:00", hasta: "20:00" })) });
+  const aMin = (h) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(h || "")); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+  function ahora() {
+    const f = new Intl.DateTimeFormat("en-US", { timeZone: (cfg && cfg.zona) || ZONA, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    const p = {}; f.formatToParts(new Date()).forEach((x) => { p[x.type] = x.value; });
+    return { dia: { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[p.weekday], min: (parseInt(p.hour, 10) % 24) * 60 + parseInt(p.minute, 10) };
+  }
+  function abiertoAhora(c) {
+    const { dia, min } = ahora(), dias = c.dias || [];
+    const win = (d) => (d && d.abierto ? [aMin(d.desde), aMin(d.hasta)] : null);
+    const h = win(dias[dia]);
+    if (h && h[0] != null && h[1] != null) { if (h[1] > h[0]) { if (min >= h[0] && min < h[1]) return true; } else if (min >= h[0]) return true; }
+    const y = win(dias[(dia + 6) % 7]);
+    return !!(y && y[0] != null && y[1] != null && y[1] <= y[0] && min < y[1]);
+  }
+  function estadoTxt() {
+    if (!cfg) return "";
+    if (cfg.cerradoManual) return "🔴 Cerrado (manual)";
+    if (!cfg.activo) return "⚪ Horario desactivado";
+    return abiertoAhora(cfg) ? "🟢 Abierto ahora" : "🔴 Fuera de horario";
+  }
+  function pintarEstado() { const e = g("saHorarioEstado"); if (e) e.textContent = estadoTxt(); const e2 = g("horEstado"); if (e2) e2.textContent = estadoTxt(); }
+  function construir() {
+    const box = g("saHorarioBox"); if (!box || box.dataset.listo) return;
+    box.dataset.listo = "1";
+    box.innerHTML = `<label class="hor-sw"><input type="checkbox" id="horActivo"><span>Activar horario de atención automático</span></label>
+      <label class="hor-sw rojo"><input type="checkbox" id="horManual"><span>🔴 Estoy cerrado ahora (manual)</span></label>
+      <div class="hor-dias">${ORDEN.map((i) => `<div class="hor-d" data-d="${i}"><label class="hor-dn"><input type="checkbox" class="hor-ab"><span>${DIAS[i]}</span></label><input type="time" class="hor-de" aria-label="Abre ${DIAS[i]}"><span class="hor-a">a</span><input type="time" class="hor-ha" aria-label="Cierra ${DIAS[i]}"></div>`).join("")}</div>
+      <label class="hor-l" for="horMsg">Mensaje de ausencia (le llega al cliente cuando haga su pedido fuera de horario)</label>
+      <textarea id="horMsg" rows="3" maxlength="500"></textarea>
+      <div class="hor-pie"><span id="horEstado" class="hor-est"></span><button type="button" id="horDef" class="hor-sec">Restaurar mensaje</button><button type="button" id="horGuardar" class="hor-pri">💾 Guardar</button></div>
+      <div id="horMsgOk" class="hor-ok" aria-live="polite"></div>`;
+    box.addEventListener("input", () => { sucio = true; const o = g("horMsgOk"); if (o) o.textContent = ""; });
+    g("horDef").addEventListener("click", () => { g("horMsg").value = MENSAJE; sucio = true; });
+    g("horGuardar").addEventListener("click", guardar);
+  }
+  function llenar() {
+    const c = cfg || defecto();
+    g("horActivo").checked = !!c.activo; g("horManual").checked = !!c.cerradoManual; g("horMsg").value = c.mensaje || MENSAJE;
+    document.querySelectorAll("#saHorarioBox .hor-d").forEach((f) => {
+      const d = (c.dias || [])[+f.dataset.d] || { abierto: false, desde: "08:00", hasta: "20:00" };
+      f.querySelector(".hor-ab").checked = !!d.abierto; f.querySelector(".hor-de").value = d.desde || "08:00"; f.querySelector(".hor-ha").value = d.hasta || "20:00";
+    });
+    pintarEstado();
+  }
+  async function guardar() {
+    const dias = DIAS.map((_, i) => { const f = document.querySelector('#saHorarioBox .hor-d[data-d="' + i + '"]'); return { abierto: f.querySelector(".hor-ab").checked, desde: f.querySelector(".hor-de").value || "08:00", hasta: f.querySelector(".hor-ha").value || "20:00" }; });
+    const nuevo = { activo: g("horActivo").checked, cerradoManual: g("horManual").checked, zona: ZONA, mensaje: String(g("horMsg").value || MENSAJE).trim().slice(0, 500), dias, actualizado: firebase.database.ServerValue.TIMESTAMP };
+    const ok = g("horMsgOk");
+    try { await db.ref("configuracion/horarioAtencion").set(nuevo); sucio = false; ok.textContent = "✓ Guardado"; ok.className = "hor-ok bien"; }
+    catch (e) { ok.textContent = "No se pudo guardar" + (e && e.code === "PERMISSION_DENIED" ? ": sube las reglas de Firebase nuevas." : "."); ok.className = "hor-ok mal"; }
+  }
+  function iniciar() {
+    construir(); detener();
+    ref = db.ref("configuracion/horarioAtencion");
+    ref.on("value", (s) => { cfg = s.val() || defecto(); if (!sucio) llenar(); else pintarEstado(); }, () => { cfg = defecto(); if (!sucio) llenar(); });
+  }
+  function detener() { if (ref) { ref.off(); ref = null; } }
+  try { APP.auth().onAuthStateChanged((u) => { if (u) iniciar(); else detener(); }); } catch (_) {}
+  setInterval(pintarEstado, 60000);
+  return {};
 })();

@@ -643,7 +643,7 @@
         },
         "ultimoDe": {
           ".write": "auth != null && ((auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido' && newData.val() === 'cliente') || ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido') && newData.val() === 'repartidor'))",
-          ".validate": "newData.val() === '' || newData.val() === 'cliente' || newData.val() === 'repartidor'"
+          ".validate": "newData.val() === '' || newData.val() === 'cliente' || newData.val() === 'repartidor' || newData.val() === 'admin'"
         },
         "ts": {
           ".write": "auth != null && ((auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido' && newData.isNumber() && newData.val() <= now) || ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido') && newData.isNumber() && newData.val() <= now) || (auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').exists() && newData.isNumber() && newData.val() <= now))",
@@ -714,7 +714,7 @@
         "mensajes": {
           "$id": {
             ".write": "auth != null && !data.exists() && newData.exists() && ((auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido' && newData.child('de').val() === 'cliente') || ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido') && newData.child('de').val() === 'repartidor'))",
-            ".validate": "newData.hasChildren(['de', 'tipo', 'ts']) && (newData.child('de').val() === 'cliente' || newData.child('de').val() === 'repartidor') && (newData.child('de').val() !== 'cliente' || auth.token.firebase.sign_in_provider === 'anonymous') && (newData.child('de').val() !== 'repartidor' || auth.token.firebase.sign_in_provider !== 'anonymous') && (newData.child('tipo').val() === 'texto' || newData.child('tipo').val() === 'factura' || newData.child('tipo').val() === 'foto') && (newData.child('tipo').val() !== 'texto' || (newData.child('texto').isString() && newData.child('texto').val().length >= 1 && newData.child('texto').val().length <= 600)) && (newData.child('tipo').val() !== 'factura' || newData.child('factura').hasChildren(['productos', 'totalFinal']))",
+            ".validate": "newData.hasChildren(['de', 'tipo', 'ts']) && (newData.child('de').val() === 'cliente' || newData.child('de').val() === 'repartidor' || newData.child('de').val() === 'admin') && (newData.child('de').val() !== 'cliente' || auth.token.firebase.sign_in_provider === 'anonymous') && (newData.child('de').val() !== 'repartidor' || auth.token.firebase.sign_in_provider !== 'anonymous') && (newData.child('de').val() !== 'admin' || root.child('admins').child(auth.uid).exists()) && (newData.child('tipo').val() === 'texto' || newData.child('tipo').val() === 'factura' || newData.child('tipo').val() === 'foto') && (newData.child('tipo').val() !== 'texto' || (newData.child('texto').isString() && newData.child('texto').val().length >= 1 && newData.child('texto').val().length <= 600)) && (newData.child('tipo').val() !== 'factura' || newData.child('factura').hasChildren(['productos', 'totalFinal']))",
             "de": { ".validate": "newData.isString()" },
             "tipo": { ".validate": "newData.isString()" },
             "texto": { ".validate": "newData.isString() && newData.val().length <= 600" },
@@ -730,7 +730,25 @@
     "configuracion": {
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
-      "actualizaciones": {
+      "horarioAtencion": {
+            ".validate": "newData.hasChildren(['activo', 'dias']) && newData.child('activo').isBoolean()",
+            "activo": {},
+            "cerradoManual": { ".validate": "newData.isBoolean()" },
+            "zona": { ".validate": "newData.isString() && newData.val().length <= 60" },
+            "mensaje": { ".validate": "newData.isString() && newData.val().length <= 500" },
+            "dias": {
+              "$d": {
+                ".validate": "newData.hasChildren(['abierto', 'desde', 'hasta'])",
+                "abierto": { ".validate": "newData.isBoolean()" },
+                "desde": { ".validate": "newData.isString() && newData.val().matches(/^[0-2][0-9]:[0-5][0-9]$/)" },
+                "hasta": { ".validate": "newData.isString() && newData.val().matches(/^[0-2][0-9]:[0-5][0-9]$/)" },
+                "$otro": { ".validate": false }
+              }
+            },
+            "actualizado": { ".validate": "newData.isNumber()" },
+            "$otro": { ".validate": false }
+          },
+          "actualizaciones": {
         "$app": {
           ".validate": "newData.hasChildren(['version']) && newData.child('version').isNumber()",
           "version": {},

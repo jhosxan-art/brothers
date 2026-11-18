@@ -9,6 +9,8 @@
    5) notificarNuevaSolicitud   → push a TODOS los repartidores en cuanto entra un pedido nuevo (suena aunque estén en
                                   otra app o con la pantalla apagada). Si aún usas worker-solicitudes.js, apágalo o
                                   despliega con NOTIFICAR_NUEVOS=0 para no recibir el aviso doble.
+   6) respuestaAusencia         → si el pedido entra fuera del horario de atención (o con "cerrado ahora"), le escribe al
+                                  cliente el mensaje de ausencia configurado en Solicitudes → Horario de atención.
    Los tokens FCM salen de repartidores/{uid}/fcmToken (los mismos que ya guarda la app).
    ============================================================ */
 const { onValueCreated, onValueWritten } = require("firebase-functions/v2/database");
@@ -134,4 +136,33 @@ exports.notificarNuevaSolicitud = onValueCreated({ ref: `/${RAIZ}/{id}`, instanc
   if (!uids.length) return;
   const p = s.pedido || {}, que = p.quiere ? " · " + corto(p.quiere, 60) : "";
   await enviarAVarios(uids, "🆕 Nuevo pedido", `${corto(s.nombre || "Cliente", 30)}${que}`, event.params.id);
+});
+
+/* ---------- 6) Mensaje de ausencia fuera del horario de atención ---------- */
+const MENSAJE_AUSENCIA = "👋 ¡Hola! En este momento estamos fuera de nuestro horario de atención. Recibimos tu pedido y lo atenderemos en cuanto abramos. ¡Gracias por escribirnos! 🛵";
+const aMin = (h) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(h || "")); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+function ahoraEn(zona) {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: zona || "America/Managua", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const p = {}; f.formatToParts(new Date()).forEach((x) => { p[x.type] = x.value; });
+  return { dia: { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[p.weekday], min: (parseInt(p.hour, 10) % 24) * 60 + parseInt(p.minute, 10) };
+}
+function abiertoAhora(cfg) {
+  const { dia, min } = ahoraEn(cfg.zona), dias = cfg.dias || {};
+  const ventana = (d) => (d && d.abierto ? [aMin(d.desde), aMin(d.hasta)] : null);
+  const h = ventana(dias[dia]);
+  if (h && h[0] != null && h[1] != null) { if (h[1] > h[0]) { if (min >= h[0] && min < h[1]) return true; } else if (min >= h[0]) return true; }
+  const y = ventana(dias[(dia + 6) % 7]);
+  return !!(y && y[0] != null && y[1] != null && y[1] <= y[0] && min < y[1]);
+}
+exports.respuestaAusencia = onValueCreated({ ref: `/${RAIZ}/{id}`, instance: INSTANCE }, async (event) => {
+  const s = event.data.val();
+  if (!s || s.estado !== "nuevo" || s.repartidorUid) return;
+  const cfg = (await db.ref("configuracion/horarioAtencion").once("value")).val();
+  if (!cfg) return;
+  const cerrado = cfg.cerradoManual === true || (cfg.activo === true && !abiertoAhora(cfg));
+  if (!cerrado) return;
+  const texto = String(cfg.mensaje || MENSAJE_AUSENCIA).slice(0, 500);
+  const ref = db.ref(`${RAIZ}/${event.params.id}`);
+  await ref.child("mensajes").push({ de: "admin", tipo: "texto", texto, ts: admin.database.ServerValue.TIMESTAMP, auto: true });
+  await ref.update({ ultimoMensaje: texto.slice(0, 200), ultimoDe: "admin" });
 });

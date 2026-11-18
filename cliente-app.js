@@ -637,6 +637,7 @@
       if (typeof m.foto === "string") poner(m.foto);
       else db.ref(RAIZ_FOTOS + "/" + perfil.solicitudId + "/" + clave).once("value").then((x) => poner(x.val())).catch(() => { img.alt = "No se pudo cargar la foto"; });
     } else {
+      if (m.de === "admin") { const q = document.createElement("small"); q.className = "wa-de"; q.textContent = "🛵 Central"; burbuja.appendChild(q); }
       const p = document.createElement("p");
       p.textContent = String(m.texto || "");
       burbuja.appendChild(p);
