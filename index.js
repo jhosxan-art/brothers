@@ -39,7 +39,7 @@ function mensaje(token, titulo, cuerpo, id) {
     notification: { title: titulo, body: cuerpo },
     data: { tipo: "solicitud", solicitud: String(id) },
     /* Prioridad máxima: llega aunque el teléfono esté en reposo (Doze), con la pantalla apagada o en otra app. */
-    android: { priority: "high", ttl: 600000, notification: { channelId: "pedidos", sound: "default", priority: "max", visibility: "public", defaultVibrateTimings: true, defaultLightSettings: true } },
+    android: { priority: "high", ttl: 600000, collapseKey: "sol_" + String(id), notification: { tag: "sol_" + String(id), channelId: "pedidos", sound: "default", priority: "max", visibility: "public", defaultVibrateTimings: true, defaultLightSettings: true } },
     apns: { headers: { "apns-priority": "10" }, payload: { aps: { sound: "default", "interruption-level": "time-sensitive" } } }
   };
 }
@@ -134,8 +134,8 @@ exports.notificarNuevaSolicitud = onValueCreated({ ref: `/${RAIZ}/{id}`, instanc
   const reps = (await db.ref("repartidores").once("value")).val() || {};
   const uids = Object.keys(reps).filter((u) => reps[u] && reps[u].fcmToken);
   if (!uids.length) return;
-  const p = s.pedido || {}, que = p.quiere ? " · " + corto(p.quiere, 60) : "";
-  await enviarAVarios(uids, "🆕 Nuevo pedido", `${corto(s.nombre || "Cliente", 30)}${que}`, event.params.id);
+  const p = s.pedido || {}, que = p.quiere ? "🛍️ " + corto(p.quiere, 70) : "Un cliente quiere hacer un pedido", de = p.origen ? " · 🏪 " + corto(p.origen, 40) : "";
+  await enviarAVarios(uids, "🆕 Nuevo pedido · " + corto(s.nombre || "Cliente", 24), que + de, event.params.id);
 });
 
 /* ---------- 6) Mensaje de ausencia fuera del horario de atención ---------- */

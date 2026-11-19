@@ -2396,6 +2396,18 @@ const PUSH_HABILITADO = true;
    Si aún no lo desplegaste, ponlo en false para que la app siga avisando con la notificación local. */
 const PUSH_SOLICITUDES_SERVIDOR = true;
 let pushActivo = false, abrirPendiente = null;
+function avisoPushDesactivado() {
+  if (document.getElementById("pushOff")) return;
+  const b = document.createElement("div");
+  b.id = "pushOff"; b.setAttribute("role", "alert");
+  b.style.cssText = "position:fixed;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top,0px));z-index:99998;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:14px;background:#82071E;color:#fff;font-size:13px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.35)";
+  const t = document.createElement("span"); t.style.flex = "1";
+  t.textContent = "🔕 Las notificaciones están desactivadas. Actívalas en Ajustes del teléfono para recibir pedidos con la app cerrada.";
+  const x = document.createElement("button"); x.type = "button"; x.textContent = "✕"; x.setAttribute("aria-label", "Cerrar aviso");
+  x.style.cssText = "flex:none;width:34px;height:34px;border:0;border-radius:50%;background:rgba(255,255,255,.2);color:#fff;font-size:15px";
+  x.addEventListener("click", () => b.remove());
+  b.appendChild(t); b.appendChild(x); document.body.appendChild(b);
+}
 async function registrarPush() {
   if (!PUSH_HABILITADO) return;
   const PN = plug("PushNotifications");
@@ -2403,7 +2415,7 @@ async function registrarPush() {
   try {
     let p = await PN.checkPermissions();
     if (p.receive !== "granted") p = await PN.requestPermissions();
-    if (p.receive !== "granted") return;
+    if (p.receive !== "granted") { avisoPushDesactivado(); return; }
     await PN.createChannel({ id: "mensajes", name: "Mensajes", description: "Avisos cuando Brothers o un cliente te escribe", importance: 5, visibility: 1, vibration: true, lights: true });
     await PN.createChannel({ id: "pedidos", name: "Pedidos nuevos", description: "Pedidos y guías que te asigna Brothers", importance: 5, visibility: 1, vibration: true, lights: true });
     await PN.removeAllListeners();
@@ -2413,6 +2425,10 @@ async function registrarPush() {
       db.ref().update({ [`repartidores/${u}/fcmToken`]: t.value, [`repartidores/${u}/fcmTs`]: TS }).catch((e) => console.warn("fcmToken:", e.message));
     });
     PN.addListener("registrationError", (e) => console.warn("Push:", e));
+    PN.addListener("pushNotificationReceived", (n) => {
+      const d = (n && n.data) || {};
+      if (d.tipo === "solicitud" && d.solicitud && !document.hidden) { try { ChatsEntrantes.abrirSolicitud(d.solicitud); } catch (_) {} }
+    });
     PN.addListener("pushNotificationActionPerformed", (ev) => {
       const d = (ev.notification && ev.notification.data) || {};
       if (d.tipo === "solicitud" && d.solicitud) return ChatsEntrantes.abrirSolicitud(d.solicitud);
@@ -2438,7 +2454,7 @@ function notificarTexto(titulo, cuerpo, resumen, extra) {
   if (clave) { notifIds[clave] = id; guardarNotifIds(); }
   ln.schedule({ notifications: [{
     id, title: titulo, body: cuerpo, largeBody: cuerpo, summaryText: resumen,
-    channelId: "mensajes", actionTypeId: "MENSAJE", extra
+    channelId: extra && extra.nuevaSolicitud ? "pedidos" : "mensajes", actionTypeId: "MENSAJE", extra
   }] }).catch(() => {});
 }
 function notificarMensaje(v, m) {
@@ -2996,6 +3012,12 @@ const NavAtras = (() => {
       if (on("invoicePopup")) { if (!llamar("closePopup")) $("invoicePopup").classList.remove("show"); return true; }
       return false;
     },
+    /* Ventana "Nuevo pedido": el botón atrás la cierra */
+    () => {
+      const w = $("npWin");
+      if (w && !w.classList.contains("oculto")) { const x = $("npX"); if (x) x.click(); else w.classList.add("oculto"); return true; }
+      return false;
+    },
     /* Modales de la app (el último en el DOM es el que queda encima) */
     () => {
       const abiertos = Array.from(document.querySelectorAll(".modal-rep")).filter((m) => !m.classList.contains("oculto") && m.id !== "modalPago");
@@ -3290,9 +3312,19 @@ const ChatsEntrantes = (() => {
   function anunciarSolicitud(id, d) {
     const p = d.pedido || {};
     try { Voz.solicitud(); } catch (_) {}
-    toast("📥", "Solicitud de pedido", cortar(p.quiere || d.nombre || "Un cliente quiere hacer un pedido", 80), () => { irA("mapa"); vistaPrevia(id); }, 9000);
+    try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (_) {}
+    if (!document.hidden && !previoId && !pickCancel) vistaPrevia(id);   // se abre sola la ventana "Nuevo pedido"
+    else toast("📥", "Solicitud de pedido", cortar(p.quiere || d.nombre || "Un cliente quiere hacer un pedido", 80), () => { irA("mapa"); vistaPrevia(id); }, 9000);
     notificarTexto("📥 Solicitud de pedido", cortar(p.quiere || "Un cliente quiere hacer un pedido", 120), "Nueva solicitud", { solicitud: id, nuevaSolicitud: true });
   }
+  /* Al volver a la app (desde otra app o con la pantalla apagada) se abre el pedido nuevo que quedó sin ver */
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden || previoId || pickCancel || !uidActual || !cargada) return;
+    const ahora = Date.now();
+    const id = Object.keys(lista).filter((k) => libre(lista[k]) && !npVistas.has(k) && ahora - (Number(lista[k].ts) || 0) < 15 * 60000)
+      .sort((a, b) => (Number(lista[b].ts) || 0) - (Number(lista[a].ts) || 0))[0];
+    if (id) vistaPrevia(id);
+  });
   function mensajeDelCliente(id, d) {
     const visible = abiertoId === id && vistaActual === "chats" && !document.hidden;
     if (visible) return;
@@ -3498,35 +3530,146 @@ const ChatsEntrantes = (() => {
     irA(activos() ? "chats" : "mapa");
     vistaPrevia(id);
   }
+  /* ============================================================
+     VENTANA "NUEVO PEDIDO" (repartidor)
+     · Se abre sola cuando entra un pedido (o al tocar el aviso push) y se cierra sola si otro repartidor lo toma.
+     · Pestañas: 📋 Pedido · 💰 Tarifa (marcar producto y negociar) · 💬 Chat.
+     · Opciones: negociar el precio aquí, o ✅ Tomar pedido y negociar directamente en el chat.
+     ============================================================ */
+  let npTab = "pedido";
+  const npVistas = new Set();
+  (function () {
+    const st = document.createElement("style");
+    st.textContent = [
+      ".np-win{position:fixed;inset:0;z-index:9000;display:flex;align-items:flex-end;justify-content:center;background:rgba(14,20,27,.55)}",
+      ".np-win.oculto{display:none}",
+      ".np-win *{box-sizing:border-box;min-width:0}",
+      ".np-caja{display:flex;flex-direction:column;gap:10px;width:100%;max-width:480px;max-height:94vh;padding:14px 14px calc(14px + env(safe-area-inset-bottom,0px));border-radius:22px 22px 0 0;background:#fff;color:#0E141B;overflow:hidden}",
+      ".np-cab{display:flex;align-items:center;gap:8px}",
+      ".np-pill{padding:4px 12px;border-radius:999px;background:#DAFBE1;color:#1A7F37;font-size:13px;font-weight:800}",
+      ".np-hace{flex:1;font-size:12px;color:#57606A}",
+      ".np-x{flex:none;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:#EEF1F4;color:#3C4043;font-size:16px;font-weight:700}",
+      ".np-cli{display:flex;align-items:center;gap:10px}",
+      ".np-av{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#0969DA;color:#fff;font-size:20px;font-weight:800}",
+      ".np-cli-t{display:grid;flex:1}",
+      ".np-cli-t b{font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".np-cli-t small{font-size:12px;color:#57606A}",
+      ".np-hero{flex:none;display:grid;justify-items:end;padding:6px 12px;border:1px solid;border-radius:12px;text-align:right}",
+      ".np-hero small{font-size:11px;font-weight:700}",
+      ".np-hero b{font-size:19px}",
+      ".np-hero.ok{background:#DAFBE1;border-color:#4AC26B;color:#1A7F37}",
+      ".np-hero.pen{background:#FFF8C5;border-color:#D4A72C;color:#7D4E00}",
+      ".np-hero.nue{background:#DDF4FF;border-color:#54AEFF;color:#0969DA}",
+      ".np-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:12px;background:#EEF1F4}",
+      ".np-tab{display:grid;justify-items:center;gap:1px;min-height:46px;padding:6px 2px;border:0;border-radius:9px;background:transparent;color:#57606A;font-size:12px;font-weight:700}",
+      ".np-tab span{font-size:17px;line-height:1}",
+      ".np-tab.on{background:#fff;color:#0E141B;box-shadow:0 1px 3px rgba(0,0,0,.15)}",
+      ".np-panel{flex:1 1 auto;min-height:210px;overflow-y:auto;-webkit-overflow-scrolling:touch}",
+      ".np-sec.oculto{display:none}",
+      ".np-ticket{display:grid;gap:12px;padding:14px;border:1px solid #D0D7DE;border-radius:14px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.06)}",
+      ".np-f{display:flex;align-items:flex-start;gap:10px}",
+      ".np-i{flex:none;width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#F6F8FA;font-size:16px}",
+      ".np-f>div{display:grid;min-width:0}",
+      ".np-f small{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#57606A}",
+      ".np-f b{font-size:15px;font-weight:700;overflow-wrap:anywhere}",
+      ".np-f.grande b{font-size:19px;line-height:1.25}",
+      ".np-vacio{padding:22px 10px;text-align:center;color:#57606A;font-size:14px}",
+      ".np-msg{margin:0 0 6px;padding:8px 10px;border-radius:12px;background:#F6F8FA;font-size:14px;overflow-wrap:anywhere}",
+      ".np-msg small{display:block;font-size:11px;font-weight:700;color:#57606A}",
+      ".np-aviso{padding:8px 10px;border-radius:10px;background:#FFEBE9;color:#82071E;font-size:13px;font-weight:700}",
+      ".np-aviso.oculto{display:none}",
+      ".np-pie{display:grid;grid-template-columns:1.7fr 1fr;gap:8px}",
+      ".np-pie button{min-height:50px;border-radius:14px;font-size:15px;font-weight:800}",
+      ".np-tomar{border:0;background:#1A7F37;color:#fff}",
+      ".np-tomar:disabled{opacity:.5}",
+      ".np-tomar.oculto{display:none}",
+      ".np-omitir{border:1px solid #D0D7DE;background:#F6F8FA;color:#24292F}",
+      ".np-nota{display:block;text-align:center;font-size:12px;color:#57606A}",
+      "#npWin .sp-neg{margin:0;padding:0;border:0;background:transparent}",
+      "#npWin .sp-neg-t{display:none}"
+    ].join("\n");
+    document.head.appendChild(st);
+  })();
+  function haceNp(ts) {
+    const t = Number(ts); if (!t) return "";
+    const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (m < 1) return "ahora mismo"; if (m < 60) return "hace " + m + " min";
+    const h = Math.round(m / 60); return h < 24 ? "hace " + h + " h" : "hace " + Math.round(h / 24) + " d";
+  }
+  function mostrarTabNp() {
+    document.querySelectorAll("#npWin .np-tab").forEach((b) => { const on = b.dataset.np === npTab; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
+    ["pedido", "tarifa", "chat"].forEach((k) => { const s = $("npSec" + k.charAt(0).toUpperCase() + k.slice(1)); if (s) s.classList.toggle("oculto", k !== npTab); });
+    const p = document.querySelector("#npWin .np-panel"); if (p) p.scrollTop = 0;
+  }
+  function construirNp() {
+    if ($("npWin")) return;
+    const w = el("div", "np-win oculto");
+    w.id = "npWin"; w.setAttribute("role", "dialog"); w.setAttribute("aria-modal", "true"); w.setAttribute("aria-label", "Nuevo pedido");
+    w.innerHTML = '<div class="np-caja">' +
+      '<div class="np-cab"><span class="np-pill">🆕 Nuevo pedido</span><small id="npHace" class="np-hace"></small><button type="button" id="npX" class="np-x" aria-label="Cerrar">✕</button></div>' +
+      '<div class="np-cli"><div id="npAv" class="np-av">?</div><div class="np-cli-t"><b id="npNombre"></b><small id="npCodigo"></small></div><div id="npHero" class="np-hero nue"></div></div>' +
+      '<div class="np-tabs" role="tablist"><button type="button" class="np-tab on" data-np="pedido"><span>📋</span>Pedido</button><button type="button" class="np-tab" data-np="tarifa"><span>💰</span>Tarifa</button><button type="button" class="np-tab" data-np="chat"><span>💬</span>Chat</button></div>' +
+      '<div class="np-panel"><div id="npSecPedido" class="np-sec"></div><div id="npSecTarifa" class="np-sec oculto"></div><div id="npSecChat" class="np-sec oculto"></div></div>' +
+      '<div id="npAviso" class="np-aviso oculto" role="alert"></div>' +
+      '<div class="np-pie"><button type="button" id="npTomar" class="np-tomar">✅ Tomar pedido</button><button type="button" id="npOmitir" class="np-omitir">Cerrar</button></div>' +
+      '<small class="np-nota">Negocia la tarifa en «Tarifa», o toma el pedido y negocia con el cliente por el chat.</small></div>';
+    document.body.appendChild(w);
+    w.addEventListener("click", (e) => {
+      if (e.target === w) return cerrarPrevia();
+      const t = e.target.closest && e.target.closest("[data-np]");
+      if (t) { npTab = t.dataset.np; mostrarTabNp(); }
+    });
+    $("npX").addEventListener("click", cerrarPrevia);
+    $("npOmitir").addEventListener("click", cerrarPrevia);
+    $("npTomar").addEventListener("click", () => { if (previoId) atender(previoId, $("npTomar")); });
+  }
+  function pintarHeroNp(d) {
+    const h = $("npHero"); if (!h) return;
+    const n = (d && d.negociacion) || {}, mi = n.ofertas && n.ofertas[uidActual], fijo = precioFijoDe(d);
+    h.textContent = "";
+    const poner = (t, v, c) => { h.className = "np-hero " + c; h.appendChild(el("small", "", t)); h.appendChild(el("b", "", v)); };
+    if (fijo) poner("Envío acordado", money(fijo), "ok");
+    else if (mi) poner("Tu oferta", money(mi.monto), "pen");
+    else if (negForm && negForm.calc) poner("Sugerida", money(negForm.calc.sugerida), "nue");
+    else poner("Tarifa", "—", "nue");
+  }
   function vistaPrevia(id) {
     const d = lista[id];
     if (mio(d)) { irA("chats"); return abrir(id); }
     if (!libre(d)) return toast("ℹ️", "Solicitud", "Esa solicitud ya no está disponible.", null, 4000);
-    previoId = id;
-    negForm = null;
+    construirNp();
+    if (previoId !== id) { negForm = null; npTab = "pedido"; }
+    previoId = id; npVistas.add(id);
     pintarPrevia(d);
-    $("spAviso").classList.add("oculto");
-    $("spAtender").disabled = false;
-    $("modalSolicitud").classList.remove("oculto");
+    $("npAviso").classList.add("oculto");
+    $("npTomar").disabled = false;
+    mostrarTabNp();
+    $("npWin").classList.remove("oculto");
   }
   function pintarPrevia(d) {
-    const p = d.pedido || {}, c = $("spCuerpo");
-    c.textContent = "";
-    const fila = (t, v) => { const f = el("div", "sp-fila"); f.appendChild(el("small", "", t)); f.appendChild(el("b", "", v)); c.appendChild(f); };
-    fila("Cliente", cortar(d.nombre || "Cliente", 40));
-    fila("🛍️ Qué desea", p.quiere ? cortar(p.quiere, 200) : "No lo indicó (chat anterior)");
-    fila("📍 De dónde lo desea", p.origen ? cortar(p.origen, 120) : "No lo indicó");
-    fila(p.modo === "envia" ? "🎁 Lo envía a otra persona · entrega en" : "🙋 Lo recibe el cliente · ubicación", textoDestino(d));
-    const h = $("spChat"), ms = d.mensajes && typeof d.mensajes === "object" ? Object.keys(d.mensajes).sort().slice(-4).map((k) => d.mensajes[k]) : [];
+    construirNp();
+    const p = d.pedido || {}, nombre = cortar(d.nombre || "Cliente", 40);
+    $("npAv").textContent = (nombre.trim().charAt(0) || "?").toUpperCase();
+    $("npNombre").textContent = nombre;
+    $("npCodigo").textContent = "#" + String(previoId).slice(-5).toUpperCase();
+    $("npHace").textContent = haceNp(d.creado || d.ts);
+    const s = $("npSecPedido"); s.textContent = "";
+    const t = el("div", "np-ticket");
+    const f = (ic, tit, val, grande) => { if (!val) return; const r = el("div", "np-f" + (grande ? " grande" : "")); r.appendChild(el("span", "np-i", ic)); const c = el("div", ""); c.appendChild(el("small", "", tit)); c.appendChild(el("b", "", val)); r.appendChild(c); t.appendChild(r); };
+    f("🛍️", "Qué desea", p.quiere ? cortar(p.quiere, 200) : "No lo indicó (chat anterior)", true);
+    f("🏪", "De dónde lo desea", p.origen ? cortar(p.origen, 120) : "No lo indicó");
+    f(p.modo === "envia" ? "🎁" : "📍", p.modo === "envia" ? "Lo envía a otra persona · entrega en" : "Lo recibe el cliente · ubicación", textoDestino(d));
+    s.appendChild(t);
+    const h = $("npSecChat"), ms = d.mensajes && typeof d.mensajes === "object" ? Object.keys(d.mensajes).sort().slice(-5).map((k) => d.mensajes[k]) : [];
     h.textContent = "";
     ms.forEach((m) => {
       if (!m || typeof m !== "object") return;
-      const t = m.tipo === "foto" ? "📷 Foto" : m.tipo === "factura" ? "🧾 Factura" : cortar(m.texto, 120);
-      h.appendChild(el("p", "", (m.de === "cliente" ? "Cliente: " : "Repartidor: ") + t));
+      const x = el("div", "np-msg"), tx = m.tipo === "foto" ? "📷 Foto" : m.tipo === "factura" ? "🧾 Factura" : cortar(m.texto, 160);
+      x.appendChild(el("small", "", m.de === "cliente" ? "Cliente" : m.de === "admin" ? "Central" : "Repartidor")); x.appendChild(document.createTextNode(tx)); h.appendChild(x);
     });
-    if (ms.length) h.insertBefore(el("small", "", "Historial del chat"), h.firstChild);
-    h.classList.toggle("oculto", !ms.length);
+    if (!ms.length) h.appendChild(el("div", "np-vacio", "Aún no hay mensajes. Si tomas el pedido, negocias el precio directamente con el cliente por el chat."));
     pintarNegociacion(d);
+    pintarHeroNp(d);
   }
 
   /* ============================================================
@@ -3606,7 +3749,7 @@ const ChatsEntrantes = (() => {
     lugaresValidos().forEach(([, l]) => { const m = haversine(pt, l); if (m <= md) { md = m; mejor = { nombre: l.nombre, lat: l.lat, lng: l.lng }; } });
     return mejor;
   }
-  const avisoNeg = (t) => { const a = $("spAviso"); if (!a) return; a.textContent = t || ""; a.classList.toggle("oculto", !t); };
+  const avisoNeg = (t) => { const a = $("npAviso"); if (!a) return; a.textContent = t || ""; a.classList.toggle("oculto", !t); };
   const acordadoDe = (d) => {
     const n = d && d.negociacion; if (!n) return 0;
     if (n.aceptada && n.aceptada.uid === uidActual) return Math.round(Number(n.aceptada.monto) || 0);
@@ -3627,7 +3770,7 @@ const ChatsEntrantes = (() => {
   }
   function contNeg() {
     let c = $("spNeg");
-    if (!c) { c = el("div", "sp-neg oculto"); c.id = "spNeg"; $("spAtender").parentNode.insertBefore(c, $("spAtender")); }
+    if (!c) { c = el("div", "sp-neg oculto"); c.id = "spNeg"; construirNp(); $("npSecTarifa").appendChild(c); }
     return c;
   }
   function iniciarNeg(id, d) {
@@ -3718,7 +3861,7 @@ const ChatsEntrantes = (() => {
   function marcarEnMapaNeg(i) {
     if (!negForm || typeof mapa === "undefined" || !mapa) return avisoNeg("El mapa no está disponible. Usa 📌 «Estoy aquí» o escribe el negocio.");
     cancelarPick(); avisoNeg("");
-    const modal = $("modalSolicitud"), idPick = negForm.id;
+    const modal = $("npWin"), idPick = negForm.id;
     modal.classList.add("oculto"); irA("mapa");
     const banner = el("div", ""); banner.id = "spPick";
     banner.appendChild(el("span", "", "📍 Toca el mapa donde está el producto"));
@@ -3787,15 +3930,17 @@ const ChatsEntrantes = (() => {
     if (acep) texto = acep.uid === uidActual ? "🎉 El cliente aceptó tu tarifa de " + money(acep.monto) + ". Te estamos asignando el pedido…" : acep.uid === "central" ? "ℹ️ La central está asignando este pedido con la tarifa que aceptó el cliente." : "ℹ️ El cliente ya eligió a otro repartidor.";
     else if (mi) texto = "✅ Tu oferta: " + money(mi.monto) + (mi.monto > mi.sugerida ? " (sugerida " + money(mi.sugerida) + ")" : "") + (desc === Math.round(mi.monto) ? " · El cliente no aceptó " + money(desc) + ". Puedes cambiar tu precio (mínimo " + money(mi.sugerida) + ")." : " · Esperando al cliente…");
     est.textContent = texto; mostrar("spNegEst", !!texto);
+    try { pintarHeroNp(d); } catch (_) {}
   }
   function pintarNegociacion(d) {
     const c = contNeg(), fijo = precioFijoDe(d);
     if (fijo) {
       negForm = null; cancelarPick(); sigFijo(c, fijo);
-      $("spAtender").classList.remove("oculto");
+      $("npTomar").classList.remove("oculto");
       return;
     }
-    $("spAtender").classList.add("oculto");
+    const aceptadaOtro = !!(d.negociacion && d.negociacion.aceptada && d.negociacion.aceptada.uid !== uidActual);
+    $("npTomar").classList.toggle("oculto", aceptadaOtro);
     if (!negForm || negForm.id !== previoId) { negForm = iniciarNeg(previoId, d); construirNeg(c); recalcularNeg(); }
     actualizarNeg(d);
   }
@@ -3868,21 +4013,22 @@ const ChatsEntrantes = (() => {
   }
   function refrescarPrevia() {
     const d = lista[previoId];
-    if (mio(d)) return cerrarPrevia();
+    if (!d || mio(d)) return cerrarPrevia();
     if (!libre(d)) {
-      $("spAviso").textContent = "Otro repartidor ya tomó esta solicitud.";
-      $("spAviso").classList.remove("oculto");
-      $("spAtender").disabled = true;
-    } else pintarPrevia(d);
+      /* Otro repartidor lo tomó (o se canceló): la ventana desaparece sola */
+      const otro = !!d.repartidorUid && d.repartidorUid !== uidActual, cancelado = d.estado === "cancelado";
+      cerrarPrevia();
+      toast(otro ? "ℹ️" : "🚫", otro ? "Pedido tomado" : cancelado ? "Pedido cancelado" : "Pedido no disponible", otro ? "Otro repartidor ya tomó este pedido." : cancelado ? "El pedido fue cancelado." : "Este pedido ya no está disponible.", null, 5000);
+      return;
+    }
+    pintarPrevia(d);
   }
   function cerrarPrevia() {
     cancelarPick();
     previoId = null;
     negForm = null;
-    $("modalSolicitud").classList.add("oculto");
+    const w = $("npWin"); if (w) w.classList.add("oculto");
   }
-  $("spCerrar").addEventListener("click", cerrarPrevia);
-  $("spAtender").addEventListener("click", () => { if (previoId) atender(previoId, $("spAtender")); });
 
   async function atender(id, btn) {
     if (!uidActual || !usuario) return;
@@ -3892,8 +4038,8 @@ const ChatsEntrantes = (() => {
     try {
       const r = await db.ref(RAIZ + "/" + id + "/repartidorUid").transaction((cur) => (cur === null ? uidActual : undefined));
       if (!r.committed || r.snapshot.val() !== uidActual) {
-        $("spAviso").textContent = "Otro repartidor ya tomó esta solicitud.";
-        $("spAviso").classList.remove("oculto");
+        $("npAviso").textContent = "Otro repartidor ya tomó esta solicitud.";
+        $("npAviso").classList.remove("oculto");
         return;
       }
       await db.ref(RAIZ + "/" + id).update({ estado: "atendido", repartidorNombre: usuario, atendidoTs: TS });
@@ -3911,8 +4057,8 @@ const ChatsEntrantes = (() => {
         }, 350);
       }
     } catch (e) {
-      $("spAviso").textContent = "No se pudo atender el chat: " + (e.code || e.message);
-      $("spAviso").classList.remove("oculto");
+      $("npAviso").textContent = "No se pudo atender el chat: " + (e.code || e.message);
+      $("npAviso").classList.remove("oculto");
     } finally { btn.disabled = false; }
   }
 
