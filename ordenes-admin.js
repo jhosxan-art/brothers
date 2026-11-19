@@ -1550,10 +1550,12 @@ const SolicitudesAdmin = (() => {
   }
   window.__irASolicitud = irASolicitud;   // lo usa el Service Worker (sw.js) al tocar una notificación push
   /* FASE 2 (push) · el Service Worker avisa que llegó un push (app abierta, minimizada o en segundo plano): voz + refresco. */
-  const TIPOS_VOZ_PUSH = ["sol_nuevo", "pedido_whatsapp", "whatsapp", "mensaje_repartidor", "chat_repartidor", "mensaje", "pedido"];
+  const TIPOS_VOZ_PUSH = ["sol_nuevo", "pedido_whatsapp", "whatsapp", "pedido"];
+  const TIPOS_VOZ_CHAT = ["mensaje_repartidor", "chat_repartidor", "mensaje"];
   window.addEventListener("push-admin-recibido", (ev) => {
-    const d = (ev && ev.detail) || {};
-    if (TIPOS_VOZ_PUSH.indexOf(String(d.tipo || "sol_nuevo")) !== -1) { try { Voz.alertaPedido(); } catch (_) {} }
+    const d = (ev && ev.detail) || {}, t = String(d.tipo || "sol_nuevo");
+    if (TIPOS_VOZ_CHAT.indexOf(t) !== -1) { try { Voz.chatAviso("repartidor_admin"); } catch (_) {} }   // "El repartidor te ha escrito"
+    else if (TIPOS_VOZ_PUSH.indexOf(t) !== -1) { try { Voz.alertaPedido(); } catch (_) {} }
   });
   async function notificarLocal(titulo, cuerpo, id, tipo) {
     try {
@@ -1604,6 +1606,19 @@ const SolicitudesAdmin = (() => {
     });
   }
 
+  /* Aviso de voz por cada mensaje nuevo de los chats de solicitudes (cliente ↔ repartidor) */
+  function revisarMensajes(antes) {
+    Object.keys(lista).forEach((k) => {
+      const d = lista[k], a = antes && antes[k];
+      if (!d || !a || typeof d !== "object" || typeof a !== "object") return;
+      if (!(Number(d.ts) > Number(a.ts || 0))) return;
+      if (d.ultimoMensaje === a.ultimoMensaje && d.ultimoDe === a.ultimoDe) return;   // el cambio no fue un mensaje nuevo
+      try {
+        if (d.ultimoDe === "cliente") Voz.chatAviso(d.repartidorUid ? "cliente_repartidor" : "cliente");   // "El cliente ha escrito (al repartidor)"
+        else if (d.ultimoDe === "repartidor") Voz.chatAviso("repartidor_cliente");                          // "El repartidor ha escrito al cliente"
+      } catch (_) {}
+    });
+  }
   function iniciar() {
     detener();
     cargada = false; avisadas.clear(); vistosEv.clear();
@@ -1612,6 +1627,7 @@ const SolicitudesAdmin = (() => {
       const antes = lista;
       lista = s.val() || {};
       revisarEventos(cargada);
+      if (cargada) revisarMensajes(antes);
       cargada = true;
       [...sel].forEach((id) => { if (!lista[id] || !fin(lista[id])) sel.delete(id); });
       pintar();

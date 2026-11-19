@@ -2034,11 +2034,18 @@ function irALugar(l, enfocar, navegar) {
   $("resBusqRep").classList.add("oculto"); $("busqRep").blur();
   if (enfocar && vistaActual !== "mapa") irA("mapa");
   initMapa(); pintarLugarDestino();
-  if (navegar && ultimaPos) {
-    /* Navegación libre: mismo estilo que la de pedidos (mapa girando con la calle al frente, repartidor fijo, 3D) */
-    seguirme = true; Camara.setModo("navegacion"); Camara.refrescarBoton(); Camara.actualizar(true);
-    setEstado("🧭 Navegación activa hacia " + (l.nombre || "el punto"), "ok");
-  } else if (enfocar) { seguirme = false; mapa.flyTo([l.lat, l.lng], 16); }
+  /* La navegación NUNCA se activa sola (ni al elegir un lugar, ni al compartir una ubicación, ni al tomar un pedido):
+     solo se activa manualmente con el botón «Navegar». Aquí solo se fija el destino y se muestra la ruta. */
+  const yaNavegando = Camara.getModo() === "navegacion" && seguirme;
+  if (!yaNavegando && (enfocar || navegar)) {
+    seguirme = false;
+    try {
+      if (ultimaPos) mapa.fitBounds([[ultimaPos.lat, ultimaPos.lng], [l.lat, l.lng]], { padding: [70, 110], maxZoom: 17 });
+      else mapa.flyTo([l.lat, l.lng], 16);
+    } catch (_) { try { mapa.flyTo([l.lat, l.lng], 16); } catch (__) {} }
+    Camara.refrescarBoton();
+    if (navegar) setEstado("📍 Destino fijado: " + (l.nombre || "el punto") + " · toca «Navegar» para iniciar la navegación", "ok");
+  }
   pedirRutaLugar(true); actualizarBanner();
 }
 { const bcr = $("btnCancelarRuta"); if (bcr) bcr.onclick = cancelarRutaManual; }
@@ -4542,11 +4549,9 @@ const ChatsEntrantes = (() => {
     cerrarConversacion();
     irA("mapa");
     seleccionar(id, false);
-    seguirme = true;
-    Camara.setModo("navegacion");
+    /* Al tomar un pedido NO se activa la navegación: solo con el botón «Navegar» */
     Camara.refrescarBoton();
-    Camara.actualizar(true);
-    setEstado("🛵 Navegación activa · siguiendo tu posición", "ok");
+    setEstado("📍 Pedido tomado · toca «Navegar» cuando quieras iniciar la navegación", "ok");
   });
   async function enviarFactura(f) {
     const id = f && f.chatId;

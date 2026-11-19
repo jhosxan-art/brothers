@@ -1012,7 +1012,7 @@ function iniciarMonitoreo() {
         const antes = (resEquipo[uid] && resEquipo[uid].ts) || 0;
         if (r.ultimoDe === "repartidor" && (r.ts || 0) > antes) {
           if (chatEqAbierto !== uid) sinLeerEq[uid] = (sinLeerEq[uid] || 0) + 1;
-          Voz.hablar(Voz.repartidorEscribio(nombreUid(uid)));
+          Voz.chatAviso("repartidor_admin");   // "El repartidor te ha escrito"
         }
       });
     }
@@ -1041,8 +1041,8 @@ function iniciarMonitoreo() {
     if (!primeraCargaChats) {
       Object.entries(nuevos).forEach(([t, r]) => {
         if ((r.ts || 0) <= ((resumenes[t] && resumenes[t].ts) || 0)) return;
-        if (r.ultimoDe === "repartidor") Voz.hablar(Voz.repartidorEscribio(r.repartidor || ""));
-        else if (r.ultimoDe === "cliente") Voz.hablar(Voz.clienteEscribio(nombreCliente(t, r)));
+        if (r.ultimoDe === "repartidor") Voz.chatAviso("repartidor_cliente");        // "El repartidor ha escrito al cliente"
+        else if (r.ultimoDe === "cliente") Voz.chatAviso("cliente_repartidor");     // "El cliente ha escrito al repartidor"
       });
     }
     primeraCargaChats = false;

@@ -16,6 +16,11 @@ const Voz = (() => {
     mensajeRepartidor: "El repartidor te ha enviado un mensaje",
     mensajeCliente: "El cliente te ha escrito",
     mensajeAdmin: "Brothers te ha escrito",
+    // Avisos de chat del panel del administrador
+    chatCliente: "El cliente ha escrito",
+    chatRepartidorAdmin: "El repartidor te ha escrito",
+    chatRepartidorCliente: "El repartidor ha escrito al cliente",
+    chatClienteRepartidor: "El cliente ha escrito al repartidor",
     guiaAdmin: "Brothers te ha indicado la ubicación del cliente",
     cerca: "El repartidor está cerca",
     // Prioridad: el cliente pagó 10 C$ extra para que su pedido salga primero
@@ -179,6 +184,15 @@ const Voz = (() => {
   const repartidorEscribio = () => FRASES.alertaPedido;   // FASE 2 (push): mensaje de repartidor → "Hay una solicitud de pedido"
   const clienteEscribio = (n) => (n ? "El cliente " + n + " ha enviado un mensaje" : "Un cliente ha enviado un mensaje");
 
+  /* Aviso de voz por cada mensaje de chat (panel del administrador).
+     tipo: cliente · repartidor_admin · repartidor_cliente · cliente_repartidor */
+  const chatAviso = (tipo) => {
+    const f = { cliente: FRASES.chatCliente, repartidor_admin: FRASES.chatRepartidorAdmin, repartidor_cliente: FRASES.chatRepartidorCliente, cliente_repartidor: FRASES.chatClienteRepartidor }[tipo];
+    if (!f) return;
+    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (_) {}
+    hablar(f, { forzar: true });
+  };
+
   const lista = () => desbloqueada;
 
   /* Alerta de prioridad (se repite 2 veces para que se oiga aunque el repartidor esté manejando) */
@@ -219,6 +233,6 @@ const Voz = (() => {
     hablar(FRASES.clienteRepartidorCerca, { forzar: true, repetir: 2, pausaMs: 2500 });
   };
 
-  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, prioridad, solicitud, solicitudAdmin, solicitudEvento, alertaPedido, mantenerVivo,
+  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, chatAviso, prioridad, solicitud, solicitudAdmin, solicitudEvento, alertaPedido, mantenerVivo,
            clientePedidoAceptado, clienteMensajeNuevo, clienteRepartidorCerca };
 })();
