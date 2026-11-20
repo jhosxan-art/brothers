@@ -28,6 +28,11 @@
         marca pedidos/{token}/abiertoAviso para avisar una sola vez (nadie puede repetirlo ni inventar pedidos).
         Cuerpo:   { accion: "cliente_abrio", pedido: "<token del pedido>" }
 
+   6) NUEVO · "mensaje_cliente"  CLIENTE → REPARTIDOR  Push de alta prioridad al repartidor del pedido cuando el cliente le escribe (app cerrada o en reposo).
+        Sin sesión: el Worker comprueba en Firebase que el mensaje existe, es del cliente y es reciente, y lo marca (pushOk) para avisar una sola vez.
+        Cuerpo:   { accion: "mensaje_cliente", pedido: "<token del pedido>", clave: "<id del mensaje en chats/<token>>" }
+   7) NUEVO · Las solicitudes de pedido nuevas (cron o "solicitud_nueva") ahora también avisan por push a TODOS los repartidores con sesión (fcmToken).
+
    Variables que debes crear en Cloudflare (Workers → tu Worker → Settings → Variables and Secrets):
      FCM_PROJECT_ID    → ID del proyecto de Firebase (ej. brothers-delivery-12345)       (texto)
      FIREBASE_API_KEY  → "Clave de API web" de Firebase (la de firebase-config.js)       (texto)
@@ -278,12 +283,33 @@ async function marcarAvisoSolicitud(env, id) {
   const p = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json", "if-match": etag || "null_etag" }, body: JSON.stringify(Date.now()) });
   return p.ok;
 }
+/* Push a todos los repartidores con sesión iniciada (guardan repartidores/{uid}/fcmToken y lo borran al salir) */
+async function avisarRepartidores(env, aviso) {
+  const todos = (await dbLeer(env, "repartidores")) || {};
+  const lista = Object.entries(todos).filter(([, v]) => v && typeof v.fcmToken === "string" && v.fcmToken.length > 20).map(([uid, v]) => ({ uid, token: v.fcmToken }));
+  if (!lista.length) return { ok: false, error: "Ningún repartidor tiene avisos activados", enviados: 0 };
+  const data = limpiaData(aviso.data);
+  let enviados = 0, ultimoError = "";
+  await Promise.all(lista.map(async (a) => {
+    const r = await enviarFCM(env, a.token, { titulo: aviso.titulo, cuerpo: aviso.cuerpo, canal: aviso.canal || "pedidos", data });
+    if (r.ok) enviados++;
+    else {
+      ultimoError = r.error;
+      if (["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "repartidores/" + encodeURIComponent(a.uid) + "/fcmToken");
+    }
+  }));
+  return enviados ? { ok: true, enviados } : { ok: false, error: ultimoError || "FCM rechazó el envío", enviados: 0 };
+}
 async function avisarSolicitudNueva(env, id, d) {
   const p = (d && d.pedido) || {};
   const nombre = recorta((d && d.nombre) || "Cliente", 40);
   const quiere = recorta(p.quiere || "", 160);
   const cuerpo = quiere ? quiere + (p.origen ? " · de " + recorta(p.origen, 60) : "") : "Hay una solicitud de pedido";
-  return avisarAdmins(env, { titulo: "📥 " + nombre, cuerpo, data: { tipo: "sol_nuevo", solicitud: id, nombre, quiere: recorta(p.quiere || "", 120) } });
+  const [adm, rep] = await Promise.all([
+    avisarAdmins(env, { titulo: "📥 " + nombre, cuerpo, data: { tipo: "sol_nuevo", solicitud: id, nombre, quiere: recorta(p.quiere || "", 120) } }),
+    avisarRepartidores(env, { titulo: "📥 Nueva solicitud · " + nombre, cuerpo, canal: "pedidos", data: { tipo: "solicitud", solicitud: id, nombre, quiere: recorta(p.quiere || "", 120) } })
+  ]);
+  return { ok: !!(adm.ok || rep.ok), admins: adm, repartidores: rep, error: (adm.ok || rep.ok) ? undefined : (adm.error || rep.error) };
 }
 async function procesarSolicitud(env, id) {
   const d = await dbLeer(env, "solicitudes_entrantes/" + encodeURIComponent(id));
@@ -319,6 +345,40 @@ async function accionSolicitudNueva(b, env) {
   return json(r, r.ok ? 200 : 502);
 }
 
+/* 6) El cliente le escribió a su repartidor → push de alta prioridad al repartidor del pedido */
+async function marcarUnaVez(env, ruta) {
+  const acceso = await tokenGoogle(env);
+  const url = dbBase(env) + "/" + ruta + ".json?access_token=" + encodeURIComponent(acceso);
+  const g = await fetch(url, { headers: { "X-Firebase-ETag": "true" } });
+  if (!g.ok) return false;
+  const etag = g.headers.get("ETag");
+  if ((await g.json()) !== null) return false;
+  const p = await fetch(url, { method: "PUT", headers: { "Content-Type": "application/json", "if-match": etag || "null_etag" }, body: JSON.stringify(Date.now()) });
+  return p.ok;
+}
+async function accionMensajeCliente(b, env) {
+  const pedido = String(b.pedido || ""), clave = String(b.clave || "");
+  if (!/^[A-Za-z0-9_-]{6,60}$/.test(pedido) || !/^[A-Za-z0-9_-]{6,60}$/.test(clave)) return json({ ok: false, error: "Datos no válidos" }, 400);
+  const msg = await dbLeer(env, "chats/" + encodeURIComponent(pedido) + "/" + encodeURIComponent(clave));
+  if (!msg || typeof msg !== "object") return json({ ok: false, error: "Ese mensaje no existe" }, 404);
+  const quien = [msg.de, msg.yo, msg.autor, msg.rol, msg.quien, msg.from].filter(Boolean);
+  if (quien.length && !quien.includes("cliente")) return json({ ok: true, omitido: true });
+  const ts = Number(msg.ts || msg.t || msg.fecha || 0);
+  if (ts && Date.now() - ts > 180000) return json({ ok: true, omitido: true });
+  let ped = await dbLeer(env, "pedidos/" + encodeURIComponent(pedido));
+  let uid = ped && ped.repartidorUid;
+  if (!uid) { const sol = await dbLeer(env, "solicitudes_entrantes/" + encodeURIComponent(pedido)); if (sol && sol.repartidorUid) { uid = sol.repartidorUid; ped = ped || sol; } }
+  if (!uid) return json({ ok: false, error: "El pedido no tiene repartidor" }, 404);
+  const fcm = await dbLeer(env, "repartidores/" + encodeURIComponent(uid) + "/fcmToken");
+  if (typeof fcm !== "string" || fcm.length < 20) return json({ ok: false, error: "El repartidor no tiene avisos activados" }, 404);
+  if (!(await marcarUnaVez(env, "chats/" + encodeURIComponent(pedido) + "/" + encodeURIComponent(clave) + "/pushOk"))) return json({ ok: true, yaAvisado: true });
+  const nombre = (ped && (ped.cliente || (ped.factura && (ped.factura.cliente || ped.factura.nombre)) || ped.nombre)) || "";
+  const texto = recorta(msg.texto || msg.text || "", 200);
+  const r = await enviarFCM(env, fcm, { titulo: "💬 " + (nombre ? "Cliente · " + recorta(nombre, 40) : "Mensaje de tu cliente"), cuerpo: texto || "📷 Te envió una foto", canal: "mensajes", data: limpiaData({ tipo: "mensaje", token: pedido }) });
+  if (!r.ok && ["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "repartidores/" + encodeURIComponent(uid) + "/fcmToken");
+  return json(r.ok ? { ok: true } : { ok: false, code: r.code, error: r.error }, r.ok ? 200 : 502);
+}
+
 /* 1) y 2): solo administradores */
 async function accionAdmin(b, idToken, env) {
   const uid = await uidDeSesion(idToken, env);
@@ -352,6 +412,7 @@ export default {
       const b = await req.json().catch(() => ({}));
       if (b.accion === "cliente_abrio") return await accionClienteAbrio(b, env);   // sin sesión: el cliente no inicia sesión
       if (b.accion === "solicitud_nueva") return await accionSolicitudNueva(b, env);   // sin sesión: se valida contra Firebase
+      if (b.accion === "mensaje_cliente") return await accionMensajeCliente(b, env);   // sin sesión: se valida contra Firebase
       if (b.accion === "admin_chat") return await accionAdminChat(b, idToken, env);
       return await accionAdmin(b, idToken, env);
     } catch (err) {
