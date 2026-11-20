@@ -801,11 +801,33 @@ const Camara = (() => {
         try { h = (h + ((screen.orientation && screen.orientation.angle) || 0) + 360) % 360; } catch (_) {}
       }
     }
+    fijarRumboTelefono(h);
+  }
+  function fijarRumboTelefono(h) {
     if (h === null || !Number.isFinite(h)) return;
     if (hdgBrujula === null) hdgBrujula = h;
-    else { const d = ((h - hdgBrujula + 540) % 360) - 180; if (Math.abs(d) < 1.5) return; hdgBrujula = (hdgBrujula + d * 0.3 + 360) % 360; }
+    else { const d = ((h - hdgBrujula + 540) % 360) - 180; if (Math.abs(d) < 0.8) return; hdgBrujula = (hdgBrujula + d * 0.55 + 360) % 360; }
     if (!(velActual !== null && velActual >= VEL_MIN_RUMBO)) fijarObjetivo();
     despertar();
+  }
+  /* Respaldo para Android: si el navegador no entrega "deviceorientationabsolute", se usa el sensor de orientación absoluta (cuaternión) */
+  let sensorAbs = null;
+  function usarSensorAbsoluto() {
+    if (sensorAbs || !("AbsoluteOrientationSensor" in window)) return;
+    try {
+      sensorAbs = new window.AbsoluteOrientationSensor({ frequency: 30, referenceFrame: "screen" });
+      sensorAbs.addEventListener("reading", () => {
+        const q = sensorAbs.quaternion; if (!q) return;
+        const x = q[0], y = q[1], z = q[2], w = q[3];
+        const zz = 1 - 2 * (x * x + y * y);                       // componente vertical del eje z del teléfono
+        let vx, vy;
+        if (Math.abs(zz) < 0.7) { vx = -2 * (x * z + w * y); vy = -2 * (y * z - w * x); }   // teléfono vertical: hacia donde mira la parte trasera
+        else { vx = 2 * (x * y - w * z); vy = 1 - 2 * (x * x + z * z); }                     // teléfono horizontal: hacia donde apunta la parte superior
+        fijarRumboTelefono((Math.atan2(vx, vy) * 180 / Math.PI + 360) % 360);
+      });
+      sensorAbs.addEventListener("error", () => {});
+      sensorAbs.start();
+    } catch (_) { sensorAbs = null; }
   }
   function escucharBrujula(on) {
     if (on === brujulaOn) return;
@@ -885,7 +907,7 @@ const Camara = (() => {
     if (rumbo !== null) meta = ((rumbo - ref + 540) % 360) - 180;   // -180..180, 0 = hacia arriba de la pantalla
     const d = ((meta - giroAcum + 540) % 360) - 180;
     if (Math.abs(d) < 0.3) { if (giroAcum !== meta) giroAcum = meta; }
-    else giroAcum += d * (1 - Math.exp(-dt / 110));
+    else giroAcum += d * (1 - Math.exp(-dt / 60));
     const v = giroAcum.toFixed(1) + "deg";
     if (v !== giroIco) { giroIco = v; el.style.setProperty("--giro-rep", v); }
     return Math.abs(d) >= 0.3;
@@ -944,8 +966,10 @@ const Camara = (() => {
     enlazarRotacion();
     escucharBrujula(true);
     const pedirSensor = () => { try { if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") { const r = DeviceOrientationEvent.requestPermission(); if (r && r.catch) r.catch(() => {}); } } catch (_) {} };
-    document.addEventListener("touchend", pedirSensor, { once: true, passive: true });
-    document.addEventListener("click", pedirSensor, { once: true });
+    const reintentar = () => { if (hdgBrujula === null) pedirSensor(); };   // se repite con cada toque hasta que el sensor responda
+    document.addEventListener("touchend", reintentar, { passive: true });
+    document.addEventListener("click", reintentar);
+    setTimeout(() => { if (hdgBrujula === null) usarSensorAbsoluto(); }, 1800);
   }
 
   function destino() {
