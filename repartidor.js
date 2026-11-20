@@ -454,7 +454,9 @@ const Nav = (() => {
     const txt = textoDe(e.pasos[e.idx])[1];
     if (txt) decir(u === 25 ? "Ahora, " + txt : "En " + metrosHabla(e.aGiro) + ", " + txt);
   }
-  return { estado, restante, banner, alPosicion, hayDestino, enNavegacion, vistaGeneral, reanudar, recalculando, actualizarPill };
+  return { estado, restante, banner, alPosicion, hayDestino, enNavegacion, vistaGeneral, reanudar, recalculando, actualizarPill,
+    activa: () => enNavegacion() || general,
+    cancelarGeneral: () => { clearTimeout(tmGeneral); tmGeneral = null; general = false; } };
 })();
 
 function mostrar(vista) {
@@ -482,7 +484,7 @@ function irA(vista) {
     try { ChatsEntrantes.pintarMapa(); } catch (_) {}
     setTimeout(() => {
       mapa.invalidateSize();
-      if (seguirme && ultimaPos && seleccionado && viajes[seleccionado] && viajes[seleccionado].destino) {
+      if (seguirme && ultimaPos && (lugarDestino || (seleccionado && viajes[seleccionado] && viajes[seleccionado].destino))) {
         Camara.actualizar(true);
       } else {
         encuadrar();
@@ -672,6 +674,7 @@ function initMapa() {
   try { ChatsEntrantes.pintarRutasPendientes(); } catch (_) {}
 }
 let seguirme = true;
+let rutaEnVista = true;   // false cuando el repartidor salió de la vista de ruta con el botón atrás
 
 /* ============================================================
    CÁMARA DEL REPARTIDOR
@@ -751,6 +754,7 @@ const Camara = (() => {
     return rumboEntre(ultimaPos, objetivo);
   }
   function fijarObjetivo() {
+    despertar();
     if (!rotable()) { hdgObj = 0; return; }
     { const rr = modo === "navegacion" ? rumboRuta() : null; if (rr !== null) { hdgObj = rr; return; } }
     /* La brújula del teléfono ya no gira el mapa: solo gira al repartidor (ver giroIcono) */
@@ -812,7 +816,6 @@ const Camara = (() => {
     const on = navActiva();
     if (on) { anclaPx = Math.round(calcAncla()); esc.style.setProperty("--ancla-y", anclaPx + "px"); }
     try { if (mapa.dragging) { if (on) mapa.dragging.disable(); else mapa.dragging.enable(); } } catch (_) {}
-    if (!on && giroAcum !== 0) { giroAcum = 0; despertar(); }
     if (on !== inclinada) {
       inclinada = on;
       esc.classList.toggle("inclinada", on);
@@ -839,7 +842,9 @@ const Camara = (() => {
   function giroIcono(dt, activa) {
     const el = marcaYo && marcaYo.getElement && marcaYo.getElement();
     if (!el) return false;
-    const meta = activa && hdgBrujula !== null ? ((hdgBrujula - hdgR + 540) % 360) - 180 : 0;   // -180..180, 0 = hacia arriba
+    let meta = 0;
+    if (activa) { if (hdgBrujula !== null) meta = ((hdgBrujula - hdgR + 540) % 360) - 180; }
+    else if (tieneRumbo) { const bm = rotable() ? (Number(mapa.getBearing()) || 0) : 0; meta = ((suave - bm + 540) % 360) - 180; }   // mapa al norte: la moto apunta hacia donde avanza   // -180..180, 0 = hacia arriba
     const d = ((meta - giroAcum + 540) % 360) - 180;
     if (Math.abs(d) < 0.3) { if (giroAcum !== meta) giroAcum = meta; }
     else giroAcum += d * (1 - Math.exp(-dt / 110));
@@ -898,6 +903,17 @@ const Camara = (() => {
     const v = viajes[seleccionado];
     if (v && v.destino) return v.destino;
     return PedidoRep.posCliente();
+  }
+  /* Zoom que hace caber al cliente en la parte alta de la pantalla (con la inclinación 3D) y se acerca solo mientras el repartidor se aproxima */
+  function zoomAjuste(dist) {
+    if (dist == null || !mapa) return 17.5;
+    const lat = ultimaPos ? ultimaPos.lat : 0, d = Math.max(dist, 35) * 1.15;
+    const u = Math.min(560, Math.max(150, calcAncla() - 95));
+    const s = ESCALA_3D, th = rad(PITCH_GRADOS), P = PERSPECTIVA_PX;
+    const den = s * Math.cos(th) * P - u * s * Math.sin(th);
+    const p = den > 1 ? (u * P) / den : 2000;
+    const z = Math.log2((156543.03 * Math.cos(rad(lat)) * p) / d);
+    return Math.round(Math.min(18.25, Math.max(12, z)) * 4) / 4;
   }
   function zoomPara(dist) {
     if (dist == null) return 17;
@@ -964,9 +980,10 @@ const Camara = (() => {
       if (pts.length >= 2) {
         if (!forzar) {
           const vb = mapa.getBounds();
-          if (pts.every((q) => vb.contains(q))) { refrescarBoton(); return; }
+          const zIdeal = Math.min(18, mapa.getBoundsZoom(L.latLngBounds(pts), false, L.point(160, 160)));
+          if (pts.every((q) => vb.contains(q)) && zIdeal - mapa.getZoom() < 0.5) { refrescarBoton(); return; }   // si ya cabe pero se puede acercar, vuelve a encuadrar (zoom progresivo)
         }
-        mapa.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 17, animate: !forzar, duration: 0.8 });
+        mapa.fitBounds(L.latLngBounds(pts), { padding: [80, 80], maxZoom: 18, animate: !forzar, duration: 0.8 });
       } else if (pts.length === 1) {
         mapa.setView(pts[0], Math.max(mapa.getZoom(), 15), { animate: !forzar, duration: 0.8 });
       }
@@ -976,7 +993,7 @@ const Camara = (() => {
     }
 
     const dist = d && Number.isFinite(d.lat) ? distanciaM(ultimaPos.lat, ultimaPos.lng, d.lat, d.lng) : null;
-    zAuto = Math.max(14, zoomPara(dist) - ZOOM_3D);
+    zAuto = zoomAjuste(dist);
     zObj = Math.min(19, Math.max(12, zAuto + zOff));
     fijarObjetivo();
     if (!renderPos) renderPos = { lat: ultimaPos.lat, lng: ultimaPos.lng };
@@ -1175,7 +1192,7 @@ $("btnNavegar").onclick = () => {
     if (lugarDestino) { cancelarRutaManual(); return; }   // sin botón "Ruta": al salir de una ruta libre también se cancela
     setEstado("🧭 Navegación desactivada", "ok");
   } else {
-    seguirme = true;
+    seguirme = true; rutaEnVista = true;
     Camara.setModo("navegacion");
     setEstado(Nav.hayDestino() ? "🧭 Navegación activa · el mapa avanza hacia arriba" : "🧭 Navegación libre · toca un pedido o mantén pulsado el mapa para elegir destino", "ok");
   }
@@ -1183,6 +1200,31 @@ $("btnNavegar").onclick = () => {
   Camara.aplicar3D();
 };
 Camara.refrescarBoton();
+
+/* ---- Vista de ruta: botón y gesto atrás ---- */
+function hayVistaRuta() {
+  if (vistaActual !== "mapa" || !rutaEnVista) return false;
+  const vv = viajes[seleccionado];
+  return !!(Nav.activa() || lugarDestino || (vv && vv.destino));
+}
+function salirVistaRuta() {
+  if (!hayVistaRuta()) return false;
+  Nav.cancelarGeneral();
+  if (Camara.getModo() === "navegacion") Camara.salir();
+  if (lugarDestino) quitarLugarDestino();
+  rutaEnVista = false;
+  seguirme = false; Camara.setModo("fitbounds"); Camara.norte();
+  try { encuadrar(false); } catch (_) {}
+  Camara.refrescarBoton(); Nav.actualizarPill();
+  try { navigator.vibrate && navigator.vibrate(25); } catch (_) {}
+  setEstado("↩️ Saliste de la vista de ruta", "ok");
+  return true;
+}
+{ const ba = $("btnAtrasRuta");
+  if (ba) {
+    ba.onclick = salirVistaRuta;
+    setInterval(() => { const caja = ba.parentNode; ba.classList.toggle("oculto", !hayVistaRuta() || !!(caja && caja.classList.contains("replay-on"))); }, 300);
+  } }
 
 async function pedirRuta(v, forzar) {
   if (!v || !v.destino || !ultimaPos) return;
@@ -1224,6 +1266,7 @@ function dibujarRuta() {
 
 function seleccionar(token, enfocar) {
   if (!viajes[token]) return;
+  rutaEnVista = true;
   seleccionado = token;
   orden.forEach((t) => pintarCliente(viajes[t]));
   renderLista();
@@ -2038,11 +2081,9 @@ function irALugar(l, enfocar, navegar) {
      solo se activa manualmente con el botón «Navegar». Aquí solo se fija el destino y se muestra la ruta. */
   const yaNavegando = Camara.getModo() === "navegacion" && seguirme;
   if (!yaNavegando && (enfocar || navegar)) {
-    seguirme = false;
-    try {
-      if (ultimaPos) mapa.fitBounds([[ultimaPos.lat, ultimaPos.lng], [l.lat, l.lng]], { padding: [70, 110], maxZoom: 17 });
-      else mapa.flyTo([l.lat, l.lng], 16);
-    } catch (_) { try { mapa.flyTo([l.lat, l.lng], 16); } catch (__) {} }
+    rutaEnVista = true;
+    if (ultimaPos) { seguirme = true; Camara.setModo("fitbounds"); Camara.actualizar(true); }   // encuadra repartidor + destino y se acerca al ir llegando
+    else { seguirme = false; try { mapa.flyTo([l.lat, l.lng], 16); } catch (_) {} }
     Camara.refrescarBoton();
     if (navegar) setEstado("📍 Destino fijado: " + (l.nombre || "el punto") + " · toca «Navegar» para iniciar la navegación", "ok");
   }
@@ -2573,7 +2614,7 @@ async function recibirUbicacion(texto) {
     if (modo === "ir" || !v) return irALugar(lugar, true, true);
     irA("mapa"); seleccionar(v.token, false);
     fijarDestino(v, c.lat, c.lng);
-    seguirme = false; encuadrar(true);
+    seguirme = true; Camara.setModo("fitbounds"); Camara.refrescarBoton(); setTimeout(() => Camara.actualizar(true), 150);
   }, "Destino de ", '<button class="primario" data-t="__ir" type="button">🧭 Solo ir ahora (ruta)</button>');
 }
 
@@ -2621,7 +2662,7 @@ function procesarPosicion(c) {
   const lat = c.latitude, lng = c.longitude, precision = Math.round(c.accuracy || 0);
   const primera = !ultimaPos;
   ultimaPos = { lat, lng };
-  if (orden.length) {
+  if (orden.length && Nav.activa()) {   // el recorrido solo se graba con la navegación activa iniciada por el repartidor
     const ult = rastro[rastro.length - 1];
     if (!ult || distanciaM(ult[0], ult[1], lat, lng) > 4) { rastro.push([lat, lng]); if (rastro.length > 800) rastro.shift(); guardarRastro(); }
   }
@@ -3064,6 +3105,10 @@ const NavAtras = (() => {
     () => { if (marcando) { marcando = false; $("avisoMarcar").classList.add("oculto"); return true; } return false; },
     /* Estadísticas de la factura */
     () => { if (vistaActual === "factura" && appVisible() && $("invoiceContainer").style.display === "none") { if (llamar("hideStats")) return true; } return false; },
+    /* Replay de un viaje grabado */
+    () => { try { if (Viajes.replayAbierto()) { Viajes.cerrarReplay(); return true; } } catch (_) {} return false; },
+    /* Vista de ruta (navegación, ruta a un lugar o ruta al cliente): sale de la vista de forma ordenada */
+    () => { try { return salirVistaRuta(); } catch (_) { return false; } },
     /* Jerarquía de pantallas: Bandeja / Factura → Mapa */
     () => { if (appVisible() && uidActual && vistaActual !== "mapa") { irA("mapa"); return true; } return false; }
   ];
@@ -4708,12 +4753,13 @@ const Viajes = (() => {
   try { Object.assign(aj, JSON.parse(localStorage.getItem(LS_AJ) || "{}")); } catch (_) {}
   let t = null, finDesde = 0, ultGuardado = 0, dentro = {}, modal = null, tab = "viajes", rp = null, ultFirebase = 0;
 
-  const ocupado = () => (orden && orden.length > 0) || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo());
+  const ocupado = () => ((orden && orden.length > 0) || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo())) && Nav.activa();   // solo graba con navegación activa
   const guardarAj = () => { try { localStorage.setItem(LS_AJ, JSON.stringify(aj)); } catch (_) {} };
   const fdur = (s) => { const m = Math.round((s || 0) / 60); return m < 1 ? "<1 min" : m < 60 ? m + " min" : Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") + " min"; };
   const fhora = (ms) => { try { return new Date(ms).toLocaleTimeString("es-NI", { hour: "numeric", minute: "2-digit" }); } catch (_) { return ""; } };
   const ffecha = (ms) => { try { return new Date(ms).toLocaleDateString("es-NI", { weekday: "short", day: "numeric", month: "short" }) + " · " + fhora(ms); } catch (_) { return ""; } };
   const r5 = (x) => Math.round(x * 1e5) / 1e5;
+  const rumboPts = (a, b) => { const R = Math.PI / 180, dl = (b[1] - a[1]) * R, y = Math.sin(dl) * Math.cos(b[0] * R), x = Math.cos(a[0] * R) * Math.sin(b[0] * R) - Math.sin(a[0] * R) * Math.cos(b[0] * R) * Math.cos(dl); return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360; };
 
   /* ---------- Historial local ---------- */
   function leerHist() { try { const h = JSON.parse(localStorage.getItem(LS_HIST) || "[]"); return Array.isArray(h) ? h : []; } catch (_) { return []; } }
@@ -4925,7 +4971,7 @@ const Viajes = (() => {
     const grupo = L.layerGroup().addTo(mapa);
     L.polyline(ll, { color: "#7B8794", weight: 5, opacity: .6, interactive: false }).addTo(grupo);
     const prog = L.polyline([ll[0]], { color: "#0A86C9", weight: 6, opacity: .95, interactive: false }).addTo(grupo);
-    const marca = L.marker(ll[0], { icon: L.divIcon({ className: "rp-marca", html: "🏍️", iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: 2000, interactive: false }).addTo(grupo);
+    const marca = L.marker(ll[0], { icon: L.divIcon({ className: "rp-marca", html: '<div class="rep-pin" style="--tam-rep:40px">' + SVG_REPARTIDOR + "</div>", iconSize: [30, 30], iconAnchor: [15, 15] }), zIndexOffset: 2000, interactive: false }).addTo(grupo);
     paradas(pts).forEach((p) => L.marker([p.lat, p.lng], { icon: L.divIcon({ className: "rp-pin", html: "🛑", iconSize: [24, 24], iconAnchor: [12, 12] }) }).bindTooltip("Parada · " + fdur(p.dur), { direction: "top" }).addTo(grupo));
     (v.eventos || []).filter((e) => e.tipo === "entrada").forEach((e) => L.marker([e.lat, e.lng], { icon: L.divIcon({ className: "rp-pin", html: "📍", iconSize: [24, 24], iconAnchor: [12, 12] }) }).bindTooltip(String(e.nombre || "Lugar"), { direction: "top" }).addTo(grupo));
     rp = { v, pts, ll, grupo, prog, marca, t: 0, dur: Math.max(1, pts[pts.length - 1][2]), vel: 4, play: true, sucio: true, last: performance.now(), raf: 0, ultProg: 0, modoPrev: Camara.getModo(), seguirPrev: seguirme };
@@ -4949,6 +4995,8 @@ const Viajes = (() => {
     const a = pts[lo], b = pts[Math.min(lo + 1, pts.length - 1)], span = b[2] - a[2], f = span > 0 ? Math.min(1, Math.max(0, (t - a[2]) / span)) : 0;
     const lat = a[0] + (b[0] - a[0]) * f, lng = a[1] + (b[1] - a[1]) * f;
     rp.marca.setLatLng([lat, lng]);
+    if (distanciaM(a[0], a[1], b[0], b[1]) > 1.5) rp.rumbo = rumboPts(a, b);
+    { const em = rp.marca.getElement && rp.marca.getElement(); if (em && rp.rumbo != null) em.style.setProperty("--giro-rep", rp.rumbo.toFixed(1) + "deg"); }   // la moto apunta hacia donde avanza
     if (now - rp.ultProg > 100 || !rp.play) { rp.ultProg = now; rp.prog.setLatLngs(rp.ll.slice(0, lo + 1).concat([[lat, lng]])); }
     try { if (!mapa.getBounds().pad(-0.2).contains([lat, lng])) mapa.panTo([lat, lng], { animate: true, duration: 0.4 }); } catch (_) {}
     const sl = $("rpSlider"); if (sl && document.activeElement !== sl) sl.value = String(Math.round((t / rp.dur) * 1000));
@@ -4973,7 +5021,7 @@ const Viajes = (() => {
       const ref = $("btnVerTodo"); barraSup.insertBefore(bt, ref || null);
     }
   } catch (_) {}
-  return { alPosicion, abrir: abrirModal, ajustes: () => Object.assign({}, aj) };
+  return { alPosicion, abrir: abrirModal, ajustes: () => Object.assign({}, aj), replayAbierto: () => !!rp, cerrarReplay };
 })();
 
 /* ============================================================
@@ -5024,7 +5072,7 @@ const NavGL = (() => {
 
   function elPuck() {
     const el = document.createElement("div"); el.className = "gl-puck";
-    el.innerHTML = '<svg viewBox="0 0 64 64" width="58" height="58" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#0A86C9" opacity=".18"/><path d="M32 7 L51 54 L32 44 L13 54 Z" fill="#0A86C9" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg>';
+    el.innerHTML = SVG_REPARTIDOR;   // mismo ícono de moto del mapa principal; rota con el rumbo (setRotation)
     return el;
   }
   function agregarCapas() {
