@@ -1432,7 +1432,7 @@ function detalleDeFactura(f, conPrioridad) {
   const base = Number(f.total) || 0;
   const d = {
     productos: (f.productos || []).map((p) => ({ nombre: String(p.nombre).slice(0, 80), precio: Number(p.precio) || 0 })),
-    subtotal: Number(f.subtotal) || 0, delivery: Number(f.delivery) || 0, totalBase: base, total: base,
+    subtotal: Number(f.subtotal) || 0, delivery: Math.round(((Number(f.delivery) || 0) + (Number(f.ivaExtraMonto) || 0)) * 100) / 100, totalBase: base, total: base,   // la app del cliente ve el delivery con el IVA ya sumado
     deliveryBase: f.deliveryBase != null ? Number(f.deliveryBase) || 0 : undefined, mandadoExtra: Number(f.mandadoExtra) || 0, ivasExtras: Number(f.ivasExtras) || 0
   };
   if (conPrioridad) { d.prioridad = PRIORIDAD_EXTRA; d.total = Math.round((base + PRIORIDAD_EXTRA) * 100) / 100; }

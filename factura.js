@@ -388,13 +388,13 @@ window.Factura = {
       const ivasK = ivasExtrasActual(), ivasMonto = r2(ivasK * IVA_VALOR);
       const totalBase = r2(subtotal + totalDelivery + ivasMonto);
       const grandTotal = r2(totalBase + prioridad);
+      const deliveryCliente = r2(deliveryPrice + ivasMonto);   // el cliente ve un solo delivery (p. ej. 35 + 7 IVA = 42); el IVA no se muestra
 
       invoiceHTML += '<div class="invoice-divider"></div>';
       invoiceHTML += '<table class="invoice-totals-table">';
       invoiceHTML += `<tr><td>Subtotal:</td><td>C$ ${subtotal.toFixed(2)}</td></tr>`;
-      invoiceHTML += `<tr><td>Delivery base:</td><td>C$ ${deliveryPrice.toFixed(2)}</td></tr>`;
+      invoiceHTML += `<tr><td>Delivery:</td><td>C$ ${deliveryCliente.toFixed(2)}</td></tr>`;
       if (extraErrand > 0) { invoiceHTML += `<tr><td>➕ Mandado Extra:</td><td>C$ ${extraErrand.toFixed(2)}</td></tr>`; }
-      if (ivasMonto > 0) { invoiceHTML += `<tr><td>🧮 ${ivasK === 1 ? '1 IVA extra' : ivasK + ' IVAs extras'}:</td><td>C$ ${ivasMonto.toFixed(2)}</td></tr>`; }
       if (prioridad > 0) { invoiceHTML += `<tr><td>⚡ Prioridad:</td><td>C$ ${prioridad.toFixed(2)}</td></tr>`; }
       invoiceHTML += `<tr class="total-row"><td>TOTAL:</td><td>C$ ${grandTotal.toFixed(2)}</td></tr>`;
       invoiceHTML += '</table>';
@@ -403,9 +403,8 @@ window.Factura = {
 
       invoiceText += `\n${SEP}\n`;
       invoiceText += `Productos: C$ ${subtotal.toFixed(2)}\n`;
-      invoiceText += `Delivery base: C$ ${deliveryPrice.toFixed(2)}\n`;
+      invoiceText += `Delivery: C$ ${deliveryCliente.toFixed(2)}\n`;
       if (extraErrand > 0) invoiceText += `➕ Mandado Extra: C$ ${extraErrand.toFixed(2)}\n`;
-      if (ivasMonto > 0) invoiceText += `🧮 ${ivasK === 1 ? '1 IVA extra' : ivasK + ' IVAs extras'}: C$ ${ivasMonto.toFixed(2)}\n`;
       if (prioridad > 0) invoiceText += `⚡ Prioridad: C$ ${prioridad.toFixed(2)}\n`;
       invoiceText += `*TOTAL: C$ ${grandTotal.toFixed(2)}*\n`;
       invoiceText += `*CÓDIGO DE RETIRO: ${pickupCode}*\n`;
