@@ -2397,3 +2397,8 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .mapa-caja.buscando .btn-atras-ruta, .mapa-caja.replay-on .btn-atras-ruta { display: none !important; }
 @media (min-width: 700px) { .btn-atras-ruta { top: 128px; width: 52px; height: 52px; } }
 @media (max-width: 380px) { .btn-atras-ruta { top: 106px; width: 42px; height: 42px; } }
+
+/* ===== Estela de visión del repartidor (apunta hacia donde mira el teléfono) ===== */
+.rep-pin svg.rep-haz { position: absolute; left: -75%; top: -75%; width: 250%; height: 250%; filter: none; z-index: 0; overflow: visible; }
+.gl-puck svg.rep-haz { position: absolute; left: -75%; top: -75%; width: 250%; height: 250%; filter: none; overflow: visible; }
+.mapa-caja .brujula-norte { pointer-events: auto; cursor: pointer; }
