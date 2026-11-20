@@ -2398,11 +2398,27 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 @media (min-width: 700px) { .btn-atras-ruta { top: 128px; width: 52px; height: 52px; } }
 @media (max-width: 380px) { .btn-atras-ruta { top: 106px; width: 42px; height: 42px; } }
 
-/* ===== Estela de visión del repartidor (apunta hacia donde mira el teléfono) ===== */
-.rep-pin svg.rep-haz { position: absolute; left: -75%; top: -75%; width: 250%; height: 250%; filter: none; z-index: 0; overflow: visible; }
-.gl-puck svg.rep-haz { position: absolute; left: -75%; top: -75%; width: 250%; height: 250%; filter: none; overflow: visible; }
-.mapa-caja .brujula-norte { pointer-events: auto; cursor: pointer; }
 
-/* ===== Reportes de policía dentro de la vista 3D de navegación (tocables) ===== */
-.gl-pol { position: relative; z-index: 3; }
-#mapaGL .gl-pol, #mapaGL .gl-pol * { pointer-events: auto; cursor: pointer; }
+/* ============================================================
+   Rendimiento: tarjetas cargando · Facturas: anuladas y edición
+   ============================================================ */
+.rd-tarjeta.cargando .rd-n, .rd-tarjeta.cargando .rd-min b, .rd-tarjeta.cargando .rd-filas b, .rd-tarjeta.cargando .rd-orig b { opacity: .28; transition: opacity .2s; }
+.en-item.anulada { opacity: .62; background: #FAFBFC; }
+.en-item.anulada .en-cod, .en-item.anulada .en-monto { text-decoration: line-through; }
+.en-tag.anulada { background: #FDECEB; color: #8E1B17; }
+.en-anulada-box { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: #FDECEB; border: 1.5px solid #F5B5B2; color: #8E1B17; font-size: 13px; font-weight: 700; text-align: left; }
+.en-anulada-box small { font-weight: 600; }
+.fa-acc button#enAnular { background: #FFF3D6; border-color: #E0A100; color: #7A4B00; }
+.fa-acc button#enAnular.restaurar { background: #E3F6E9; border-color: #1E9B5A; color: #14532D; }
+.ed-caja { text-align: left; }
+.ed-campo, .ed-grid label { display: grid; gap: 4px; font-size: 12px; font-weight: 800; color: var(--texto2, #5B6672); min-width: 0; }
+.ed-campo input, .ed-grid input, .ed-fila input { width: 100%; min-width: 0; height: 42px; padding: 0 10px; border: 1.5px solid var(--linea); border-radius: 10px; font: inherit; font-size: 15px; font-weight: 700; color: var(--tinta); background: #fff; }
+.ed-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.ed-prods { display: grid; gap: 6px; }
+.ed-fila { display: grid; grid-template-columns: minmax(0, 1fr) 92px 40px; gap: 6px; align-items: center; }
+.ed-fila button { width: 40px; height: 42px; padding: 0; border-radius: 10px; }
+.ed-add { height: 40px; font-size: 13px; }
+.ed-msg { min-height: 0; font-size: 13px; font-weight: 800; color: #8E1B17; }
+.ed-msg:empty { display: none; }
+.ed-msg.ok { color: #14532D; }
+@media (max-width: 420px) { .ed-fila input, .ed-campo input, .ed-grid input { font-size: 16px; } }

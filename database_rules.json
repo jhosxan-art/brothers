@@ -101,7 +101,7 @@
 
     "pedidos": {
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
-      ".indexOn": ["estado"],
+      ".indexOn": ["estado", "repartidorUid"],
       "$token": {
         ".read": true,
         ".write": "auth != null && ((root.child('admins').child(auth.uid).exists()) || (root.child('repartidores').child(auth.uid).exists() && (!data.exists() || data.child('repartidorUid').val() === auth.uid)) || (auth.token.firebase.sign_in_provider === 'anonymous' && root.child('ordenes').child($token).exists() && newData.child('repartidorUid').val() === 'inv_' + $token && (!data.exists() || data.child('repartidorUid').val() === 'inv_' + $token)))",
@@ -803,6 +803,15 @@
           "tsLocal": { ".validate": "newData.isNumber()" },
           "fecha": { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)" },
           "iso": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "anulada": {
+            ".validate": "newData.hasChildren(['ts'])",
+            "ts": { ".validate": "newData.isNumber()" },
+            "motivo": { ".validate": "newData.isString() && newData.val().length <= 120" },
+            "por": { ".validate": "newData.isString() && newData.val().length <= 20" },
+            "contador": { ".validate": "newData.isBoolean()" },
+            "original": { "$k": { ".validate": "newData.isNumber()" } },
+            "$otro": { ".validate": false }
+          },
           "$otro": { ".validate": false }
         }
       }

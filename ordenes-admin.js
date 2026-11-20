@@ -1857,6 +1857,7 @@ const SolicitudesAdmin = (() => {
     g("saMapaBtn").setAttribute("aria-expanded", "false");
     cabeceraVisor();
     g("modalSolicitud").classList.remove("oculto");
+    try { window.dispatchEvent(new CustomEvent("visor-abierto", { detail: { id: id } })); } catch (_) {}   // lo usa espectador-extras.js
     consultaMsgs = db.ref(RAIZ + "/" + id + "/mensajes").limitToLast(300);
     consultaMsgs.on("child_added", (s) => {
       if (vistos.has(s.key)) return;
@@ -1932,6 +1933,7 @@ const SolicitudesAdmin = (() => {
     quitarMarcas();
     const m = g("modalSolicitud");
     if (m) m.classList.add("oculto");
+    try { window.dispatchEvent(new CustomEvent("visor-cerrado")); } catch (_) {}
   }
 
   function cargarFoto(id, clave, img, listo) {

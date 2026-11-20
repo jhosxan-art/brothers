@@ -151,6 +151,19 @@
     #modalSolicitud .sa-acciones #saBorrarUno { background: #FDECEB; border-color: #E5322D; color: #8E1B17; flex: 0 0 auto; min-width: 44px; padding: 0 10px; }
     #modalSolicitud .sa-acciones #saCerrar { background: #F2F4F6; border-color: #E1E6EB; }
 
+
+    /* ---- Minimizar pedido + mensajes rápidos ---- */
+    #modalSolicitud .sa-cab .sa-toggle { flex: none; width: auto; height: 34px; padding: 0 12px; border-radius: 17px; border: 1.5px solid #E1E6EB; background: #fff; color: #0E141B; font-size: 12.5px; font-weight: 800; white-space: nowrap; }
+    #modalSolicitud .sa-cab .sa-toggle.oculto { display: none !important; }
+    #modalSolicitud .sa-caja .sa-pedido.sa-min { display: none !important; }
+    #modalSolicitud .sa-rapidos { display: flex; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; padding: 2px 0; -webkit-overflow-scrolling: touch; }
+    #modalSolicitud .sa-rapidos::-webkit-scrollbar { display: none; }
+    #modalSolicitud .sa-rapidos button { flex: none; width: auto; height: 36px; padding: 0 12px; border-radius: 18px; border: 1.5px solid #BFE3F7; background: #E8F6FE; color: #0E141B; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+    #modalSolicitud .sa-rapidos button:disabled { opacity: .45; filter: grayscale(.6); cursor: not-allowed; }
+    #modalSolicitud .sa-rapidos-msg { min-height: 0; font-size: 12px; font-weight: 800; text-align: center; color: #17794A; }
+    #modalSolicitud .sa-rapidos-msg.error { color: #8E1B17; }
+    #modalSolicitud .sa-rapidos-msg:empty { display: none; }
+
     @media (max-width: 400px) {
       #modalSolicitud .sa-acciones button { flex: 1 1 calc(50% - 3px); font-size: 12px; padding: 0 8px; height: 44px; }
     }
@@ -449,6 +462,7 @@
       <div class="modal-rep-caja sa-caja">
         <div class="sa-cab">
           <div><strong id="saTitulo">Cliente</strong><small id="saSub"></small></div>
+          <button id="saPedidoToggle" class="sa-toggle oculto" type="button" aria-expanded="true" aria-controls="saPedido" title="Minimizar el pedido">🧾 Pedido <span aria-hidden="true">▴</span></button>
         </div>
         <div id="saPedido" class="sa-pedido oculto"></div>
         <div id="saMapaCaja" class="sa-mapa-caja oculto">
@@ -457,7 +471,9 @@
         </div>
         <div id="saMsgs" class="sa-msgs" role="log" aria-live="polite"></div>
         <div class="sa-footer">
-          <div class="sa-lectura">👁 Modo lectura: no puedes escribir en esta conversación</div>
+          <div id="saRapidos" class="sa-rapidos" role="group" aria-label="Mensajes rápidos para el cliente"></div>
+          <div id="saRapidosMsg" class="sa-rapidos-msg" role="status" aria-live="polite"></div>
+          <div class="sa-lectura">👁 Modo lectura: solo puedes enviar mensajes rápidos</div>
           <div class="sa-acciones">
             <button id="saForzarEnt" class="oculto" type="button" aria-label="Marcar como entregado" title="Marcar como entregado">Entregado ✅</button>
             <button id="saForzarCanc" class="oculto" type="button" aria-label="Forzar cancelado" title="Forzar cancelado">🚫 Forzar</button>
@@ -542,6 +558,7 @@
   <script src="admin.js"></script>
   <script src="push-admin.js"></script>
   <script src="ordenes-admin.js"></script>
+  <script src="espectador-extras.js"></script>
   <script>
     /* ---- FASE 1 · Service Worker de push + redirección inteligente al panel de Solicitudes ---- */
     (function () {
