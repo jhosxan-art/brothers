@@ -2543,7 +2543,21 @@ function avisoPushDesactivado() {
   x.addEventListener("click", () => b.remove());
   b.appendChild(t); b.appendChild(x); document.body.appendChild(b);
 }
+/* Aviso fuerte dentro de la app: vibración larga + tres tonos */
+function alertaFuerte() {
+  try { if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 900]); } catch (_) {}
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    const c = new AC();
+    [0, 0.35, 0.7].forEach((t, i) => { const o = c.createOscillator(), g = c.createGain(); o.type = "square"; o.frequency.value = i === 1 ? 1175 : 880; g.gain.value = 0.25; o.connect(g); g.connect(c.destination); o.start(c.currentTime + t); o.stop(c.currentTime + t + 0.25); });
+    setTimeout(() => { try { c.close(); } catch (_) {} }, 1600);
+  } catch (_) {}
+}
+/* Si el sistema renovó o perdió el token mientras la app dormía, se vuelve a registrar al regresar */
+document.addEventListener("visibilitychange", () => { if (!document.hidden && uidActual && (!pushActivo || Date.now() - ultRegPush > 12 * 3600 * 1000)) registrarPush(); });
+let ultRegPush = 0;
 async function registrarPush() {
+  ultRegPush = Date.now();
   if (!PUSH_HABILITADO) return;
   const PN = plug("PushNotifications");
   if (!PN || !uidActual) return;
@@ -2562,6 +2576,7 @@ async function registrarPush() {
     PN.addListener("registrationError", (e) => console.warn("Push:", e));
     PN.addListener("pushNotificationReceived", (n) => {
       const d = (n && n.data) || {};
+      alertaFuerte();   // app abierta: vibración + sonido fuerte (con la app cerrada lo hace el sistema con el canal de máxima importancia)
       if (d.tipo === "solicitud" && d.solicitud && !document.hidden) { try { ChatsEntrantes.abrirSolicitud(d.solicitud); } catch (_) {} }
     });
     PN.addListener("pushNotificationActionPerformed", (ev) => {

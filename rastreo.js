@@ -585,6 +585,16 @@ if (!token) {
     alNoLeidos: (n) => { const b = $("badgeChat"); b.textContent = n; b.classList.toggle("oculto", !n); }
   });
   $("btnChat").onclick = () => Chat.abrir();
+  /* Push al repartidor (aunque tenga la app cerrada) cuando el cliente le escribe: el Worker valida el mensaje y envía el aviso */
+  { let listoMsgs = false; const rm = db.ref("chats/" + token).limitToLast(1);
+    rm.once("value", () => { listoMsgs = true; });
+    rm.on("child_added", (s) => {
+      if (!listoMsgs || /TU-WORKER/.test(WORKER_URL_BROTHERS)) return;
+      const m = s.val() || {};
+      const quien = [m.de, m.yo, m.autor, m.rol, m.quien, m.from].filter(Boolean);
+      if (quien.length && !quien.includes("cliente")) return;
+      fetch(WORKER_URL_BROTHERS, { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true, body: JSON.stringify({ accion: "mensaje_cliente", pedido: token, clave: s.key }) }).catch(() => {});
+    }); }
   if (new URLSearchParams(location.search).get("chat") === "1") setTimeout(() => Chat.abrir(), 700);   // enlace de contacto: abre el chat
   pedirPermisosAlAbrir();   // al abrir el enlace: ubicación en tiempo real + voz
   referencia = db.ref("pedidos/" + token);
