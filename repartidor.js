@@ -470,7 +470,7 @@ function mostrar(vista) {
     ["vistaFactura", "vistaMapa", "vistaChats", "navApp"].forEach((id) => $(id).classList.add("oculto"));
   } else irA(vistaActual);
 }
-function irA(vista) {
+function irA(vista, opc) {
   vistaActual = vista;
   try { if (history.state && typeof history.state.rep === "number") history.replaceState(Object.assign({}, history.state, { vista }), ""); } catch (_) {}
   $("vistaFactura").classList.toggle("oculto", vista !== "factura");
@@ -484,6 +484,7 @@ function irA(vista) {
     try { ChatsEntrantes.pintarMapa(); } catch (_) {}
     setTimeout(() => {
       mapa.invalidateSize();
+      if (opc && opc.sinEncuadre) return;   // p. ej. al abrir un reporte de policía: no mover el mapa
       if (seguirme && ultimaPos && (lugarDestino || (seleccionado && viajes[seleccionado] && viajes[seleccionado].destino))) {
         Camara.actualizar(true);
       } else {
@@ -703,7 +704,7 @@ const Camara = (() => {
     seguirme = false; refrescarBoton();
   };
   /* Giro libre con los dedos: en navegación el mapa deja de seguir el rumbo mientras el repartidor lo gira y vuelve solo a los 12 s (o al tocar la brújula) */
-  let rotLibre = false, tmRot = null, bearingProg = false, rotEnlazado = false;
+  let rotLibre = false, tmRot = null, bearingProg = false, rotEnlazado = false, dosDedos = false;
   const bEf = () => (rotLibre && rotable()) ? (((Number(mapa.getBearing()) || 0) % 360) + 360) % 360 : hdgR;
   function volverCourseUp() {
     clearTimeout(tmRot); tmRot = null;
@@ -713,9 +714,14 @@ const Camara = (() => {
   function enlazarRotacion() {
     if (rotEnlazado || !mapa || !rotable()) return;
     rotEnlazado = true;
+    const c = mapa.getContainer();
+    c.addEventListener("touchstart", (e) => { if (e.touches && e.touches.length >= 2) dosDedos = true; }, { passive: true });
+    const finToque = (e) => { if (!e.touches || e.touches.length < 2) setTimeout(() => { dosDedos = false; }, 250); };
+    c.addEventListener("touchend", finToque, { passive: true }); c.addEventListener("touchcancel", finToque, { passive: true });
     mapa.on("rotate", () => {
+      if (bearingProg) return;            // giro hecho por la propia cámara
       despertar();
-      if (bearingProg || !navActiva()) return;
+      if (!dosDedos || !navActiva()) return;   // solo cuenta como giro libre si lo hizo el repartidor con dos dedos
       rotLibre = true; clearTimeout(tmRot); tmRot = setTimeout(volverCourseUp, 12000);
     });
   }
@@ -902,11 +908,16 @@ const Camara = (() => {
     if (nav) {
       if (!rotLibre) {
         const d = ((hdgObj - hdgR + 540) % 360) - 180;
-        if (Math.abs(d) > 0.2) { hdgR = (hdgR + d * (1 - Math.exp(-dt / 240)) + 360) % 360; activo = true; } else hdgR = hdgObj;
+        if (Math.abs(d) > 0.2) {
+          let paso = d * (1 - Math.exp(-dt / 150));   // respuesta rápida
+          const tope = 260 * dt / 1000;               // y sin saltos bruscos (máx. 260°/s)
+          if (Math.abs(paso) > tope) paso = Math.sign(paso) * tope;
+          hdgR = (hdgR + paso + 360) % 360; activo = true;
+        } else hdgR = hdgObj;
       }
       aplicarCamara(false);
     }
-    if (activo) raf = requestAnimationFrame(frame); else tPrev = 0;
+    if (activo) { if (!raf) raf = requestAnimationFrame(frame); } else tPrev = 0;   // un solo bucle: antes se duplicaba y la app se trababa
   }
   /* Punto de la pantalla (clientX/Y) → coordenadas del mapa; deshace la inclinación 3D (rotateX + escala con perspectiva) */
   function clienteALatLng(cx, cy) {
@@ -995,6 +1006,7 @@ const Camara = (() => {
     modo = "fitbounds";
     norte();
     refrescarBoton();
+    setTimeout(() => { try { aplicar3D(); mapa.invalidateSize({ animate: false }); } catch (_) {} despertar(); }, 80);
   }
   function setModo(m) {
     modo = m === "navegacion" ? "navegacion" : "fitbounds";
@@ -1118,7 +1130,7 @@ function iconoRepartidorNombre(nombre) {
   const n = nombre ? `<span class="rep-nom">${escHtml(nombre)}</span>` : "";
   return L.divIcon({
     className: "",
-    html: `<div class="rep-pin">${svgHaz("gHazMapa")}${SVG_REPARTIDOR}${n}</div>`,
+    html: `<div class="rep-pin">${svgHaz("gHazMapa")}${SVG_REPARTIDOR}</div>`,
     iconSize: [30, 30], iconAnchor: [15, 15]
   });
 }
@@ -1237,6 +1249,8 @@ $("btnNavegar").onclick = () => {
     seguirme = true;
     if (lugarDestino) { cancelarRutaManual(); return; }   // sin botón "Ruta": al salir de una ruta libre también se cancela
     setEstado("🧭 Navegación desactivada", "ok");
+    setTimeout(() => { try { mapa.invalidateSize({ animate: false }); } catch (_) {} Camara.actualizar(true); Camara.refrescarBoton(); }, 140);
+    return;
   } else {
     seguirme = true; rutaEnVista = true;
     Camara.setModo("navegacion");
@@ -1962,7 +1976,7 @@ function escucharAdmin() {
   }, () => {});
   refAdminChat.once("value", () => { adminListo = true; });
 
-  Policia.iniciar({ db, mapa: () => mapa, uid: () => uidActual, nombre: () => usuario || "Repartidor", rol: "repartidor", pos: () => ultimaPos, alVer: () => irA("mapa") });
+  Policia.iniciar({ db, mapa: () => mapa, uid: () => uidActual, nombre: () => usuario || "Repartidor", rol: "repartidor", pos: () => ultimaPos, alVer: () => { if (Camara.getModo() !== "navegacion") { seguirme = false; Camara.refrescarBoton(); } if (vistaActual !== "mapa") irA("mapa", { sinEncuadre: true }); } });   // sin recentrar: así la tarjeta del reporte se abre donde está
   if (refLugares) refLugares.off();
   refLugares = db.ref("lugares");
   refLugares.on("value", (s) => { lugares = s.val() || {}; pintarLugares(); if (!$("resBusqRep").classList.contains("oculto")) mostrarBusquedaRep(); }, () => {});
@@ -5087,7 +5101,44 @@ const NavGL = (() => {
   const PITCH = 55, AJUSTE_ZOOM = -0.15, REINTENTO_MS = 120000, ESPERA_MS = 15000;
   let div = null, gl = null, puck = null, listo = false, cargando = false, visible = false, falloTs = 0, raf = 0, ultClave = "", tm = null;
   const dest = {};
-  let colorRuta = "";
+  const pol = {};   // reportes de policía reflejados desde el mapa principal
+  let ultPol = 0, colorRuta = "";
+  function esMarcaPolicia(c) {
+    try {
+      if (!(c instanceof L.Marker) || c === marcaYo) return false;
+      const o = c.options && c.options.icon && c.options.icon.options; if (!o) return false;
+      const t = String(o.className || "") + String(o.html || "") + String(o.iconUrl || "");
+      return /polic|🚨|👮|🚓/i.test(t) && !/rep-pin|cli-per/.test(t);
+    } catch (_) { return false; }
+  }
+  function abrirPolicia(c) {
+    const ll = c.getLatLng();
+    try { c.fire("click", { latlng: ll }); } catch (_) {}
+    try { if (window.Policia && typeof Policia.clickMapa === "function") Policia.clickMapa(ll); } catch (_) {}
+    try { if (c.getPopup && c.getPopup()) c.openPopup(); } catch (_) {}
+  }
+  function pintarPolicias() {
+    if (!gl || !mapa || !window.maplibregl) return;
+    const vivos = {};
+    mapa.eachLayer((c) => {
+      if (!esMarcaPolicia(c)) return;
+      const k = "p" + L.stamp(c), ll = c.getLatLng(), o = c.options.icon.options; vivos[k] = 1;
+      let d = pol[k];
+      if (!d) {
+        const el = document.createElement("div"); el.className = "gl-pol";
+        el.addEventListener("click", (e) => { e.stopPropagation(); abrirPolicia(c); });
+        d = pol[k] = { el, m: new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([ll.lng, ll.lat]).addTo(gl), clave: "" };
+      }
+      const sz = Array.isArray(o.iconSize) ? o.iconSize : (o.iconSize && o.iconSize.x ? [o.iconSize.x, o.iconSize.y] : [30, 30]);
+      const h = o.html ? String(o.html) : (o.iconUrl ? '<img src="' + o.iconUrl + '" alt="" style="width:100%;height:100%">' : "");
+      const clave = [ll.lat, ll.lng, h, o.className, sz[0], sz[1]].join("|");
+      if (clave !== d.clave) {
+        d.clave = clave; d.m.setLngLat([ll.lng, ll.lat]);
+        d.el.innerHTML = '<div class="' + (o.className || "") + '" style="position:relative;width:' + sz[0] + "px;height:" + sz[1] + 'px">' + h + "</div>";
+      }
+    });
+    Object.keys(pol).forEach((k) => { if (!vivos[k]) { try { pol[k].m.remove(); } catch (_) {} delete pol[k]; } });
+  }
 
   function cargarScript(fuentes) {
     return new Promise((ok, ko) => {
@@ -5115,6 +5166,7 @@ const NavGL = (() => {
     ocultar();
     try { if (gl) gl.remove(); } catch (_) {}
     gl = null; puck = null; Object.keys(dest).forEach((k) => { try { dest[k].m.remove(); } catch (_) {} delete dest[k]; });
+    Object.keys(pol).forEach((k) => { try { pol[k].m.remove(); } catch (_) {} delete pol[k]; });
     if (div && div.parentNode) div.parentNode.removeChild(div);
     div = null; colorRuta = "";
   }
@@ -5190,6 +5242,7 @@ const NavGL = (() => {
   function loop() {
     if (!visible || !gl) return;
     raf = requestAnimationFrame(loop);
+    const tp = Date.now(); if (tp - ultPol > 1000) { ultPol = tp; try { pintarPolicias(); } catch (_) {} }
     const ev = Camara.estadoVista();
     if (!ev.pos) return;
     const clave = [ev.pos.lat.toFixed(6), ev.pos.lng.toFixed(6), ev.hdg.toFixed(1), (ev.giro || 0).toFixed(1), ev.zoom.toFixed(2), Math.round(ev.ancla), Math.round(ev.h)].join("|");
@@ -5203,7 +5256,7 @@ const NavGL = (() => {
   }
   function mostrar() {
     const caja = document.querySelector("#vistaMapa .mapa-caja"); if (!caja || !gl) return;
-    visible = true; ultClave = "";
+    visible = true; ultClave = ""; ultPol = 0;
     try { gl.resize(); } catch (_) {}
     caja.classList.add("gl-activo");
     cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);

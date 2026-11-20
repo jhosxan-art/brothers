@@ -2402,3 +2402,7 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .rep-pin svg.rep-haz { position: absolute; left: -75%; top: -75%; width: 250%; height: 250%; filter: none; z-index: 0; overflow: visible; }
 .gl-puck svg.rep-haz { position: absolute; left: -75%; top: -75%; width: 250%; height: 250%; filter: none; overflow: visible; }
 .mapa-caja .brujula-norte { pointer-events: auto; cursor: pointer; }
+
+/* ===== Reportes de policía dentro de la vista 3D de navegación (tocables) ===== */
+.gl-pol { position: relative; z-index: 3; }
+#mapaGL .gl-pol, #mapaGL .gl-pol * { pointer-events: auto; cursor: pointer; }
