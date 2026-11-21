@@ -187,7 +187,7 @@ async function avisarAdmins(env, aviso) {
     if (r.ok) enviados++;
     else {
       ultimoError = r.error;
-      if (["UNREGISTERED", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "admin_tokens/" + encodeURIComponent(a.uid) + "/" + encodeURIComponent(a.clave));   // celular que ya no existe
+      if (["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "admin_tokens/" + encodeURIComponent(a.uid) + "/" + encodeURIComponent(a.clave));   // celular que ya no existe
     }
   }));
   return enviados ? { ok: true, enviados } : { ok: false, error: ultimoError || "FCM rechazó el envío", enviados: 0 };
