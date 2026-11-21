@@ -1148,7 +1148,7 @@ const SVG_REPARTIDOR = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000
 
 /* Estela de visión (como Google Maps): cono que sale del repartidor hacia donde mira el teléfono */
 function svgHaz(id) {
-  return `<svg class="rep-haz" viewBox="0 0 100 100" aria-hidden="true"><defs><radialGradient id="${id}" cx="50" cy="50" r="48" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1A8CFF" stop-opacity=".6"/><stop offset="1" stop-color="#1A8CFF" stop-opacity="0"/></radialGradient></defs><path d="M50 50 L26 8.4 A48 48 0 0 1 74 8.4 Z" fill="url(#${id})"/></svg>`;
+  return `<svg class="rep-haz" viewBox="0 0 100 100" aria-hidden="true" style="position:absolute;left:-75%;top:-75%;width:250%;height:250%;z-index:0;overflow:visible;pointer-events:none;filter:none"><defs><radialGradient id="${id}" cx="50" cy="50" r="48" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1A8CFF" stop-opacity=".6"/><stop offset="1" stop-color="#1A8CFF" stop-opacity="0"/></radialGradient></defs><path d="M50 50 L26 8.4 A48 48 0 0 1 74 8.4 Z" fill="url(#${id})"/></svg>`;
 }
 function iconoRepartidorNombre(nombre) {
   const n = nombre ? `<span class="rep-nom">${escHtml(nombre)}</span>` : "";
