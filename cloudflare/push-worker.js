@@ -33,6 +33,9 @@
         Cuerpo:   { accion: "mensaje_cliente", pedido: "<token del pedido>", clave: "<id del mensaje en chats/<token>>" }
    7) NUEVO · Las solicitudes de pedido nuevas (cron o "solicitud_nueva") ahora también avisan por push a TODOS los repartidores con sesión (fcmToken).
 
+   8) NUEVO · "cliente_prioridad"  CLIENTE → REPARTIDOR  Push al repartidor del pedido cuando el cliente activa la prioridad (+C$ 10).
+        Cuerpo:   { accion: "cliente_prioridad", pedido: "<token del pedido>" }  (el Worker verifica pedidos/{token}/prioridad === true)
+
    Variables que debes crear en Cloudflare (Workers → tu Worker → Settings → Variables and Secrets):
      FCM_PROJECT_ID    → ID del proyecto de Firebase (ej. brothers-delivery-12345)       (texto)
      FIREBASE_API_KEY  → "Clave de API web" de Firebase (la de firebase-config.js)       (texto)
@@ -184,7 +187,7 @@ async function avisarAdmins(env, aviso) {
     if (r.ok) enviados++;
     else {
       ultimoError = r.error;
-      if (["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "admin_tokens/" + encodeURIComponent(a.uid) + "/" + encodeURIComponent(a.clave));   // celular que ya no existe
+      if (["UNREGISTERED", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "admin_tokens/" + encodeURIComponent(a.uid) + "/" + encodeURIComponent(a.clave));   // celular que ya no existe
     }
   }));
   return enviados ? { ok: true, enviados } : { ok: false, error: ultimoError || "FCM rechazó el envío", enviados: 0 };
@@ -295,7 +298,7 @@ async function avisarRepartidores(env, aviso) {
     if (r.ok) enviados++;
     else {
       ultimoError = r.error;
-      if (["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "repartidores/" + encodeURIComponent(a.uid) + "/fcmToken");
+      if (["UNREGISTERED", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "repartidores/" + encodeURIComponent(a.uid) + "/fcmToken");
     }
   }));
   return enviados ? { ok: true, enviados } : { ok: false, error: ultimoError || "FCM rechazó el envío", enviados: 0 };
@@ -375,7 +378,24 @@ async function accionMensajeCliente(b, env) {
   const nombre = (ped && (ped.cliente || (ped.factura && (ped.factura.cliente || ped.factura.nombre)) || ped.nombre)) || "";
   const texto = recorta(msg.texto || msg.text || "", 200);
   const r = await enviarFCM(env, fcm, { titulo: "💬 " + (nombre ? "Cliente · " + recorta(nombre, 40) : "Mensaje de tu cliente"), cuerpo: texto || "📷 Te envió una foto", canal: "mensajes", data: limpiaData({ tipo: "mensaje", token: pedido }) });
-  if (!r.ok && ["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "repartidores/" + encodeURIComponent(uid) + "/fcmToken");
+  if (!r.ok && ["UNREGISTERED", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "repartidores/" + encodeURIComponent(uid) + "/fcmToken");
+  return json(r.ok ? { ok: true } : { ok: false, code: r.code, error: r.error }, r.ok ? 200 : 502);
+}
+
+/* 8) El cliente activó la prioridad → push al repartidor del pedido */
+async function accionClientePrioridad(b, env) {
+  const pedido = String(b.pedido || "");
+  if (!/^[A-Za-z0-9_-]{6,60}$/.test(pedido)) return json({ ok: false, error: "Datos no válidos" }, 400);
+  const ped = await dbLeer(env, "pedidos/" + encodeURIComponent(pedido));
+  if (!ped || ped.prioridad !== true) return json({ ok: false, error: "El pedido no tiene prioridad" }, 404);
+  const uid = ped.repartidorUid;
+  if (!uid) return json({ ok: false, error: "El pedido no tiene repartidor" }, 404);
+  const fcm = await dbLeer(env, "repartidores/" + encodeURIComponent(uid) + "/fcmToken");
+  if (typeof fcm !== "string" || fcm.length < 20) return json({ ok: false, error: "El repartidor no tiene avisos activados" }, 404);
+  if (!(await marcarUnaVez(env, "pedidos/" + encodeURIComponent(pedido) + "/prioridadAviso"))) return json({ ok: true, yaAvisado: true });
+  const nombre = recorta(ped.cliente || (ped.factura && ped.factura.cliente) || "", 40);
+  const r = await enviarFCM(env, fcm, { titulo: "⚡ Pedido con prioridad", cuerpo: (nombre ? nombre + " " : "El cliente ") + "pidió prioridad (+C$ 10). ¡Entrégalo lo antes posible!", canal: "pedidos", data: limpiaData({ tipo: "prioridad", token: pedido }) });
+  if (!r.ok && ["UNREGISTERED", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "repartidores/" + encodeURIComponent(uid) + "/fcmToken");
   return json(r.ok ? { ok: true } : { ok: false, code: r.code, error: r.error }, r.ok ? 200 : 502);
 }
 
@@ -412,6 +432,7 @@ export default {
       const b = await req.json().catch(() => ({}));
       if (b.accion === "cliente_abrio") return await accionClienteAbrio(b, env);   // sin sesión: el cliente no inicia sesión
       if (b.accion === "solicitud_nueva") return await accionSolicitudNueva(b, env);   // sin sesión: se valida contra Firebase
+      if (b.accion === "cliente_prioridad") return await accionClientePrioridad(b, env);
       if (b.accion === "mensaje_cliente") return await accionMensajeCliente(b, env);   // sin sesión: se valida contra Firebase
       if (b.accion === "admin_chat") return await accionAdminChat(b, idToken, env);
       return await accionAdmin(b, idToken, env);
