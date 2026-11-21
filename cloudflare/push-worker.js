@@ -36,6 +36,9 @@
    8) NUEVO · "cliente_prioridad"  CLIENTE → REPARTIDOR  Push al repartidor del pedido cuando el cliente activa la prioridad (+C$ 10).
         Cuerpo:   { accion: "cliente_prioridad", pedido: "<token del pedido>" }  (el Worker verifica pedidos/{token}/prioridad === true)
 
+   9) NUEVO · Cron: cada minuto también busca pedidos que el ADMINISTRADOR asignó a un repartidor registrado (ordenes/{id}, estado "asignado")
+        y manda push de ALTA PRIORIDAD a ese repartidor aunque tenga la app cerrada. Se avisa una sola vez por pedido (ordenes/{id}/pushRepartidor).
+
    Variables que debes crear en Cloudflare (Workers → tu Worker → Settings → Variables and Secrets):
      FCM_PROJECT_ID    → ID del proyecto de Firebase (ej. brothers-delivery-12345)       (texto)
      FIREBASE_API_KEY  → "Clave de API web" de Firebase (la de firebase-config.js)       (texto)
@@ -340,6 +343,32 @@ async function revisarSolicitudesNuevas(env) {
   return avisadas;
 }
 
+/* 9) Pedidos asignados por el administrador → push al repartidor elegido */
+async function revisarOrdenesAdmin(env) {
+  const acceso = await tokenGoogle(env);
+  const q = "?orderBy=" + encodeURIComponent('"$key"') + "&limitToLast=60&access_token=" + encodeURIComponent(acceso);
+  const r = await fetch(dbBase(env) + "/ordenes.json" + q);
+  if (!r.ok) throw new Error("Base de datos: error " + r.status + " al buscar pedidos del administrador");
+  const todas = (await r.json()) || {};
+  let avisados = 0;
+  for (const [id, o] of Object.entries(todas)) {
+    if (!o || typeof o !== "object" || o.pushRepartidor || o.estado !== "asignado") continue;
+    const a = o.asignacion;
+    if (!a || a.tipo !== "registrado" || !a.uid || !/^[A-Za-z0-9_-]{4,80}$/.test(id)) continue;
+    if (o.estado_asignacion === "aceptado" || o.estado_asignacion === "rechazado") continue;
+    const creado = Number(o.creado || 0);
+    if (creado && Date.now() - creado > EDAD_MAXIMA_MS) continue;
+    const fcm = await dbLeer(env, "repartidores/" + encodeURIComponent(a.uid) + "/fcmToken");
+    if (typeof fcm !== "string" || fcm.length < 20) continue;   // sin token todavía: se reintenta en el siguiente minuto
+    if (!(await marcarUnaVez(env, "ordenes/" + encodeURIComponent(id) + "/pushRepartidor"))) continue;
+    const cliente = recorta(o.cliente || "", 40), dir = recorta((o.entrega && o.entrega.texto) || "", 90);
+    const res = await enviarFCM(env, fcm, { titulo: "📦 Nuevo pedido asignado" + (cliente ? " · " + cliente : ""), cuerpo: dir ? "Entrega: " + dir : "Abre la app para ver los detalles del pedido", canal: "pedidos", data: limpiaData({ tipo: "pedido", orden: id }) });
+    if (res.ok) avisados++;
+    else if (["UNREGISTERED", "NOT_FOUND"].includes(res.code)) await dbBorrar(env, "repartidores/" + encodeURIComponent(a.uid) + "/fcmToken");
+  }
+  return avisados;
+}
+
 /* 5) El cliente acaba de crear su solicitud → aviso instantáneo a los administradores */
 async function accionSolicitudNueva(b, env) {
   const id = String(b.solicitud || "");
@@ -423,6 +452,7 @@ export default {
   /* Cron Trigger (cada minuto): pedidos nuevos de clientes → push a los administradores aunque su app esté cerrada */
   async scheduled(event, env, ctx) {
     ctx.waitUntil(revisarSolicitudesNuevas(env).catch((e) => console.warn("cron solicitudes:", e && e.message ? e.message : e)));
+    ctx.waitUntil(revisarOrdenesAdmin(env).catch((e) => console.warn("cron pedidos admin:", e && e.message ? e.message : e)));
   },
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
