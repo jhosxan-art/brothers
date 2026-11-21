@@ -802,3 +802,22 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
 
 /* Mensajes de la central (admin) */
 .wa-msg .wa-de { display: block; margin-bottom: 2px; font-size: 12px; font-weight: 700; color: #0969DA; }
+
+/* ===== Campos de escribir multilínea (Enter = salto de línea; solo el botón envía) ===== */
+.wa-cliente .wa-compositor { align-items: flex-end; }
+.wa-cliente .wa-compositor textarea {
+  flex: 1; min-width: 0; width: auto; display: block; box-sizing: border-box;
+  height: 46px; min-height: 46px; max-height: 128px; padding: 11px 18px; border-radius: 23px;
+  border: 1.5px solid var(--linea); background: var(--gris); color: var(--tinta);
+  font: inherit; font-size: 16px; font-weight: 500; line-height: 22px; resize: none; overflow-y: hidden;
+}
+.wa-cliente .wa-compositor textarea:focus { border-color: var(--wa-accion); background: #fff; outline: none; }
+.wa-cliente .wa-compositor textarea:disabled { opacity: .7; }
+.wa-cliente .wa-modal.inicio .wa-compositor-inicio textarea { background: #fff; border-color: #fff; }
+@media (max-width: 380px) { .wa-cliente .wa-compositor textarea { min-height: 42px; height: 42px; padding: 9px 12px; border-radius: 21px; font-size: 15px; } }
+@media (min-width: 700px) { .wa-cliente .wa-compositor textarea { min-height: 50px; height: 50px; border-radius: 25px; padding: 13px 20px; } }
+.wa-cliente .wa-compositor .wa-foto, .wa-cliente .wa-compositor .wa-enviar { align-self: flex-end; }
+
+/* ===== Fuera de servicio ===== */
+.wa-cliente .wa-titulos small.fuera-servicio { color: #FFB4AB; opacity: 1; font-weight: 700; }
+.wa-cliente .wa-modal.inicio .wa-inicio-barra small.fuera-servicio { color: #FFB4AB; opacity: 1; font-weight: 700; }

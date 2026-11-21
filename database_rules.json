@@ -571,7 +571,7 @@
         },
         "pedido": {
           ".validate": "newData.hasChildren(['quiere', 'origen', 'modo', 'destino'])",
-          "quiere": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 200" },
+          "quiere": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 1000" },
           "origen": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 120" },
           "modo": { ".validate": "newData.val() === 'recibe' || newData.val() === 'envia'" },
           "destino": {
@@ -717,7 +717,7 @@
             ".validate": "newData.hasChildren(['de', 'tipo', 'ts']) && (newData.child('de').val() === 'cliente' || newData.child('de').val() === 'repartidor' || newData.child('de').val() === 'admin') && (newData.child('de').val() !== 'cliente' || auth.token.firebase.sign_in_provider === 'anonymous') && (newData.child('de').val() !== 'repartidor' || auth.token.firebase.sign_in_provider !== 'anonymous') && (newData.child('de').val() !== 'admin' || root.child('admins').child(auth.uid).exists()) && (newData.child('tipo').val() === 'texto' || newData.child('tipo').val() === 'factura' || newData.child('tipo').val() === 'foto') && (newData.child('tipo').val() !== 'texto' || (newData.child('texto').isString() && newData.child('texto').val().length >= 1 && newData.child('texto').val().length <= 600)) && (newData.child('tipo').val() !== 'factura' || newData.child('factura').hasChildren(['productos', 'totalFinal']))",
             "de": { ".validate": "newData.isString()" },
             "tipo": { ".validate": "newData.isString()" },
-            "texto": { ".validate": "newData.isString() && newData.val().length <= 600" },
+            "texto": { ".validate": "newData.isString() && newData.val().length <= 1500" },
             "ts": { ".validate": "newData.isNumber() && newData.val() <= now" },
             "factura": {},
             "$otro": { ".validate": false }
@@ -731,6 +731,7 @@
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
       "horarioAtencion": {
+            ".read": "auth != null",
             ".validate": "newData.hasChildren(['activo', 'dias']) && newData.child('activo').isBoolean()",
             "activo": {},
             "cerradoManual": { ".validate": "newData.isBoolean()" },

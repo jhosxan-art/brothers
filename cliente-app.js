@@ -33,7 +33,7 @@
   const RAIZ_CLIENTES = "clientes";
   const CLAVE_LOCAL = "brothers_cliente_v1";
   const CLAVE_ULTIMA_DIR = "brothers_ultima_direccion";
-  const MAX_TEXTO = 600;
+  const MAX_TEXTO = 1000;
   const RAIZ_FOTOS = "solicitudes_fotos";
   const MAX_FOTO = 300000;
   const RAIZ_PERFIL = "repartidorFotos";
@@ -91,6 +91,73 @@
   }
 
   const limpiarNombre = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  /* Texto libre (listas de mandados, compras del mercado…): conserva los saltos de línea */
+  const limpiarTexto = (s) => String(s || "").replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  /* Los campos de escribir son <textarea>: Enter / "saltar línea" del teclado inserta un salto real; solo el botón envía */
+  function ajustarAlto(ta) {
+    if (!ta) return;
+    ta.style.height = "auto";
+    const h = Math.min(ta.scrollHeight + 3, 128);
+    ta.style.height = h + "px";
+    ta.style.overflowY = ta.scrollHeight + 3 > 128 ? "auto" : "hidden";
+  }
+
+  /* ---------- Horario de atención (configurado por el administrador) ---------- */
+  const RUTA_HORARIO = "configuracion/horarioAtencion";
+  const ZONA_HORARIO = "America/Managua";
+  const MENSAJE_FUERA = "👋 ¡Hola! En este momento estamos fuera de servicio (fuera de nuestro horario de atención). Recibimos tu pedido y lo atenderemos en cuanto abramos. ¡Gracias por escribirnos! 🛵";
+  let cfgHorario = null, cerradoServicio = false, horarioListo = false, autoRecibido = false, avisoFueraMostrado = false, tmAvisoFuera = null;
+  const aMinHora = (h) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(h || "")); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+  function ahoraManagua() {
+    const f = new Intl.DateTimeFormat("en-US", { timeZone: ZONA_HORARIO, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    const p = {}; f.formatToParts(new Date()).forEach((x) => { p[x.type] = x.value; });
+    return { dia: { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[p.weekday], min: (parseInt(p.hour, 10) % 24) * 60 + parseInt(p.minute, 10) };
+  }
+  function abiertoAhora(cfg) {
+    const { dia, min } = ahoraManagua(), dias = cfg.dias || {};
+    const ventana = (d) => (d && d.abierto ? [aMinHora(d.desde), aMinHora(d.hasta)] : null);
+    const h = ventana(dias[dia]);
+    if (h && h[0] != null && h[1] != null) { if (h[1] > h[0]) { if (min >= h[0] && min < h[1]) return true; } else if (min >= h[0]) return true; }
+    const y = ventana(dias[(dia + 6) % 7]);   // horario que cruza la medianoche (p. ej. 18:00–02:00)
+    return !!(y && y[0] != null && y[1] != null && y[1] <= y[0] && min < y[1]);
+  }
+  const mensajeFuera = () => String((cfgHorario && cfgHorario.mensaje) || MENSAJE_FUERA).slice(0, 500);
+  function pintarHorario() {
+    const si = $("subInicio");
+    if (si) { si.textContent = cerradoServicio ? "Fuera de servicio" : "En línea"; si.classList.toggle("fuera-servicio", cerradoServicio); }
+    const ac = $("avisoCerrado");
+    if (ac) { ac.classList.toggle("oculto", !cerradoServicio); const t = $("txtCerrado"); if (t) t.textContent = mensajeFuera(); }
+    const sub = $("subChat");
+    if (sub && !asignado && !cerrado && !sub.classList.contains("escribiendo")) {
+      sub.textContent = cerradoServicio ? "Fuera de servicio" : textoBusqueda().sub;
+      sub.classList.toggle("fuera-servicio", cerradoServicio);
+    }
+  }
+  /* Mensaje automático dentro del chat con la central (si el servidor ya lo escribió, no se repite) */
+  function avisoFueraDeServicio() {
+    if (!cerradoServicio || avisoFueraMostrado || autoRecibido || asignado || cerrado) return;
+    const vc = $("vChat");
+    if (!vc || vc.classList.contains("oculto")) return;
+    avisoFueraMostrado = true;
+    avisoSistema(mensajeFuera());
+  }
+  function programarAvisoFuera() {
+    clearTimeout(tmAvisoFuera);
+    tmAvisoFuera = setTimeout(avisoFueraDeServicio, 3500);
+  }
+  function evaluarHorario(avisar) {
+    const antes = cerradoServicio;
+    cerradoServicio = !!cfgHorario && (cfgHorario.cerradoManual === true || (cfgHorario.activo === true && !abiertoAhora(cfgHorario)));
+    if (!cerradoServicio) avisoFueraMostrado = false;
+    pintarHorario();
+    if (avisar && cerradoServicio && !antes) avisoFueraDeServicio();
+  }
+  function escucharHorario() {
+    try {
+      db.ref(RUTA_HORARIO).on("value", (sn) => { cfgHorario = sn.val() || null; evaluarHorario(horarioListo); horarioListo = true; }, () => { });
+    } catch (_) { }
+    setInterval(() => evaluarHorario(true), 30000);
+  }
   const nombreValido = (s) => typeof s === "string" && s.length >= 2 && s.length <= 24;
   const idValido = (s) => typeof s === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(s);
 
@@ -210,6 +277,8 @@
         : "No se pudo abrir la sesión: " + (e.code || e.message));
     }
 
+    escucharHorario();
+
     /* Recupera perfil, sesión y conversación desde los respaldos (IndexedDB / cookie) si el navegador los perdió. */
     if (window.Almacen) { try { await Almacen.restaurar(); } catch (_) { } }
     perfil = leerPerfil();
@@ -242,16 +311,19 @@
   });
 
   /* ---------- Crear o retomar el chat ---------- */
-  async function abrirChat() {
+  async function abrirChat(opc) {
+    const silencioso = !!(opc && opc.silencioso);   // sin pantalla de carga: la interfaz no parpadea ni se recarga
     if (!perfil || !idValido(perfil.id)) {
       perfil = null;
       try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { }
       vista("vNombre");
       return;
     }
-    $("msgCarga").className = "wa-splash-msg";
-    $("msgCarga").textContent = recuperando ? "Recuperando tu pedido…" : "Abriendo tu chat…";
-    vista("vCarga");
+    if (!silencioso) {
+      $("msgCarga").className = "wa-splash-msg";
+      $("msgCarga").textContent = recuperando ? "Recuperando tu pedido…" : "Abriendo tu chat…";
+      vista("vCarga");
+    }
 
     if (!perfil.solicitudId) {
       perfil.solicitudId = "sol_" + perfil.id;
@@ -265,7 +337,7 @@
 
     try {
       const s = await refSolicitud.once("value");
-      if (!s.exists()) { recuperando = false; borrarSesion(); await pausaSplash(); return pedirDetalles(); }
+      if (!s.exists()) { recuperando = false; borrarSesion(); if (!silencioso) await pausaSplash(); return pedirDetalles(); }
     } catch (e) {
       return errorCarga("No se pudo abrir tu chat: " + (e.code || e.message));
     }
@@ -316,6 +388,7 @@
     escucharMensajes();
     escucharRepartidorGps();
     marcarLeidoPropio();
+    programarAvisoFuera();
   }
 
   function detenerTodo() {
@@ -331,6 +404,7 @@
     mensajesListos = false; avisadoCerca = false;
     lect = {}; typingOtro = {};
     resumenCard = null; resumenReal = false; resumenEnviando = false;
+    autoRecibido = false; avisoFueraMostrado = false; clearTimeout(tmAvisoFuera);
     cierreTs = 0; clearTimeout(tmCaduca);
     pintarAvatar(null, "");
     limpiarMapa();
@@ -403,8 +477,11 @@
     refSolicitud.on("value", (s) => {
       if (!s.exists()) {
         if (cerrado) return;
+        /* La solicitud desapareció con el chat abierto (la central la canceló o la limpió): se cierra el ciclo SIN recargar,
+           con las escuchas vivas y el chat visible para que el cliente pueda seguir escribiendo. */
+        if (!primerSnapshot) { recuperando = false; borrarSesion(); return cerrarCiclo({ estado: "cancelado", canceladoPor: "admin", ts: Date.now() }); }
         detenerTodo();
-        return abrirChat();
+        return abrirChat({ silencioso: true });
       }
       const d = s.val() || {};
       pedidoActual = d.pedido && typeof d.pedido === "object" ? d.pedido : null;
@@ -471,7 +548,7 @@
     $("tituloChat").textContent = conRepartidor ? (nombreRep || "Tu repartidor") : "Brother’s Deliverys";
     const tb = textoBusqueda();
     $("avisoTitulo").textContent = tb.titulo;
-    if (!conRepartidor) $("subChat").textContent = tb.sub;
+    if (!conRepartidor) $("subChat").textContent = cerradoServicio ? "Fuera de servicio" : tb.sub;
     pintarAvatar(conRepartidor && typeof uidRep === "string" ? uidRep : null, nombreRep);
     const inp = $("inMensaje");
     inp.disabled = !conRepartidor;
@@ -563,7 +640,7 @@
       sub.textContent = "Te está atendiendo";
       sub.classList.remove("escribiendo");
     } else {
-      sub.textContent = textoBusqueda().sub;
+      sub.textContent = cerradoServicio ? "Fuera de servicio" : textoBusqueda().sub;
       sub.classList.remove("escribiendo");
     }
   }
@@ -579,6 +656,7 @@
       vistos.add(s.key);
       const m = s.val();
       if (!m || typeof m !== "object") return;
+      if (m.auto === true && m.de === "admin") autoRecibido = true;   // el servidor ya envió el mensaje de ausencia
       pintarMensaje(m, s.key);
       if (mensajesListos && m.de === "repartidor" && window.Voz) Voz.clienteMensajeNuevo();
     }, (e) => mostrarError("No se pudieron leer los mensajes: " + (e.code || e.message)));
@@ -603,13 +681,23 @@
     $("mensajes").appendChild(el);
   }
 
+  /* Inserta contenido ARRIBA (archivo, historial local) sin mover lo que la persona está viendo:
+     si estaba al final se queda al final; si estaba leyendo historial, conserva su posición. */
+  function conservarScroll(fn) {
+    const c = $("mensajes");
+    const pegado = pegadoAlFinal(), alto = c.scrollHeight, top = c.scrollTop;
+    fn();
+    c.scrollTop = pegado ? c.scrollHeight : top + (c.scrollHeight - alto);
+  }
+
   function avisoSistema(texto) {
+    const seguir = pegadoAlFinal();
     const el = document.createElement("div");
     el.className = "wa-sistema";
     el.textContent = texto;
     $("mensajes").appendChild(el);
     ultimoDe = null;
-    alFinal();
+    if (seguir) alFinal();
   }
 
   function pintarMensaje(m, clave) {
@@ -666,7 +754,7 @@
 
     $("mensajes").appendChild(burbuja);
     actualizarTicks();
-    if (seguir) alFinal();
+    if (seguir) { alFinal(); if (yo) pegados.mensajes = true; }   // al enviar un mensaje propio siempre baja; si leía historial, no lo arrastra al recibir
     if (!yo && asignado) marcarLeidoPropio();
   }
 
@@ -717,12 +805,12 @@
   $("formMensaje").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const inp = $("inMensaje");
-    const texto = inp.value.trim().slice(0, MAX_TEXTO);
+    const texto = limpiarTexto(inp.value).slice(0, MAX_TEXTO);   // conserva los saltos de línea
     /* Pedido terminado: al escribir, el chat se reinicia con los botones guiados para un pedido NUEVO */
-    if (cerrado) { if (texto) { inp.value = ""; nuevoPedidoDesdeChat(); } return; }
+    if (cerrado) { if (texto) { inp.value = ""; ajustarAlto(inp); nuevoPedidoDesdeChat(); } return; }
     if (!texto || !asignado || !refMensajes) return;
 
-    inp.value = "";
+    inp.value = ""; ajustarAlto(inp);
     apagarTypingPropio();
     mostrarError("");
     const clave = refMensajes.push().key;
@@ -733,7 +821,7 @@
     cambios["ultimoDe"] = "cliente";
     cambios["ts"] = ts;
     try { await refSolicitud.update(cambios); }
-    catch (e) { inp.value = texto; mostrarError("No se pudo enviar el mensaje: " + (e.code || e.message)); }
+    catch (e) { inp.value = texto; ajustarAlto(inp); mostrarError("No se pudo enviar el mensaje: " + (e.code || e.message)); }
     inp.focus();
   });
 
@@ -884,16 +972,16 @@
   /* Respuesta escrita: habilita el compositor inferior hasta que el cliente envía. */
   function apagarComposer() {
     const i = $("inConvo");
-    i.value = ""; i.disabled = true; i.placeholder = "Elige una opción…";
+    i.value = ""; i.disabled = true; i.placeholder = "Elige una opción…"; ajustarAlto(i);
     $("btnConvo").disabled = true;
   }
 
   function pedirTexto(id, placeholder, min, errorMsg, max) {
     return new Promise((res) => {
       if (!vivo(id)) return;
-      pendTexto = { id, min, max: max || 200, errorMsg, res };
+      pendTexto = { id, min, max: max || 1000, errorMsg, res };
       const i = $("inConvo");
-      i.disabled = false; i.value = ""; i.placeholder = placeholder;
+      i.disabled = false; i.value = ""; i.placeholder = placeholder; ajustarAlto(i);
       $("btnConvo").disabled = false;
       setTimeout(() => i.focus(), 60);
     });
@@ -903,7 +991,7 @@
     ev.preventDefault();
     const p = pendTexto;
     if (!p || !vivo(p.id)) return;
-    const t = limpiarNombre($("inConvo").value);
+    const t = limpiarTexto($("inConvo").value);
     if (t.length < p.min) { addBot(p.errorMsg); return; }
     pendTexto = null;
     apagarComposer();
@@ -989,7 +1077,7 @@
       if (c === "x") { reiniciarConvo(); return null; }
       if (c === "d") {
         if (!(await di(id, "Sin problema. Escribe tu dirección exacta: calle, barrio y una referencia (por ejemplo, «frente a la pulpería»)."))) return null;
-        const t = await pedirTexto(id, "Calle, número, referencia", 5, "Escribe la dirección con un poco más de detalle (mínimo 5 letras).");
+        const t = await pedirTexto(id, "Calle, número, referencia", 5, "Escribe la dirección con un poco más de detalle (mínimo 5 letras).", 200);
         if (!vivo(id)) return null;
         return { manual: true, texto: t.slice(0, 200) };
       }
@@ -1085,7 +1173,7 @@
       }
       if (c === "dir") {
         if (!(await di(id, "Escribe la dirección exacta: calle, barrio y una referencia (por ejemplo, «frente a la pulpería»)."))) return null;
-        const t = await pedirTexto(id, "Calle, número, referencia", 5, "Escribe la dirección con un poco más de detalle (mínimo 5 letras).");
+        const t = await pedirTexto(id, "Calle, número, referencia", 5, "Escribe la dirección con un poco más de detalle (mínimo 5 letras).", 200);
         if (!vivo(id)) return null;
         return { tipo: "direccion", texto: t.slice(0, 200) };
       }
@@ -1119,7 +1207,7 @@
       throw new Error("La ubicación de " + nombre + " no es válida.");
     };
     if (SERVICIOS.indexOf(p.servicio) < 0) throw new Error("Servicio desconocido.");
-    const quiere = limpiarNombre(p.quiere).slice(0, 200), origen = limpiarNombre(p.origen).slice(0, 120);
+    const quiere = limpiarTexto(p.quiere).slice(0, 1000), origen = limpiarNombre(p.origen).slice(0, 120);
     if (quiere.length < 2 || origen.length < 2) throw new Error("Faltan datos del pedido.");
     const o = {
       servicio: p.servicio, tipo: p.tipo === "compra" ? "compra" : "envio", quiere, origen,
@@ -1414,7 +1502,7 @@
     w.appendChild(dia);
     log.forEach((e) => w.appendChild(crearBurbuja(e.c === "yo" ? "wa-burbuja-yo" : "wa-burbuja-bot", e.t, e.ts, true)));
     const ar = $("archivoPrev");
-    cont.insertBefore(w, ar ? ar.nextSibling : cont.firstChild);
+    conservarScroll(() => cont.insertBefore(w, ar ? ar.nextSibling : cont.firstChild));
   }
 
   /* ---------- Resumen automático del pedido ---------- */
@@ -1482,14 +1570,14 @@
     card.appendChild(h);
     const hist = $("histLocal");
     const ar = $("archivoPrev");
-    cont.insertBefore(card, hist ? hist.nextSibling : (ar ? ar.nextSibling : cont.firstChild));
+    conservarScroll(() => cont.insertBefore(card, hist ? hist.nextSibling : (ar ? ar.nextSibling : cont.firstChild)));
     resumenCard = card;
   }
 
   /* Cuando un repartidor atiende, el resumen se guarda como primer mensaje del chat */
   async function enviarResumenAlChat() {
     if (resumenEnviando || cerrado || !asignado || !refMensajes || !refSolicitud) return;
-    const texto = textoResumen();
+    const texto = String(textoResumen() || "").slice(0, 1500);
     if (!texto) return;
     resumenEnviando = true;
     try {
@@ -1930,9 +2018,10 @@
       : "Tu pedido fue cancelado.";
     caja.appendChild(el("p", "", intro + "\n\nSi deseas algo más, escríbenos aquí y te guiaremos para hacer tu nuevo pedido. 🏍️"));
     caja.appendChild(el("span", "wa-hora", hora(Date.now())));
+    const seguirCierre = pegadoAlFinal();
     $("mensajes").appendChild(caja);
     ultimoDe = null;
-    alFinal();
+    if (seguirCierre) alFinal();
   }
 
   const valoracionOmitida = () => {
@@ -2007,7 +2096,7 @@
     const caja = el("div", "wa-archivo-caja");
     caja.id = "archivoPrev";
     lista.forEach((e) => caja.appendChild(bloqueArchivo(e)));
-    $("mensajes").insertBefore(caja, $("mensajes").firstChild);
+    conservarScroll(() => $("mensajes").insertBefore(caja, $("mensajes").firstChild));
   }
 
   function pintarArchivoInicio() {
@@ -2027,12 +2116,12 @@
     $("vCierre").classList.add("oculto");
     $("vChat").classList.remove("cerrado");
     $("inComentario").value = "";
-    $("inMensaje").value = "";
+    $("inMensaje").value = ""; ajustarAlto($("inMensaje"));
     borrarSesion();
     borrarConvo(); borrarHistorial();
     perfil = { id: generarId(), nombre: perfil.nombre, solicitudId: null };
     guardarPerfil(perfil);
-    abrirChat();
+    abrirChat({ silencioso: true });
   }
   function nuevoPedidoDesdeChat() { reiniciarCiclo(true); }
 
@@ -2230,6 +2319,9 @@
   }
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reanudar(); });
   window.addEventListener("pageshow", (ev) => { if (ev.persisted) reanudar(); });
+
+  /* Los campos de escribir crecen con el texto (hasta 5 líneas) */
+  ["inMensaje", "inConvo"].forEach((id) => { const ta = $(id); if (ta) { ta.addEventListener("input", () => ajustarAlto(ta)); ajustarAlto(ta); } });
 
   arrancar();
 })();
