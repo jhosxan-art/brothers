@@ -15,7 +15,7 @@ const token = new URLSearchParams(location.search).get("id");
 
 /* ⚠️ PEGA AQUÍ la dirección de tu Worker de Cloudflare (la misma de push-admin.js, p. ej. https://brothers-push.tu-cuenta.workers.dev).
    Sirve para avisar al administrador cuando abres el enlace. Mientras diga "TU-WORKER" no se envía nada y todo lo demás funciona. */
-const WORKER_URL_BROTHERS = "https://TU-WORKER.TU-CUENTA.workers.dev";
+const WORKER_URL_BROTHERS = "https://brothers-push.jhosxan.workers.dev";
 const PRIORIDAD_MONTO = 10;                 // C$ que se suman al total al priorizar
 
 // Mapa (Leaflet + OpenStreetMap)
@@ -481,6 +481,7 @@ const BrothersExtras = (() => {
       }
       return ref.update(cambios).then(() => {
         hayPrioridad = true; ocultarBanner(); toastPri("⚡ ¡Listo! Tu pedido fue priorizado (+10 C$).");
+        if (!/TU-WORKER/.test(WORKER_URL_BROTHERS)) fetch(WORKER_URL_BROTHERS, { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true, body: JSON.stringify({ accion: "cliente_prioridad", pedido: token }) }).catch(() => {});   // push al repartidor aunque tenga la app cerrada
       });
     }).catch(() => {
       b.disabled = false; b.textContent = "Reintentar"; toastPri("No se pudo priorizar. Revisa tu internet.");

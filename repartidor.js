@@ -2529,7 +2529,7 @@ async function prepararNotificaciones(pedir) {
 const PUSH_HABILITADO = true;
 /* true = el Worker "worker-solicitudes.js" envía el push de "Nueva solicitud de pedido" (app abierta, en segundo plano o cerrada).
    Si aún no lo desplegaste, ponlo en false para que la app siga avisando con la notificación local. */
-const PUSH_SOLICITUDES_SERVIDOR = true;
+const PUSH_SOLICITUDES_SERVIDOR = false;   // false: la app avisa por sí sola cada solicitud nueva mientras esté viva (el push del servidor cubre la app cerrada)
 let pushActivo = false, abrirPendiente = null;
 function avisoPushDesactivado() {
   if (document.getElementById("pushOff")) return;
