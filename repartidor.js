@@ -537,7 +537,7 @@ try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}
 setTimeout(() => $("splash").classList.add("oculto"), 8000);
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); try { ChatsEntrantes.detener(); } catch (_) {} uidActual = null; usuario = null; $("clave").value = "";
+    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); try { ChatsEntrantes.detener(); } catch (_) {} try { CiudadRep.reiniciar(); } catch (_) {} uidActual = null; usuario = null; $("clave").value = "";
     return mostrar("login");
   }
   uidActual = user.uid;
@@ -562,6 +562,7 @@ auth.onAuthStateChanged(async (user) => {
     return auth.signOut();
   }
   usuario = typeof reg === "object" && reg.usuario ? reg.usuario : null;
+  try { CiudadRep.iniciar(typeof reg === "object" && reg ? reg.ciudad : null); } catch (_) {}
   if (!usuario) return mostrar("usuario");
   entrarTurno();
 });
@@ -2079,9 +2080,10 @@ function alternarTarjetaNeg(id) {
 }
 function pintarLugares() {
   if (!mapa) return;
-  Object.keys(lugarMarks).forEach((id) => { if (!lugares[id]) { if (tarjetaNegId === id) cerrarTarjetaNeg(); mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
+  const ciudadAct = CiudadRep.id();
+  Object.keys(lugarMarks).forEach((id) => { if (!lugares[id] || !lugarEnCiudad(lugares[id], ciudadAct)) { if (tarjetaNegId === id) cerrarTarjetaNeg(); mapa.removeLayer(lugarMarks[id]); delete lugarMarks[id]; } });
   Object.entries(lugares).forEach(([id, l]) => {
-    if (typeof l.lat !== "number") return;
+    if (typeof l.lat !== "number" || !lugarEnCiudad(l, ciudadAct)) return;
     const clave = [l.nombre, l.icono].join("|");
     let m = lugarMarks[id];
     if (!m) {
@@ -2123,7 +2125,8 @@ $("barraHoja").onclick = () => { hojaOculta = !hojaOculta; aplicarHoja(); };
 function cerrarBusquedaRep() { $("resBusqRep").classList.add("oculto"); $("busqRep").blur(); }
 function mostrarBusquedaRep(online) {
   const q = norm($("busqRep").value.trim()), caja = $("resBusqRep");
-  const locales = Object.entries(lugares).filter(([, l]) => !q || norm(l.nombre + " " + (l.dir || "")).includes(q)).slice(0, 8);
+  /* Sin texto: negocios de la ciudad activa. Escribiendo: se busca en todas las ciudades (p. ej. un negocio de otra ciudad para un pedido «Entre Ciudades») */
+  const locales = Object.entries(lugares).filter(([, l]) => (q ? norm(l.nombre + " " + (l.dir || "")).includes(q) : lugarEnCiudad(l, CiudadRep.id()))).slice(0, 8);
   let html = '<div class="cerrar-res" data-k="__cerrar">✕ Cerrar búsqueda</div>' + locales.map(([id, l]) => `<div class="item-busq" data-k="l:${escHtml(id)}"><strong>${escHtml(l.icono || "📍")} ${escHtml(l.nombre)}</strong><small>${escHtml(l.dir || "Negocio de Brothers")}</small></div>`).join("");
   if (online) html += online.map((r, i) => `<div class="item-busq" data-k="o:${i}"><strong>${escHtml(r.nombre)}</strong><small>${escHtml(r.detalle || "")}</small></div>`).join("");
   if (q && !online) html += `<div class="item-busq" data-k="buscar"><strong>🔎 Buscar “${escHtml($("busqRep").value.trim())}” en todo el mapa</strong><small>Direcciones, barrios, ciudades, coordenadas…</small></div>`;
@@ -2491,6 +2494,39 @@ function cancelarNotif(extra) {
   try { ln.removeDeliveredNotifications && ln.removeDeliveredNotifications({ notifications: [{ id }] }).catch(() => {}); } catch (_) {}
 }
 
+/* Quita de la bandeja del teléfono los push (FCM) que ya no sirven: pedido tomado, revisado en la app, tomado por otro o cancelado.
+   · «solicitud»: se quita si el repartidor ya la abrió/tomó o si dejó de estar disponible para él.
+   · «pedido» (asignado por el administrador): se quita en cuanto la app está abierta y lo muestra. */
+let barriendoPush = false, ultBarridoPush = 0;
+async function barrerPush(forzar) {
+  const PN = plug("PushNotifications");
+  if (!PN || !PN.getDeliveredNotifications || !uidActual || barriendoPush) return;
+  if (!forzar && Date.now() - ultBarridoPush < 2000) return;
+  barriendoPush = true; ultBarridoPush = Date.now();
+  try {
+    const r = await PN.getDeliveredNotifications();
+    const quitar = ((r && r.notifications) || []).filter((n) => {
+      const d = (n && n.data) || {};
+      if (d.tipo === "pedido") return !document.hidden;
+      if (d.tipo === "solicitud" && d.solicitud) return !ChatsEntrantes.disponible(d.solicitud);
+      return false;
+    });
+    if (quitar.length && PN.removeDeliveredNotifications) await PN.removeDeliveredNotifications({ notifications: quitar });
+  } catch (_) {} finally { barriendoPush = false; }
+}
+async function quitarPushSolicitud(id) {
+  cancelarNotif({ solicitud: id });
+  const PN = plug("PushNotifications");
+  if (!PN || !PN.getDeliveredNotifications || !PN.removeDeliveredNotifications) return;
+  try {
+    const r = await PN.getDeliveredNotifications();
+    const quitar = ((r && r.notifications) || []).filter((n) => { const d = (n && n.data) || {}; return d.tipo === "solicitud" && d.solicitud === id; });
+    if (quitar.length) await PN.removeDeliveredNotifications({ notifications: quitar });
+  } catch (_) {}
+}
+/* Al volver a la app, lo que ya se ve en pantalla no debe seguir en la bandeja */
+document.addEventListener("visibilitychange", () => { if (!document.hidden) setTimeout(() => barrerPush(true), 800); });
+
 function permisosInicio() {
   if (!esNativo()) return Promise.resolve();
   return (async () => {
@@ -2764,6 +2800,7 @@ function procesarPosicion(c) {
   const lat = c.latitude, lng = c.longitude, precision = Math.round(c.accuracy || 0);
   const primera = !ultimaPos;
   ultimaPos = { lat, lng };
+  try { CiudadRep.alPosicion(lat, lng); } catch (_) {}
   if (orden.length && Nav.activa()) {   // el recorrido solo se graba con la navegación activa iniciada por el repartidor
     const ult = rastro[rastro.length - 1];
     if (!ult || distanciaM(ult[0], ult[1], lat, lng) > 4) { rastro.push([lat, lng]); if (rastro.length > 800) rastro.shift(); guardarRastro(); }
@@ -2784,7 +2821,7 @@ function procesarPosicion(c) {
   const ocupado = orden.length > 0 || (typeof OrdenAdminRep !== "undefined" && OrdenAdminRep.activo());
   db.ref("ubicaciones/" + uidActual).set({
     lat, lng, precision, rumbo: num(c.heading), velocidad: num(c.speed),
-    ts: TS, enLinea: true, enViaje: ocupado, conPedido: ocupado, usuario
+    ts: TS, enLinea: true, enViaje: ocupado, conPedido: ocupado, usuario, ciudad: CiudadRep.id() || null
   }).catch(() => {});
   try { ChatsEntrantes.publicarGps({ lat, lng }); } catch (_) {}
   try { ChatsEntrantes.pintarRutasPendientes(); } catch (_) {}
@@ -3290,6 +3327,7 @@ function nuevoPedidoAsignado(id, o) {
   navigator.vibrate && navigator.vibrate([400, 150, 400, 150, 400]);
   notificarTexto("🛵 Nuevo pedido " + etiquetaPedido(o.codigo, "app"), `${Ordenes.textoDelivery(o)} · ${sig && sig.p.texto ? "Retiro: " + sig.p.texto : "Revisa los detalles"}`, "Pedido nuevo", { equipo: "guia", token: id });
   try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
+  barrerPush(true);   // si la app está abierta, el push del pedido asignado se quita
 }
 $("btnNuevoVer").onclick = () => {
   $("modalNuevoPedido").classList.add("oculto");
@@ -3319,7 +3357,7 @@ $("btnNuevoAceptar").onclick = async () => {
 $("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado")) $("modalNuevoPedido").classList.add("oculto"); };
 OrdenAdminRep.init({
   db, usuario: () => usuario, uid: () => uidActual,
-  alCambiar: () => { renderLista(); try { ChatsEntrantes.marcarConPedido(); } catch (_) {} },
+  alCambiar: () => { renderLista(); try { ChatsEntrantes.marcarConPedido(); } catch (_) {} barrerPush(); },
   pedirPago: async (info) => {
     const pago = await CobroEntrega.pedir({ id: info.id, cliente: info.orden && info.orden.cliente, pedido: info.orden && info.orden.codigo, total: info.orden ? precioDeOrden(info.orden) : null });
     if (pago) PagosEntrega[info.id] = pago;
@@ -3328,6 +3366,105 @@ OrdenAdminRep.init({
   alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
   alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))
 });
+
+/* ============================================================
+   CIUDAD ACTIVA DEL REPARTIDOR
+   · Se detecta por GPS (con histéresis para no saltar entre ciudades vecinas) o se fija a mano.
+   · Se publica en repartidores/{uid}/ciudad y ubicaciones/{uid}/ciudad (el Worker de push la usa).
+   · Aísla el pool de solicitudes: solo ve las que tienen ciudadRuta === su ciudad
+     (pedidos locales de su ciudad y pedidos «Entre Ciudades» cuyo destino es su ciudad).
+   · Filtra los negocios/lugares del mapa según la ciudad.
+   ============================================================ */
+const CiudadRep = (() => {
+  const CLAVE = "brothersRepCiudad_";
+  let id = null, manual = false, ultEval = 0;
+  const clave = () => CLAVE + (uidActual || "");
+  const guardarLocal = () => { try { localStorage.setItem(clave(), JSON.stringify({ id, manual })); } catch (_) {} };
+  function pintar() {
+    const b = $("btnCiudadRep"); if (!b) return;
+    b.classList.toggle("oculto", !uidActual);
+    b.textContent = "📍 " + (id ? Ciudades.nombre(id) : "Elegir ciudad");
+    b.title = id ? "Ciudad activa: " + Ciudades.nombre(id) + (manual ? " (manual)" : " (automática)") : "Elige la ciudad donde trabajas";
+  }
+  function publicar() {
+    if (!uidActual || !id) return;
+    db.ref("repartidores/" + uidActual).update({ ciudad: id, ciudadTs: TS }).catch(() => {});
+  }
+  function fijar(nuevo, fuente) {
+    if (!Ciudades.porId(nuevo)) return;
+    const cambio = nuevo !== id;
+    id = nuevo; manual = fuente === "manual";
+    guardarLocal(); pintar();
+    if (!cambio) return;
+    publicar();
+    try { ChatsEntrantes.refrescarCiudad(); } catch (_) {}
+    try { pintarLugares(); } catch (_) {}
+    try { setEstado("📍 Ciudad activa: " + Ciudades.nombre(id), "ok"); } catch (_) {}
+  }
+  function alPosicion(lat, lng) {
+    if (manual) return;
+    const ahora = Date.now();
+    if (ahora - ultEval < 30000) return;
+    ultEval = ahora;
+    const c = Ciudades.deCoord(lat, lng);
+    if (!c || c.id === id) return;
+    const act = id && Ciudades.porId(id);
+    if (act && c.distKm + 1.5 >= Ciudades.km({ lat, lng }, act)) return;   // histéresis: solo cambia si la nueva está claramente más cerca
+    fijar(c.id, "gps");
+  }
+  function iniciar(ciudadNube) {
+    let loc = null;
+    try { loc = JSON.parse(localStorage.getItem(clave()) || "null"); } catch (_) {}
+    if (loc && Ciudades.porId(loc.id)) { id = loc.id; manual = !!loc.manual; }
+    else if (Ciudades.porId(ciudadNube)) { id = ciudadNube; manual = false; }
+    else { id = null; manual = false; }
+    ultEval = 0;
+    pintar();
+    if (id && id !== ciudadNube) publicar();
+    try { ChatsEntrantes.refrescarCiudad(); } catch (_) {}
+    if (ultimaPos) alPosicion(ultimaPos.lat, ultimaPos.lng);
+  }
+  function reiniciar() { id = null; manual = false; ultEval = 0; pintar(); }
+  function automatica() {
+    manual = false; ultEval = 0; guardarLocal(); pintar();
+    if (ultimaPos) alPosicion(ultimaPos.lat, ultimaPos.lng);
+  }
+  const ciudadRutaDe = (d) => {
+    const c = d && (d.ciudadRuta || (d.pedido && d.pedido.ciudadRuta));
+    return typeof c === "string" && c ? c : null;
+  };
+  /* Solicitudes sin ciudadRuta (antiguas) siguen visibles para todos; con ciudadRuta, solo para esa ciudad */
+  const visible = (d) => { const c = ciudadRutaDe(d); return !c || (!!id && c === id); };
+  function etiquetaRuta(p) {
+    if (!p || !Ciudades.porId(p.ciudadOrigen)) return "";
+    return p.entreCiudades && Ciudades.porId(p.ciudadDestino) ? "🚚 " + Ciudades.nombre(p.ciudadOrigen) + " → " + Ciudades.nombre(p.ciudadDestino) : "🏙️ " + Ciudades.nombre(p.ciudadOrigen);
+  }
+  function abrirModal() {
+    const lista = $("listaCiudadesRep");
+    lista.textContent = "";
+    Ciudades.LISTA.forEach((c) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "🏙️ " + c.nombre;
+      if (c.id === id) b.setAttribute("aria-current", "true");
+      b.onclick = () => { fijar(c.id, "manual"); $("modalCiudadRep").classList.add("oculto"); };
+      lista.appendChild(b);
+    });
+    $("modalCiudadRep").classList.remove("oculto");
+  }
+  $("btnCiudadRep").onclick = abrirModal;
+  $("btnCiudadRepCerrar").onclick = () => $("modalCiudadRep").classList.add("oculto");
+  $("btnCiudadRepAuto").onclick = () => { $("modalCiudadRep").classList.add("oculto"); automatica(); };
+  $("modalCiudadRep").addEventListener("click", (e) => { if (e.target === $("modalCiudadRep")) $("modalCiudadRep").classList.add("oculto"); });
+  return { iniciar, reiniciar, alPosicion, visible, etiquetaRuta, id: () => id };
+})();
+
+/* Un negocio/lugar pertenece a la ciudad indicada (campo «ciudad» o, si no lo tiene, la ciudad más cercana a sus coordenadas) */
+function lugarEnCiudad(l, cid) {
+  if (!cid || !l) return true;
+  const lc = l.ciudad && Ciudades.porId(l.ciudad) ? l.ciudad : ((Ciudades.deCoord(l.lat, l.lng) || {}).id || null);
+  return !lc || lc === cid;
+}
 
 /* ============================================================
    CHATS ENTRANTES (pool de WhatsApp)
@@ -3357,9 +3494,10 @@ const ChatsEntrantes = (() => {
 
   const termino = (d) => !!d && (d.estado === "entregado" || d.estado === "cancelado");
   const omitida = (d) => !!(d && d.omitidoPor && uidActual && d.omitidoPor[uidActual]);
-  const libre = (d) => !!d && typeof d === "object" && !d.repartidorUid && !termino(d) && !omitida(d);
+  const libre = (d) => !!d && typeof d === "object" && !d.repartidorUid && !termino(d) && !omitida(d) && CiudadRep.visible(d);
   const mio = (d) => !!d && typeof d === "object" && !!uidActual && d.repartidorUid === uidActual && !termino(d);
   const sinLeerTotal = () => Object.keys(sinLeer).reduce((t, k) => t + (mio(lista[k]) ? sinLeer[k] : 0), 0);
+  const disponible = (id) => !cargada || libre(lista[id]);   // antes de cargar la lista no se asume nada (no se borra ningún push)
   const pendientes = () => Object.keys(lista).filter((k) => libre(lista[k])).length + sinLeerTotal();
   const activos = () => Object.keys(lista).filter((k) => mio(lista[k])).length;
 
@@ -3431,6 +3569,7 @@ const ChatsEntrantes = (() => {
       pintarMapa();
       marcarConPedido();
       actualizarNav();
+      barrerPush();   // pedido tomado (por mí o por otro), cancelado o ya no disponible: se quita su push
     }, (e) => {
       lista = {};
       pintarLista(e && e.code === "PERMISSION_DENIED" ? "Faltan permisos en Firebase para leer los chats (reglas)." : "No se pudieron cargar los chats.");
@@ -3448,11 +3587,17 @@ const ChatsEntrantes = (() => {
     $("chipConPedido").classList.add("oculto");
     if (!conservarFactura) { try { Factura.salirModoChat(true); } catch (_) {} try { PanelContable.detener(); } catch (_) {} }
   }
+  /* Cambió la ciudad activa: re-filtra el pool sin volver a avisar de lo que ya estaba pendiente */
+  function refrescarCiudad() {
+    Object.keys(lista).forEach((id) => { if (libre(lista[id])) avisadas.add(id); else avisadas.delete(id); });
+    if (previoId) refrescarPrevia();
+    pintarLista(); pintarMapa(); actualizarNav();
+  }
   function revisarCambios() {
     Object.keys(lista).forEach((id) => {
       if (libre(lista[id])) {
         if (!avisadas.has(id)) { avisadas.add(id); if (cargada) anunciarSolicitud(id, lista[id]); }
-      } else avisadas.delete(id);
+      } else { if (avisadas.has(id)) cancelarNotif({ solicitud: id }); avisadas.delete(id); }
     });
     avisadas.forEach((id) => { if (!lista[id]) avisadas.delete(id); });
     Object.keys(lista).forEach((id) => {
@@ -3499,7 +3644,8 @@ const ChatsEntrantes = (() => {
     const ult = d.ultimoMensaje ? String(d.ultimoMensaje)
       : esMio ? "Sin mensajes todavía"
       : p.quiere ? cortar(p.quiere, 60) + (p.origen ? " · de " + cortar(p.origen, 40) : "") : "Quiere hacer un pedido";
-    dat.appendChild(el("small", "", ult + (d.ts ? " · " + horaDe(d.ts) : "")));
+    const rutaTag = !esMio ? CiudadRep.etiquetaRuta(p) : "";
+    dat.appendChild(el("small", "", (rutaTag ? rutaTag + " · " : "") + ult + (d.ts ? " · " + horaDe(d.ts) : "")));
     f.appendChild(dat);
     const b = el("button", esMio ? "oscuro" : "cn-ver", esMio ? "Abrir" : "Ver");
     b.type = "button";
@@ -3794,6 +3940,7 @@ const ChatsEntrantes = (() => {
     construirNp();
     if (previoId !== id) { negForm = null; npTab = "pedido"; }
     previoId = id; npVistas.add(id);
+    quitarPushSolicitud(id);   // ya lo está revisando: su push sobra
     pintarPrevia(d);
     $("npAviso").classList.add("oculto");
     $("npTomar").disabled = false;
@@ -3812,6 +3959,8 @@ const ChatsEntrantes = (() => {
     const f = (ic, tit, val, grande) => { if (!val) return; const r = el("div", "np-f" + (grande ? " grande" : "")); r.appendChild(el("span", "np-i", ic)); const c = el("div", ""); c.appendChild(el("small", "", tit)); c.appendChild(el("b", "", val)); r.appendChild(c); t.appendChild(r); };
     f("🛍️", "Qué desea", p.quiere ? cortar(p.quiere, 200) : "No lo indicó (chat anterior)", true);
     f("🏪", "De dónde lo desea", p.origen ? cortar(p.origen, 120) : "No lo indicó");
+    f(p.entreCiudades ? "🚚" : "🏙️", p.entreCiudades ? "Entre Ciudades · llega a tu ciudad" : "Ciudad del pedido", CiudadRep.etiquetaRuta(p).replace(/^\S+\s/, ""));
+    if (Number(p.tarifaEstimada) > 0) f("💰", "Tarifa estimada (referencia)", "C$ " + Number(p.tarifaEstimada) + " · ~" + Number(p.kmEstimado || 0) + " km");
     f(p.modo === "envia" ? "🎁" : "📍", p.modo === "envia" ? "Lo envía a otra persona · entrega en" : "Lo recibe el cliente · ubicación", textoDestino(d));
     s.appendChild(t);
     const h = $("npSecChat"), ms = d.mensajes && typeof d.mensajes === "object" ? Object.keys(d.mensajes).sort().slice(-5).map((k) => d.mensajes[k]) : [];
@@ -3892,15 +4041,17 @@ const ChatsEntrantes = (() => {
     if (okPt(g)) return { lat: g.lat, lng: g.lng };
     return null;
   }
-  const lugaresValidos = () => Object.entries(lugares || {}).filter(([, l]) => l && l.nombre && okPt(l));
-  function lugarPorNombre(txt) {
+  const lugaresValidos = (cid) => Object.entries(lugares || {}).filter(([, l]) => l && l.nombre && okPt(l) && lugarEnCiudad(l, cid));
+  /* Ciudad de los negocios del pedido que se está cotizando (ciudad de origen: evita confundir homónimos de otra ciudad) */
+  const ciudadNeg = () => { const d = negForm && lista[negForm.id]; const c = d && d.pedido && d.pedido.ciudadOrigen; return Ciudades.porId(c) ? c : null; };
+  function lugarPorNombre(txt, cid) {
     const q = norm(txt); if (q.length < 2) return null;
-    const v = lugaresValidos(), h = v.find(([, l]) => norm(l.nombre) === q) || v.find(([, l]) => { const n = norm(l.nombre); return n.includes(q) || q.includes(n); });
+    const v = lugaresValidos(cid), h = v.find(([, l]) => norm(l.nombre) === q) || v.find(([, l]) => { const n = norm(l.nombre); return n.includes(q) || q.includes(n); });
     return h ? { nombre: h[1].nombre, lat: h[1].lat, lng: h[1].lng } : null;
   }
-  function lugarCercano(pt, maxM) {
+  function lugarCercano(pt, maxM, cid) {
     let mejor = null, md = maxM || 80;
-    lugaresValidos().forEach(([, l]) => { const m = haversine(pt, l); if (m <= md) { md = m; mejor = { nombre: l.nombre, lat: l.lat, lng: l.lng }; } });
+    lugaresValidos(cid).forEach(([, l]) => { const m = haversine(pt, l); if (m <= md) { md = m; mejor = { nombre: l.nombre, lat: l.lat, lng: l.lng }; } });
     return mejor;
   }
   const avisoNeg = (t) => { const a = $("npAviso"); if (!a) return; a.textContent = t || ""; a.classList.toggle("oculto", !t); };
@@ -3928,14 +4079,14 @@ const ChatsEntrantes = (() => {
     return c;
   }
   function iniciarNeg(id, d) {
-    const p = (d && d.pedido) || {}, h = p.origen ? lugarPorNombre(p.origen) : null;
+    const p = (d && d.pedido) || {}, h = p.origen ? lugarPorNombre(p.origen, Ciudades.porId(p.ciudadOrigen) ? p.ciudadOrigen : null) : null;
     return { id, stops: [h ? { nombre: h.nombre, lat: h.lat, lng: h.lng } : { nombre: cortar(p.origen || "", 80), lat: null, lng: null }], km: 0, manual: false, needKm: false, calc: null, msg: "" };
   }
   function construirNeg(c) {
     c.textContent = "";
     c.appendChild(el("div", "sp-neg-t", "💰 Tarifa del envío"));
     const dl = document.createElement("datalist"); dl.id = "spNegLug";
-    lugaresValidos().forEach(([, l]) => { const o = document.createElement("option"); o.value = l.nombre; dl.appendChild(o); });
+    lugaresValidos(ciudadNeg()).forEach(([, l]) => { const o = document.createElement("option"); o.value = l.nombre; dl.appendChild(o); });
     c.appendChild(dl);
     const paso = el("div", ""); paso.id = "spNegPaso"; paso.style.display = "grid"; paso.style.gap = "8px";
     paso.appendChild(el("div", "sp-neg-lbl", "1. Marca dónde está el producto (sin aceptar el pedido)"));
@@ -3983,7 +4134,7 @@ const ChatsEntrantes = (() => {
       const inp = document.createElement("input"); inp.className = "sp-st-n"; inp.setAttribute("list", "spNegLug"); inp.maxLength = 80; inp.autocomplete = "off";
       inp.placeholder = i === 0 ? "🏪 Negocio o lugar del producto" : "➕ Parada " + i; inp.value = s.nombre || "";
       inp.addEventListener("change", () => {
-        const h = lugarPorNombre(inp.value), prev = f.stops[i];
+        const h = lugarPorNombre(inp.value, ciudadNeg()), prev = f.stops[i];
         f.stops[i] = h ? h : { nombre: cortar(inp.value, 80), lat: okPt(prev) ? prev.lat : null, lng: okPt(prev) ? prev.lng : null };
         pintarStopsNeg(); recalcularNeg();
       });
@@ -4004,7 +4155,7 @@ const ChatsEntrantes = (() => {
   }
   function aplicarPuntoNeg(i, lat, lng, ajustar) {
     const f = negForm; if (!f || !f.stops[i]) return;
-    const pt = { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 }, l = ajustar ? lugarCercano(pt) : null;
+    const pt = { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 }, l = ajustar ? lugarCercano(pt, undefined, ciudadNeg()) : null;
     f.stops[i] = l ? l : { nombre: f.stops[i].nombre || "Punto marcado en el mapa", lat: pt.lat, lng: pt.lng };
     pintarStopsNeg(); recalcularNeg();
   }
@@ -4767,7 +4918,7 @@ const ChatsEntrantes = (() => {
   }
   Factura.alEnviarChat = (f) => enviarFactura(f);
   Factura.alTerminarChat = () => irA("chats");
-  return { iniciar, detener, pendientes, alMostrar, activos, abrirSolicitud, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes, cerrarConversacion, puntos, abrirConv, totalFactura, entregar, cerrarPedido, abierto: () => !!abiertoId };
+  return { iniciar, detener, refrescarCiudad, disponible, pendientes, alMostrar, activos, abrirSolicitud, publicarGps, pintarMapa, vistaPrevia, marcarConPedido, pintarRutasPendientes, cerrarConversacion, puntos, abrirConv, totalFactura, entregar, cerrarPedido, abierto: () => !!abiertoId };
 })();
 
 function ajustarViewportRep() {

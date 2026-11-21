@@ -242,6 +242,7 @@
   <header class="barra-marca">
     <span class="insignia" data-rider></span>
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Repartidor <span id="wakeInd" class="wake-ind oculto" title="Pantalla siempre encendida" aria-label="Pantalla siempre encendida">🔆</span><span id="chipConPedido" class="chip-con-pedido oculto" role="status" aria-live="polite">🛵 OCUPADO</span></small></div>
+    <button id="btnCiudadRep" class="chip-ciudad-rep oculto" type="button" aria-haspopup="dialog" aria-label="Ciudad activa de trabajo">📍 Ciudad</button>
     <button id="btnChatAdmin" class="salir chat-admin oculto" aria-label="Bandeja de mensajes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.2 3.6a.6.6 0 0 1-1-.46V16A2.5 2.5 0 0 1 4 13.5z"/><path d="M8 8.5h8M8 11.5h5"/></svg><span id="badgeAdmin" class="badge-nav rojo oculto">0</span></button>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
@@ -445,6 +446,19 @@
   <div id="toastSalir" class="toast-salir oculto" role="alert" aria-live="assertive"><span aria-hidden="true">🚪</span><div><b>¿Salir de la aplicación?</b><small>Presiona Atrás otra vez para salir</small></div></div>
 
   <button id="solToast" class="oculto" type="button" role="status"><span id="solToastIco" aria-hidden="true">💬</span><div><b id="solToastTit"></b><small id="solToastTxt"></small></div></button>
+
+  <div id="modalCiudadRep" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="ciudadRepTitulo">
+    <div class="modal-rep-caja">
+      <div class="gran-check">📍</div>
+      <h2 id="ciudadRepTitulo">Ciudad donde trabajas</h2>
+      <p class="ayuda">Solo recibirás los pedidos dirigidos a esta ciudad (incluidos los de «Entre Ciudades» que llegan a ella).</p>
+      <div id="listaCiudadesRep" class="lista-ciudades-rep"></div>
+      <div class="acciones-fila">
+        <button id="btnCiudadRepAuto" type="button" class="oscuro">📡 Automática (GPS)</button>
+        <button id="btnCiudadRepCerrar" type="button" class="primario">Cerrar</button>
+      </div>
+    </div>
+  </div>
 
   <div id="modalPago" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="pagoTitulo">
     <div class="modal-rep-caja">

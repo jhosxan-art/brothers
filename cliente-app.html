@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="cliente-app.css?v=20261121">
+  <link rel="stylesheet" href="cliente-app.css?v=20261122">
 </head>
 <body class="wa-cliente">
 
@@ -82,6 +82,15 @@
           <span class="wa-hora wa-hora-inicio"></span>
         </div>
         <div id="menuInicio" class="wa-quick" role="group" aria-label="¿Qué deseas hoy?">
+          <div id="barraCiudad" class="wa-ciudad" role="group" aria-label="Ciudad del pedido">
+            <button id="btnCiudad" type="button" class="wa-ciudad-chip" aria-haspopup="dialog">
+              <span>📍 <b id="txtCiudad">Detectando ciudad…</b></span><small>Cambiar</small>
+            </button>
+            <button id="btnEntre" type="button" class="wa-ciudad-chip" aria-pressed="false">
+              <span>🚚 <b>Entre Ciudades</b></span><small id="txtEntre">Desactivado</small>
+            </button>
+            <p id="ayudaEntre" class="wa-ciudad-ayuda oculto">Elegirás la ciudad de origen y la de destino. Tu pedido llegará a los repartidores de la ciudad de destino.</p>
+          </div>
           <button type="button" class="wa-quick-btn" data-servicio="enviar" data-etiqueta="📦 Enviar">
             <span class="wa-quick-ico" aria-hidden="true">📦</span>
             <span class="wa-quick-txt"><b>Enviar</b><small>Mandamos un paquete por ti</small></span>
@@ -124,6 +133,20 @@
       <div class="wa-cierre-acc">
         <button id="btnReiniciarNo" type="button" class="oscuro">Cancelar</button>
         <button id="btnReiniciarSi" type="button" class="peligro">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cambio manual de ciudad -->
+  <div id="modalCiudad" class="wa-modal centro oculto" role="dialog" aria-modal="true" aria-labelledby="ciudadTitulo">
+    <div class="wa-cierre">
+      <div class="wa-gran-icono" aria-hidden="true">📍</div>
+      <h2 id="ciudadTitulo">¿En qué ciudad estás?</h2>
+      <p class="wa-ayuda">Los negocios, ubicaciones y tarifas se calculan según la ciudad elegida.</p>
+      <div id="listaCiudades" class="wa-ciudades-lista"></div>
+      <div class="wa-cierre-acc">
+        <button id="btnCiudadAuto" type="button" class="oscuro">📡 Detectar sola</button>
+        <button id="btnCiudadCerrar" type="button" class="peligro">Cerrar</button>
       </div>
     </div>
   </div>
@@ -223,6 +246,6 @@
   <script src="iconos.js"></script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
-  <script src="cliente-app.js?v=20261121"></script>
+  <script src="cliente-app.js?v=20261122"></script>
 </body>
 </html>
