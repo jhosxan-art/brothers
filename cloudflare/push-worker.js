@@ -163,7 +163,9 @@ async function enviarFCM(env, token, { titulo, cuerpo, canal, data }) {
   const j = await r.json().catch(() => ({}));
   if (r.ok) return { ok: true, id: j.name };
   const det = (j.error && j.error.details && j.error.details.find((x) => x.errorCode)) || {};
-  const code = det.errorCode || (j.error && j.error.status) || "ERROR";
+  let code = det.errorCode || (j.error && j.error.status) || "ERROR";
+  /* INVALID_ARGUMENT también lo devuelve FCM por un mensaje mal armado: solo es «token muerto» si el error nombra el token de registro */
+  if (code === "INVALID_ARGUMENT" && /registration token|message\.token/i.test(JSON.stringify(j.error || {}))) code = "UNREGISTERED";
   return { ok: false, code, status: r.status, error: (j.error && j.error.message) || "FCM rechazó el envío" };
 }
 function limpiaData(d) {
@@ -190,7 +192,7 @@ async function avisarAdmins(env, aviso) {
     if (r.ok) enviados++;
     else {
       ultimoError = r.error;
-      if (["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "admin_tokens/" + encodeURIComponent(a.uid) + "/" + encodeURIComponent(a.clave));   // celular que ya no existe
+      if (["UNREGISTERED", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "admin_tokens/" + encodeURIComponent(a.uid) + "/" + encodeURIComponent(a.clave));   // celular que ya no existe
     }
   }));
   return enviados ? { ok: true, enviados } : { ok: false, error: ultimoError || "FCM rechazó el envío", enviados: 0 };
@@ -290,10 +292,11 @@ async function marcarAvisoSolicitud(env, id) {
   return p.ok;
 }
 /* Push a todos los repartidores con sesión iniciada (guardan repartidores/{uid}/fcmToken y lo borran al salir) */
-async function avisarRepartidores(env, aviso) {
+async function avisarRepartidores(env, aviso, ciudad) {
   const todos = (await dbLeer(env, "repartidores")) || {};
-  const lista = Object.entries(todos).filter(([, v]) => v && typeof v.fcmToken === "string" && v.fcmToken.length > 20).map(([uid, v]) => ({ uid, token: v.fcmToken }));
-  if (!lista.length) return { ok: false, error: "Ningún repartidor tiene avisos activados", enviados: 0 };
+  /* Si el pedido trae ciudadRuta, solo avisa a los repartidores activos en esa ciudad (repartidores/{uid}/ciudad) */
+  const lista = Object.entries(todos).filter(([, v]) => v && typeof v.fcmToken === "string" && v.fcmToken.length > 20 && (!ciudad || v.ciudad === ciudad)).map(([uid, v]) => ({ uid, token: v.fcmToken }));
+  if (!lista.length) return { ok: false, error: ciudad ? "Ningún repartidor de esa ciudad tiene avisos activados" : "Ningún repartidor tiene avisos activados", enviados: 0 };
   const data = limpiaData(aviso.data);
   let enviados = 0, ultimoError = "";
   await Promise.all(lista.map(async (a) => {
@@ -310,10 +313,11 @@ async function avisarSolicitudNueva(env, id, d) {
   const p = (d && d.pedido) || {};
   const nombre = recorta((d && d.nombre) || "Cliente", 40);
   const quiere = recorta(p.quiere || "", 160);
+  const ciudadRuta = typeof ((d && d.ciudadRuta) || p.ciudadRuta) === "string" ? String((d && d.ciudadRuta) || p.ciudadRuta).slice(0, 30) : "";
   const cuerpo = quiere ? quiere + (p.origen ? " · de " + recorta(p.origen, 60) : "") : "Hay una solicitud de pedido";
   const [adm, rep] = await Promise.all([
     avisarAdmins(env, { titulo: "📥 " + nombre, cuerpo, data: { tipo: "sol_nuevo", solicitud: id, nombre, quiere: recorta(p.quiere || "", 120) } }),
-    avisarRepartidores(env, { titulo: "📥 Nueva solicitud · " + nombre, cuerpo, canal: "pedidos", data: { tipo: "solicitud", solicitud: id, nombre, quiere: recorta(p.quiere || "", 120) } })
+    avisarRepartidores(env, { titulo: "📥 Nueva solicitud · " + nombre, cuerpo, canal: "pedidos", data: { tipo: "solicitud", solicitud: id, nombre, quiere: recorta(p.quiere || "", 120) } }, ciudadRuta)
   ]);
   return { ok: !!(adm.ok || rep.ok), admins: adm, repartidores: rep, error: (adm.ok || rep.ok) ? undefined : (adm.error || rep.error) };
 }
@@ -346,7 +350,7 @@ async function revisarSolicitudesNuevas(env) {
 /* 9) Pedidos asignados por el administrador → push al repartidor elegido */
 async function revisarOrdenesAdmin(env) {
   const acceso = await tokenGoogle(env);
-  const q = "?orderBy=" + encodeURIComponent('"$key"') + "&limitToLast=60&access_token=" + encodeURIComponent(acceso);
+  const q = "?orderBy=" + encodeURIComponent('"creado"') + "&startAt=" + (Date.now() - EDAD_MAXIMA_MS) + "&limitToLast=200&access_token=" + encodeURIComponent(acceso);
   const r = await fetch(dbBase(env) + "/ordenes.json" + q);
   if (!r.ok) throw new Error("Base de datos: error " + r.status + " al buscar pedidos del administrador");
   const todas = (await r.json()) || {};
