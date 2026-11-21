@@ -127,6 +127,20 @@
     if (si) { si.textContent = cerradoServicio ? "Fuera de servicio" : "En línea"; si.classList.toggle("fuera-servicio", cerradoServicio); }
     const ac = $("avisoCerrado");
     if (ac) { ac.classList.toggle("oculto", !cerradoServicio); const t = $("txtCerrado"); if (t) t.textContent = mensajeFuera(); }
+    /* Fuera de servicio: NO se puede pedir. Solo se muestra el aviso con el mensaje que configuró el administrador. */
+    const mi = $("menuInicio"), pi = $("preguntaInicio");
+    if (pi) pi.classList.toggle("oculto", cerradoServicio);
+    document.querySelectorAll("#menuInicio [data-servicio]").forEach((b) => { b.disabled = cerradoServicio; });
+    if (cerradoServicio) {
+      if (datos && datos.servicio) { try { reiniciarConvo(); } catch (_) { } }   // un pedido a medias se cancela: ya no se puede enviar
+      if (mi) mi.classList.add("oculto");   // después de reiniciar, para que el menú no reaparezca
+      apagarComposer();
+    } else if (mi && datos && !datos.servicio) mi.classList.remove("oculto");
+    if (cerrado) {   // chat de un pedido ya terminado: no deja escribir para pedir de nuevo
+      const inp = $("inMensaje");
+      if (inp) { inp.disabled = cerradoServicio; inp.placeholder = cerradoServicio ? "Fuera de servicio" : "Escribe aquí para hacer otro pedido…"; }
+      const be = $("btnEnviar"); if (be) be.disabled = cerradoServicio;
+    }
     const sub = $("subChat");
     if (sub && !asignado && !cerrado && !sub.classList.contains("escribiendo")) {
       sub.textContent = cerradoServicio ? "Fuera de servicio" : textoBusqueda().sub;
@@ -807,7 +821,11 @@
     const inp = $("inMensaje");
     const texto = limpiarTexto(inp.value).slice(0, MAX_TEXTO);   // conserva los saltos de línea
     /* Pedido terminado: al escribir, el chat se reinicia con los botones guiados para un pedido NUEVO */
-    if (cerrado) { if (texto) { inp.value = ""; ajustarAlto(inp); nuevoPedidoDesdeChat(); } return; }
+    if (cerrado) {
+      if (!texto) return;
+      if (cerradoServicio) { inp.value = ""; ajustarAlto(inp); avisoSistema(mensajeFuera()); return; }   // fuera de servicio: no arranca otro pedido
+      inp.value = ""; ajustarAlto(inp); nuevoPedidoDesdeChat(); return;
+    }
     if (!texto || !asignado || !refMensajes) return;
 
     inp.value = ""; ajustarAlto(inp);
@@ -1222,6 +1240,7 @@
   /* ---------- Cierre de cualquier flujo: consolida, envía a Firebase y pasa a la pantalla de búsqueda ---------- */
   async function finalizar(id, bruto) {
     if (!vivo(id)) return;
+    if (cerradoServicio) { addBot("⛔ " + mensajeFuera()); return; }
     let pedido;
     try { pedido = consolidarPedido(bruto); }
     catch (e) {
@@ -1451,12 +1470,13 @@
     const previa = leerConvo();
     pintarArchivoInicio();
     vista("vPedido");
-    if (previa) retomarConvo(previa);
-    else { borrarHistorial(); reiniciarConvo(); }
+    if (previa && !cerradoServicio) retomarConvo(previa);
+    else { if (!previa) borrarHistorial(); reiniciarConvo(); }
+    pintarHorario();
   }
 
   function iniciarFlujo(clave, etiqueta) {
-    if (!FLUJOS[clave]) return;
+    if (!FLUJOS[clave] || cerradoServicio) return;
     convId++;
     const id = convId;
     pendTexto = null; gpsListo = null;
@@ -2001,6 +2021,7 @@
     inp.disabled = false;
     inp.placeholder = "Escribe aquí para hacer otro pedido…";
     $("btnEnviar").disabled = false;
+    if (cerradoServicio) { inp.disabled = true; inp.placeholder = "Fuera de servicio"; $("btnEnviar").disabled = true; }
     $("btnFoto").disabled = true;
     const sub = $("subChat");
     sub.textContent = cancelado ? "Pedido cancelado" : "Pedido finalizado";
