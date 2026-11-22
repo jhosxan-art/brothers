@@ -868,3 +868,7 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
 .wa-cliente .wa-terminos-texto { width: 100%; max-height: 54vh; margin: 10px 0; padding-right: 4px; overflow-y: auto; text-align: left; font-size: 13.5px; line-height: 1.45; }
 .wa-cliente .wa-terminos-texto h3 { margin: 12px 0 2px; font-size: 14px; font-weight: 800; }
 .wa-cliente .wa-terminos-texto p { margin: 0 0 6px; max-width: none; }
+
+/* ---------- Ubicación obligatoria ---------- */
+.wa-cliente #modalUbicacion { z-index: 6000; }
+.wa-cliente #ubicTexto { white-space: pre-line; text-align: left; }

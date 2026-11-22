@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="cliente-app.css?v=20261125">
+  <link rel="stylesheet" href="cliente-app.css?v=20261126">
 </head>
 <body class="wa-cliente">
 
@@ -137,6 +137,18 @@
       <div class="wa-cierre-acc">
         <button id="btnReiniciarNo" type="button" class="oscuro">Cancelar</button>
         <button id="btnReiniciarSi" type="button" class="peligro">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ubicación obligatoria al entrar -->
+  <div id="modalUbicacion" class="wa-modal centro oculto" role="alertdialog" aria-modal="true" aria-labelledby="ubicTitulo" aria-describedby="ubicTexto">
+    <div class="wa-cierre">
+      <div class="wa-gran-icono" aria-hidden="true">📍</div>
+      <h2 id="ubicTitulo">Activa tu ubicación</h2>
+      <p id="ubicTexto" class="wa-ayuda"></p>
+      <div class="wa-cierre-acc">
+        <button id="btnUbicActivar" type="button" class="primario">Activar ubicación</button>
       </div>
     </div>
   </div>
@@ -281,6 +293,6 @@
   <script src="iconos.js"></script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
-  <script src="cliente-app.js?v=20261125"></script>
+  <script src="cliente-app.js?v=20261126"></script>
 </body>
 </html>

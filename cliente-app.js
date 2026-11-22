@@ -345,8 +345,60 @@
     const loc = leerCiudadLocal();
     if (loc) ciudadActiva = loc;
     Ciudades.suscribir(db, validarCiudad);
-    validarCiudad();
-    if (ciudadActiva.fuente !== "manual") detectarCiudad();
+    validarCiudad();   // la ciudad por GPS la fija iniciarUbicacion() cuando el cliente concede la ubicación
+  }
+
+  /* ---------- Ubicación obligatoria desde que entra a la app ----------
+     Al abrir se pide el permiso del sistema al instante. Si está bloqueada o el GPS está apagado, una ventana pide activarla:
+     al tocar «Activar ubicación» se vuelve a pedir en ese mismo toque (aparece el aviso del sistema) y la ventana se cierra sola al conseguirla. */
+  let ubicacionOk = false, ubicVerificando = false, tmUbic = null;
+  function cerrarModalUbicacion() { clearInterval(tmUbic); tmUbic = null; $("modalUbicacion").classList.add("oculto"); }
+  function alUbicar(pos) {
+    ubicacionOk = true;
+    cerrarModalUbicacion();
+    if (ciudadActiva.fuente !== "manual") { const c = Ciudades.deCoord(pos.lat, pos.lng); if (c) aplicarCiudad(c.id, "gps"); }
+  }
+  function mostrarModalUbicacion(tipo) {
+    const bloqueada = (esNavInterno || esIOS) ? mensajeBloqueoGps({}).replace(/«Reintentar»/g, "«Activar ubicación»")
+      : "Tu ubicación está bloqueada para este sitio. Toca el candado junto a la dirección web > Permisos > Ubicación > Permitir. Al volver aquí se activará sola.";
+    const textos = {
+      pedir: ["Activa tu ubicación", "La necesitamos para saber dónde estás, detectar tu ciudad y llevar tu pedido. Toca «Activar ubicación» y elige «Permitir»."],
+      bloqueada: ["Ubicación bloqueada", bloqueada],
+      apagada: ["Enciende el GPS", "No pudimos leer tu ubicación. Enciende la ubicación (GPS) de tu teléfono desde los ajustes rápidos y toca «Activar ubicación»."]
+    };
+    const t = textos[tipo] || textos.pedir;
+    $("ubicTitulo").textContent = t[0];
+    $("ubicTexto").textContent = t[1];
+    $("btnUbicActivar").disabled = false; $("btnUbicActivar").textContent = "Activar ubicación";
+    $("modalUbicacion").classList.remove("oculto");
+    clearInterval(tmUbic);
+    tmUbic = setInterval(() => {   // si la activa desde los ajustes rápidos o los ajustes del navegador, se detecta sola
+      if (ubicacionOk || document.hidden) return;
+      try { navigator.geolocation.getCurrentPosition((p) => alUbicar({ lat: redondear(p.coords.latitude), lng: redondear(p.coords.longitude) }), () => { }, { enableHighAccuracy: false, timeout: 3000, maximumAge: 60000 }); } catch (_) { }
+    }, 4000);
+  }
+  async function verificarUbicacion() {
+    if (ubicVerificando || ubicacionOk || !navigator.geolocation) return;
+    ubicVerificando = true;
+    try {
+      const r = await geoUna();   // pide el permiso si hace falta y lee la posición
+      if (r.ok) alUbicar(r.pos);
+      else mostrarModalUbicacion(r.code === 1 ? "bloqueada" : "apagada");
+    } finally { ubicVerificando = false; }
+  }
+  function iniciarUbicacion() {
+    if (!navigator.geolocation) return;
+    $("btnUbicActivar").addEventListener("click", () => {
+      $("btnUbicActivar").disabled = true; $("btnUbicActivar").textContent = "Activando…";
+      verificarUbicacion().then(() => { $("btnUbicActivar").disabled = false; $("btnUbicActivar").textContent = "Activar ubicación"; });
+    });
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "geolocation" }).then((st) => { st.onchange = () => { if (st.state === "granted" && !ubicacionOk) verificarUbicacion(); }; }).catch(() => { });
+      }
+    } catch (_) { }
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && !ubicacionOk) verificarUbicacion(); });
+    verificarUbicacion();
   }
   function abrirModalCiudad() {
     const lista = $("listaCiudades");
@@ -413,6 +465,7 @@
 
     escucharHorario();
     iniciarCiudad();
+    iniciarUbicacion();
 
     /* Recupera perfil, sesión y conversación desde los respaldos (IndexedDB / cookie) si el navegador los perdió. */
     if (window.Almacen) { try { await Almacen.restaurar(); } catch (_) { } }
