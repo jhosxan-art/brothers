@@ -144,7 +144,7 @@ async function esRepartidor(uid, env) {
 
 /* ---------- Envío de push por FCM (API HTTP v1) ---------- */
 const CANALES = ["pedidos", "mensajes", "admin"];
-async function enviarFCM(env, token, { titulo, cuerpo, canal, data }) {
+async function enviarFCM(env, token, { titulo, cuerpo, canal, data, tag }) {
   const acceso = await tokenGoogle(env);
   const r = await fetch("https://fcm.googleapis.com/v1/projects/" + encodeURIComponent(env.FCM_PROJECT_ID) + "/messages:send", {
     method: "POST",
@@ -153,10 +153,10 @@ async function enviarFCM(env, token, { titulo, cuerpo, canal, data }) {
       token,
       notification: { title: titulo, body: cuerpo },
       data,
-      webpush: { headers: { Urgency: "high", TTL: "86400" } },   // navegador / PWA del admin: entrega inmediata aunque el equipo esté en reposo
+      webpush: { headers: { Urgency: "high", TTL: "86400" }, ...(tag ? { notification: { tag } } : {}) },   // navegador / PWA del admin: entrega inmediata aunque el equipo esté en reposo
       android: {
         priority: "HIGH", ttl: "86400s",
-        notification: { channel_id: canal, sound: "default", default_sound: true, default_vibrate_timings: true, notification_priority: "PRIORITY_MAX", visibility: "PUBLIC" }
+        notification: { ...(tag ? { tag } : {}), channel_id: canal, sound: "default", default_sound: true, default_vibrate_timings: true, notification_priority: "PRIORITY_MAX", visibility: "PUBLIC" }
       }
     } })
   });
@@ -188,7 +188,7 @@ async function avisarAdmins(env, aviso) {
   const data = limpiaData(aviso.data);
   let enviados = 0, ultimoError = "";
   await Promise.all(lista.map(async (a) => {
-    const r = await enviarFCM(env, a.token, { titulo: aviso.titulo, cuerpo: aviso.cuerpo, canal: "admin", data });
+    const r = await enviarFCM(env, a.token, { titulo: aviso.titulo, cuerpo: aviso.cuerpo, canal: "admin", data, tag: aviso.tag ? String(aviso.tag).slice(0, 80) : undefined });
     if (r.ok) enviados++;
     else {
       ultimoError = r.error;
@@ -272,7 +272,7 @@ async function accionClienteAbrio(b, env) {
 
   const cliente = d.factura && (d.factura.cliente || d.factura.nombre) || "";
   const cuerpo = ["Pedido " + (d.pedido || "—"), cliente, d.repartidorNombre ? "Repartidor: " + d.repartidorNombre : ""].filter(Boolean).join(" · ");
-  const r = await avisarAdmins(env, { titulo: "👀 El cliente abrió su enlace", cuerpo: recorta(cuerpo, 240), data: { tipo: "cliente_abrio", pedido: String(d.pedido || ""), token: t } });
+  const r = await avisarAdmins(env, { titulo: "👀 El cliente abrió su enlace", cuerpo: recorta(cuerpo, 240), tag: "cliente_abrio_" + t, data: { tipo: "cliente_abrio", pedido: String(d.pedido || ""), token: t } });
   return json(r, r.ok ? 200 : 502);
 }
 
