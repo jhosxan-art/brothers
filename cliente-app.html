@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="cliente-app.css?v=20261123">
+  <link rel="stylesheet" href="cliente-app.css?v=20261124">
 </head>
 <body class="wa-cliente">
 
@@ -54,6 +54,10 @@
           <span id="lblCodigo" class="wa-cod" aria-hidden="true">+505</span>
           <input id="inCelular" name="celular" type="tel" inputmode="numeric" maxlength="9" autocomplete="tel-national" placeholder="8888 7777">
         </div>
+        <label class="wa-acepto" for="chkTerminos">
+          <input id="chkTerminos" type="checkbox">
+          <span>He leído y acepto los <button id="btnVerTerminos" type="button" class="wa-enlace">términos y condiciones</button> y autorizo el uso de mis datos (celular y ubicación) para atender mis pedidos.</span>
+        </label>
         <div id="msgNombre" class="wa-estado error oculto" role="alert"></div>
         <button id="btnNombre" class="primario" type="submit">Continuar</button>
       </form>
@@ -136,6 +140,37 @@
       <div class="wa-cierre-acc">
         <button id="btnReiniciarNo" type="button" class="oscuro">Cancelar</button>
         <button id="btnReiniciarSi" type="button" class="peligro">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Términos y condiciones -->
+  <div id="modalTerminos" class="wa-modal centro oculto" role="dialog" aria-modal="true" aria-labelledby="terminosTitulo">
+    <div class="wa-cierre wa-terminos">
+      <h2 id="terminosTitulo">Términos y condiciones</h2>
+      <div class="wa-terminos-texto" tabindex="0">
+        <p><small>Versión 2026-11 · Brother’s Deliverys</small></p>
+        <h3>1. El servicio</h3>
+        <p>Brother’s Deliverys conecta a clientes con repartidores para enviar, retirar, comprar o llevar pedidos dentro de las ciudades con cobertura y entre ellas. Al usar la app aceptas estos términos.</p>
+        <h3>2. Datos que recopilamos</h3>
+        <p>Tu nombre y apellido, tu número de celular (con el código de tu país), tu ubicación (GPS, pin del mapa y direcciones que escribes), la ciudad donde estás, el contenido de tus pedidos, los mensajes y fotos del chat, y tus valoraciones.</p>
+        <h3>3. Para qué usamos tus datos</h3>
+        <p>Para recibir y gestionar tu pedido, enviarlo al repartidor de la ciudad que corresponde, calcular tarifas y rutas, mostrar el seguimiento del pedido, darte soporte y mantener la seguridad del servicio. Autorizas que la central te contacte por llamada, mensaje o WhatsApp al número que registraste, para temas de tu pedido y del servicio.</p>
+        <h3>4. Quién puede ver tus datos</h3>
+        <p>Tu número de celular solo lo ve la central (administración). El repartidor que atiende tu pedido ve tu nombre, el contenido del pedido, la ubicación y direcciones necesarias para entregarlo y el chat del pedido. No vendemos tus datos.</p>
+        <h3>5. Ubicación</h3>
+        <p>La app usa la ubicación de tu dispositivo para detectar tu ciudad, ubicar el punto de retiro o entrega y compartir el seguimiento con el repartidor mientras tu pedido está en curso. Puedes negar el permiso en tu dispositivo, pero algunas funciones dejarán de estar disponibles.</p>
+        <h3>6. Precios</h3>
+        <p>La tarifa estimada es una referencia. El precio final se confirma contigo en el chat con el repartidor.</p>
+        <h3>7. Uso adecuado</h3>
+        <p>Debes dar datos verdaderos y no pedir artículos ilegales ni peligrosos. Podemos suspender el servicio ante abuso, datos falsos o uso indebido.</p>
+        <h3>8. Conservación y tus derechos</h3>
+        <p>Guardamos tus datos mientras sean necesarios para prestar el servicio y cumplir obligaciones. Puedes pedir a la central que corrija o elimine tus datos.</p>
+        <h3>9. Cambios</h3>
+        <p>Podemos actualizar estos términos. Si cambian, te pediremos aceptarlos de nuevo.</p>
+      </div>
+      <div class="wa-cierre-acc">
+        <button id="btnTerminosOk" type="button" class="oscuro">Entendido</button>
       </div>
     </div>
   </div>
@@ -249,6 +284,6 @@
   <script src="iconos.js"></script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
-  <script src="cliente-app.js?v=20261123"></script>
+  <script src="cliente-app.js?v=20261124"></script>
 </body>
 </html>

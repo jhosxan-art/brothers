@@ -184,6 +184,7 @@
     { cod: "GT", nombre: "Guatemala", marca: "+502", dig: 8, bandera: "🇬🇹" },
     { cod: "BZ", nombre: "Belice", marca: "+501", dig: 7, bandera: "🇧🇿" }   // la numeración de Belice es de 7 dígitos
   ];
+  const TERMINOS_VERSION = "2026-11";   // al cambiar el texto de los términos, sube la versión: se vuelve a pedir la aceptación
   const paisDe = (cod) => PAISES.find((p) => p.cod === cod) || null;
   const apellidoValido = (s) => typeof s === "string" && s.length >= 2 && s.length <= 30;
   const regValido = (r) => !!r && typeof r === "object" && apellidoValido(r.ap) && !!paisDe(r.pais) && typeof r.tel === "string" && r.tel.length === paisDe(r.pais).dig && /^[0-9]+$/.test(r.tel);
@@ -231,7 +232,7 @@
     try {
       const p = JSON.parse(crudo);
       if (p && typeof p === "object" && idValido(p.id) && nombreValido(p.nombre)) {
-        return { id: p.id, nombre: p.nombre, reg: regLimpio(p.reg), solicitudId: idValido(p.solicitudId) ? p.solicitudId : null };
+        return { id: p.id, nombre: p.nombre, reg: regLimpio(p.reg), terminos: typeof p.terminos === "string" ? p.terminos : null, solicitudId: idValido(p.solicitudId) ? p.solicitudId : null };
       }
     } catch (_) { }
     try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { }
@@ -240,7 +241,7 @@
 
   function guardarPerfil(p) {
     respaldoMemoria = p;
-    try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify({ id: p.id, nombre: p.nombre, reg: regLimpio(p.reg), solicitudId: p.solicitudId || null })); }
+    try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify({ id: p.id, nombre: p.nombre, reg: regLimpio(p.reg), terminos: p.terminos || null, solicitudId: p.solicitudId || null })); }
     catch (_) { }
   }
 
@@ -443,6 +444,7 @@
     $("txtRegistro").textContent = perfil
       ? "Para seguir pidiendo necesitamos confirmar tus datos. Tu celular solo lo ve la central."
       : "Antes de tu primer pedido necesitamos unos datos. Tu celular solo lo ve la central.";
+    $("chkTerminos").checked = false;   // la aceptación se confirma cada vez que se muestra esta pantalla
     $("msgNombre").classList.add("oculto");
     vista("vNombre");
     $((perfil && perfil.nombre) ? "inApellido" : "inNombre").focus();
@@ -460,6 +462,9 @@
     const d = $("inCelular").value.replace(/\D/g, "").slice(0, p.dig);
     $("inCelular").value = d.length > 4 ? d.slice(0, d.length - 4) + " " + d.slice(-4) : d;
   }
+  $("btnVerTerminos").addEventListener("click", (ev) => { ev.preventDefault(); $("modalTerminos").classList.remove("oculto"); });
+  $("btnTerminosOk").addEventListener("click", () => $("modalTerminos").classList.add("oculto"));
+  $("modalTerminos").addEventListener("click", (ev) => { if (ev.target === $("modalTerminos")) $("modalTerminos").classList.add("oculto"); });
   $("inPais").addEventListener("change", ajustarPais);
   $("inCelular").addEventListener("input", formatearCelular);
 
@@ -468,7 +473,7 @@
   async function guardarContacto() {
     if (!perfil || !idValido(perfil.id) || !regValido(perfil.reg) || contactoEscrito === perfil.id) return;
     const p = paisDe(perfil.reg.pais);
-    const o = { nombre: perfil.nombre, apellido: perfil.reg.ap, pais: p.cod, codigo: p.marca, telefono: perfil.reg.tel, completo: p.marca + perfil.reg.tel, ts: firebase.database.ServerValue.TIMESTAMP };
+    const o = { nombre: perfil.nombre, apellido: perfil.reg.ap, pais: p.cod, codigo: p.marca, telefono: perfil.reg.tel, completo: p.marca + perfil.reg.tel, terminos: perfil.terminos || TERMINOS_VERSION, terminosTs: firebase.database.ServerValue.TIMESTAMP, ts: firebase.database.ServerValue.TIMESTAMP };
     try { await db.ref("contactosClientes/" + perfil.id).set(o); contactoEscrito = perfil.id; } catch (_) { }
   }
 
@@ -480,6 +485,7 @@
     const error = !nombreValido(n) ? "Escribe tu nombre (entre 2 y 24 letras)."
       : !apellidoValido(ap) ? "Escribe tu apellido (entre 2 y 30 letras)."
       : tel.length !== pais.dig ? "El celular de " + pais.nombre + " debe tener " + pais.dig + " dígitos."
+      : !$("chkTerminos").checked ? "Debes aceptar los términos y condiciones para continuar."
       : "";
     if (error) {
       msg.textContent = error;
@@ -488,8 +494,9 @@
     }
     msg.classList.add("oculto");
     const reg = { ap, pais: pais.cod, tel };
-    if (perfil && idValido(perfil.id)) { perfil.nombre = n; perfil.reg = reg; }   // quien ya había pedido conserva su historial
-    else perfil = { id: generarId(), nombre: n, reg, solicitudId: null };
+    if (perfil && idValido(perfil.id)) { perfil.nombre = n; perfil.reg = reg; perfil.terminos = TERMINOS_VERSION; }   // quien ya había pedido conserva su historial
+    else perfil = { id: generarId(), nombre: n, reg, terminos: TERMINOS_VERSION, solicitudId: null };
+    contactoEscrito = "";
     guardarPerfil(perfil);
     guardarContacto();
     abrirChat();
@@ -504,7 +511,7 @@
       mostrarRegistro();
       return;
     }
-    if (!regValido(perfil.reg)) { mostrarRegistro(); return; }   // aún sin registro (p. ej. ya había pedido antes)
+    if (!regValido(perfil.reg) || perfil.terminos !== TERMINOS_VERSION) { mostrarRegistro(); return; }   // sin registro o sin aceptar los términos (p. ej. ya había pedido antes)
     guardarContacto();
     if (!silencioso) {
       $("msgCarga").className = "wa-splash-msg";
@@ -2343,7 +2350,7 @@
     $("inMensaje").value = ""; ajustarAlto($("inMensaje"));
     borrarSesion();
     borrarConvo(); borrarHistorial();
-    perfil = { id: generarId(), nombre: perfil.nombre, reg: perfil.reg, solicitudId: null };
+    perfil = { id: generarId(), nombre: perfil.nombre, reg: perfil.reg, terminos: perfil.terminos, solicitudId: null };
     guardarPerfil(perfil);
     abrirChat({ silencioso: true });
   }

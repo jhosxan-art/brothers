@@ -1331,6 +1331,12 @@
         },
         "$otro": {
           ".validate": false
+        },
+        "terminos": {
+          ".validate": "newData.isString() && newData.val().length <= 20"
+        },
+        "terminosTs": {
+          ".validate": "newData.isNumber()"
         }
       }
     }
