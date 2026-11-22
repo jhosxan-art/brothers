@@ -3384,8 +3384,9 @@ const CiudadRep = (() => {
   function pintar() {
     const b = $("btnCiudadRep"); if (!b) return;
     b.classList.toggle("oculto", !uidActual);
-    b.textContent = "📍 " + (id ? Ciudades.nombre(id) : "Elegir ciudad");
-    b.title = id ? "Ciudad activa: " + Ciudades.nombre(id) + (manual ? " (manual)" : " (automática)") : "Elige la ciudad donde trabajas";
+    const tx = id ? "Ciudad de trabajo: " + Ciudades.nombre(id) + (manual ? " (manual)" : " (automática)") : "Elige la ciudad donde trabajas";
+    b.title = tx; b.setAttribute("aria-label", tx);
+    b.classList.toggle("sin-ciudad", !id);   // punto rojo solo mientras no hay ciudad
   }
   function publicar() {
     if (!uidActual || !id) return;
@@ -3448,6 +3449,9 @@ const CiudadRep = (() => {
     const m = menu(), b = $("btnCiudadRep"); if (!m || !b) return;
     if (!m.classList.contains("oculto")) return cerrarMenu();
     m.textContent = "";
+    const tit = document.createElement("div"); tit.className = "tit";
+    tit.textContent = id ? "Trabajas en " + Ciudades.nombre(id) : "Elige tu ciudad";
+    m.appendChild(tit);
     const item = (txt, activo, fn) => {
       const x = document.createElement("button");
       x.type = "button"; x.setAttribute("role", "menuitem"); x.textContent = txt;

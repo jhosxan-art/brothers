@@ -2424,12 +2424,12 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 @media (max-width: 420px) { .ed-fila input, .ed-campo input, .ed-grid input { font-size: 16px; } }
 
 /* ---------- Ciudad activa del repartidor (chip + menú compacto) ---------- */
-.chip-ciudad-rep { margin-left: auto; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; border-radius: 999px; padding: 9px 13px; background: rgba(255,255,255,.75); color: #0E141B; font-size: 13px; font-weight: 700; line-height: 1; cursor: pointer; }
-.chip-ciudad-rep ~ .salir { margin-left: 8px; }
-.chip-ciudad-rep.oculto { display: none; }
+.barra-marca .salir.ciudad-rep { position: relative; width: 36px; min-width: 36px; height: 36px; background: rgba(255,255,255,.4); }
+.salir.ciudad-rep.sin-ciudad::after { content: ""; position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; background: #E5484D; box-shadow: 0 0 0 2px #fff; }
 .menu-ciudad-rep { position: fixed; z-index: 9000; min-width: 190px; padding: 6px; border-radius: 14px; background: #fff; box-shadow: 0 8px 28px rgba(14,20,27,.22), 0 0 0 1px rgba(14,20,27,.06); }
 .menu-ciudad-rep.oculto { display: none; }
 .menu-ciudad-rep button { display: block; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 9px; background: transparent; color: #0E141B; font-size: 14.5px; font-weight: 600; text-align: left; cursor: pointer; }
 .menu-ciudad-rep button:active { background: #EEF2F6; }
 .menu-ciudad-rep button[aria-current="true"] { color: #12803F; font-weight: 800; }
+.menu-ciudad-rep .tit { padding: 6px 12px 4px; font-size: 12px; font-weight: 700; color: #5B6775; }
 .menu-ciudad-rep .sep { height: 1px; margin: 4px 6px; background: #E3E8EE; }
