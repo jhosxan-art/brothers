@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="cliente-app.css?v=20261124">
+  <link rel="stylesheet" href="cliente-app.css?v=20261125">
 </head>
 <body class="wa-cliente">
 
@@ -41,18 +41,15 @@
     <div class="wa-bienvenida">
       <div class="wa-logo" data-rider aria-hidden="true"></div>
       <h1>Pide tu delivery por chat</h1>
-      <p id="txtRegistro">Antes de tu pedido necesitamos unos datos. Tu celular solo lo ve la central.</p>
+      <p id="txtRegistro">Tus datos para pedir. Tu celular solo lo ve la central.</p>
       <form id="formNombre" class="wa-form-nombre" autocomplete="on" novalidate>
-        <label for="inNombre">Nombre</label>
-        <input id="inNombre" name="nombre" maxlength="24" autocomplete="given-name" placeholder="Ej. María">
-        <label for="inApellido">Apellido</label>
-        <input id="inApellido" name="apellido" maxlength="30" autocomplete="family-name" placeholder="Ej. López">
-        <label for="inPais">País</label>
-        <select id="inPais" name="pais" aria-label="País de Centroamérica"></select>
-        <label for="inCelular">Celular</label>
-        <div class="wa-tel">
-          <span id="lblCodigo" class="wa-cod" aria-hidden="true">+505</span>
-          <input id="inCelular" name="celular" type="tel" inputmode="numeric" maxlength="9" autocomplete="tel-national" placeholder="8888 7777">
+        <div class="wa-fila2">
+          <input id="inNombre" name="nombre" maxlength="24" autocomplete="given-name" placeholder="Nombre" aria-label="Nombre">
+          <input id="inApellido" name="apellido" maxlength="30" autocomplete="family-name" placeholder="Apellido" aria-label="Apellido">
+        </div>
+        <div class="wa-fila2 wa-fila-tel">
+          <select id="inPais" name="pais" aria-label="País de Centroamérica"></select>
+          <input id="inCelular" name="celular" type="tel" inputmode="numeric" maxlength="9" autocomplete="tel-national" placeholder="8888 7777" aria-label="Celular">
         </div>
         <label class="wa-acepto" for="chkTerminos">
           <input id="chkTerminos" type="checkbox">
@@ -284,6 +281,6 @@
   <script src="iconos.js"></script>
   <script src="buscador.js"></script>
   <script src="voz.js"></script>
-  <script src="cliente-app.js?v=20261124"></script>
+  <script src="cliente-app.js?v=20261125"></script>
 </body>
 </html>

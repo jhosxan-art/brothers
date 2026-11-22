@@ -433,7 +433,7 @@
   function mostrarRegistro() {
     const sel = $("inPais");
     if (!sel.options.length) {
-      PAISES.forEach((p) => { const o = document.createElement("option"); o.value = p.cod; o.textContent = p.bandera + " " + p.nombre + " (" + p.marca + ")"; sel.appendChild(o); });
+      PAISES.forEach((p) => { const o = document.createElement("option"); o.value = p.cod; o.textContent = p.bandera + " " + p.nombre + " " + p.marca; sel.appendChild(o); });
     }
     const reg = perfil && perfil.reg;
     $("inNombre").value = (perfil && perfil.nombre) || "";
@@ -442,8 +442,8 @@
     $("inCelular").value = (reg && reg.tel) || "";
     ajustarPais();
     $("txtRegistro").textContent = perfil
-      ? "Para seguir pidiendo necesitamos confirmar tus datos. Tu celular solo lo ve la central."
-      : "Antes de tu primer pedido necesitamos unos datos. Tu celular solo lo ve la central.";
+      ? "Confirma tus datos para seguir pidiendo. Tu celular solo lo ve la central."
+      : "Tus datos para pedir. Tu celular solo lo ve la central.";
     $("chkTerminos").checked = false;   // la aceptación se confirma cada vez que se muestra esta pantalla
     $("msgNombre").classList.add("oculto");
     vista("vNombre");
@@ -451,7 +451,6 @@
   }
   function ajustarPais() {
     const p = paisDe($("inPais").value) || PAISES[0];
-    $("lblCodigo").textContent = p.marca;
     const inp = $("inCelular");
     inp.maxLength = p.dig + 1;
     inp.placeholder = p.dig === 8 ? "8888 7777" : "888 7777";

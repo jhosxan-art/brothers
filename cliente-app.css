@@ -845,16 +845,24 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
   background: var(--gris); color: var(--tinta);
 }
 .wa-cliente .wa-form-nombre select:focus { border-color: var(--wa-accion); background: #fff; }
-.wa-cliente .wa-tel { display: flex; align-items: stretch; gap: 8px; }
-.wa-cliente .wa-cod {
-  flex: 0 0 auto; display: grid; place-items: center; min-width: 64px; padding: 0 12px; border: 1.5px solid var(--linea); border-radius: 14px;
-  background: #fff; color: var(--tinta); font-weight: 800;
-}
-.wa-cliente .wa-tel input { flex: 1 1 auto; min-width: 0; }
+
+/* Registro compacto: cabe en una pantalla sin scroll (nombre/apellido y país/celular en una fila cada uno) */
+.wa-cliente .wa-fila2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wa-cliente .wa-fila-tel { grid-template-columns: 1.1fr 1fr; }
+.wa-cliente #vNombre.wa-centro { padding: 12px 20px; }
+.wa-cliente #vNombre .wa-bienvenida { gap: 6px; }
+.wa-cliente #vNombre .wa-logo { width: 64px; height: 64px; padding: 6px; }
+.wa-cliente #vNombre .wa-bienvenida h1 { font-size: 21px; }
+.wa-cliente #vNombre .wa-bienvenida p { margin: 0; max-width: 34ch; font-size: 13px; line-height: 1.3; }
+.wa-cliente #vNombre .wa-form-nombre { gap: 8px; margin-top: 6px; }
+.wa-cliente #vNombre .wa-form-nombre input:not([type="checkbox"]), .wa-cliente #vNombre .wa-form-nombre select { height: 46px; padding: 0 12px; border-radius: 12px; font-size: 15px; min-width: 0; }
+.wa-cliente #vNombre .wa-form-nombre select { padding-right: 6px; text-overflow: ellipsis; }
+.wa-cliente #vNombre #btnNombre { height: 48px; }
+.wa-cliente #vNombre .wa-estado { margin: 0; padding: 8px 10px; font-size: 13px; }
 
 /* ---------- Términos y condiciones ---------- */
-.wa-cliente .wa-acepto { display: flex; align-items: flex-start; gap: 10px; margin-top: 4px; font-size: 13px; font-weight: 500; line-height: 1.35; cursor: pointer; }
-.wa-cliente .wa-acepto input { flex: 0 0 auto; width: 22px; height: 22px; margin: 1px 0 0; padding: 0; accent-color: var(--wa-accion); }
+.wa-cliente .wa-acepto { display: flex; align-items: flex-start; gap: 8px; margin-top: 2px; font-size: 12px; font-weight: 500; line-height: 1.35; cursor: pointer; }
+.wa-cliente .wa-acepto input { flex: 0 0 auto; width: 20px; height: 20px; margin: 1px 0 0; padding: 0; accent-color: var(--wa-accion); }
 .wa-cliente .wa-enlace { display: inline; width: auto; height: auto; padding: 0; border: 0; border-radius: 0; background: none; color: var(--wa-accion); font: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; }
 .wa-cliente .wa-terminos { max-width: 420px; }
 .wa-cliente .wa-terminos-texto { width: 100%; max-height: 54vh; margin: 10px 0; padding-right: 4px; overflow-y: auto; text-align: left; font-size: 13.5px; line-height: 1.45; }
