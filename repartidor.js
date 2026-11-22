@@ -533,11 +533,11 @@ $("btnLogin").onclick = () => {
       .catch(() => msgLogin("No se pudo entrar: correo o contraseña incorrectos."));
 };
 
-try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch (_) {}
+try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {}); } catch (_) {}   // la sesión se conserva hasta que el repartidor toque «Cerrar sesión»
 setTimeout(() => $("splash").classList.add("oculto"), 8000);
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); try { ChatsEntrantes.detener(); } catch (_) {} try { CiudadRep.reiniciar(); } catch (_) {} uidActual = null; usuario = null; $("clave").value = "";
+    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); try { ChatsEntrantes.detener(); } catch (_) {} uidActual = null; usuario = null; try { CiudadRep.reiniciar(); } catch (_) {} $("clave").value = "";
     return mostrar("login");
   }
   uidActual = user.uid;
