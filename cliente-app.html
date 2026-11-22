@@ -57,7 +57,10 @@
       <header class="wa-inicio-barra">
         <span class="wa-avatar" style="position:relative" aria-hidden="true"><b>B</b><img class="wa-avatar-logo" style="position:absolute;inset:0;width:100%;height:100%;padding:3px;box-sizing:border-box;object-fit:contain;background:#fff;border-radius:50%" src="logo.png" alt="" onerror="this.remove()"></span>
         <div class="wa-titulos">
-          <strong>Brother’s Deliverys</strong>
+          <div class="wa-titulo-fila">
+            <strong>Brother’s Deliverys</strong>
+            <button id="btnCiudad" class="wa-ciudad-mini" type="button" aria-haspopup="dialog" aria-label="Cambiar ciudad"><span aria-hidden="true">📍</span><b id="txtCiudad">…</b></button>
+          </div>
           <small id="subInicio">En línea</small>
         </div>
         <button id="btnReiniciar" class="wa-btn-barra wa-btn-atras oculto" type="button" aria-label="Atrás: volver al inicio" title="Volver al inicio">
@@ -82,15 +85,6 @@
           <span class="wa-hora wa-hora-inicio"></span>
         </div>
         <div id="menuInicio" class="wa-quick" role="group" aria-label="¿Qué deseas hoy?">
-          <div id="barraCiudad" class="wa-ciudad" role="group" aria-label="Ciudad del pedido">
-            <button id="btnCiudad" type="button" class="wa-ciudad-chip" aria-haspopup="dialog">
-              <span>📍 <b id="txtCiudad">Detectando ciudad…</b></span><small>Cambiar</small>
-            </button>
-            <button id="btnEntre" type="button" class="wa-ciudad-chip" aria-pressed="false">
-              <span>🚚 <b>Entre Ciudades</b></span><small id="txtEntre">Desactivado</small>
-            </button>
-            <p id="ayudaEntre" class="wa-ciudad-ayuda oculto">Elegirás la ciudad de origen y la de destino. Tu pedido llegará a los repartidores de la ciudad de destino.</p>
-          </div>
           <button type="button" class="wa-quick-btn" data-servicio="enviar" data-etiqueta="📦 Enviar">
             <span class="wa-quick-ico" aria-hidden="true">📦</span>
             <span class="wa-quick-txt"><b>Enviar</b><small>Mandamos un paquete por ti</small></span>
@@ -142,7 +136,7 @@
     <div class="wa-cierre">
       <div class="wa-gran-icono" aria-hidden="true">📍</div>
       <h2 id="ciudadTitulo">¿En qué ciudad estás?</h2>
-      <p class="wa-ayuda">Los negocios, ubicaciones y tarifas se calculan según la ciudad elegida.</p>
+      <p class="wa-ayuda">Solo aparecen las ciudades con cobertura. Tu pedido se enruta según el lugar de retiro y el de entrega.</p>
       <div id="listaCiudades" class="wa-ciudades-lista"></div>
       <div class="wa-cierre-acc">
         <button id="btnCiudadAuto" type="button" class="oscuro">📡 Detectar sola</button>

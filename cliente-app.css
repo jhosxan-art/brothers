@@ -822,19 +822,16 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
 .wa-cliente .wa-titulos small.fuera-servicio { color: #FFB4AB; opacity: 1; font-weight: 700; }
 .wa-cliente .wa-modal.inicio .wa-inicio-barra small.fuera-servicio { color: #FFB4AB; opacity: 1; font-weight: 700; }
 
-/* ---------- Ciudad del pedido + Entre Ciudades ---------- */
-.wa-cliente .wa-ciudad { grid-column: 1 / -1; display: grid; gap: 6px; }
-.wa-cliente .wa-ciudad-chip {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 46px; padding: 8px 14px;
-  background: #fff; color: var(--wa-accion); border: 0; border-radius: 10px; box-shadow: 0 1px .5px rgba(11,20,26,.13);
-  font-size: 15px; font-weight: 700; text-align: left; cursor: pointer; transition: background .12s ease, transform .12s ease;
+/* ---------- Ciudad (junto al nombre de la marca) ---------- */
+.wa-cliente .wa-titulo-fila { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wa-cliente .wa-titulo-fila strong { flex: 0 1 auto; min-width: 0; }
+.wa-cliente .wa-ciudad-mini {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; max-width: 46%; height: 22px; padding: 0 9px; border: 0; border-radius: 999px;
+  background: rgba(255,255,255,.2); color: inherit; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer;
 }
-.wa-cliente .wa-ciudad-chip small { font-size: 12px; font-weight: 700; color: var(--wa-texto2); }
-.wa-cliente .wa-ciudad-chip:active { transform: scale(.985); }
-.wa-cliente .wa-ciudad-chip:focus-visible { outline: 3px solid var(--wa-accion); outline-offset: 2px; }
-.wa-cliente .wa-ciudad-chip[aria-pressed="true"] { background: var(--wa-accion); color: #fff; }
-.wa-cliente .wa-ciudad-chip[aria-pressed="true"] small { color: rgba(255,255,255,.9); }
-.wa-cliente .wa-ciudad-ayuda { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 500; color: var(--wa-texto2); line-height: 1.3; }
+.wa-cliente .wa-ciudad-mini b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.wa-cliente .wa-ciudad-mini:active { background: rgba(255,255,255,.32); }
+.wa-cliente .wa-ciudad-mini:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .wa-cliente .wa-ciudades-lista { display: grid; gap: 8px; width: 100%; margin: 12px 0; max-height: 46vh; overflow-y: auto; }
 .wa-cliente .wa-ciudades-lista button {
   width: 100%; min-height: 46px; padding: 8px 14px; border: 1.5px solid var(--wa-linea); border-radius: 10px; background: #fff;

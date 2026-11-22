@@ -761,6 +761,9 @@ const PedidosAdmin = (() => {
 
   function avisarCambios(nuevo) {
     const decir = (txt) => { toast(txt); O.hablar(txt.replace(/[📦✅❌🔗🛵]/gu, "")); };
+    /* Pedido entregado (o cancelado): ya no sirve el push «👀 El cliente abrió su enlace» de la bandeja */
+    const cerrados = Object.entries(nuevo).filter(([, o]) => o && (o.estado === "entregado" || o.estado === "cancelado")).map(([t]) => t);
+    if (cerrados.length) limpiarPushCliente(cerrados);
     Object.entries(nuevo).forEach(([t, o]) => {
       const a = ordenes[t]; if (!a) return;
       const resp = o.estado_asignacion;
@@ -1177,6 +1180,7 @@ const PedidosAdmin = (() => {
     ref.on("value", (s) => {
       const nuevo = s.val() || {};
       if (!primera) avisarCambios(nuevo);
+      else limpiarPushCliente(Object.entries(nuevo).filter(([, o]) => o && (o.estado === "entregado" || o.estado === "cancelado")).map(([t]) => t));   // al abrir la app: quita los push de pedidos ya cerrados
       primera = false; ordenes = nuevo;
       pintarOrdenes(); pintarSelectorReg(); pintarEquipo(); pintarLista(); pedirRutas();
       try { ClientesMapa.pedirPintar(); } catch (_) {}
@@ -3935,3 +3939,137 @@ const HorarioAdmin = (() => {
   setInterval(pintarEstado, 60000);
   return {};
 })();
+
+/* ============================================================
+   COBERTURA POR CIUDADES (Admin)
+   Guarda configuracion/cobertura: { chinandega: { activa, zonasMapa, zonas }, ..., actualizado }.
+   · «activa»: la ciudad la pueden elegir/detectar clientes y repartidores.
+   · «zonasMapa»: nombres de los barrios, repartos y comarcas dibujados/importados en el MAPA (nodo `zonas`).
+     Se sincroniza solo mientras el admin está abierto; cada zona pasa a la ciudad más cercana a su centro.
+     Es lo que permite reconocer a qué ciudad pertenece lo que escribe el cliente.
+   · «zonas»: nombres extra opcionales escritos a mano.
+   ============================================================ */
+const CoberturaAdmin = (() => {
+  const g = (id) => document.getElementById(id);
+  const esc2 = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const MAX = 20000;
+  let ref = null, refZ = null, cfg = null, zonas = null, mapa = {}, sucio = false, tSync = null;
+
+  const puntosDe = (z) => (Array.isArray(z.puntos) ? z.puntos : Object.values(z.puntos || {})).filter((p) => p && Number.isFinite(+p.lat) && Number.isFinite(+p.lng));
+  function ciudadDeZona(z) {
+    const pts = puntosDe(z); if (!pts.length) return null;
+    const lat = pts.reduce((s, p) => s + (+p.lat), 0) / pts.length, lng = pts.reduce((s, p) => s + (+p.lng), 0) / pts.length;
+    let mejor = null, md = Infinity;
+    Ciudades.CATALOGO.forEach((c) => { const d = Ciudades.km({ lat, lng }, c); if (d < md) { md = d; mejor = c; } });
+    return mejor && md <= Ciudades.MAX_ZONA_KM ? mejor.id : null;
+  }
+  function calcularMapa() {
+    const por = {}; Ciudades.CATALOGO.forEach((c) => { por[c.id] = []; });
+    Object.values(zonas || {}).forEach((z) => {
+      if (!z || !z.nombre) return;
+      const c = ciudadDeZona(z);
+      if (c) por[c].push(String(z.nombre).replace(/[,;\n]+/g, " ").replace(/\s+/g, " ").trim());
+    });
+    const res = {};
+    Object.keys(por).forEach((id) => {
+      const vistos = new Set();
+      const l = por[id].filter((n) => { const k = n.toLowerCase(); if (!n || vistos.has(k)) return false; vistos.add(k); return true; }).sort((a, b) => a.localeCompare(b, "es"));
+      let t = l.join(", "); if (t.length > MAX) t = t.slice(0, MAX).replace(/,[^,]*$/, "");
+      res[id] = t;
+    });
+    return res;
+  }
+  const activaDe = (id) => (cfg && cfg[id] ? cfg[id].activa === true : Ciudades.COBERTURA_DEFECTO.indexOf(id) >= 0);
+  const cuenta = (t) => String(t || "").split(", ").filter(Boolean).length;
+  function msg(t, mal) { const o = g("cobOk"); if (!o) return; o.textContent = t || ""; o.className = "cob-ok" + (t ? (mal ? " mal" : " bien") : ""); }
+  function pintarConteos() {
+    document.querySelectorAll("#cobLista .cob-fila").forEach((f) => {
+      const n = cuenta(mapa[f.dataset.c]), el = f.querySelector(".cob-mapa");
+      if (el) el.textContent = "🗺️ Del mapa: " + n + " zona" + (n === 1 ? "" : "s") + (n ? "" : " (dibuja o importa zonas en el mapa)");
+    });
+  }
+  async function sincronizar(manual) {
+    if (zonas === null) { if (manual) msg("Aún cargando las zonas del mapa…", true); return; }
+    mapa = calcularMapa();
+    const upd = {}, sembrar = !cfg;   // sin configuración previa se guardan todas las ciudades para no alterar la cobertura por defecto
+    Ciudades.CATALOGO.forEach((c) => {
+      const actual = (cfg && cfg[c.id] && cfg[c.id].zonasMapa) || "", nuevo = mapa[c.id] || "";
+      if (!sembrar && actual === nuevo) return;
+      if (!sembrar && !nuevo && !actual) return;
+      upd[c.id + "/activa"] = activaDe(c.id);
+      upd[c.id + "/zonasMapa"] = nuevo;
+    });
+    pintarConteos();
+    if (!Object.keys(upd).length) { if (manual) msg("✓ Ya está al día con el mapa"); return; }
+    upd.actualizado = firebase.database.ServerValue.TIMESTAMP;
+    try { await db.ref("configuracion/cobertura").update(upd); if (manual) msg("✓ Barrios, repartos y comarcas tomados del mapa"); }
+    catch (e) { if (manual) msg("No se pudo sincronizar" + (e && e.code === "PERMISSION_DENIED" ? ": sube las reglas de Firebase nuevas." : "."), true); }
+  }
+  function programarSync() { clearTimeout(tSync); tSync = setTimeout(() => sincronizar(false), 1500); }
+
+  function montar() {
+    const box = g("saCoberturaBox"); if (!box) return false;
+    if (box.dataset.listo) return true;
+    box.dataset.listo = "1";
+    box.innerHTML = '<p class="cob-ayuda">Solo las ciudades habilitadas aparecen para clientes y repartidores. Los barrios, repartos y comarcas se toman del <b>mapa</b> (las zonas que dibujas o importas en Zonas): cada zona se asigna a la ciudad más cercana. Un nombre que existe en dos ciudades se resuelve con la ciudad del cliente.</p><div id="cobLista"></div><div class="cob-pie"><span id="cobOk" class="cob-ok" aria-live="polite"></span><button type="button" id="cobSync" class="cob-sec">🔄 Sincronizar con el mapa</button><button type="button" id="cobGuardar" class="cob-pri">💾 Guardar cobertura</button></div>';
+    box.addEventListener("input", () => { sucio = true; msg(""); });
+    g("cobGuardar").addEventListener("click", guardar);
+    g("cobSync").addEventListener("click", () => sincronizar(true));
+    return true;
+  }
+  function llenar() {
+    const l = g("cobLista"); if (!l) return;
+    l.innerHTML = Ciudades.CATALOGO.map((c) => '<div class="cob-fila" data-c="' + c.id + '"><label class="cob-sw"><input type="checkbox" class="cob-act"' + (activaDe(c.id) ? " checked" : "") + '><span>' + esc2(c.nombre) + '</span></label><small class="cob-mapa"></small><textarea class="cob-zonas" rows="2" maxlength="' + MAX + '" placeholder="Nombres extra de ' + esc2(c.nombre) + ' (opcional), separados por coma">' + esc2((cfg && cfg[c.id] && cfg[c.id].zonas) || "") + "</textarea></div>").join("");
+    if (zonas !== null) mapa = calcularMapa();
+    pintarConteos();
+  }
+  async function guardar() {
+    const nuevo = { actualizado: firebase.database.ServerValue.TIMESTAMP };
+    let hay = false;
+    document.querySelectorAll("#cobLista .cob-fila").forEach((f) => {
+      const act = f.querySelector(".cob-act").checked; if (act) hay = true;
+      const id = f.dataset.c;
+      nuevo[id] = { activa: act, zonasMapa: (zonas !== null ? mapa[id] : (cfg && cfg[id] && cfg[id].zonasMapa)) || "", zonas: String(f.querySelector(".cob-zonas").value || "").replace(/\s+/g, " ").trim().slice(0, MAX) };
+    });
+    if (!hay) return msg("Habilita al menos una ciudad.", true);
+    try { await db.ref("configuracion/cobertura").set(nuevo); sucio = false; msg("✓ Guardado"); }
+    catch (e) { msg("No se pudo guardar" + (e && e.code === "PERMISSION_DENIED" ? ": sube las reglas de Firebase nuevas." : "."), true); }
+  }
+  function iniciar() {
+    if (!montar()) return setTimeout(iniciar, 1500);
+    detener();
+    ref = db.ref("configuracion/cobertura");
+    ref.on("value", (s) => { cfg = s.val() || null; if (!sucio) llenar(); programarSync(); }, () => { cfg = null; if (!sucio) llenar(); });
+    refZ = db.ref("zonas");
+    refZ.on("value", (s) => { zonas = s.val() || {}; if (!sucio) llenar(); else pintarConteos(); programarSync(); }, () => { zonas = null; });
+  }
+  function detener() { if (ref) { ref.off(); ref = null; } if (refZ) { refZ.off(); refZ = null; } clearTimeout(tSync); }
+  try { APP.auth().onAuthStateChanged((u) => { if (u) iniciar(); else detener(); }); } catch (_) {}
+  return {};
+})();
+
+/* ============================================================
+   LIMPIEZA DE PUSH «👀 El cliente abrió su enlace»
+   Quita de la bandeja del teléfono (APK Admin) o del navegador el aviso de los pedidos ya entregados/cancelados.
+   Se identifica por data.tipo === "cliente_abrio" + data.token, o por la etiqueta «cliente_abrio_<token>» que pone el Worker.
+   ============================================================ */
+let _limpiandoPush = false, _ultLimpiezaPush = 0;
+async function limpiarPushCliente(tokens) {
+  const fin = new Set((tokens || []).map(String));
+  if (!fin.size || _limpiandoPush || Date.now() - _ultLimpiezaPush < 3000) return;
+  _limpiandoPush = true; _ultLimpiezaPush = Date.now();
+  const datosDe = (n) => { const d = n && n.data; if (!d || typeof d !== "object") return {}; if (d.FCM_MSG && d.FCM_MSG.data) return d.FCM_MSG.data; if (d.data && typeof d.data === "object") return d.data; return d; };
+  const esDeCliente = (n) => { const d = datosDe(n), tag = String((n && n.tag) || ""); return (d.tipo === "cliente_abrio" && fin.has(String(d.token))) || (tag.indexOf("cliente_abrio_") === 0 && fin.has(tag.slice(14))); };
+  try {
+    const PN = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications;   // APK Admin
+    if (PN && PN.getDeliveredNotifications && PN.removeDeliveredNotifications) {
+      const r = await PN.getDeliveredNotifications();
+      const quitar = ((r && r.notifications) || []).filter(esDeCliente);
+      if (quitar.length) await PN.removeDeliveredNotifications({ notifications: quitar });
+    }
+    if ("serviceWorker" in navigator && navigator.serviceWorker.getRegistrations) {   // navegador / PWA del admin
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const reg of regs) { if (!reg.getNotifications) continue; (await reg.getNotifications()).filter(esDeCliente).forEach((n) => n.close()); }
+    }
+  } catch (_) {} finally { _limpiandoPush = false; }
+}

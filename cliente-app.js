@@ -281,18 +281,17 @@
     catch (_) { }
   }
 
-  /* ---------- Ciudad del pedido: detección automática + modalidad «Entre Ciudades» ---------- */
+  /* ---------- Ciudad del pedido: detección automática (solo ciudades que el admin habilita como cobertura) ---------- */
   const CLAVE_CIUDAD = "brothers_ciudad_cliente";
   let ciudadActiva = { id: Ciudades.DEFECTO, fuente: "defecto" };   // fuente: defecto | guardada | gps | manual
-  let entreCiudades = false;
   const nombreCiudad = (id) => Ciudades.nombre(id);
   const centroCiudad = (id) => { const c = Ciudades.porId(id) || Ciudades.porId(Ciudades.DEFECTO); return [c.lat, c.lng]; };
-  window.CiudadCliente = { id: () => ciudadActiva.id, nombre: () => nombreCiudad(ciudadActiva.id), entre: () => entreCiudades };
+  window.CiudadCliente = { id: () => ciudadActiva.id, nombre: () => nombreCiudad(ciudadActiva.id) };
 
   function leerCiudadLocal() {
     try {
       const o = JSON.parse(localStorage.getItem(CLAVE_CIUDAD) || "null");
-      if (o && Ciudades.porId(o.id)) return { id: o.id, fuente: o.manual ? "manual" : "guardada" };
+      if (o && Ciudades.habilitada(o.id)) return { id: o.id, fuente: o.manual ? "manual" : "guardada" };
     } catch (_) { }
     return null;
   }
@@ -301,15 +300,12 @@
   }
   function pintarCiudad() {
     const t = $("txtCiudad");
-    if (t) t.textContent = nombreCiudad(ciudadActiva.id) + (ciudadActiva.fuente === "gps" ? " (detectada)" : "");
-    const b = $("btnEntre");
-    if (b) b.setAttribute("aria-pressed", String(entreCiudades));
-    const te = $("txtEntre"); if (te) te.textContent = entreCiudades ? "Activado" : "Desactivado";
-    const ay = $("ayudaEntre"); if (ay) ay.classList.toggle("oculto", !entreCiudades);
+    if (t) t.textContent = nombreCiudad(ciudadActiva.id);
+    const b = $("btnCiudad");
+    if (b) b.title = "Ciudad: " + nombreCiudad(ciudadActiva.id) + (ciudadActiva.fuente === "gps" ? " (detectada)" : "") + " · toca para cambiar";
   }
-  /* Cambiar la ciudad no altera un pedido a medias: su ruta se fijó al iniciar el flujo. */
   function aplicarCiudad(id, fuente) {
-    if (!Ciudades.porId(id)) return;
+    if (!Ciudades.habilitada(id)) return;
     ciudadActiva = { id, fuente };
     guardarCiudadLocal();
     pintarCiudad();
@@ -319,21 +315,27 @@
     try {
       navigator.geolocation.getCurrentPosition((p) => {
         if (ciudadActiva.fuente === "manual") return;
-        const c = Ciudades.deCoord(p.coords.latitude, p.coords.longitude);
+        const c = Ciudades.deCoord(p.coords.latitude, p.coords.longitude);   // solo ciudades con cobertura
         if (c) aplicarCiudad(c.id, "gps");
       }, () => { }, { enableHighAccuracy: false, timeout: 9000, maximumAge: 600000 });
     } catch (_) { }
   }
+  /* Si el admin cambia la cobertura y la ciudad activa ya no está habilitada, se pasa a una que sí lo esté */
+  function validarCiudad() {
+    if (!Ciudades.habilitada(ciudadActiva.id)) { ciudadActiva = { id: Ciudades.DEFECTO, fuente: "defecto" }; guardarCiudadLocal(); }
+    pintarCiudad();
+  }
   function iniciarCiudad() {
     const loc = leerCiudadLocal();
     if (loc) ciudadActiva = loc;
-    pintarCiudad();
+    Ciudades.suscribir(db, validarCiudad);
+    validarCiudad();
     if (ciudadActiva.fuente !== "manual") detectarCiudad();
   }
   function abrirModalCiudad() {
     const lista = $("listaCiudades");
     lista.textContent = "";
-    Ciudades.LISTA.forEach((c) => {
+    Ciudades.habilitadas().forEach((c) => {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = "🏙️ " + c.nombre;
@@ -353,29 +355,16 @@
     detectarCiudad();
   });
   $("modalCiudad").addEventListener("click", (ev) => { if (ev.target === $("modalCiudad")) $("modalCiudad").classList.add("oculto"); });
-  $("btnEntre").addEventListener("click", () => { entreCiudades = !entreCiudades; pintarCiudad(); });
 
-  const opcionesCiudad = (excluir) => Ciudades.LISTA.filter((c) => c.id !== excluir).map((c) => ({ clave: c.id, texto: "🏙️ " + c.nombre }));
-
-  /* Define ciudad de origen y de destino del pedido (una sola vez por pedido; se retoma si la conversación se recupera). */
-  async function elegirRuta(id) {
-    const v = datos.v;
-    if (!v.entre) {
-      if (!Ciudades.porId(v.cOrigen)) guardar("cOrigen", ciudadActiva.id);
-      guardar("cDestino", datos.v.cOrigen);
-      return true;
+  /* Ciudad de un lugar del pedido: por coordenadas (GPS / pin) o por lo escrito (ciudad, barrio, reparto, comarca). null = no se pudo saber. */
+  function ciudadDeLugar(l) {
+    if (!l || typeof l !== "object") return null;
+    if ((l.tipo === "gps" || l.tipo === "pin") && okLL(Number(l.lat), Number(l.lng))) {
+      const c = Ciudades.deCoord(Number(l.lat), Number(l.lng));
+      return c ? c.id : null;
     }
-    if (v.rutaOk && Ciudades.porId(v.cOrigen) && Ciudades.porId(v.cDestino)) return true;
-    if (!(await di(id, "🚚 Entre Ciudades. ¿Desde qué ciudad sale el pedido? (donde está el negocio o el punto de retiro)", "ec1"))) return false;
-    const o = await opciones(id, opcionesCiudad(null));
-    if (!vivo(id)) return false;
-    guardar("cOrigen", o);
-    if (!(await di(id, "¿A qué ciudad lo llevamos? Los repartidores de esa ciudad recibirán tu pedido.", "ec2"))) return false;
-    const d = await opciones(id, opcionesCiudad(o));
-    if (!vivo(id)) return false;
-    guardar("cDestino", d);
-    guardar("rutaOk", true);
-    return await di(id, "✅ Ruta: " + nombreCiudad(o) + " → " + nombreCiudad(d) + ".", "ec3");
+    if (l.tipo === "direccion") return Ciudades.deTexto(l.texto, ciudadActiva.id);
+    return null;
   }
 
   /* Tarifa estimada de referencia (el repartidor confirma el precio final): distancia por calles ≈ línea recta × 1.3 */
@@ -1254,7 +1243,7 @@
       $("convo").appendChild(caja);
       bajar();
 
-      const usarGps = !!gpsListo && !datos.v.entre;   // «Entre Ciudades»: el punto puede estar en otra ciudad, se centra en la ciudad elegida
+      const usarGps = !!gpsListo;
       const centro = usarGps ? [gpsListo.lat, gpsListo.lng] : centroCiudad(ciudadId || ciudadActiva.id);
       const m = L.map(cont, { zoomControl: false }).setView(centro, usarGps ? 16 : 14);
       mapaConv = m;
@@ -1290,11 +1279,9 @@
 
   /* ---------- Pedir un lugar: GPS en vivo / pin / dirección escrita / última dirección ---------- */
   async function pedirLugar(id, cfg) {
-    const cid = cfg.ciudad || ciudadActiva.id;
-    if (!(await di(id, cfg.pregunta + (datos.v.entre ? "\n🏙️ Ciudad: " + nombreCiudad(cid) : ""), cfg.clave))) return null;
-    let ult = cfg.ultima ? leerUltimaDirLocal() : null;
-    if (ult && ult.ciudad && ult.ciudad !== cid) ult = null;
-    if (ult && datos.v.entre && !ult.ciudad) ult = null;
+    const cid = ciudadActiva.id;
+    if (!(await di(id, cfg.pregunta, cfg.clave))) return null;
+    const ult = cfg.ultima ? leerUltimaDirLocal() : null;
     let ultTxt = "";
     if (ult && ult.tipo === "direccion" && ult.texto) ultTxt = "🕘 Usar: " + String(ult.texto).slice(0, 38);
     else if (ult && ult.tipo === "pin" && okLL(Number(ult.lat), Number(ult.lng))) ultTxt = "🕘 Usar mi último pin";
@@ -1341,9 +1328,10 @@
 
   /* ---------- Consolidación del pedido: valida y deja la estructura exacta que acepta Firebase ---------- */
   function consolidarPedido(p) {
-    const cO = Ciudades.porId(p.ciudadOrigen) ? p.ciudadOrigen : ciudadActiva.id;
-    const entre = p.entreCiudades === true && Ciudades.porId(p.ciudadDestino) && p.ciudadDestino !== cO;
-    const cD = entre ? p.ciudadDestino : cO;
+    /* La app deduce sola si es «entre ciudades»: ciudad de retiro (o del negocio escrito) vs ciudad de entrega */
+    const cO = (p.retiro ? ciudadDeLugar(p.retiro) : Ciudades.deTexto(p.origen, ciudadActiva.id)) || ciudadActiva.id;
+    const cD = ciudadDeLugar(p.destino) || ciudadActiva.id;
+    const entre = cO !== cD;
     const lug = (l, nombre, ciudadId) => {
       if (!l || typeof l !== "object") throw new Error("Falta " + nombre + ".");
       if (l.tipo === "direccion") {
@@ -1362,7 +1350,7 @@
     const o = {
       servicio: p.servicio, tipo: p.tipo === "compra" ? "compra" : "envio", quiere, origen,
       modo: p.modo === "recibe" ? "recibe" : "envia", destino: lug(p.destino, "entrega", cD),
-      ciudadOrigen: cO, ciudadDestino: cD, ciudadRuta: cD, entreCiudades: !!entre   // ciudadRuta: ciudad cuyos repartidores reciben el pedido
+      ciudadOrigen: cO, ciudadDestino: cD, ciudadRuta: cO, entreCiudades: entre   // ciudadRuta = ciudad donde se RETIRA: sus repartidores reciben el pedido
     };
     if (p.retiro) o.retiro = lug(p.retiro, "retiro", cO);
     const contacto = limpiarNombre(p.contacto).slice(0, 80);
@@ -1377,17 +1365,15 @@
     if (!vivo(id)) return;
     if (cerradoServicio) { addBot("⛔ " + mensajeFuera()); return; }
     let pedido;
-    bruto = Object.assign({}, bruto, {
-      ciudadOrigen: Ciudades.porId(datos.v.cOrigen) ? datos.v.cOrigen : ciudadActiva.id,
-      ciudadDestino: Ciudades.porId(datos.v.cDestino) ? datos.v.cDestino : (Ciudades.porId(datos.v.cOrigen) ? datos.v.cOrigen : ciudadActiva.id),
-      entreCiudades: !!datos.v.entre
-    });
     try { pedido = consolidarPedido(bruto); }
     catch (e) {
       addBot("No pude armar tu solicitud: " + e.message + " Volvamos a empezar.");
       await opciones(id, [{ clave: "x", texto: "↩️ Volver al inicio" }]);
       if (vivo(id)) { borrarConvo(); reiniciarConvo(); }
       return;
+    }
+    if (pedido.entreCiudades) {
+      if (!(await di(id, "🚚 Entre ciudades: " + nombreCiudad(pedido.ciudadOrigen) + " → " + nombreCiudad(pedido.ciudadDestino) + ". Lo atenderán repartidores de " + nombreCiudad(pedido.ciudadOrigen) + "."))) return;
     }
     if (pedido.tarifaEstimada) {
       if (!(await di(id, "💰 Tarifa estimada" + (pedido.entreCiudades ? " (" + nombreCiudad(pedido.ciudadOrigen) + " → " + nombreCiudad(pedido.ciudadDestino) + ")" : "") + ": C$ " + pedido.tarifaEstimada + " · ~" + pedido.kmEstimado + " km. El repartidor confirma el precio final contigo."))) return;
@@ -1431,7 +1417,7 @@
       guardar("quiere", t);
     }
     if (!v.destino) {
-      const d = await pedirLugar(id, { clave: "e3", pregunta: "¿Dónde entregamos el paquete? Marca el punto en el mapa o escribe la dirección de la persona que lo recibe.", ultima: true, ciudad: datos.v.cDestino });
+      const d = await pedirLugar(id, { clave: "e3", pregunta: "¿Dónde entregamos el paquete? Marca el punto en el mapa o escribe la dirección de la persona que lo recibe.", ultima: true });
       if (!d || !vivo(id)) return;
       guardar("destino", d);
     }
@@ -1446,7 +1432,7 @@
   async function flujoRetirar(id) {
     const v = datos.v;
     if (!v.retiro) {
-      const r = await pedirLugar(id, { clave: "r1", pregunta: "📥 Muy bien, retiraremos algo por ti. ¿Dónde lo recogemos? Marca el punto exacto en el mapa o escribe la dirección de retiro.", ciudad: datos.v.cOrigen });
+      const r = await pedirLugar(id, { clave: "r1", pregunta: "📥 Muy bien, retiraremos algo por ti. ¿Dónde lo recogemos? Marca el punto exacto en el mapa o escribe la dirección de retiro." });
       if (!r || !vivo(id)) return;
       guardar("retiro", r);
     }
@@ -1457,7 +1443,7 @@
       guardar("contacto", t);
     }
     if (!v.destino) {
-      const d = await pedirLugar(id, { clave: "r3", pregunta: "Por último, ¿dónde lo entregamos? Comparte tu ubicación en tiempo real o marca el punto de entrega final.", gps: true, ultima: true, ciudad: datos.v.cDestino });
+      const d = await pedirLugar(id, { clave: "r3", pregunta: "Por último, ¿dónde lo entregamos? Comparte tu ubicación en tiempo real o marca el punto de entrega final.", gps: true, ultima: true });
       if (!d || !vivo(id)) return;
       guardar("destino", d);
     }
@@ -1477,7 +1463,7 @@
       guardar("quiere", t);
     }
     if (!v.origen) {
-      if (!(await di(id, "¿De qué establecimiento lo quieres?" + (datos.v.cOrigen ? " (en " + nombreCiudad(datos.v.cOrigen) + ")" : ""), "c2"))) return;
+      if (!(await di(id, "¿De qué establecimiento lo quieres? Si es de otra ciudad, escribe también el nombre de la ciudad.", "c2"))) return;
       const t = await pedirTexto(id, "Ej. Burger House, Av. Central", 2, "Indica el nombre del establecimiento (mínimo 2 letras).", 120);
       if (!vivo(id)) return;
       guardar("origen", t);
@@ -1495,7 +1481,7 @@
         if (!g || !vivo(id)) return;
         guardar("destino", lugarDeGps(g));
       } else {
-        const d = await pedirLugar(id, { clave: "c4o", pregunta: "Marca en el mapa o escribe la dirección exacta de la persona que recibe.", ultima: true, ciudad: datos.v.cDestino });
+        const d = await pedirLugar(id, { clave: "c4o", pregunta: "Marca en el mapa o escribe la dirección exacta de la persona que recibe.", ultima: true });
         if (!d || !vivo(id)) return;
         guardar("destino", d);
       }
@@ -1513,7 +1499,7 @@
       guardar("quiere", t);
     }
     if (!v.origen) {
-      if (!(await di(id, "¿Dónde lo compramos o lo hacemos? Escribe el nombre del lugar (por ejemplo: «Farmacia Santa Ana» o «Mercado Central»)." + (datos.v.cOrigen ? " Lugar en " + nombreCiudad(datos.v.cOrigen) + "." : ""), "m2"))) return;
+      if (!(await di(id, "¿Dónde lo compramos o lo hacemos? Escribe el nombre del lugar (por ejemplo: «Farmacia Santa Ana» o «Mercado Central»). Si es de otra ciudad, escribe también el nombre de la ciudad.", "m2"))) return;
       const t = await pedirTexto(id, "Nombre del lugar", 2, "Indica el lugar (mínimo 2 letras).", 120);
       if (!vivo(id)) return;
       guardar("origen", t);
@@ -1531,7 +1517,7 @@
         if (!g || !vivo(id)) return;
         guardar("destino", lugarDeGps(g));
       } else {
-        const d = await pedirLugar(id, { clave: "m4o", pregunta: "Marca en el mapa o escribe la dirección exacta de la persona que recibe.", ultima: true, ciudad: datos.v.cDestino });
+        const d = await pedirLugar(id, { clave: "m4o", pregunta: "Marca en el mapa o escribe la dirección exacta de la persona que recibe.", ultima: true });
         if (!d || !vivo(id)) return;
         guardar("destino", d);
       }
@@ -1544,12 +1530,12 @@
   async function flujoPickup(id) {
     const v = datos.v;
     if (!v.retiro) {
-      const r = await pedirLugar(id, { clave: "p1", pregunta: "🏍️ ¡Listo! Pediremos un mototaxi. ¿Dónde te recogemos? Usa tu ubicación en vivo, marca el punto en el mapa o escribe la dirección.", gps: true, ciudad: datos.v.cOrigen });
+      const r = await pedirLugar(id, { clave: "p1", pregunta: "🏍️ ¡Listo! Pediremos un mototaxi. ¿Dónde te recogemos? Usa tu ubicación en vivo, marca el punto en el mapa o escribe la dirección.", gps: true });
       if (!r || !vivo(id)) return;
       guardar("retiro", r);
     }
     if (!v.destino) {
-      const d = await pedirLugar(id, { clave: "p2", pregunta: "¿A dónde vas? Marca el destino en el mapa o escribe la dirección.", ultima: true, ciudad: datos.v.cDestino });
+      const d = await pedirLugar(id, { clave: "p2", pregunta: "¿A dónde vas? Marca el destino en el mapa o escribe la dirección.", ultima: true });
       if (!d || !vivo(id)) return;
       guardar("destino", d);
     }
@@ -1561,7 +1547,7 @@
   const FLUJOS = { enviar: flujoEnviar, retirar: flujoRetirar, comida: flujoComida, mandado: flujoMandado, pickup: flujoPickup };
 
   function ejecutarFlujo(id, clave) {
-    (async () => { if (!(await elegirRuta(id)) || !vivo(id)) return; await FLUJOS[clave](id); })().catch(() => {
+    FLUJOS[clave](id).catch(() => {
       if (vivo(id)) addBot("Ocurrió un problema inesperado. Toca ↩️ arriba para volver al inicio e intentarlo de nuevo.");
     });
   }
@@ -1624,9 +1610,6 @@
     const id = convId;
     pendTexto = null; gpsListo = null;
     datos = nuevosDatos(clave);
-    datos.v.entre = entreCiudades;                    // modalidad elegida al iniciar el pedido
-    datos.v.cOrigen = ciudadActiva.id;                // ciudad base: la detectada (o la elegida a mano)
-    if (!entreCiudades) datos.v.cDestino = ciudadActiva.id;
     $("menuInicio").classList.add("oculto");
     $("btnReiniciar").classList.remove("oculto");
     addYo(etiqueta);

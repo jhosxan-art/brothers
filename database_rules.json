@@ -1091,6 +1091,25 @@
             ".validate": "newData.isNumber()"
           }
         }
+      },
+      "cobertura": {
+        ".read": "auth != null",
+        "$ciudad": {
+          ".validate": "$ciudad.matches(/^[a-z0-9-]{2,30}$/) && newData.hasChildren(['activa']) && newData.child('activa').isBoolean()",
+          "activa": {},
+          "zonas": {
+            ".validate": "newData.isString() && newData.val().length <= 20000"
+          },
+          "$otro": {
+            ".validate": false
+          },
+          "zonasMapa": {
+            ".validate": "newData.isString() && newData.val().length <= 20000"
+          }
+        },
+        "actualizado": {
+          ".validate": "newData.isNumber()"
+        }
       }
     },
     "solicitudes_fotos": {

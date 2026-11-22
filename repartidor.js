@@ -3372,7 +3372,8 @@ OrdenAdminRep.init({
    · Se detecta por GPS (con histéresis para no saltar entre ciudades vecinas) o se fija a mano.
    · Se publica en repartidores/{uid}/ciudad y ubicaciones/{uid}/ciudad (el Worker de push la usa).
    · Aísla el pool de solicitudes: solo ve las que tienen ciudadRuta === su ciudad
-     (pedidos locales de su ciudad y pedidos «Entre Ciudades» cuyo destino es su ciudad).
+     (ciudadRuta = ciudad donde se RETIRA el pedido: locales de su ciudad y «entre ciudades» que salen de ella).
+   · Las ciudades elegibles son las que el administrador habilita en configuracion/cobertura.
    · Filtra los negocios/lugares del mapa según la ciudad.
    ============================================================ */
 const CiudadRep = (() => {
@@ -3419,6 +3420,7 @@ const CiudadRep = (() => {
     else if (Ciudades.porId(ciudadNube)) { id = ciudadNube; manual = false; }
     else { id = null; manual = false; }
     ultEval = 0;
+    Ciudades.suscribir(db, pintar);   // cobertura que habilita el admin
     pintar();
     if (id && id !== ciudadNube) publicar();
     try { ChatsEntrantes.refrescarCiudad(); } catch (_) {}
@@ -3439,23 +3441,32 @@ const CiudadRep = (() => {
     if (!p || !Ciudades.porId(p.ciudadOrigen)) return "";
     return p.entreCiudades && Ciudades.porId(p.ciudadDestino) ? "🚚 " + Ciudades.nombre(p.ciudadOrigen) + " → " + Ciudades.nombre(p.ciudadDestino) : "🏙️ " + Ciudades.nombre(p.ciudadOrigen);
   }
-  function abrirModal() {
-    const lista = $("listaCiudadesRep");
-    lista.textContent = "";
-    Ciudades.LISTA.forEach((c) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = "🏙️ " + c.nombre;
-      if (c.id === id) b.setAttribute("aria-current", "true");
-      b.onclick = () => { fijar(c.id, "manual"); $("modalCiudadRep").classList.add("oculto"); };
-      lista.appendChild(b);
-    });
-    $("modalCiudadRep").classList.remove("oculto");
+  /* Menú compacto anclado al chip (no tapa la pantalla): ciudades con cobertura + modo automático */
+  const menu = () => $("menuCiudadRep");
+  function cerrarMenu() { const m = menu(); if (m) m.classList.add("oculto"); }
+  function abrirMenu() {
+    const m = menu(), b = $("btnCiudadRep"); if (!m || !b) return;
+    if (!m.classList.contains("oculto")) return cerrarMenu();
+    m.textContent = "";
+    const item = (txt, activo, fn) => {
+      const x = document.createElement("button");
+      x.type = "button"; x.setAttribute("role", "menuitem"); x.textContent = txt;
+      if (activo) x.setAttribute("aria-current", "true");
+      x.onclick = () => { cerrarMenu(); fn(); };
+      m.appendChild(x);
+    };
+    Ciudades.habilitadas().forEach((c) => item(c.nombre + (c.id === id ? " ✓" : ""), c.id === id, () => fijar(c.id, "manual")));
+    const sep = document.createElement("div"); sep.className = "sep"; m.appendChild(sep);
+    item("📡 Automática (GPS)" + (!manual ? " ✓" : ""), !manual && !!id, automatica);
+    const r = b.getBoundingClientRect();
+    m.style.top = Math.round(r.bottom + 6) + "px";
+    m.style.right = Math.max(8, Math.round(window.innerWidth - r.right)) + "px";
+    m.classList.remove("oculto");
   }
-  $("btnCiudadRep").onclick = abrirModal;
-  $("btnCiudadRepCerrar").onclick = () => $("modalCiudadRep").classList.add("oculto");
-  $("btnCiudadRepAuto").onclick = () => { $("modalCiudadRep").classList.add("oculto"); automatica(); };
-  $("modalCiudadRep").addEventListener("click", (e) => { if (e.target === $("modalCiudadRep")) $("modalCiudadRep").classList.add("oculto"); });
+  $("btnCiudadRep").onclick = (e) => { e.stopPropagation(); abrirMenu(); };
+  document.addEventListener("click", (e) => { const m = menu(); if (m && !m.classList.contains("oculto") && !m.contains(e.target)) cerrarMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarMenu(); });
+  window.addEventListener("resize", cerrarMenu);
   return { iniciar, reiniciar, alPosicion, visible, etiquetaRuta, id: () => id };
 })();
 
@@ -3959,7 +3970,7 @@ const ChatsEntrantes = (() => {
     const f = (ic, tit, val, grande) => { if (!val) return; const r = el("div", "np-f" + (grande ? " grande" : "")); r.appendChild(el("span", "np-i", ic)); const c = el("div", ""); c.appendChild(el("small", "", tit)); c.appendChild(el("b", "", val)); r.appendChild(c); t.appendChild(r); };
     f("🛍️", "Qué desea", p.quiere ? cortar(p.quiere, 200) : "No lo indicó (chat anterior)", true);
     f("🏪", "De dónde lo desea", p.origen ? cortar(p.origen, 120) : "No lo indicó");
-    f(p.entreCiudades ? "🚚" : "🏙️", p.entreCiudades ? "Entre Ciudades · llega a tu ciudad" : "Ciudad del pedido", CiudadRep.etiquetaRuta(p).replace(/^\S+\s/, ""));
+    f(p.entreCiudades ? "🚚" : "🏙️", p.entreCiudades ? "Entre ciudades · lo retiras en tu ciudad" : "Ciudad del pedido", CiudadRep.etiquetaRuta(p).replace(/^\S+\s/, ""));
     if (Number(p.tarifaEstimada) > 0) f("💰", "Tarifa estimada (referencia)", "C$ " + Number(p.tarifaEstimada) + " · ~" + Number(p.kmEstimado || 0) + " km");
     f(p.modo === "envia" ? "🎁" : "📍", p.modo === "envia" ? "Lo envía a otra persona · entrega en" : "Lo recibe el cliente · ubicación", textoDestino(d));
     s.appendChild(t);
