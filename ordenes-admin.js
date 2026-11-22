@@ -1467,6 +1467,39 @@ const SolicitudesAdmin = (() => {
   let refUbic = null, ubic = {};
   let refLeidos = null, refUltimaDir = null, lect = {}, ultimaDirCliente = null;
   let refContacto = null, contactoCliente = null;   // contactosClientes/{clienteId}: solo lo puede leer el admin
+
+  /* Datos del cliente (nombre, apellido y celular) en cada solicitud: se piden bajo demanda y se guardan en memoria */
+  const contactos = {}; let tReCont = null;
+  const contactoValido = (c) => !!(c && typeof c === "object" && c.completo && c.telefono && c.codigo && c.nombre && c.apellido);
+  const formatoTel = (c) => { const n = String(c.telefono); return c.codigo + " " + (n.length > 4 ? n.slice(0, n.length - 4) + " " + n.slice(-4) : n); };
+  function contactoDe(d) {
+    const id = d && d.clienteId; if (!id) return null;
+    const e = contactos[id];
+    if (e && (e.cargando || e.c || Date.now() - e.ts < 30000)) return e.c;
+    contactos[id] = { c: e ? e.c : null, ts: Date.now(), cargando: true };
+    db.ref("contactosClientes/" + id).once("value").then(
+      (s) => { const c = s.val(); contactos[id] = { c: contactoValido(c) ? c : null, ts: Date.now(), cargando: false }; },
+      () => { contactos[id] = { c: null, ts: Date.now(), cargando: false }; }
+    ).then(() => {
+      clearTimeout(tReCont);
+      tReCont = setTimeout(() => { try { pintar(); } catch (_) {} if (visorId) { try { cabeceraVisor(); } catch (_) {} } }, 150);
+    });
+    return null;
+  }
+  /* Copia al portapapeles (con respaldo para webviews que no tienen navigator.clipboard) */
+  async function copiarTexto(txt) {
+    let ok = false;
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(txt); ok = true; } } catch (_) {}
+    if (!ok) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = txt; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+        document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, txt.length);
+        ok = document.execCommand("copy"); ta.remove();
+      } catch (_) {}
+    }
+    if (typeof toast === "function") toast(ok ? "📋 Número copiado: " + txt : "No se pudo copiar el número");
+  }
   let mapa = null, marcaCli = null, marcaRep = null, linea = null, encuadrado = false;
   const vistos = new Set(), sel = new Set();
   let cargada = false;
@@ -1664,7 +1697,8 @@ const SolicitudesAdmin = (() => {
   function coincide(k) {
     const q = nrm(texto).trim(); if (!q) return true;
     const d = lista[k], p = d.pedido || {};
-    return nrm([d.nombre, p.quiere, p.origen, d.repartidorNombre, k, d.ultimoMensaje].join(" ")).includes(q);
+    const ce = (contactos[d.clienteId] || {}).c;   // también se busca por apellido y celular
+    return nrm([d.nombre, ce ? ce.apellido + " " + ce.telefono + " " + ce.completo : "", p.quiere, p.origen, d.repartidorNombre, k, d.ultimoMensaje].join(" ")).includes(q);
   }
   function baseKeys() {
     return Object.keys(lista).filter((k) => lista[k] && typeof lista[k] === "object" && (!fecha || diaDe(lista[k]) === fecha) && coincide(k));
@@ -1718,9 +1752,18 @@ const SolicitudesAdmin = (() => {
       ico.title = est === "nuevo" ? "Sin atender" : est === "atendido" ? "Con pedido" : est === "entregado" ? "Entregado" : "Cancelado";
       ico.setAttribute("role", "img"); ico.setAttribute("aria-label", ico.title);
       fila.appendChild(ico);
-      const nombre = cortar(d.nombre || "Cliente", 40);
+      const cli = contactoDe(d);
+      const nombre = cortar(cli ? cli.nombre + " " + cli.apellido : (d.nombre || "Cliente"), 40);
       const dat = el("div", "sa-dat");
-      dat.appendChild(el("strong", "", nombre));
+      const nt = el("div", "sa-nomtel");   // nombre completo + celular al lado (si no cabe, baja debajo)
+      nt.appendChild(el("strong", "", nombre));
+      if (cli) {
+        const bt = el("button", "sa-tel-btn", "📋 " + formatoTel(cli));
+        bt.type = "button"; bt.title = "Toca para copiar el número"; bt.setAttribute("aria-label", "Copiar número " + cli.completo);
+        bt.addEventListener("click", (ev) => { ev.stopPropagation(); copiarTexto(cli.completo); });
+        nt.appendChild(bt);
+      }
+      dat.appendChild(nt);
       const meta = ["#" + String(k).slice(-5).toUpperCase(), (finalizada ? "cerrada " : "abierta ") + hace(d.creado || d.ts), d.repartidorNombre ? "🛵 " + cortar(d.repartidorNombre, 24) : ""].filter(Boolean).join(" · ");
       dat.appendChild(el("span", "sa-meta", meta));
       if (p.quiere) dat.appendChild(el("span", "sa-quiere", "🛍️ " + cortar(p.quiere, 90) + (p.origen ? " · de " + cortar(p.origen, 40) : "")));
@@ -1835,8 +1878,9 @@ const SolicitudesAdmin = (() => {
     let tel = g("saTelCliente");
     if (!tel) { tel = document.createElement("div"); tel.id = "saTelCliente"; tel.className = "sa-tel-cliente oculto"; g("saSub").insertAdjacentElement("afterend", tel); }
     if (contactoCliente) {
-      const n = contactoCliente.telefono, bonito = contactoCliente.codigo + " " + (n.length > 4 ? n.slice(0, n.length - 4) + " " + n.slice(-4) : n);
-      tel.innerHTML = '📞 <a href="tel:' + esc(contactoCliente.completo) + '">' + esc(bonito) + '</a> · <a href="https://wa.me/' + esc(contactoCliente.completo.replace("+", "")) + '" target="_blank" rel="noopener">WhatsApp</a>';
+      const cc = contactoCliente;
+      tel.innerHTML = '<button type="button" class="sa-tel-btn" title="Toca para copiar el número">📋 ' + esc(formatoTel(cc)) + '</button> · <a href="https://wa.me/' + esc(cc.completo.replace("+", "")) + '" target="_blank" rel="noopener">WhatsApp</a>';
+      tel.querySelector("button").addEventListener("click", () => copiarTexto(cc.completo));
       tel.classList.remove("oculto");
     } else { tel.textContent = ""; tel.classList.add("oculto"); }
     const est = estadoDe(d), v = valoracion(d);
@@ -1891,7 +1935,8 @@ const SolicitudesAdmin = (() => {
     refContacto = db.ref("contactosClientes/" + d.clienteId);
     refContacto.on("value", (s) => {
       const c = s.val();
-      contactoCliente = c && typeof c === "object" && c.completo && c.telefono && c.codigo && c.nombre && c.apellido ? c : null;
+      contactoCliente = contactoValido(c) ? c : null;
+      contactos[d.clienteId] = { c: contactoCliente, ts: Date.now(), cargando: false };
       if (visorId === id) cabeceraVisor();
     }, () => { contactoCliente = null; });
   }

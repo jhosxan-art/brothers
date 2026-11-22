@@ -200,3 +200,8 @@ body.admin .tabs { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; 
 /* ---------- Celular del cliente en el visor de solicitudes (solo admin) ---------- */
 .sa-tel-cliente { margin-top: 2px; font-size: 13.5px; font-weight: 700; }
 .sa-tel-cliente a { color: inherit; text-decoration: underline; }
+
+/* ---------- Nombre + celular del cliente en la lista de solicitudes ---------- */
+.sa-nomtel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.sa-tel-btn { width: auto; height: auto; padding: 3px 10px; border: 1px solid #BFE3CE; border-radius: 999px; background: #EAF8EF; color: #12803F; font-size: 12.5px; font-weight: 800; line-height: 1.3; cursor: pointer; }
+.sa-tel-btn:active { transform: scale(.97); background: #D7F1E1; }
