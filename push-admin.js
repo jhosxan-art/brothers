@@ -61,7 +61,7 @@ const PushAdmin = (() => {
       });
       let j = {}; try { j = await r.json(); } catch (_) {}
       if (r.ok && j.ok) return true;
-      if (j && (j.code === "UNREGISTERED" || j.code === "INVALID_ARGUMENT")) {   // ese celular ya no existe: se limpia su token viejo
+      if (j && (j.code === "UNREGISTERED" || j.code === "NOT_FOUND")) {   // ese celular ya no existe: se limpia su token viejo (el Worker ya traduce el token inválido a UNREGISTERED; un mensaje mal armado no borra tokens)
         db.ref("repartidores/" + uid + "/fcmToken").remove().catch(() => {});
         return false;
       }

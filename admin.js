@@ -1178,7 +1178,11 @@ $("btnSelEnviar").onclick = () => {
     const t = $("envTexto").value.trim(); if (!t) return;
     $("envOk").disabled = true;
     try {
-      await Promise.all(uids.map((u) => Chat.enviarA(u, "admin", { pedido: "Equipo", nombreRepartidor: nombreUid(u) }, t, null, RUTA_EQ)));
+      await Promise.all(uids.map(async (u) => {
+        await Chat.enviarA(u, "admin", { pedido: "Equipo", nombreRepartidor: nombreUid(u) }, t, null, RUTA_EQ);
+        /* Difusión: cada repartidor recibe también la notificación push (igual que en el chat individual), aunque su app esté cerrada */
+        try { if (typeof PushAdmin !== "undefined" && !Ordenes.esInvitadoUid(u)) Promise.resolve(PushAdmin.mensaje(u, { de: "admin", texto: t, ts: Date.now() })).catch(() => {}); } catch (_) {}
+      }));
       cerrarModal(); toast(`Mensaje enviado a ${uids.length} repartidor${uids.length > 1 ? "es" : ""} ✓`);
     } catch (e) { toast("Error al enviar: " + e.message); $("envOk").disabled = false; }
   };
