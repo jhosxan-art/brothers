@@ -1466,6 +1466,7 @@ const SolicitudesAdmin = (() => {
   let consulta = null, lista = {}, filtro = "todos", fecha = "", texto = "", visorId = null, consultaMsgs = null, ultDia = null, origenVisor = "";
   let refUbic = null, ubic = {};
   let refLeidos = null, refUltimaDir = null, lect = {}, ultimaDirCliente = null;
+  let refContacto = null, contactoCliente = null;   // contactosClientes/{clienteId}: solo lo puede leer el admin
   let mapa = null, marcaCli = null, marcaRep = null, linea = null, encuadrado = false;
   const vistos = new Set(), sel = new Set();
   let cargada = false;
@@ -1830,7 +1831,14 @@ const SolicitudesAdmin = (() => {
   function cabeceraVisor() {
     const d = lista[visorId];
     if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); g("saForzarEnt").classList.add("oculto"); g("saForzarCanc").classList.add("oculto"); bloquearEspectador(true); return; }
-    g("saTitulo").textContent = cortar(d.nombre || "Cliente", 40);
+    g("saTitulo").textContent = cortar(contactoCliente ? contactoCliente.nombre + " " + contactoCliente.apellido : (d.nombre || "Cliente"), 40);
+    let tel = g("saTelCliente");
+    if (!tel) { tel = document.createElement("div"); tel.id = "saTelCliente"; tel.className = "sa-tel-cliente oculto"; g("saSub").insertAdjacentElement("afterend", tel); }
+    if (contactoCliente) {
+      const n = contactoCliente.telefono, bonito = contactoCliente.codigo + " " + (n.length > 4 ? n.slice(0, n.length - 4) + " " + n.slice(-4) : n);
+      tel.innerHTML = '📞 <a href="tel:' + esc(contactoCliente.completo) + '">' + esc(bonito) + '</a> · <a href="https://wa.me/' + esc(contactoCliente.completo.replace("+", "")) + '" target="_blank" rel="noopener">WhatsApp</a>';
+      tel.classList.remove("oculto");
+    } else { tel.textContent = ""; tel.classList.add("oculto"); }
     const est = estadoDe(d), v = valoracion(d);
     g("saSub").textContent = est === "nuevo" ? "Sin atender todavía" : est === "atendido" ? "Con pedido · " + cortar(d.repartidorNombre || "un repartidor", 30) : est === "entregado" ? "Entregado" + (d.forzadoPorAdmin ? " · forzado" : "") : "Cancelado" + (d.forzadoPorAdmin ? " · forzado" : "");
     g("saBorrarUno").classList.toggle("oculto", !fin(d));
@@ -1871,6 +1879,21 @@ const SolicitudesAdmin = (() => {
     });
     leerLeidos(id);
     leerUltimaDir(id);
+    leerContacto(id);
+  }
+
+  /* Nombre completo y celular del cliente (solo visible para el admin) */
+  function leerContacto(id) {
+    if (refContacto) { refContacto.off(); refContacto = null; }
+    contactoCliente = null;
+    const d = lista[id];
+    if (!d || !d.clienteId) return;
+    refContacto = db.ref("contactosClientes/" + d.clienteId);
+    refContacto.on("value", (s) => {
+      const c = s.val();
+      contactoCliente = c && typeof c === "object" && c.completo && c.telefono && c.codigo && c.nombre && c.apellido ? c : null;
+      if (visorId === id) cabeceraVisor();
+    }, () => { contactoCliente = null; });
   }
 
   function leerLeidos(id) {
@@ -1931,6 +1954,8 @@ const SolicitudesAdmin = (() => {
     if (consultaMsgs) { consultaMsgs.off(); consultaMsgs = null; }
     if (refLeidos) { refLeidos.off(); refLeidos = null; }
     if (refUltimaDir) { refUltimaDir.off(); refUltimaDir = null; }
+    if (refContacto) { refContacto.off(); refContacto = null; }
+    contactoCliente = null;
     visorId = null;
     NavAdmin.quitar("visor");
     lect = {}; ultimaDirCliente = null;

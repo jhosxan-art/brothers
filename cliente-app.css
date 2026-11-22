@@ -838,3 +838,16 @@ html:has(body.teclado.wa-cliente #vPedido:not(.oculto)) { background: #F0F2F5; }
   color: var(--wa-accion); font-size: 15.5px; font-weight: 700; text-align: left; cursor: pointer;
 }
 .wa-cliente .wa-ciudades-lista button[aria-current="true"] { border-color: var(--wa-accion); background: #F0F9F4; }
+
+/* ---------- Registro breve (nombre, apellido, país y celular) ---------- */
+.wa-cliente .wa-form-nombre select {
+  font: inherit; font-weight: 500; width: 100%; height: 52px; padding: 0 12px; border: 1.5px solid var(--linea); border-radius: 14px;
+  background: var(--gris); color: var(--tinta);
+}
+.wa-cliente .wa-form-nombre select:focus { border-color: var(--wa-accion); background: #fff; }
+.wa-cliente .wa-tel { display: flex; align-items: stretch; gap: 8px; }
+.wa-cliente .wa-cod {
+  flex: 0 0 auto; display: grid; place-items: center; min-width: 64px; padding: 0 12px; border: 1.5px solid var(--linea); border-radius: 14px;
+  background: #fff; color: var(--tinta); font-weight: 800;
+}
+.wa-cliente .wa-tel input { flex: 1 1 auto; min-width: 0; }

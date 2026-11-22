@@ -196,3 +196,7 @@ body.admin .tabs { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; 
 .cob-mapa { font-size: 12px; font-weight: 700; color: #12803F; }
 .cob-sec { border: 1px solid #D6DEE6; border-radius: 10px; padding: 10px 12px; background: #fff; color: #0E141B; font-weight: 700; cursor: pointer; }
 .cob-pie { flex-wrap: wrap; }
+
+/* ---------- Celular del cliente en el visor de solicitudes (solo admin) ---------- */
+.sa-tel-cliente { margin-top: 2px; font-size: 13.5px; font-weight: 700; }
+.sa-tel-cliente a { color: inherit; text-decoration: underline; }

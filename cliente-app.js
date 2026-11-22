@@ -173,6 +173,21 @@
     setInterval(() => evaluarHorario(true), 30000);
   }
   const nombreValido = (s) => typeof s === "string" && s.length >= 2 && s.length <= 24;
+
+  /* ---------- Registro breve: nombre y apellido, país de Centroamérica y celular ---------- */
+  const PAISES = [
+    { cod: "NI", nombre: "Nicaragua", marca: "+505", dig: 8, bandera: "🇳🇮" },
+    { cod: "CR", nombre: "Costa Rica", marca: "+506", dig: 8, bandera: "🇨🇷" },
+    { cod: "PA", nombre: "Panamá", marca: "+507", dig: 8, bandera: "🇵🇦" },
+    { cod: "HN", nombre: "Honduras", marca: "+504", dig: 8, bandera: "🇭🇳" },
+    { cod: "SV", nombre: "El Salvador", marca: "+503", dig: 8, bandera: "🇸🇻" },
+    { cod: "GT", nombre: "Guatemala", marca: "+502", dig: 8, bandera: "🇬🇹" },
+    { cod: "BZ", nombre: "Belice", marca: "+501", dig: 7, bandera: "🇧🇿" }   // la numeración de Belice es de 7 dígitos
+  ];
+  const paisDe = (cod) => PAISES.find((p) => p.cod === cod) || null;
+  const apellidoValido = (s) => typeof s === "string" && s.length >= 2 && s.length <= 30;
+  const regValido = (r) => !!r && typeof r === "object" && apellidoValido(r.ap) && !!paisDe(r.pais) && typeof r.tel === "string" && r.tel.length === paisDe(r.pais).dig && /^[0-9]+$/.test(r.tel);
+  const regLimpio = (r) => (regValido(r) ? { ap: r.ap, pais: r.pais, tel: r.tel } : null);
   const idValido = (s) => typeof s === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(s);
 
   function generarId() {
@@ -216,7 +231,7 @@
     try {
       const p = JSON.parse(crudo);
       if (p && typeof p === "object" && idValido(p.id) && nombreValido(p.nombre)) {
-        return { id: p.id, nombre: p.nombre, solicitudId: idValido(p.solicitudId) ? p.solicitudId : null };
+        return { id: p.id, nombre: p.nombre, reg: regLimpio(p.reg), solicitudId: idValido(p.solicitudId) ? p.solicitudId : null };
       }
     } catch (_) { }
     try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { }
@@ -225,7 +240,7 @@
 
   function guardarPerfil(p) {
     respaldoMemoria = p;
-    try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify({ id: p.id, nombre: p.nombre, solicitudId: p.solicitudId || null })); }
+    try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify({ id: p.id, nombre: p.nombre, reg: regLimpio(p.reg), solicitudId: p.solicitudId || null })); }
     catch (_) { }
   }
 
@@ -408,24 +423,75 @@
     }
     if (perfil) {
       recuperando = !!(ses && ses.clienteId === perfil.id && ses.estado !== "entregado" && ses.estado !== "cancelado");
-      return abrirChat();
+      return abrirChat();   // si aún no tiene registro, abrirChat() pide sus datos antes de continuar
     }
+    mostrarRegistro();
+  }
+
+  /* Pantalla de registro: usuarios nuevos y también quienes ya habían pedido antes (se les piden al entrar) */
+  function mostrarRegistro() {
+    const sel = $("inPais");
+    if (!sel.options.length) {
+      PAISES.forEach((p) => { const o = document.createElement("option"); o.value = p.cod; o.textContent = p.bandera + " " + p.nombre + " (" + p.marca + ")"; sel.appendChild(o); });
+    }
+    const reg = perfil && perfil.reg;
+    $("inNombre").value = (perfil && perfil.nombre) || "";
+    $("inApellido").value = (reg && reg.ap) || "";
+    sel.value = (reg && reg.pais) || "NI";
+    $("inCelular").value = (reg && reg.tel) || "";
+    ajustarPais();
+    $("txtRegistro").textContent = perfil
+      ? "Para seguir pidiendo necesitamos confirmar tus datos. Tu celular solo lo ve la central."
+      : "Antes de tu primer pedido necesitamos unos datos. Tu celular solo lo ve la central.";
+    $("msgNombre").classList.add("oculto");
     vista("vNombre");
-    $("inNombre").focus();
+    $((perfil && perfil.nombre) ? "inApellido" : "inNombre").focus();
+  }
+  function ajustarPais() {
+    const p = paisDe($("inPais").value) || PAISES[0];
+    $("lblCodigo").textContent = p.marca;
+    const inp = $("inCelular");
+    inp.maxLength = p.dig + 1;
+    inp.placeholder = p.dig === 8 ? "8888 7777" : "888 7777";
+    formatearCelular();
+  }
+  function formatearCelular() {
+    const p = paisDe($("inPais").value) || PAISES[0];
+    const d = $("inCelular").value.replace(/\D/g, "").slice(0, p.dig);
+    $("inCelular").value = d.length > 4 ? d.slice(0, d.length - 4) + " " + d.slice(-4) : d;
+  }
+  $("inPais").addEventListener("change", ajustarPais);
+  $("inCelular").addEventListener("input", formatearCelular);
+
+  /* El celular se guarda aparte (contactosClientes/{clienteId}): solo el admin puede leerlo. No viaja en la solicitud ni lo ven los repartidores. */
+  let contactoEscrito = "";
+  async function guardarContacto() {
+    if (!perfil || !idValido(perfil.id) || !regValido(perfil.reg) || contactoEscrito === perfil.id) return;
+    const p = paisDe(perfil.reg.pais);
+    const o = { nombre: perfil.nombre, apellido: perfil.reg.ap, pais: p.cod, codigo: p.marca, telefono: perfil.reg.tel, completo: p.marca + perfil.reg.tel, ts: firebase.database.ServerValue.TIMESTAMP };
+    try { await db.ref("contactosClientes/" + perfil.id).set(o); contactoEscrito = perfil.id; } catch (_) { }
   }
 
   $("formNombre").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    const n = limpiarNombre($("inNombre").value);
+    const n = limpiarNombre($("inNombre").value), ap = limpiarNombre($("inApellido").value);
+    const pais = paisDe($("inPais").value) || PAISES[0], tel = $("inCelular").value.replace(/\D/g, "");
     const msg = $("msgNombre");
-    if (!nombreValido(n)) {
-      msg.textContent = "Escribe tu nombre (entre 2 y 24 letras).";
+    const error = !nombreValido(n) ? "Escribe tu nombre (entre 2 y 24 letras)."
+      : !apellidoValido(ap) ? "Escribe tu apellido (entre 2 y 30 letras)."
+      : tel.length !== pais.dig ? "El celular de " + pais.nombre + " debe tener " + pais.dig + " dígitos."
+      : "";
+    if (error) {
+      msg.textContent = error;
       msg.classList.remove("oculto");
       return;
     }
     msg.classList.add("oculto");
-    perfil = { id: generarId(), nombre: n, solicitudId: null };
+    const reg = { ap, pais: pais.cod, tel };
+    if (perfil && idValido(perfil.id)) { perfil.nombre = n; perfil.reg = reg; }   // quien ya había pedido conserva su historial
+    else perfil = { id: generarId(), nombre: n, reg, solicitudId: null };
     guardarPerfil(perfil);
+    guardarContacto();
     abrirChat();
   });
 
@@ -435,9 +501,11 @@
     if (!perfil || !idValido(perfil.id)) {
       perfil = null;
       try { localStorage.removeItem(CLAVE_LOCAL); } catch (_) { }
-      vista("vNombre");
+      mostrarRegistro();
       return;
     }
+    if (!regValido(perfil.reg)) { mostrarRegistro(); return; }   // aún sin registro (p. ej. ya había pedido antes)
+    guardarContacto();
     if (!silencioso) {
       $("msgCarga").className = "wa-splash-msg";
       $("msgCarga").textContent = recuperando ? "Recuperando tu pedido…" : "Abriendo tu chat…";
@@ -2275,7 +2343,7 @@
     $("inMensaje").value = ""; ajustarAlto($("inMensaje"));
     borrarSesion();
     borrarConvo(); borrarHistorial();
-    perfil = { id: generarId(), nombre: perfil.nombre, solicitudId: null };
+    perfil = { id: generarId(), nombre: perfil.nombre, reg: perfil.reg, solicitudId: null };
     guardarPerfil(perfil);
     abrirChat({ silencioso: true });
   }
@@ -2378,6 +2446,7 @@
       await refSolicitud.update({ nombre: n });
       perfil.nombre = n;
       guardarPerfil(perfil);
+      contactoEscrito = ""; guardarContacto();   // mantiene al día el nombre en el contacto que ve el admin
       cerrarCambiarNombre();
       avisoSistema("Tu nombre ahora es " + n + ".");
     } catch (e) {

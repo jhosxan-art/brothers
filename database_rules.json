@@ -1302,6 +1302,37 @@
           }
         }
       }
+    },
+    "contactosClientes": {
+      "$clienteId": {
+        ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.firebase.sign_in_provider === 'anonymous' && $clienteId.matches(/^[A-Za-z0-9_-]{8,64}$/)))",
+        ".validate": "newData.hasChildren(['nombre','apellido','pais','codigo','telefono','completo','ts'])",
+        "nombre": {
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 24"
+        },
+        "apellido": {
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 30"
+        },
+        "pais": {
+          ".validate": "newData.isString() && newData.val().matches(/^(NI|CR|PA|HN|SV|GT|BZ)$/)"
+        },
+        "codigo": {
+          ".validate": "newData.isString() && newData.val().matches(/^\\+50[1-7]$/)"
+        },
+        "telefono": {
+          ".validate": "newData.isString() && newData.val().matches(/^[0-9]{7,8}$/)"
+        },
+        "completo": {
+          ".validate": "newData.isString() && newData.val().matches(/^\\+50[1-7][0-9]{7,8}$/)"
+        },
+        "ts": {
+          ".validate": "newData.isNumber()"
+        },
+        "$otro": {
+          ".validate": false
+        }
+      }
     }
   }
 }
