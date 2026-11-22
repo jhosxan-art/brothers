@@ -533,7 +533,8 @@ $("btnLogin").onclick = () => {
       .catch(() => msgLogin("No se pudo entrar: correo o contraseña incorrectos."));
 };
 
-try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {}); } catch (_) {}   // la sesión se conserva hasta que el repartidor toque «Cerrar sesión»
+try { auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {}); } catch (_) {}
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (_) {}   // pide que el sistema no borre la sesión guardada por falta de espacio   // la sesión se conserva hasta que el repartidor toque «Cerrar sesión»
 setTimeout(() => $("splash").classList.add("oculto"), 8000);
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
@@ -550,10 +551,8 @@ auth.onAuthStateChanged(async (user) => {
     ]);
     if (reg) localStorage.setItem(claveCache, JSON.stringify(typeof reg === "object" ? { usuario: reg.usuario || null } : { usuario: null }));
   } catch (e) {
-    if (e && e.code === "PERMISSION_DENIED") {
-      msgLogin("No se pudo verificar tu cuenta: faltan permisos en Firebase (reglas).");
-      return auth.signOut();
-    }
+    /* Un error de permisos (p. ej. mientras se publican reglas nuevas) ya NO cierra la sesión:
+       se usa la información guardada y la sesión se conserva. Solo se cierra si el admin quita la cuenta (más abajo). */
     try { reg = JSON.parse(localStorage.getItem(claveCache) || "null"); } catch (_) { reg = null; }
     if (!reg) { msgLogin("Sin conexión: no se pudo verificar tu cuenta. Revisa tu internet."); return mostrar("login"); }
   }
