@@ -2433,3 +2433,17 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .menu-ciudad-rep button[aria-current="true"] { color: #12803F; font-weight: 800; }
 .menu-ciudad-rep .tit { padding: 6px 12px 4px; font-size: 12px; font-weight: 700; color: #5B6775; }
 .menu-ciudad-rep .sep { height: 1px; margin: 4px 6px; background: #E3E8EE; }
+
+/* ===== Deslizar entre clientes (varios pedidos) ===== */
+#vistaMapa .hoja-pedidos .pedido-card .pc-top { touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab; }
+.pedido-card { transition: transform .18s ease, opacity .18s ease; }
+.pedido-card.sw-izq { animation: swIzq .22s ease-out; }
+.pedido-card.sw-der { animation: swDer .22s ease-out; }
+@keyframes swIzq { from { transform: translateX(46px); opacity: .25; } to { transform: none; opacity: 1; } }
+@keyframes swDer { from { transform: translateX(-46px); opacity: .25; } to { transform: none; opacity: 1; } }
+.pc-pager { display: flex; align-items: center; justify-content: center; gap: 8px; touch-action: pan-y; margin: -2px 0 -2px; }
+.pc-pager button { width: 30px; height: 26px; border: 0; border-radius: 999px; background: rgba(14,20,27,.08); color: #0E141B; font-size: 18px; font-weight: 800; line-height: 1; padding: 0; }
+.pc-pager small { font-size: 11px; font-weight: 700; color: #5B6672; white-space: nowrap; }
+.pc-dots { display: inline-flex; gap: 5px; align-items: center; }
+.pc-dots i { width: 7px; height: 7px; border-radius: 50%; background: #B9C4CF; }
+.pc-dots i.on { width: 18px; border-radius: 999px; background: var(--celeste-prof); }

@@ -1387,7 +1387,7 @@ function usarUbicacionCliente(v) {
 function guardarViajes() {
   try {
     const otros = JSON.parse(localStorage.getItem("viajesActivos") || "[]").filter((x) => x.uid !== uidActual);
-    const mios = orden.map((t) => ({ token: t, tel: viajes[t].tel, pedido: viajes[t].pedido, cliente: viajes[t].cliente, destManual: viajes[t].destManual, sinFactura: !!viajes[t].sinFactura, uid: uidActual }));
+    const mios = orden.map((t) => ({ token: t, tel: viajes[t].tel, pedido: viajes[t].pedido, cliente: viajes[t].cliente, destManual: viajes[t].destManual, sinFactura: !!viajes[t].sinFactura, ingreso: viajes[t].ingresoReal ? viajes[t].ingreso : undefined, uid: uidActual }));
     localStorage.setItem("viajesActivos", JSON.stringify(otros.concat(mios)));
   } catch (_) {}
 }
@@ -1399,7 +1399,8 @@ function crearViaje(info) {
     destManual: !!info.destManual, sinFactura: !!info.sinFactura, cerrando: false, refEstado: null, destino: null, cliPos: null, cerca: false, dist: null,
     marca: null, marcaCli: null, refCli: null, refChat: null, noLeidos: 0, chatListo: false, factura: null, sub: null, extras: null, refExtra: [],
     rutaPts: null, rutaEn: 0, rutaOrigen: null, rutaDest: null, rutaDur: null, rutaIdx: 0,
-    esChat: !!info.esChat
+    esChat: !!info.esChat,
+    ingreso: Number(info.ingreso) || Date.now(), ingresoReal: !!Number(info.ingreso)   // hora de ingreso del pedido (prioridad: el primero en entrar va primero)
   };
   viajes[v.token] = v;
   Pantalla.pedir();
@@ -1408,6 +1409,8 @@ function crearViaje(info) {
   escucharChat(v);
   escucharEstado(v);
   escucharSubfactura(v);
+  cargarIngreso(v);
+  ordenarPrioridad();
   try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
   // Detección asíncrona: si el pedido viene del pool de WhatsApp (solicitudes_entrantes), marcar esChat
   db.ref("pedidos/" + v.token + "/solicitudId").once("value").then((s) => {
@@ -2336,6 +2339,75 @@ function actualizarBanner() {
 function renderLista() { renderListaBase(); aplicarHoja(); }
 
 /* ============================================================
+   PRIORIDAD DE PEDIDOS + DESLIZAR ENTRE CLIENTES
+   - Cada viaje guarda su hora de ingreso (factura: pedidos/<token>/inicio ·
+     pedido por chat: solicitudes_entrantes/<id>/creado). El que entró primero es el nº 1.
+   - En la tarjeta del pedido se desliza a los lados para cambiar de cliente.
+   ============================================================ */
+function ponerIngreso(v, ts) {
+  ts = Number(ts);
+  if (!v || !isFinite(ts) || ts <= 0 || !viajes[v.token]) return;
+  v.ingreso = v.ingresoReal ? Math.min(v.ingreso, ts) : ts;
+  v.ingresoReal = true;
+  ordenarPrioridad();
+}
+function cargarIngreso(v) {
+  const tk = v.token;
+  db.ref("pedidos/" + tk + "/inicio").once("value").then((s) => ponerIngreso(v, s.val())).catch(() => {});
+  db.ref("solicitudes_entrantes/" + tk + "/creado").once("value").then((s) => ponerIngreso(v, s.val())).catch(() => {});
+  db.ref("pedidos/" + tk + "/solicitudId").once("value").then((s) => {
+    if (s.exists()) return db.ref("solicitudes_entrantes/" + s.val() + "/creado").once("value").then((c) => ponerIngreso(v, c.val()));
+  }).catch(() => {});
+}
+function ordenarPrioridad() {
+  const antes = orden.join("|");
+  orden.sort((a, b) => ((viajes[a] && viajes[a].ingreso) || 0) - ((viajes[b] && viajes[b].ingreso) || 0));
+  if (orden.join("|") === antes) return;
+  try { guardarViajes(); } catch (_) {}
+  orden.forEach((t) => pintarCliente(viajes[t]));
+  renderLista();
+}
+let dirSwipe = 0, ultSwipe = 0;
+function cambiarCliente(dir) {
+  if (orden.length < 2) return;
+  const i = Math.max(0, orden.indexOf(seleccionado));
+  const t = orden[(i + dir + orden.length) % orden.length], v = viajes[t];
+  if (!v) return;
+  dirSwipe = dir; ultSwipe = Date.now();
+  seleccionar(t, false);                       // repinta tarjeta, marcador resaltado, ruta y tiempo estimado
+  if (!Nav.enNavegacion()) {                   // con navegación activa no se rompe la cámara: solo cambia el destino
+    seguirme = false; Camara.setModo("fitbounds"); encuadrar(true); Camara.refrescarBoton();
+  }
+  try { navigator.vibrate && navigator.vibrate(15); } catch (_) {}
+  const lugar = v.destino || v.cliPos;
+  setEstado(lugar ? "👤 Viendo a " + nombreDe(v) + (esVivo(v) ? " · ubicación en vivo" : "") : "📍 " + nombreDe(v) + " aún no comparte su ubicación", "ok");
+}
+(function iniciarSwipePedidos() {
+  const h = $("hojaPedidos"); if (!h) return;
+  let x0 = 0, y0 = 0, card = null, activo = false, horiz = false;
+  h.addEventListener("touchstart", (e) => {
+    const z = e.target.closest(".pedido-card[data-token] .pc-top, .pc-pager");
+    if (!z || e.touches.length !== 1) { card = null; return; }
+    card = z.closest(".pedido-card"); x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; activo = true; horiz = false;
+  }, { passive: true });
+  h.addEventListener("touchmove", (e) => {
+    if (!activo || !card) return;
+    const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+    if (!horiz && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.3) horiz = true;
+    if (horiz && orden.length > 1) { card.style.transition = "none"; card.style.transform = "translateX(" + Math.max(-90, Math.min(90, dx * .6)) + "px)"; card.style.opacity = String(1 - Math.min(.35, Math.abs(dx) / 400)); }
+  }, { passive: true });
+  const fin = (e) => {
+    if (!activo || !card) return;
+    const c = card; activo = false; card = null;
+    const dx = ((e.changedTouches && e.changedTouches[0]) || { clientX: x0 }).clientX - x0;
+    c.style.transition = ""; c.style.transform = ""; c.style.opacity = "";
+    if (horiz) { ultSwipe = Date.now(); if (Math.abs(dx) >= 50) cambiarCliente(dx < 0 ? 1 : -1); }
+  };
+  h.addEventListener("touchend", fin, { passive: true });
+  h.addEventListener("touchcancel", fin, { passive: true });
+})();
+
+/* ============================================================
    FASE 2 · renderListaBase:
    - Añade el botón "📢 Avisar llegué" junto a "Entregado".
    - Oculta los detalles de factura interna (#cobro, #prio) para pedidos esChat.
@@ -2344,7 +2416,10 @@ function renderListaBase() {
   const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html() + htmlPedidoChat();
   if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Toca un cliente en el mapa o inicia una entrega desde Pedidos.</p>'); return; }
   const t = viajes[seleccionado] ? seleccionado : orden[0], v = viajes[t], i = orden.indexOf(t);
-  cont.innerHTML = delAdmin + `<div class="pedido-card sel${v.esChat ? " es-chat" : ""}" data-token="${t}">
+  const nTot = orden.length, anim = dirSwipe > 0 ? " sw-izq" : dirSwipe < 0 ? " sw-der" : ""; dirSwipe = 0;
+  const pager = nTot > 1 ? `<div class="pc-pager" aria-label="Cliente ${i + 1} de ${nTot}"><button type="button" data-acc="prev" aria-label="Cliente anterior">‹</button><span class="pc-dots">${orden.map((k, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</span><small>Cliente ${i + 1} de ${nTot} · desliza</small><button type="button" data-acc="next" aria-label="Cliente siguiente">›</button></div>` : "";
+  cont.innerHTML = delAdmin + `<div class="pedido-card sel${v.esChat ? " es-chat" : ""}${anim}" data-token="${t}">
+      ${pager}
       <div class="pc-top">
         <span class="pc-num">${i + 1}</span>
         <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small class="pc-sub" id="sub-${t}"></small></div>
@@ -2446,8 +2521,11 @@ $("hojaPedidos").onclick = (e) => {
   const card = e.target.closest(".pedido-card"); if (!card) return;
   const v = viajes[card.dataset.token]; if (!v) return;
   const b = e.target.closest("button[data-acc]");
+  if (Date.now() - ultSwipe < 400) return;   // el gesto de deslizar no cuenta como toque
   if (!b) return seleccionar(v.token, true);
   const acc = b.dataset.acc;
+  if (acc === "prev") return cambiarCliente(-1);
+  if (acc === "next") return cambiarCliente(1);
   if (acc === "chat") { if (!(ChatsEntrantes.abrirConv && ChatsEntrantes.abrirConv(v.token))) abrirChat(v); }
   else if (acc === "avisar") avisarLlegada(v);
   else if (acc === "entregado") cerrarViaje(v.token, "entregado");
