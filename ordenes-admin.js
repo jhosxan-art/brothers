@@ -2960,7 +2960,12 @@ const RendimientoEquipo = (() => {
   const entregas = {}, ovEnt = {};    // entregas: copia de Firebase · ovEnt: cambio local mientras se confirma
   let refEnt = null;
   const claveEnt = () => { const l = limites(modo, ref); return l.desde ? l.desde + "_" + l.hasta : "total"; };
-  const regEnt = (uid) => { const k = claveEnt(), o = ovEnt[uid] && ovEnt[uid][k]; return o !== undefined ? o : ((entregas[uid] || {})[k] || null); };
+  const LS_ENT = "brothersEntregasAdmin";
+  const leerLS = () => { try { return JSON.parse(localStorage.getItem(LS_ENT) || "{}") || {}; } catch (_) { return {}; } };
+  const guardarLS = (uid, k, v) => { try { const o = leerLS(); o[uid] = o[uid] || {}; if (v) o[uid][k] = v; else delete o[uid][k]; localStorage.setItem(LS_ENT, JSON.stringify(o)); } catch (_) {} };
+  /* Prioridad: cambio local en curso → Firebase → respaldo local (si Firebase no pudo guardar). Nunca se borra solo. */
+  const regEnt = (uid) => { const k = claveEnt(), o = ovEnt[uid] && ovEnt[uid][k]; if (o !== undefined) return o; const f = (entregas[uid] || {})[k]; if (f) return f; return (leerLS()[uid] || {})[k] || null; };
+  const esVerde = (reg) => !!(reg && reg.entregado);
   let modo = "dia", ref = null, timer = null, tPintar = null, activo = false, sigueHoy = true;   // modo: dia | semana | quincena | mes | total · por defecto HOY (monitoreo diario)
 
   /* ---------- Periodo: fechas locales (sin desfase de zona horaria) ---------- */
@@ -3030,8 +3035,8 @@ const RendimientoEquipo = (() => {
     const reg = regEnt(uid), hecha = !!(reg && reg.entregado);
     const igual = hecha && Math.abs(num(reg.monto) - t.entregar) < 0.01;
     const cuando = hecha && reg.ts ? new Date(reg.ts).toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-    const sub = hecha ? (igual ? "Confirmado" + (cuando ? " · " + cuando : "") : "Entregó " + dinero(reg.monto) + " · el total cambió, toca para volver a confirmar") : "Toca para confirmar que ya entregó";
-    const verde = hecha && igual;
+    const sub = hecha ? ("Confirmado" + (cuando ? " · " + cuando : "") + (igual ? "" : " · entregó " + dinero(reg.monto)) + (reg.local ? " · sin sincronizar" : "")) : "Toca para confirmar que ya entregó";
+    const verde = hecha;
     return `<div class="rd-min-fila ent tocable${verde ? " entregada" : ""}" role="button" tabindex="0" data-rdent="${esc(uid)}" aria-pressed="${verde ? "true" : "false"}" aria-label="Entregar a Brother’s ${esc(dinero(t.entregar))}: ${verde ? "entregado, tocar para deshacer" : "pendiente, tocar para confirmar entrega"}"><span>${verde ? "✅ Entregado a Brother’s" : "💵 Entregar a Brother’s"}<small>${esc(sub)}</small></span><b>${dinero(verde ? reg.monto : t.entregar)}</b></div>`;
   }
   async function alternarEntrega(uid) {
@@ -3040,24 +3045,26 @@ const RendimientoEquipo = (() => {
     const k = claveEnt(), reg = regEnt(uid), hecha = !!(reg && reg.entregado);
     const t = calcular(Object.values(datos[uid] || {}));
     if (!hecha && !(t.entregar > 0) && !confirm(nombre + " no tiene monto por entregar en este periodo. ¿Marcar como entregado de todos modos?")) return;
-    const msg = hecha && Math.abs(num(reg.monto) - t.entregar) < 0.01
+    const msg = hecha
       ? "¿Quitar la marca de entregado de " + nombre + "?\n\nLa tarjeta volverá a quedar pendiente."
       : "¿Confirmas que " + nombre + " ya entregó " + dinero(t.entregar) + " a Brother’s?\n\nLa tarjeta se pondrá en verde.";
     if (!confirm(msg)) return;
-    const quitar = hecha && Math.abs(num(reg.monto) - t.entregar) < 0.01;
+    const quitar = hecha;
     const nuevo = quitar ? null : { entregado: true, monto: t.entregar, ts: firebase.database.ServerValue.TIMESTAMP, por: "admin" };
     ovEnt[uid] = ovEnt[uid] || {};
-    ovEnt[uid][k] = quitar ? null : { entregado: true, monto: t.entregar, ts: Date.now() };
-    pedirPintar();
+    const local = quitar ? null : { entregado: true, monto: t.entregar, ts: Date.now() };
+    ovEnt[uid][k] = local;
+    pintar();
     try {
       await db.ref("entregasBrothers/" + uid + "/" + k).set(nuevo);
-      delete ovEnt[uid][k];
+      guardarLS(uid, k, null);
       toast(quitar ? "Entrega de " + nombre + " quitada (pendiente)." : "✅ Entrega de " + nombre + " confirmada: " + dinero(t.entregar));
     } catch (err) {
-      delete ovEnt[uid][k];
-      toast("No se pudo guardar la entrega: " + (err.message || err));
+      /* Firebase rechazó el guardado: se conserva el cambio en este dispositivo para que NO se quite solo */
+      guardarLS(uid, k, quitar ? null : Object.assign({ local: true }, local));
+      toast("Marcado solo en este dispositivo (Firebase no permitió guardar: " + (err.message || err) + "). Revisa las reglas de entregasBrothers.");
     }
-    pedirPintar();
+    setTimeout(() => { if (ovEnt[uid]) delete ovEnt[uid][k]; pedirPintar(); }, 1500);
   }
 
   function tarjeta(titulo, sub, uid, t, esTotal) {
@@ -3068,7 +3075,7 @@ const RendimientoEquipo = (() => {
     const plegada = !!uid && !!rtPleg[uid];
     const cortina = uid ? `<button class="eq-cortina rd-cortina" type="button" data-rdcort="${esc(uid)}" aria-expanded="${plegada ? "false" : "true"}" aria-label="${plegada ? "Expandir" : "Contraer"} la tarjeta de ${esc(titulo)}"><span class="eq-flecha" aria-hidden="true"></span></button>` : "";
     const filaTra = uid ? `<div class="rd-min-fila tra"><span>🏦 Se le debe en transferencias${tr.pag ? `<small>Ya pagado: ${esc(dinero(tr.pag))}</small>` : ""}</span><b>${dinero(tr.pend)}</b></div>` : "";
-    const regT = uid && !esTotal ? regEnt(uid) : null, verdeT = !!(regT && regT.entregado && Math.abs(num(regT.monto) - t.entregar) < 0.01);
+    const regT = uid && !esTotal ? regEnt(uid) : null, verdeT = esVerde(regT);
     return `<div class="rd-tarjeta${esTotal ? " total" : ""}${plegada ? " plegada" : ""}${verdeT ? " entregada" : ""}" data-uid="${esc(uid || "")}">
       <div class="rd-cab">${av}<div><strong>${esc(titulo)}</strong><small>${esc(sub)}</small></div><span class="rd-n" title="Pedidos realizados">${t.n}</span>${cortina}</div>
       <div class="rd-min">${filaEnt(uid, t, esTotal)}${filaTra}</div>
@@ -3121,7 +3128,7 @@ const RendimientoEquipo = (() => {
   function escucharEntregas() {
     if (refEnt || typeof db === "undefined") return;
     refEnt = db.ref("entregasBrothers");
-    refEnt.on("value", (s) => { const v = s.val() || {}; Object.keys(entregas).forEach((u) => delete entregas[u]); Object.assign(entregas, v); pedirPintar(); }, () => { Object.keys(entregas).forEach((u) => delete entregas[u]); pedirPintar(); });
+    refEnt.on("value", (s) => { const v = s.val() || {}; Object.keys(entregas).forEach((u) => delete entregas[u]); Object.assign(entregas, v); pedirPintar(); }, () => { pedirPintar(); });
   }
   function iniciar() { activo = true; escucharEntregas(); sincronizar(); clearInterval(timer); timer = setInterval(sincronizar, 5000); }
   function detener() { activo = false; clearInterval(timer); soltarTodo(); if (refEnt) { try { refEnt.off(); } catch (_) {} refEnt = null; } Object.keys(entregas).forEach((u) => delete entregas[u]); const c = g("rendLista"); if (c) c.innerHTML = ""; try { EntregasAdmin.limpiar(); } catch (_) {} }
@@ -3378,6 +3385,7 @@ const EntregasAdmin = (() => {
         } else { e.total = r2(Number(e.cobro.total)); e.debe = e.total; }
       }   // monto que registró el repartidor
       e.estadoPago = e.cobro && e.cobro.estado === "cobrado" ? "pagada" : "pendiente";
+      e.pagoTs = e.estadoPago === "pagada" ? (Number(e.cobro.cobradoTs) || 0) : 0;
     });
     return lista;
   }
@@ -3387,12 +3395,21 @@ const EntregasAdmin = (() => {
      app del repartidor al elegir "Transferencia". La app del repartidor solo lo muestra; el admin es quien lo declara. */
   const overlay = {};   // uid → { k: "pagada" | "pendiente" } mientras se confirma el cambio
   const pagada = (uid, e) => ((overlay[uid] && overlay[uid][e.k]) || e.estadoPago) === "pagada";
+  /* Hora en que se marcó pagada: "2:32 p. m." (si no es de hoy, con la fecha). */
+  const horaPago = (uid, e) => {
+    if (!pagada(uid, e) || !e.pagoTs) return "";
+    const d = new Date(e.pagoTs), h = d.toLocaleTimeString("es", { hour: "numeric", minute: "2-digit" });
+    return d.toDateString() === new Date().toDateString() ? h : d.toLocaleDateString("es", { day: "2-digit", month: "short" }).replace(/\./g, "") + " " + h;
+  };
+  const txtPagada = (uid, e) => { const h = horaPago(uid, e); return "✔ Pagada" + (h ? " · " + h : ""); };
   async function fijarPago(uid, k, aPagada) {
     const todas = [...(transf[uid] || []), ...(ban && ban.uid === uid ? ban.lista : [])].filter((x) => x.k === k);
     const e = todas[0]; if (!e) return;
     const estado = aPagada ? "pagada" : "pendiente";
     overlay[uid] = overlay[uid] || {};
-    const previo = overlay[uid][k];
+    const previo = overlay[uid][k], tsPrev = e.pagoTs || 0, estPrev = e.estadoPago;
+    const ahora = aPagada ? Date.now() : 0;
+    todas.forEach((x) => { x.pagoTs = ahora; });
     overlay[uid][k] = estado; avisar();
     if (ban && ban.detalle === k) abrirDetalle(k);
     try {
@@ -3409,6 +3426,7 @@ const EntregasAdmin = (() => {
       if (ban && ban.detalle === k) abrirDetalle(k);
       toast(aPagada ? `✔ Factura ${e.codigo} marcada como PAGADA (el repartidor la verá pagada)` : `⏳ Factura ${e.codigo} marcada como PENDIENTE`);
     } catch (err) {
+      todas.forEach((x) => { x.pagoTs = tsPrev; x.estadoPago = estPrev; });
       if (previo) overlay[uid][k] = previo; else delete overlay[uid][k];
       avisar();
       if (ban && ban.detalle === k) abrirDetalle(k);
@@ -3432,7 +3450,7 @@ const EntregasAdmin = (() => {
     try {
       const l = (await cargar(uid, per.desde, per.hasta)).filter((e) => e.transf);
       if (seq !== tSeq[uid]) return;
-      const firma = per.txt + "|" + JSON.stringify(l.map((e) => [e.k, e.total, e.debe, e.estadoPago]));
+      const firma = per.txt + "|" + JSON.stringify(l.map((e) => [e.k, e.total, e.debe, e.estadoPago, e.pagoTs]));
       periodoTxt = per.txt || periodoTxt;
       delete overlay[uid];
       if (firma !== firmas[uid]) { firmas[uid] = firma; transf[uid] = l; avisar(); }
@@ -3451,7 +3469,7 @@ const EntregasAdmin = (() => {
     const filas = l.map((e) => {
       const p = pagada(uid, e);
       if (p) pag += e.debe; else pend += e.debe;
-      return `<div class="tr-fila${p ? " pagada" : ""}"><span class="tr-cod">🧾 ${esc(e.codigo)}<small>${esc(e.cliente)}${e.tsReal && e.ts ? " · " + esc(fechaHora(e.ts)) : ""} · factura ${esc(dinero(e.total))}${e.mixto ? " · efectivo " + esc(dinero(e.mixto.efectivo)) : ""}</small></span><span class="tr-der"><b>${esc(dinero(e.debe))}</b><button type="button" class="tr-estado ${p ? "pagada" : "pendiente"}" data-tpago="${esc(e.k)}" data-uid="${esc(uid)}" aria-pressed="${p ? "true" : "false"}" aria-label="Factura ${esc(e.codigo)}: ${p ? "pagada, tocar para dejar pendiente" : "pendiente, tocar para marcar pagada"}">${p ? "✔ Pagada" : "⏳ Pendiente"}</button></span></div>`;
+      return `<div class="tr-fila${p ? " pagada" : ""}"><span class="tr-cod">🧾 ${esc(e.codigo)}<small>${esc(e.cliente)}${e.tsReal && e.ts ? " · " + esc(fechaHora(e.ts)) : ""} · factura ${esc(dinero(e.total))}${e.mixto ? " · efectivo " + esc(dinero(e.mixto.efectivo)) : ""}</small></span><span class="tr-der"><b>${esc(dinero(e.debe))}</b><button type="button" class="tr-estado ${p ? "pagada" : "pendiente"}" data-tpago="${esc(e.k)}" data-uid="${esc(uid)}" aria-pressed="${p ? "true" : "false"}" aria-label="Factura ${esc(e.codigo)}: ${p ? "pagada, tocar para dejar pendiente" : "pendiente, tocar para marcar pagada"}">${p ? txtPagada(uid, e) : "⏳ Pendiente"}</button></span></div>`;
     }).join("");
     pend = r2(pend); pag = r2(pag);
     const html = `<div class="tr-transf" role="group" aria-label="Pagos por transferencia"><div class="tr-tit"><b>🏦 Pagos por transferencia</b><small>${esc(periodoTxt)}</small></div>${filas}<div class="tr-total"><span>Pendiente de pagarle</span><b>${esc(dinero(pend))}</b></div><small class="tr-nota">Se le debe el total de cada factura pagada por transferencia (el cliente pagó a Brother’s). Toca “Pendiente/Pagada” para declarar el pago; el repartidor lo verá en su app.</small></div>`;
@@ -3460,7 +3478,7 @@ const EntregasAdmin = (() => {
 
   /* ---------- bandeja: facturas hechas del periodo de Rendimiento (por defecto, el día de hoy) ---------- */
   let ban = null;   // { uid, desde, hasta, txt, modoDia, dia, q, lista, cargando, error, seq, detalle }
-  const tagPago = (uid, e) => (e.transf ? `<i class="en-tag ${pagada(uid, e) ? "pagada" : "pendiente"}">🏦 ${pagada(uid, e) ? "Pagada" : "Pendiente"}</i>` : "");
+  const tagPago = (uid, e) => (e.transf ? `<i class="en-tag ${pagada(uid, e) ? "pagada" : "pendiente"}">🏦 ${pagada(uid, e) ? txtPagada(uid, e).replace("✔ ", "") : "Pendiente"}</i>` : "");
   const item = (e) => `<button type="button" class="en-item" data-k="${esc(e.k)}">
       <span class="en-cod">${esc(e.codigo)}</span><b class="en-monto">${esc(dinero(e.total))}</b>
       <span class="en-cli">${esc(e.cliente)}</span>${tagPago(ban.uid, e)}
@@ -3565,7 +3583,7 @@ const EntregasAdmin = (() => {
     const t = (txt, v, c) => `<div class="fa-t${c ? " " + c : ""}"><span>${txt}</span><b>${esc(dinero(v))}</b></div>`;
     const tot = `<div class="fa-tot">${t("🛍️ Total de productos", d.prod)}${t("🛵 Delivery", d.deliv)}${d.ex > 0 ? t("➕ Extras / mandados", d.ex, "ex") : ""}${d.otros > 0 ? t("⚡ Prioridad / IVA", d.otros) : ""}${d.ajuste ? t("Ajustes", d.ajuste) : ""}${t("Total general", e.total, "total")}</div>`;
     const caja = e.transf
-      ? `<div class="en-transf-box"><div><b>${e.mixto ? "🔀 Pago mixto" : "🏦 Pago por transferencia"}</b><span>Se le debe <b>${esc(dinero(e.debe))}</b> a ${esc(nom)}</span><small>${e.mixto ? "= total " + esc(dinero(e.total)) + " − " + esc(dinero(e.mixto.efectivo)) + " que el cliente dio en efectivo al repartidor" : "= total de la factura (el cliente pagó a Brother’s)"}</small></div><button type="button" id="enPago" class="tr-estado ${pg ? "pagada" : "pendiente"}" aria-pressed="${pg ? "true" : "false"}">${pg ? "✔ Pagada" : "⏳ Pendiente"}</button></div>`
+      ? `<div class="en-transf-box"><div><b>${e.mixto ? "🔀 Pago mixto" : "🏦 Pago por transferencia"}</b><span>Se le debe <b>${esc(dinero(e.debe))}</b> a ${esc(nom)}</span><small>${e.mixto ? "= total " + esc(dinero(e.total)) + " − " + esc(dinero(e.mixto.efectivo)) + " que el cliente dio en efectivo al repartidor" : "= total de la factura (el cliente pagó a Brother’s)"}</small></div><button type="button" id="enPago" class="tr-estado ${pg ? "pagada" : "pendiente"}" aria-pressed="${pg ? "true" : "false"}">${pg ? txtPagada(uid, e) : "⏳ Pendiente"}</button></div>`
       : "";
     const cont = e.cont
       ? `<details class="fa-det"><summary>Contabilidad del repartidor</summary><div class="fa-tot">${t("Ingresos brutos", e.cont.bruto)}${t("− Deducciones fijas", e.cont.fijo)}${t("Remanente", e.cont.bolsa)}${t("30 % Brother’s", e.cont.com)}${t("70 % repartidor", e.cont.rep)}${t("💵 Entregar a Brother’s", e.cont.entregar, "total")}</div></details>`

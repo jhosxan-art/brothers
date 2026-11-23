@@ -2513,3 +2513,7 @@ body.admin .chat.messenger.wa .chat-entrada button.primario { background: #00806
 .wa-hora.nuevo { color: #25D366; font-weight: 800; }
 .wa-ultimo { flex: 1; min-width: 0; font-size: 13.5px; color: #667781; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wa-badge { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #25D366; color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; }
+
+/* Hora de pago dentro del botón "✔ Pagada · 2:32 p. m." */
+.tr-estado.pagada { white-space: nowrap; min-width: 108px; }
+.en-tag.pagada { white-space: nowrap; }
