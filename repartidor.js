@@ -1408,6 +1408,7 @@ function crearViaje(info) {
   escucharChat(v);
   escucharEstado(v);
   escucharSubfactura(v);
+  try { Metricas.iniciar(v.token); } catch (_) {}
   cargarIngreso(v);
   ordenarPrioridad();
   try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
@@ -1555,6 +1556,7 @@ const PedidoRep = (() => {
   }
   /* FASE 2 · Contabilidad: entrega de un pedido enviado por el Admin (origen "admin") */
   async function registrarEntregaAdmin(token, o, fallback) {
+    try { Metricas.cerrar(token); } catch (_) {}
     try {
       const p = (await db.ref("pedidos/" + token).once("value")).val() || {};
       const c = Contabilidad.desdePedido(p, fallback), pago = PagosEntrega[token] || null;
@@ -1571,6 +1573,7 @@ const PedidoRep = (() => {
     if (!nuevo || nuevo === id) return;
     soltar();
     id = nuevo;
+    try { Metricas.iniciar(nuevo); } catch (_) {}
     const escuchar = (ref, cb) => { ref.on("value", cb, () => {}); refs.push(ref); };
     escuchar(db.ref("ordenes/" + nuevo), (s) => {
       if (id !== nuevo) return;
@@ -1873,6 +1876,7 @@ function guardarRastro() {
   try { localStorage.setItem("rastroViaje", JSON.stringify({ uid: uidActual, pts: rastro.slice(-800) })); } catch (_) {}
 }
 function quitarViaje(token) {
+  try { Metricas.descartar(token); } catch (_) {}
   const v = viajes[token]; if (!v) return;
   v.refCli && v.refCli.off(); v.refChat && v.refChat.off(); v.refEstado && v.refEstado.off(); (v.refExtra || []).forEach((r) => r.off());
   if (chatToken === token) { Chat.detener(); chatToken = null; }
@@ -2352,7 +2356,7 @@ function ponerIngreso(v, ts) {
 }
 function cargarIngreso(v) {
   const tk = v.token;
-  db.ref("pedidos/" + tk + "/inicio").once("value").then((s) => ponerIngreso(v, s.val())).catch(() => {});
+  db.ref("pedidos/" + tk + "/inicio").once("value").then((s) => { ponerIngreso(v, s.val()); try { Metricas.fijarInicio(tk, s.val()); } catch (_) {} }).catch(() => {});
   db.ref("solicitudes_entrantes/" + tk + "/creado").once("value").then((s) => ponerIngreso(v, s.val())).catch(() => {});
   db.ref("pedidos/" + tk + "/solicitudId").once("value").then((s) => {
     if (s.exists()) return db.ref("solicitudes_entrantes/" + s.val() + "/creado").once("value").then((c) => ponerIngreso(v, c.val()));
@@ -3022,10 +3026,50 @@ document.addEventListener("visibilitychange", async () => {
   if (mapa) { mapa.invalidateSize(); pintarYo(); dibujarRuta(); }
 });
 
+/* ============================================================
+   MÉTRICAS POR PEDIDO · km recorridos y tiempo desde la factura hasta la entrega
+   Se guardan en este aparato (no cambian las reglas de Firebase) y se suman en «Mis ganancias por día».
+   ============================================================ */
+const Metricas = (() => {
+  const LA = "metricasAct", LE = "metricasEnt";
+  const leer = (k) => { try { const o = JSON.parse(localStorage.getItem(k) || "{}"); return o && typeof o === "object" ? o : {}; } catch (_) { return {}; } };
+  const esc = (k, o) => { try { localStorage.setItem(k, JSON.stringify(o)); } catch (_) {} };
+  let act = leer(LA), ultSave = 0;
+  const guardarAct = () => esc(LA, act);
+  function iniciar(id) { if (!id || act[id]) return; act[id] = { ini: Date.now(), km: 0 }; guardarAct(); }
+  function fijarInicio(id, ts) {   // hora real en que se hizo la factura (pedidos/<token>/inicio)
+    ts = Number(ts); const a = act[id];
+    if (!a || !isFinite(ts) || ts <= 0 || ts > Date.now()) return;
+    if (ts < a.ini) { a.ini = ts; guardarAct(); }
+  }
+  function alPosicion(prev, lat, lng, prec) {
+    const ids = Object.keys(act); if (!ids.length) return;
+    const ahora = Date.now();
+    ids.forEach((id) => { if (ahora - act[id].ini > 36 * 3600 * 1000) delete act[id]; });   // pedidos olvidados
+    if (!prev || prec > 60) return;
+    const d = distanciaM(prev.lat, prev.lng, lat, lng);
+    if (d < 4 || d > 800) return;                                   // ruido del GPS / saltos
+    Object.keys(act).forEach((id) => { act[id].km += d / 1000; });
+    if (ahora - ultSave > 10000) { ultSave = ahora; guardarAct(); }
+  }
+  function cerrar(id) {
+    const a = act[id]; if (!a) return null;
+    delete act[id]; guardarAct();
+    const fin = Date.now(), r = { km: Math.round(a.km * 100) / 100, seg: Math.max(0, Math.round((fin - a.ini) / 1000)), fin };
+    const e = leer(LE); e[id] = r;
+    const ks = Object.keys(e);
+    if (ks.length > 500) ks.sort((x, y) => (e[x].fin || 0) - (e[y].fin || 0)).slice(0, ks.length - 500).forEach((k) => delete e[k]);
+    esc(LE, e); return r;
+  }
+  function descartar(id) { if (act[id]) { delete act[id]; guardarAct(); } }
+  return { iniciar, fijarInicio, alPosicion, cerrar, descartar, todas: () => leer(LE) };
+})();
+
 function procesarPosicion(c) {
   const lat = c.latitude, lng = c.longitude, precision = Math.round(c.accuracy || 0);
-  const primera = !ultimaPos;
+  const primera = !ultimaPos, prevPos = ultimaPos;
   ultimaPos = { lat, lng };
+  try { Metricas.alPosicion(prevPos, lat, lng, precision); } catch (_) {}
   try { CiudadRep.alPosicion(lat, lng); } catch (_) {}
   if (orden.length && Nav.activa()) {   // el recorrido solo se graba con la navegación activa iniciada por el repartidor
     const ult = rastro[rastro.length - 1];
@@ -3349,7 +3393,7 @@ async function cerrarViaje(token, estadoFinal) {
         : { estado: "cancelado", motivoCancelacion: "repartidor", canceladoTs: TS, repartidorGps: null });
     } catch (_) {}
   }
-  if (estadoFinal === "entregado") registrarEntregaViaje(v, token, pago);
+  if (estadoFinal === "entregado") { try { Metricas.cerrar(token); } catch (_) {} registrarEntregaViaje(v, token, pago); }
   if (v.esChat || /^sol_/.test(token)) { try { ChatsEntrantes.cerrarPedido(token, estadoFinal); } catch (_) {} }
   quitarViaje(token);
   irA("factura");
@@ -5235,7 +5279,7 @@ const Extras = (() => {
    - Botón 🎞️ del mapa: lista de viajes con ▶ Replay (pausa, 1×/4×/16×/64×, barra de tiempo), paradas 🛑 y lugares 📍.
    ============================================================ */
 const Viajes = (() => {
-  const LS_AJ = "ajustesViajes", LS_HIST = "viajeHist", LS_ACT = "viajeActual", MAX_HIST = 15, MAX_PTS = 2500;
+  const LS_AJ = "ajustesViajes", LS_HIST = "viajeHist", LS_ACT = "viajeActual", MAX_HIST = 40, MAX_PTS = 2500;
   const DEF = { grabar: true, geocercas: true, voz: true, radio: 60, permanencia: 20 };
   const aj = Object.assign({}, DEF);
   try { Object.assign(aj, JSON.parse(localStorage.getItem(LS_AJ) || "{}")); } catch (_) {}
@@ -5253,8 +5297,13 @@ const Viajes = (() => {
   function leerHist() { try { const h = JSON.parse(localStorage.getItem(LS_HIST) || "[]"); return Array.isArray(h) ? h : []; } catch (_) { return []; } }
   function guardarHist(h) {
     h.sort((a, b) => b.inicio - a.inicio);
-    h = h.slice(0, MAX_HIST);
-    for (let i = 0; i < 4; i++) { try { localStorage.setItem(LS_HIST, JSON.stringify(h)); return; } catch (_) { h = h.slice(0, Math.max(1, h.length - 3)); } }
+    /* Los 10 más recientes se guardan completos; los más viejos se compactan para que quepan 40 en el aparato */
+    const compactar = (v, max) => { const p = v.pts || []; if (p.length <= max) return v; const paso = Math.ceil(p.length / max), q = p.filter((_, i) => i % paso === 0); if (q[q.length - 1] !== p[p.length - 1]) q.push(p[p.length - 1]); return Object.assign({}, v, { pts: q }); };
+    h = h.slice(0, MAX_HIST).map((v, i) => (i >= 10 ? compactar(v, 700) : v));
+    for (let k = 0; k < MAX_HIST + 3 && h.length; k++) {
+      try { localStorage.setItem(LS_HIST, JSON.stringify(h)); return; }
+      catch (_) { if (k === 0) h = h.map((v, i) => (i >= 3 ? compactar(v, 300) : v)); else h = h.slice(0, -1); }
+    }
   }
   function distTotal(pts) { let d = 0; for (let i = 1; i < pts.length; i++) d += distanciaM(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]); return d; }
   /* Paradas: se queda ≥90 s dentro de 30 m (los puntos de un aparato quieto llegan cada 60 s) */
@@ -5436,7 +5485,7 @@ const Viajes = (() => {
     let b = $("replayBar"); if (b) return b;
     const caja = document.querySelector("#vistaMapa .mapa-caja"); if (!caja) return null;
     b = document.createElement("div"); b.id = "replayBar"; b.className = "replay-bar oculto";
-    b.innerHTML = '<div class="rp-fila"><button type="button" data-rp="play" aria-label="Pausar o reproducir">⏸</button><input id="rpSlider" type="range" min="0" max="1000" value="0" aria-label="Tiempo del viaje"><button type="button" data-rp="vel" aria-label="Velocidad de reproducción">4×</button><button type="button" data-rp="cerrar" aria-label="Cerrar replay">✕</button></div><div id="rpInfo" class="rp-info"></div>';
+    b.innerHTML = '<div class="rp-fila"><button type="button" data-rp="play" aria-label="Pausar o reproducir">⏸</button><input id="rpSlider" type="range" min="0" max="1000" value="0" aria-label="Tiempo del viaje"><button type="button" data-rp="vel" aria-label="Velocidad de reproducción">4×</button><button type="button" data-rp="cerrar" aria-label="Cerrar replay">✕</button></div><div id="rpInfo" class="rp-info"></div><button type="button" class="rp-salir" data-rp="cerrar">✕ Salir de esta ruta</button>';
     caja.appendChild(b);
     b.addEventListener("click", (e) => {
       const x = e.target.closest("[data-rp]"); if (!x || !rp) return;
@@ -5756,9 +5805,15 @@ const GananciasDia = (() => {
       const lista = porDia[dia] || [], gan = lista.reduce((a, x) => a + (Number(x.gananciaRepartidor) || 0), 0);
       resumen.innerHTML = ""; detalle.innerHTML = ""; semana.innerHTML = "";
       resumen.append(el("div", "gd-gan", moneda(gan)), el("div", "gd-nota", lista.length ? "ganaste en " + lista.length + (lista.length === 1 ? " entrega" : " entregas") : "Sin entregas este día"));
+      const MET = (typeof Metricas !== "undefined" && Metricas.todas) ? Metricas.todas() : {};
+      let kmT = 0, segT = 0, conM = 0;
+      lista.forEach((x) => { const m = MET[x.id]; if (m) { kmT += Number(m.km) || 0; segT += Number(m.seg) || 0; conM++; } });
+      const durTxt = (s) => { const m = Math.round((s || 0) / 60); return m < 1 ? "<1 min" : m < 60 ? m + " min" : Math.floor(m / 60) + " h " + pad(m % 60) + " min"; };
+      if (lista.length) resumen.append(el("div", "gd-nota gd-metr", conM ? "🛣️ " + kmT.toFixed(2) + " km · ⏱ " + durTxt(segT) + " en total" + (conM < lista.length ? " (" + conM + " de " + lista.length + " con registro)" : "") : "🛣️ Sin km ni tiempo registrados este día"));
       lista.slice().sort((a, b) => (a.tsLocal || a.ts || 0) - (b.tsLocal || b.ts || 0)).forEach((x) => {
         const f = el("div", "gd-fila"), t = el("div", "gd-fila-txt");
-        t.append(el("b", "", (x.cliente || "Cliente") + (x.pedido ? " · " + x.pedido : "")), el("small", "", (x.origen || "") + (x.metodoPago ? " · " + x.metodoPago : "")));
+        const mm = MET[x.id];
+        t.append(el("b", "", (x.cliente || "Cliente") + (x.pedido ? " · " + x.pedido : "")), el("small", "", (x.origen || "") + (x.metodoPago ? " · " + x.metodoPago : "") + (mm ? " · 🛣️ " + (Number(mm.km) || 0).toFixed(2) + " km · ⏱ " + durTxt(mm.seg) : "")));
         f.append(t, el("span", "gd-fila-monto", moneda(x.gananciaRepartidor))); detalle.append(f);
       });
       let tot = 0, n = 0;

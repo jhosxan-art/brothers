@@ -2447,3 +2447,9 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 .pc-dots { display: inline-flex; gap: 5px; align-items: center; }
 .pc-dots i { width: 7px; height: 7px; border-radius: 50%; background: #B9C4CF; }
 .pc-dots i.on { width: 18px; border-radius: 999px; background: var(--celeste-prof); }
+
+/* ===== Replay de ruta: los botones no se estiran (el botón global button{width:100%} los sacaba de la pantalla) ===== */
+#replayBar .rp-fila button { width: auto !important; flex: 0 0 auto !important; min-width: 40px; height: 36px; }
+#replayBar .rp-fila input[type=range] { flex: 1 1 0 !important; width: auto !important; min-width: 60px; }
+#replayBar .rp-salir { display: block; width: 100% !important; height: 42px !important; margin-top: 8px; border: 0 !important; border-radius: 12px !important; background: #E5484D !important; color: #fff !important; font-size: 15px; font-weight: 800; }
+.gd-metr { margin-top: 2px; font-weight: 700; }

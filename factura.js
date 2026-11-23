@@ -92,8 +92,107 @@ window.Factura = {
       try { w = window.open(url, nativo ? '_system' : '_blank'); } catch (_) {}
       if (!w && !nativo) window.location.href = url;
   }
+/* ============================================================
+   INSTANTÁNEA DE LA FACTURA EN CURSO (a prueba de cierres de la app)
+   · Guarda productos, cliente, delivery, extras y el producto que se estaba escribiendo.
+   · Se guarda en localStorage Y en IndexedDB (más durable: en algunos teléfonos el sistema mata la app
+     antes de que localStorage llegue a escribirse en disco).
+   · También recuerda si era una factura de CHAT o de un PEDIDO del cliente, y la reabre igual al volver.
+   · Se borra solo al generar/enviar la factura o al cancelarla.
+   ============================================================ */
+  const CLAVE_SNAP = 'brothersDeliverySnap', IDB_NOMBRE = 'brothersDeliveryFactura', IDB_TABLA = 'kv', VIDA_SNAP_MS = 30 * 24 * 3600 * 1000;
+  let snapBloqueado = true, idbPromesa = null, idbTimer = null, idbPendiente = undefined;
+  function idb() {
+      if (idbPromesa) return idbPromesa;
+      idbPromesa = new Promise((res) => {
+          try {
+              const r = indexedDB.open(IDB_NOMBRE, 1);
+              r.onupgradeneeded = () => { try { r.result.createObjectStore(IDB_TABLA); } catch (_) {} };
+              r.onsuccess = () => res(r.result);
+              r.onerror = () => res(null); r.onblocked = () => res(null);
+          } catch (_) { res(null); }
+      });
+      return idbPromesa;
+  }
+  function idbEscribir(valor) {
+      return idb().then((db) => new Promise((res) => {
+          if (!db) return res();
+          try {
+              const t = db.transaction(IDB_TABLA, 'readwrite'), st = t.objectStore(IDB_TABLA);
+              if (valor == null) st.delete('snap'); else st.put(valor, 'snap');
+              t.oncomplete = () => res(); t.onerror = t.onabort = () => res();
+          } catch (_) { res(); }
+      }));
+  }
+  function idbLeer() {
+      return idb().then((db) => new Promise((res) => {
+          if (!db) return res(null);
+          try { const q = db.transaction(IDB_TABLA, 'readonly').objectStore(IDB_TABLA).get('snap'); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch (_) { res(null); }
+      }));
+  }
+  function idbProgramar(valor, ya) {
+      idbPendiente = valor === undefined ? null : valor;
+      clearTimeout(idbTimer);
+      const ir = () => { const v = idbPendiente; idbPendiente = undefined; idbTimer = null; if (v !== undefined) idbEscribir(v); };
+      if (ya) ir(); else idbTimer = setTimeout(ir, 250);
+  }
+  function armarSnap() {
+      const g = (id) => document.getElementById(id);
+      const cliente = g('customerName') ? g('customerName').value : '', delivery = g('deliveryPrice') ? g('deliveryPrice').value : '';
+      const nom = g('currentProductName') ? g('currentProductName').value : '', pre = g('currentProductPrice') ? g('currentProductPrice').value : '';
+      const modo = pedidoSistema ? 'pedido' : chatDestino ? 'chat' : 'manual';
+      const hayAlgo = products.length || extraErrand || ivasExtrasActual() || String(nom).trim() || String(pre).trim() || (modo !== 'pedido' && String(delivery).trim()) || (modo === 'manual' && cliente.trim());
+      if (!hayAlgo) return null;
+      return {
+          v: 1, modo, chat: chatDestino ? { id: chatDestino.solicitudId, cliente: chatDestino.cliente } : null, pedido: pedidoSistema ? Object.assign({}, pedidoSistema) : null,
+          products: products.map((p) => ({ name: p.name, price: p.price })), extraErrand, cliente, delivery, ivasExtras: ivasExtrasActual(), deposito: depositPaid,
+          entrada: { nombre: nom, precio: pre }, ts: Date.now()
+      };
+  }
+  function guardarSnap(ya) {
+      if (snapBloqueado) return;
+      const s = armarSnap();
+      try { if (s) localStorage.setItem(CLAVE_SNAP, JSON.stringify(s)); else localStorage.removeItem(CLAVE_SNAP); } catch (_) {}
+      idbProgramar(s, !!ya);
+  }
+  const snapVigente = (s) => !!s && typeof s === 'object' && Array.isArray(s.products) && Date.now() - (Number(s.ts) || 0) <= VIDA_SNAP_MS;
+  function aplicarSnap(s) {
+      if (!snapVigente(s)) return;
+      const g = (id) => document.getElementById(id);
+      if (s.modo === 'chat' && s.chat && s.chat.id) prepararChat({ solicitudId: s.chat.id, cliente: s.chat.cliente });
+      else if (s.modo === 'pedido' && s.pedido && s.pedido.id) prepararPedido(s.pedido);
+      products = s.products.filter((p) => p && typeof p.name === 'string' && typeof p.price === 'number' && p.price >= 0).map((p) => ({ name: p.name, price: p.price }));
+      editingIndex = -1; depositPaid = !!s.deposito;
+      if (g('customerName')) g('customerName').value = String(s.cliente || '');
+      if (s.modo !== 'pedido' && g('deliveryPrice')) g('deliveryPrice').value = String(s.delivery || '');
+      fijarIvasExtras(s.ivasExtras);
+      if (s.entrada) { if (g('currentProductName')) g('currentProductName').value = String(s.entrada.nombre || ''); if (g('currentProductPrice')) g('currentProductPrice').value = String(s.entrada.precio || ''); }
+      renderProductList();
+      toggleExtraErrand(s.extraErrand === 10 || s.extraErrand === 20 ? s.extraErrand : 0);
+  }
+  /* Al abrir la app: recupera lo último que había (localStorage al instante; IndexedDB si es más reciente) */
+  function restaurarSnap() {
+      let sl = null;
+      try { sl = JSON.parse(localStorage.getItem(CLAVE_SNAP) || 'null'); } catch (_) {}
+      if (snapVigente(sl)) aplicarSnap(sl);
+      let terminado = false;
+      const liberar = () => { if (terminado) return; terminado = true; snapBloqueado = false; guardarSnap(); };
+      idbLeer().then((si) => {
+          if (terminado) return;
+          if (snapVigente(si) && (!snapVigente(sl) || (Number(si.ts) || 0) > (Number(sl.ts) || 0))) { try { aplicarSnap(si); } catch (_) {} }
+          liberar();
+      }).catch(liberar);
+      setTimeout(liberar, 1500);
+  }
+  function vaciarSnap() { try { localStorage.removeItem(CLAVE_SNAP); } catch (_) {} idbProgramar(null, true); }
+  /* Al salir de la app o ponerla en segundo plano: guarda YA (sin esperar) */
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { try { guardarBorrador(); guardarSnap(true); } catch (_) {} } });
+  window.addEventListener('pagehide', () => { try { guardarBorrador(); guardarSnap(true); } catch (_) {} });
+  window.addEventListener('freeze', () => { try { guardarSnap(true); } catch (_) {} });
+
   const CLAVE_BORRADOR = 'brothersDeliveryBorrador';
   function guardarBorrador() {
+      try { guardarSnap(); } catch (_) {}
       try {
           if (chatDestino) return guardarBorradorChat();
           if (pedidoSistema) return;
@@ -103,7 +202,8 @@ window.Factura = {
       } catch (_) {}
   }
   const CLAVE_BORRADORES_CHAT = 'brothersDeliveryBorradoresChat';
-  const VIDA_BORRADOR_MS = 12 * 3600 * 1000;
+  const VIDA_BORRADOR_MS = 3 * 24 * 3600 * 1000;      // borradores de chat: 3 días
+  const VIDA_BORRADOR_MANUAL_MS = 30 * 24 * 3600 * 1000;   // factura manual: se conserva hasta generarla o cancelarla (máx. 30 días)
   function leerBorradoresChat() {
       try { const o = JSON.parse(localStorage.getItem(CLAVE_BORRADORES_CHAT) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (_) { return {}; }
   }
@@ -131,7 +231,7 @@ window.Factura = {
   function restaurarBorrador() {
       try {
           const d = JSON.parse(localStorage.getItem(CLAVE_BORRADOR) || 'null');
-          if (!d || Date.now() - (Number(d.ts) || 0) > 12 * 3600 * 1000) return localStorage.removeItem(CLAVE_BORRADOR);
+          if (!d || Date.now() - (Number(d.ts) || 0) > VIDA_BORRADOR_MANUAL_MS) return localStorage.removeItem(CLAVE_BORRADOR);
           products = (Array.isArray(d.products) ? d.products : []).filter((p) => p && typeof p.name === 'string' && typeof p.price === 'number' && p.price >= 0)
               .map((p) => ({ name: p.name, price: p.price }));
           extraErrand = d.extraErrand === 10 || d.extraErrand === 20 ? d.extraErrand : 0;
@@ -716,7 +816,8 @@ window.Factura = {
   iniciarTecladoFactura();
 
   restaurarBorrador(); renderProductList();
-  document.getElementById('customerName').addEventListener('input', guardarBorrador);
+  restaurarSnap();
+  ['customerName', 'currentProductName', 'currentProductPrice'].forEach((id) => { const e = document.getElementById(id); if (e) e.addEventListener('input', guardarBorrador); });
   toggleExtraErrand(extraErrand); calculateTotal();
   checkAndResetStats(); checkSessionAndLogin(); renderDepositInvoices();
 
