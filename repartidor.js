@@ -2812,6 +2812,152 @@ function accionBurbuja(a) {
     elegirPedido("¿Con qué cliente quieres chatear?", (v) => { irA("mapa"); if (v && v.admin) PedidoRep.abrirChat(); else abrirChat(v); }, "", extraBtn);
   }
 }
+
+/* ============================================================
+   TARIFA SUGERIDA (única fuente de cálculo) + RECARGO NOCTURNO
+   · urbano ≤ 4.0 km: 42, 52, 62… (+10 por cada 0.8 km) · rural: round((57+12·km)/10)·10−3
+   · +C$ 20 por parada extra
+   · +C$ 10 desde las 8:30 pm hasta las 5:00 am si TODOS los puntos están dentro de Chichigalpa
+   ============================================================ */
+const TarifaRep = (() => {
+  const LIM_URBANO = 4.0, PASO_KM = 0.8, EXTRA_PARADA = 20;
+  const NOCHE_DESDE = 20 * 60 + 30, NOCHE_HASTA = 5 * 60, RECARGO_NOCHE = 10;
+  const CHI = { lat: 12.853, lng: -87.023 }, CHI_RADIO_M = 3500;   // zona urbana de Chichigalpa (ajustable)
+  const dist = (a, b) => {
+    const R = 6371000, r = Math.PI / 180, dLa = (b.lat - a.lat) * r, dLo = (b.lng - a.lng) * r;
+    const x = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  };
+  const esNoche = () => { const d = new Date(), m = d.getHours() * 60 + d.getMinutes(); return m >= NOCHE_DESDE || m < NOCHE_HASTA; };
+  const enChichigalpa = (p) => !!p && isFinite(p.lat) && isFinite(p.lng) && dist(p, CHI) <= CHI_RADIO_M;
+  const recargo = (pts) => { const v = (pts || []).filter((p) => p && isFinite(p.lat) && isFinite(p.lng)); return esNoche() && v.length >= 2 && v.every(enChichigalpa) ? RECARGO_NOCHE : 0; };
+  function base(km) {
+    const k = Math.max(0, Number(km) || 0);
+    if (k <= LIM_URBANO) return { regimen: "urbano", base: 42 + 10 * (Math.max(1, Math.ceil(k / PASO_KM - 1e-9)) - 1) };
+    return { regimen: "rural", base: Math.round((57 + 12 * k) / 10) * 10 - 3 };
+  }
+  /* `extra` incluye paradas + recargo nocturno (así no cambia el formato guardado en Firebase) */
+  function calc(km, nParadas, pts) {
+    const t = base(km), extras = Math.max(0, nParadas - 1), noche = recargo(pts), extra = extras * EXTRA_PARADA + noche;
+    return { km: Math.round(km * 100) / 100, regimen: t.regimen, base: t.base, extras, noche, extra, sugerida: t.base + extra };
+  }
+  return { base, calc, recargo, esNoche, enChichigalpa, dist, EXTRA_PARADA, RECARGO_NOCHE };
+})();
+
+/* ============================================================
+   PRECIO AL ABRIR UNA UBICACIÓN
+   Punto A = ubicación abierta. Se pregunta si es retiro o entrega y dónde está el otro punto (B);
+   se calcula la ruta por calles A → B y se muestra la tarifa sugerida (con recargo nocturno si aplica).
+   ============================================================ */
+const PrecioUbicacion = (() => {
+  let st = null, seq = 0, pickOff = null;
+  const css = document.createElement("style");
+  css.textContent = [
+    "#puWin{position:fixed;inset:0;z-index:99990;background:rgba(14,20,27,.55);display:flex;align-items:flex-end;justify-content:center}",
+    "#puWin .pu-box{width:100%;max-width:520px;max-height:88dvh;overflow:auto;background:#fff;color:#0E141B;border-radius:20px 20px 0 0;padding:16px 14px calc(16px + env(safe-area-inset-bottom,0px));display:grid;gap:10px;box-sizing:border-box}",
+    "#puWin .pu-t{font-size:17px;font-weight:800}",
+    "#puWin small{opacity:.8;overflow-wrap:anywhere}",
+    "#puWin .pu-b{width:100%;min-height:46px;padding:8px 12px;border-radius:12px;border:1px solid #C9D2DC;background:#F3F6F9;color:#0E141B;font-size:15px;font-weight:700;text-align:left}",
+    "#puWin .pu-b.p{background:#38B6FF;border-color:#38B6FF;color:#fff;text-align:center}",
+    "#puWin .pu-b.o{background:#fff;text-align:center;opacity:.85}",
+    "#puWin .pu-in{display:flex;gap:6px}",
+    "#puWin .pu-in input{flex:1;min-width:0;height:44px;padding:0 10px;border-radius:12px;border:1px solid #C9D2DC;font-size:16px}",
+    "#puWin .pu-res{display:grid;gap:4px;padding:12px;border-radius:14px;background:#EEF6FF;border:1px solid #B9D3EE;text-align:center}",
+    "#puWin .pu-res b{font-size:30px}",
+    "#puWin .pu-noche{background:#1B2540;color:#FFD866;border-radius:10px;padding:6px 10px;font-weight:700;font-size:13px}",
+    "#puPick{position:fixed;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top,0px));z-index:99999;display:flex;gap:8px;align-items:center;padding:10px 12px;border-radius:14px;background:#0E141B;color:#fff;font-size:14px}",
+    "#puPick span{flex:1}#puPick button{min-height:40px;padding:0 14px;border-radius:12px;border:0;background:#fff;color:#0E141B;font-weight:700}"
+  ].join("\n");
+  document.head.appendChild(css);
+  const h = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+  const btn = (txt, cls, fn) => { const b = h("button", "pu-b " + (cls || ""), txt); b.type = "button"; b.onclick = fn; return b; };
+  const okPt = (p) => !!p && isFinite(p.lat) && isFinite(p.lng);
+  function caja() {
+    let w = document.getElementById("puWin");
+    if (!w) { w = h("div"); w.id = "puWin"; w.appendChild(h("div", "pu-box")); document.body.appendChild(w); }
+    const b = w.querySelector(".pu-box"); b.textContent = ""; w.style.display = "flex"; return b;
+  }
+  function cerrar(sigue) {
+    seq++; if (pickOff) { pickOff(); pickOff = null; }
+    const w = document.getElementById("puWin"); if (w) w.style.display = "none";
+    const p = document.getElementById("puPick"); if (p) p.remove();
+    const s = st; st = null; if (sigue && s && s.continuar) s.continuar();
+  }
+  function pasoRol() {
+    const b = caja();
+    b.appendChild(h("div", "pu-t", "💰 Sugerencia de precio"));
+    b.appendChild(h("small", "", "📍 Punto A: " + st.A.nombre));
+    b.appendChild(h("div", "pu-t", "¿Esta ubicación es el punto de retiro o de entrega?"));
+    b.appendChild(btn("📦 Retiro (recoger el pedido aquí)", "", () => { st.rolA = "retiro"; pasoOtro(); }));
+    b.appendChild(btn("🏠 Entrega (llevar el pedido aquí)", "", () => { st.rolA = "entrega"; pasoOtro(); }));
+    b.appendChild(btn("Omitir y continuar", "o", () => cerrar(true)));
+  }
+  function pasoOtro() {
+    const b = caja(), otro = st.rolA === "retiro" ? "entrega" : "retiro";
+    b.appendChild(h("div", "pu-t", "¿Dónde está el punto de " + otro + "? (Punto B)"));
+    b.appendChild(h("small", "", "📍 A (" + st.rolA + "): " + st.A.nombre));
+    b.appendChild(btn("📌 Estoy aquí (mi ubicación actual)", "", () => { if (!ultimaPos) return alert("Aún no tengo tu GPS."); calcular({ nombre: "Mi ubicación", lat: ultimaPos.lat, lng: ultimaPos.lng }); }));
+    orden.forEach((t) => { const v = viajes[t], p = v && (v.destino || v.cliPos); if (okPt(p)) b.appendChild(btn("👤 " + nombreDe(v) + " (ubicación del cliente)", "", () => calcular({ nombre: nombreDe(v), lat: p.lat, lng: p.lng }))); });
+    const fila = h("div", "pu-in"), inp = h("input"); inp.placeholder = "🏪 Buscar negocio registrado…"; inp.autocomplete = "off";
+    const lista = h("div"); lista.style.display = "grid"; lista.style.gap = "6px";
+    const buscar = () => {
+      const q = norm(inp.value.trim()); lista.textContent = ""; if (q.length < 2) return;
+      Object.values(lugares || {}).filter((l) => l && l.nombre && okPt(l) && norm(l.nombre + " " + (l.dir || "")).includes(q)).slice(0, 5)
+        .forEach((l) => lista.appendChild(btn((l.icono || "📍") + " " + l.nombre, "", () => calcular({ nombre: l.nombre, lat: l.lat, lng: l.lng }))));
+      if (!lista.children.length) lista.appendChild(h("small", "", "No hay negocios con ese nombre."));
+    };
+    inp.oninput = buscar; fila.appendChild(inp); b.appendChild(fila); b.appendChild(lista);
+    b.appendChild(btn("🗺 Marcar en el mapa", "", marcarMapa));
+    b.appendChild(btn("← Cambiar retiro/entrega", "o", pasoRol));
+    b.appendChild(btn("Omitir y continuar", "o", () => cerrar(true)));
+  }
+  function marcarMapa() {
+    if (typeof mapa === "undefined" || !mapa) return alert("El mapa no está disponible.");
+    const w = document.getElementById("puWin"); w.style.display = "none";
+    if (vistaActual !== "mapa") irA("mapa");
+    const ban = h("div"); ban.id = "puPick"; ban.appendChild(h("span", "", "📍 Toca el mapa donde está el punto B"));
+    const cb = h("button", "", "Cancelar"); cb.type = "button"; ban.appendChild(cb); document.body.appendChild(ban);
+    const fin = () => { mapa.off("click", on); ban.remove(); pickOff = null; };
+    const on = (e) => { fin(); w.style.display = "flex"; calcular({ nombre: "Punto marcado en el mapa", lat: Math.round(e.latlng.lat * 1e6) / 1e6, lng: Math.round(e.latlng.lng * 1e6) / 1e6 }); };
+    cb.onclick = () => { fin(); w.style.display = "flex"; pasoOtro(); };
+    pickOff = fin; mapa.on("click", on);
+  }
+  async function calcular(B) {
+    const my = ++seq; st.B = B;
+    const b = caja(); b.appendChild(h("div", "pu-t", "Calculando ruta por calles…"));
+    let km = 0;
+    try { const r = await Ordenes.rutaCalles({ lat: st.A.lat, lng: st.A.lng }, { lat: B.lat, lng: B.lng }); if (r && isFinite(r.dist)) km = Math.round(r.dist / 10) / 100; } catch (_) {}
+    if (my !== seq || !st) return;
+    if (!(km > 0)) return resultado(null, true);
+    resultado(km, false);
+  }
+  function resultado(km, manual) {
+    const b = caja(), A = st.A, B = st.B;
+    b.appendChild(h("div", "pu-t", "💰 Precio sugerido"));
+    b.appendChild(h("small", "", "A (" + st.rolA + "): " + A.nombre + "  →  B (" + (st.rolA === "retiro" ? "entrega" : "retiro") + "): " + B.nombre));
+    if (manual) {
+      b.appendChild(h("small", "", "No se pudo calcular la ruta por calles. Escribe los km del recorrido:"));
+      const fila = h("div", "pu-in"), i = h("input"); i.type = "number"; i.step = "0.1"; i.inputMode = "decimal"; i.placeholder = "Km";
+      const ok = btn("Calcular", "p", () => { const k = parseFloat(i.value); if (k > 0) { b.textContent = ""; resultado(k, false); } });
+      ok.style.width = "auto"; fila.appendChild(i); fila.appendChild(ok); b.appendChild(fila);
+    } else {
+      const c = TarifaRep.calc(km, 1, [A, B]), res = h("div", "pu-res");
+      res.appendChild(h("small", "", "Tarifa sugerida")); res.appendChild(h("b", "", "C$ " + Math.round(c.sugerida)));
+      res.appendChild(h("small", "", c.km.toFixed(2) + " km · " + (c.regimen === "urbano" ? "urbano" : "rural")));
+      b.appendChild(res);
+      if (c.noche > 0) b.appendChild(h("div", "pu-noche", "🌙 Incluye recargo nocturno +C$ " + c.noche + " (después de las 8:30 pm, dentro de Chichigalpa)"));
+    }
+    b.appendChild(btn("✅ Continuar con la ubicación", "p", () => cerrar(true)));
+    b.appendChild(btn("Cambiar punto B", "o", pasoOtro));
+  }
+  function abrir(lugar, continuar) {
+    if (!okPt(lugar)) return continuar && continuar();
+    cerrar(false);
+    st = { A: { nombre: lugar.nombre || "Ubicación compartida", lat: lugar.lat, lng: lugar.lng }, continuar, rolA: "retiro", B: null };
+    pasoRol();
+  }
+  return { abrir };
+})();
 async function recibirUbicacion(texto) {
   let c = Buscar.coords(texto), nombre = "Ubicación compartida";
   const l1 = texto.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).find((x) => !/^(https?:|geo:)/i.test(x) && !Buscar.coords(x));
@@ -2824,6 +2970,9 @@ async function recibirUbicacion(texto) {
   }
   if (!c) return alert("No encontré una ubicación en lo que compartiste. Comparte un enlace de Google Maps, Waze, geo: o las coordenadas.\n\nNota: la ubicación EN TIEMPO REAL de WhatsApp solo se ve dentro de WhatsApp; usa “Contactarme al cliente” para que el cliente comparta la suya con tu app.");
   const lugar = { nombre, lat: c.lat, lng: c.lng, icono: "📍" };
+  PrecioUbicacion.abrir(lugar, () => continuarUbicacion(lugar, c, nombre));
+}
+function continuarUbicacion(lugar, c, nombre) {
   if (!orden.length) return irALugar(lugar, true, true);
   elegirPedido("📍 " + nombre + "\n¿Qué hacemos con esta ubicación?", (v, modo) => {
     if (modo === "ir" || !v) return irALugar(lugar, true, true);
@@ -4118,15 +4267,7 @@ const ChatsEntrantes = (() => {
     const x = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(x));
   }
-  function tarifaBase(km) {
-    const k = Math.max(0, Number(km) || 0);
-    if (k <= LIM_URBANO) return { regimen: "urbano", base: 42 + 10 * (Math.max(1, Math.ceil(k / PASO_KM - 1e-9)) - 1) };
-    return { regimen: "rural", base: Math.round((57 + 12 * k) / 10) * 10 - 3 };
-  }
-  function calcTarifa(km, nParadas) {
-    const t = tarifaBase(km), extras = Math.max(0, nParadas - 1), extra = extras * EXTRA_PARADA;
-    return { km: Math.round(km * 100) / 100, regimen: t.regimen, base: t.base, extras, extra, sugerida: t.base + extra };
-  }
+  const calcTarifa = (km, nParadas, pts) => TarifaRep.calc(km, nParadas, pts);   // incluye recargo nocturno (+C$10 después de 8:30 pm en Chichigalpa)
   function destinoDe(d) {
     const p = d && d.pedido, g = d && d.clienteGps;
     if (p && okPt(p.destino)) return { lat: p.destino.lat, lng: p.destino.lng };
@@ -4291,7 +4432,7 @@ const ChatsEntrantes = (() => {
       km = Math.round(dist / 10) / 100; f.km = km; f.needKm = false;
     }
     if (!(km > 0)) { f.needKm = true; f.msg = "Escribe los km del recorrido."; return refrescarNeg(); }
-    f.calc = calcTarifa(km, f.stops.length); f.msg = "";
+    f.calc = calcTarifa(km, f.stops.length, f.stops.concat(dest ? [dest] : [])); f.msg = "";
     refrescarNeg();
   }
   const refrescarNeg = () => { if (negForm && lista[negForm.id]) actualizarNeg(lista[negForm.id]); };
@@ -4312,7 +4453,9 @@ const ChatsEntrantes = (() => {
     if (t) {
       res.appendChild(el("small", "", "Tarifa sugerida por el sistema"));
       res.appendChild(el("b", "", money(t.sugerida)));
-      res.appendChild(el("small", "", Number(t.km).toFixed(2) + " km · " + (t.regimen === "urbano" ? "urbano" : "rural") + (t.extras > 0 ? " · " + t.extras + " parada(s) extra (+" + money(t.extra) + ")" : "")));
+      res.appendChild(el("small", "", Number(t.km).toFixed(2) + " km · " + (t.regimen === "urbano" ? "urbano" : "rural") + (t.extras > 0 ? " · " + t.extras + " parada(s) extra (+" + money(t.extras * EXTRA_PARADA) + ")" : "")));
+      const noche = Math.max(0, Math.round((Number(t.extra) || 0) - (t.extras || 0) * EXTRA_PARADA));
+      if (noche > 0) res.appendChild(el("small", "", "🌙 Incluye recargo nocturno +" + money(noche) + " (después de las 8:30 pm, dentro de Chichigalpa)"));
     }
     mostrar("spNegRes", !!t && !acep);
     msg.textContent = f.msg || ""; mostrar("spNegMsg", !!f.msg && editando);
