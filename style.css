@@ -2451,5 +2451,12 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 /* ===== Replay de ruta: los botones no se estiran (el botón global button{width:100%} los sacaba de la pantalla) ===== */
 #replayBar .rp-fila button { width: auto !important; flex: 0 0 auto !important; min-width: 40px; height: 36px; }
 #replayBar .rp-fila input[type=range] { flex: 1 1 0 !important; width: auto !important; min-width: 60px; }
-#replayBar .rp-salir { display: block; width: 100% !important; height: 42px !important; margin-top: 8px; border: 0 !important; border-radius: 12px !important; background: #E5484D !important; color: #fff !important; font-size: 15px; font-weight: 800; }
 .gd-metr { margin-top: 2px; font-weight: 700; }
+
+/* ===== Replay compacto: panel de pedidos oculto, barra delgada abajo y translúcida ===== */
+body.replay-activo #barraHoja, body.replay-activo #hojaPedidos { display: none !important; }
+#vistaMapa .replay-bar { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); padding: 5px 8px 4px; border-radius: 14px; background: rgba(14,20,27,.80); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+#replayBar .rp-fila { gap: 6px; }
+#replayBar .rp-fila button { min-width: 34px !important; height: 32px !important; padding: 0 6px !important; font-size: 13px; border-radius: 9px; }
+#replayBar .rp-fila button.rp-x { background: #E5484D !important; color: #fff; }
+#replayBar .rp-info { margin-top: 1px; font-size: 11px; line-height: 1.2; }

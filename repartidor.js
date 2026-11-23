@@ -5485,7 +5485,7 @@ const Viajes = (() => {
     let b = $("replayBar"); if (b) return b;
     const caja = document.querySelector("#vistaMapa .mapa-caja"); if (!caja) return null;
     b = document.createElement("div"); b.id = "replayBar"; b.className = "replay-bar oculto";
-    b.innerHTML = '<div class="rp-fila"><button type="button" data-rp="play" aria-label="Pausar o reproducir">⏸</button><input id="rpSlider" type="range" min="0" max="1000" value="0" aria-label="Tiempo del viaje"><button type="button" data-rp="vel" aria-label="Velocidad de reproducción">4×</button><button type="button" data-rp="cerrar" aria-label="Cerrar replay">✕</button></div><div id="rpInfo" class="rp-info"></div><button type="button" class="rp-salir" data-rp="cerrar">✕ Salir de esta ruta</button>';
+    b.innerHTML = '<div class="rp-fila"><button type="button" data-rp="play" aria-label="Pausar o reproducir">⏸</button><input id="rpSlider" type="range" min="0" max="1000" value="0" aria-label="Tiempo del viaje"><button type="button" data-rp="vel" aria-label="Velocidad de reproducción">4×</button><button type="button" data-rp="cerrar" class="rp-x" aria-label="Salir de la ruta">✕</button></div><div id="rpInfo" class="rp-info"></div>';
     caja.appendChild(b);
     b.addEventListener("click", (e) => {
       const x = e.target.closest("[data-rp]"); if (!x || !rp) return;
@@ -5515,7 +5515,10 @@ const Viajes = (() => {
     caja.classList.add("replay-on"); b.classList.remove("oculto");
     b.querySelector('[data-rp="play"]').textContent = "⏸"; b.querySelector('[data-rp="vel"]').textContent = "4×";
     Camara.setModo("fitbounds"); Camara.norte(); seguirme = false; Camara.refrescarBoton();
-    try { mapa.fitBounds(L.latLngBounds(ll), { padding: [70, 70], animate: false }); } catch (_) {}
+    document.body.classList.add("replay-activo");   // oculta el panel de pedidos de abajo: el mapa ocupa toda la pantalla
+    try { mapa.invalidateSize(false); } catch (_) {}
+    try { mapa.fitBounds(L.latLngBounds(ll), { paddingTopLeft: [28, 96], paddingBottomRight: [28, 84], animate: false }); } catch (_) {}
+    setTimeout(() => { try { if (rp) { mapa.invalidateSize(false); mapa.fitBounds(L.latLngBounds(ll), { paddingTopLeft: [28, 96], paddingBottomRight: [28, 84], animate: false }); } } catch (_) {} }, 150);
     const loop = (now) => {
       if (!rp) return;
       const dt = Math.min(0.1, (now - rp.last) / 1000); rp.last = now;
@@ -5535,7 +5538,14 @@ const Viajes = (() => {
     if (distanciaM(a[0], a[1], b[0], b[1]) > 1.5) rp.rumbo = rumboPts(a, b);
     { const em = rp.marca.getElement && rp.marca.getElement(); if (em && rp.rumbo != null) em.style.setProperty("--giro-rep", rp.rumbo.toFixed(1) + "deg"); }   // la moto apunta hacia donde avanza
     if (now - rp.ultProg > 100 || !rp.play) { rp.ultProg = now; rp.prog.setLatLngs(rp.ll.slice(0, lo + 1).concat([[lat, lng]])); }
-    try { if (!mapa.getBounds().pad(-0.2).contains([lat, lng])) mapa.panTo([lat, lng], { animate: true, duration: 0.4 }); } catch (_) {}
+    try {
+      const sz = mapa.getSize(), p = mapa.latLngToContainerPoint([lat, lng]), bar = $("replayBar"), cont = mapa.getContainer();
+      const arriba = 96, abajo = bar && !bar.classList.contains("oculto") ? Math.max(0, cont.getBoundingClientRect().bottom - bar.getBoundingClientRect().top) + 28 : 40;
+      if (p.x < 40 || p.x > sz.x - 40 || p.y < arriba || p.y > sz.y - abajo) {
+        const ty = arriba + (sz.y - abajo - arriba) / 2;   // centro de la zona libre
+        mapa.panBy([p.x - sz.x / 2, p.y - ty], { animate: true, duration: 0.4 });
+      }
+    } catch (_) {}
     const sl = $("rpSlider"); if (sl && document.activeElement !== sl) sl.value = String(Math.round((t / rp.dur) * 1000));
     const info = $("rpInfo"); if (info) info.textContent = `${fhora(rp.v.inicio + t * 1000)} · ${fdur(t)} de ${fdur(rp.dur)} · ${Math.round(a[3] || 0)} km/h`;
   }
@@ -5545,6 +5555,7 @@ const Viajes = (() => {
     try { mapa.removeLayer(r.grupo); } catch (_) {}
     const b = $("replayBar"); if (b) b.classList.add("oculto");
     const caja = document.querySelector("#vistaMapa .mapa-caja"); if (caja) caja.classList.remove("replay-on");
+    document.body.classList.remove("replay-activo"); setTimeout(() => { try { mapa.invalidateSize(false); } catch (_) {} }, 60);
     seguirme = true; Camara.setModo(r.modoPrev === "navegacion" ? "navegacion" : "fitbounds"); Camara.refrescarBoton(); Camara.actualizar(true);
   }
 
