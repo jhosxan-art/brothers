@@ -304,7 +304,7 @@ const Chat = (() => {
     const propia = soloLectura ? m.de === "repartidor" : m.de === yo;
     const b = document.createElement("div");
     b.className = "burbuja " + (propia ? "propia" : "ajena");
-    b.dataset.id = id;
+    b.dataset.id = id; b.dataset.de = m.de || "";
     if (soloLectura || !propia) {
       const quien = document.createElement("span");
       quien.className = "quien";
@@ -320,12 +320,13 @@ const Chat = (() => {
       b.appendChild(img);
       db.ref(`${R.fotos}/${token}/${id}`).once("value").then((s) => { img.src = s.val() || ""; }).catch(() => { img.alt = "Foto no disponible"; });
     }
-    if (m.texto) { const p = document.createElement("p"); p.textContent = m.texto; b.appendChild(p); }
+    if (m.texto) { const p = document.createElement("p"); p.textContent = m.texto; p.style.whiteSpace = "pre-wrap"; b.appendChild(p); }
     const h = document.createElement("small");
     h.className = "hora";
     const f = m.ts ? new Date(m.ts) : null;
+    const hoy = f && f.toDateString() === new Date().toDateString();
     h.textContent = !f ? "" : (soloLectura || yo === "admin")
-      ? f.toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+      ? (hoy ? f.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : f.toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }))
       : f.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
     if (propia || soloLectura) {   // palomitas en los mensajes que yo envié (el administrador las ve en todos)
       const k = document.createElement("span");
@@ -385,7 +386,8 @@ const Chat = (() => {
       if (!cargando && !soloLectura && m.de !== yo) {
         // opciones.avisos === false: otra parte de la app (repartidor con varios pedidos) se encarga de avisar
         if (opciones.avisos !== false) {
-          Voz.hablar(fraseMensaje(m));
+          if (yo === "admin" && m.de === "repartidor" && Voz.mensajeRepartidorResumen) Voz.mensajeRepartidorResumen(ctx.nombreRepartidor, m.texto, { foto: !!m.foto, clave: "chat:" + token + ":" + s.key });
+          else Voz.hablar(fraseMensaje(m));
           if (!abierto) { navigator.vibrate && navigator.vibrate(200); }
         }
         if (!abierto) { sinLeer++; opciones.alNoLeidos && opciones.alNoLeidos(sinLeer); }

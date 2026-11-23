@@ -193,6 +193,37 @@ const Voz = (() => {
     hablar(f, { forzar: true });
   };
 
+  /* Mensaje de un repartidor al administrador: dice su nombre y un resumen breve del texto.
+     clave = identificador único del mensaje (uid:ts): evita repetir un aviso ya anunciado. */
+  const anunciados = new Set();
+  function resumir(t, max = 90) {
+    let x = String(t == null ? "" : t)
+      .replace(/https?:\/\/\S+/gi, " un enlace ")
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, " ")
+      .replace(/\s+/g, " ").trim();
+    if (x.length > max) {
+      x = x.slice(0, max);
+      const i = x.lastIndexOf(" ");
+      x = (i > 40 ? x.slice(0, i) : x).replace(/[,;:.\s]+$/, "") + "…";
+    }
+    return x;
+  }
+  const mensajeRepartidorResumen = (nombre, texto, opc) => {
+    opc = opc || {};
+    if (opc.clave) {
+      if (anunciados.has(opc.clave)) return false;
+      anunciados.add(opc.clave);
+      if (anunciados.size > 300) anunciados.delete(anunciados.values().next().value);
+    }
+    const n = String(nombre || "").trim() || "Un repartidor";
+    const r = resumir(texto) || (opc.foto ? "te envió una foto" : "");
+    const frase = r ? "Mensaje de " + n + ": " + r : n + " te ha enviado un mensaje";
+    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (_) {}
+    if (window.NOMBRE_APP === "admin") mantenerVivo();
+    hablar(frase, { forzar: true });
+    return true;
+  };
+
   const lista = () => desbloqueada;
 
   /* Alerta de prioridad (se repite 2 veces para que se oiga aunque el repartidor esté manejando) */
@@ -233,6 +264,6 @@ const Voz = (() => {
     hablar(FRASES.clienteRepartidorCerca, { forzar: true, repetir: 2, pausaMs: 2500 });
   };
 
-  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, clienteEscribio, chatAviso, prioridad, solicitud, solicitudAdmin, solicitudEvento, alertaPedido, mantenerVivo,
+  return { FRASES, hablar, parar, pitido, activar, lista, soporta, repartidorEscribio, mensajeRepartidorResumen, clienteEscribio, chatAviso, prioridad, solicitud, solicitudAdmin, solicitudEvento, alertaPedido, mantenerVivo,
            clientePedidoAceptado, clienteMensajeNuevo, clienteRepartidorCerca };
 })();

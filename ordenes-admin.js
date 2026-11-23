@@ -2290,9 +2290,15 @@ const ChatMessenger = (() => {
     prog = false;
     const c = document.querySelector("body.admin .chat");
     if (!c) return;
-    c.classList.add("messenger");
+    c.classList.add("messenger", "wa");
     const cx = contexto();
     if (!cx) return;
+    const subEl = c.querySelector("#chatSub");
+    if (subEl && cx.uid && !subEl.classList.contains("escribiendo")) {
+      const est = estadoTxt(cx.uid);
+      if (est && subEl.textContent !== est && /^(Equipo|En ruta|en ruta|en línea|sin señal|desconectado|sin datos)/.test(subEl.textContent)) subEl.textContent = est;
+      subEl.dataset.est = est;
+    }
     const barra = c.querySelector(".chat-barra");
     if (barra) {
       const previo = barra.querySelector(".msg-av-cab");
@@ -2313,6 +2319,10 @@ const ChatMessenger = (() => {
     });
   }
   const pedir = () => { if (!prog) { prog = true; requestAnimationFrame(decorar); } };
+  /* Estado del repartidor en la cabecera (si no está escribiendo): En ruta · En línea · Sin señal · Desconectado */
+  function estadoTxt(uid) {
+    try { const e = typeof estadoDe === "function" ? estadoDe(uid) : "sinDatos"; return { enRuta: "en ruta", libre: "en línea", sinSenal: "sin señal", desconectado: "desconectado" }[e] || "sin datos"; } catch (_) { return ""; }
+  }
   function iniciar() {
     if (obs) return;
     obs = new MutationObserver(pedir);
@@ -2946,6 +2956,11 @@ const RendimientoEquipo = (() => {
   const dinero = (n) => "C$ " + r2(n).toFixed(2);
   const PCT_BROTHERS = 0.3, IVA = 7;
   const refs = {}, datos = {};        // uid → ref / registros
+  /* Entregas a Brother’s: entregasBrothers/{uid}/{periodo} = { entregado, monto, ts, por }. periodo = "desde_hasta" o "total". */
+  const entregas = {}, ovEnt = {};    // entregas: copia de Firebase · ovEnt: cambio local mientras se confirma
+  let refEnt = null;
+  const claveEnt = () => { const l = limites(modo, ref); return l.desde ? l.desde + "_" + l.hasta : "total"; };
+  const regEnt = (uid) => { const k = claveEnt(), o = ovEnt[uid] && ovEnt[uid][k]; return o !== undefined ? o : ((entregas[uid] || {})[k] || null); };
   let modo = "dia", ref = null, timer = null, tPintar = null, activo = false, sigueHoy = true;   // modo: dia | semana | quincena | mes | total · por defecto HOY (monitoreo diario)
 
   /* ---------- Periodo: fechas locales (sin desfase de zona horaria) ---------- */
@@ -3010,6 +3025,41 @@ const RendimientoEquipo = (() => {
   try { rtPleg = JSON.parse(localStorage.getItem(CLAVE_RT) || "{}") || {}; } catch (_) { rtPleg = {}; }
   const guardarRt = () => { try { localStorage.setItem(CLAVE_RT, JSON.stringify(rtPleg)); } catch (_) {} };
 
+  function filaEnt(uid, t, esTotal) {
+    if (!uid || esTotal) return `<div class="rd-min-fila ent"><span>💵 Entregar a Brother’s<small>Deducciones fijas + 30 % acumulado</small></span><b>${dinero(t.entregar)}</b></div>`;
+    const reg = regEnt(uid), hecha = !!(reg && reg.entregado);
+    const igual = hecha && Math.abs(num(reg.monto) - t.entregar) < 0.01;
+    const cuando = hecha && reg.ts ? new Date(reg.ts).toLocaleString("es", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+    const sub = hecha ? (igual ? "Confirmado" + (cuando ? " · " + cuando : "") : "Entregó " + dinero(reg.monto) + " · el total cambió, toca para volver a confirmar") : "Toca para confirmar que ya entregó";
+    const verde = hecha && igual;
+    return `<div class="rd-min-fila ent tocable${verde ? " entregada" : ""}" role="button" tabindex="0" data-rdent="${esc(uid)}" aria-pressed="${verde ? "true" : "false"}" aria-label="Entregar a Brother’s ${esc(dinero(t.entregar))}: ${verde ? "entregado, tocar para deshacer" : "pendiente, tocar para confirmar entrega"}"><span>${verde ? "✅ Entregado a Brother’s" : "💵 Entregar a Brother’s"}<small>${esc(sub)}</small></span><b>${dinero(verde ? reg.monto : t.entregar)}</b></div>`;
+  }
+  async function alternarEntrega(uid) {
+    if (typeof db === "undefined" || !uid) return;
+    const nombre = typeof nombreUid === "function" ? nombreUid(uid) : "el repartidor";
+    const k = claveEnt(), reg = regEnt(uid), hecha = !!(reg && reg.entregado);
+    const t = calcular(Object.values(datos[uid] || {}));
+    if (!hecha && !(t.entregar > 0) && !confirm(nombre + " no tiene monto por entregar en este periodo. ¿Marcar como entregado de todos modos?")) return;
+    const msg = hecha && Math.abs(num(reg.monto) - t.entregar) < 0.01
+      ? "¿Quitar la marca de entregado de " + nombre + "?\n\nLa tarjeta volverá a quedar pendiente."
+      : "¿Confirmas que " + nombre + " ya entregó " + dinero(t.entregar) + " a Brother’s?\n\nLa tarjeta se pondrá en verde.";
+    if (!confirm(msg)) return;
+    const quitar = hecha && Math.abs(num(reg.monto) - t.entregar) < 0.01;
+    const nuevo = quitar ? null : { entregado: true, monto: t.entregar, ts: firebase.database.ServerValue.TIMESTAMP, por: "admin" };
+    ovEnt[uid] = ovEnt[uid] || {};
+    ovEnt[uid][k] = quitar ? null : { entregado: true, monto: t.entregar, ts: Date.now() };
+    pedirPintar();
+    try {
+      await db.ref("entregasBrothers/" + uid + "/" + k).set(nuevo);
+      delete ovEnt[uid][k];
+      toast(quitar ? "Entrega de " + nombre + " quitada (pendiente)." : "✅ Entrega de " + nombre + " confirmada: " + dinero(t.entregar));
+    } catch (err) {
+      delete ovEnt[uid][k];
+      toast("No se pudo guardar la entrega: " + (err.message || err));
+    }
+    pedirPintar();
+  }
+
   function tarjeta(titulo, sub, uid, t, esTotal) {
     const av = uid ? `<span class="avatar" data-av="${esc(uid)}">${typeof RIDER_SVG !== "undefined" ? RIDER_SVG : "🛵"}</span>` : '<span class="avatar" aria-hidden="true">👥</span>';
     const conteo = [t.d7 ? `C$ 7 × ${t.d7}` : "", t.d14 ? `C$ 14 × ${t.d14}` : "", t.d21 ? `C$ 21 × ${t.d21}` : "", t.dOtro ? `otras × ${t.dOtro}` : "", t.ivaN ? `IVA extra (C$ 7) × ${t.ivaN}` : ""].filter(Boolean).join(" · ") || "Sin deducciones";
@@ -3018,9 +3068,10 @@ const RendimientoEquipo = (() => {
     const plegada = !!uid && !!rtPleg[uid];
     const cortina = uid ? `<button class="eq-cortina rd-cortina" type="button" data-rdcort="${esc(uid)}" aria-expanded="${plegada ? "false" : "true"}" aria-label="${plegada ? "Expandir" : "Contraer"} la tarjeta de ${esc(titulo)}"><span class="eq-flecha" aria-hidden="true"></span></button>` : "";
     const filaTra = uid ? `<div class="rd-min-fila tra"><span>🏦 Se le debe en transferencias${tr.pag ? `<small>Ya pagado: ${esc(dinero(tr.pag))}</small>` : ""}</span><b>${dinero(tr.pend)}</b></div>` : "";
-    return `<div class="rd-tarjeta${esTotal ? " total" : ""}${plegada ? " plegada" : ""}" data-uid="${esc(uid || "")}">
+    const regT = uid && !esTotal ? regEnt(uid) : null, verdeT = !!(regT && regT.entregado && Math.abs(num(regT.monto) - t.entregar) < 0.01);
+    return `<div class="rd-tarjeta${esTotal ? " total" : ""}${plegada ? " plegada" : ""}${verdeT ? " entregada" : ""}" data-uid="${esc(uid || "")}">
       <div class="rd-cab">${av}<div><strong>${esc(titulo)}</strong><small>${esc(sub)}</small></div><span class="rd-n" title="Pedidos realizados">${t.n}</span>${cortina}</div>
-      <div class="rd-min"><div class="rd-min-fila ent"><span>💵 Entregar a Brother’s<small>Deducciones fijas + 30 % acumulado</small></span><b>${dinero(t.entregar)}</b></div>${filaTra}</div>
+      <div class="rd-min">${filaEnt(uid, t, esTotal)}${filaTra}</div>
       <div class="rd-cuerpo"><div class="rd-cuerpo-in"${plegada ? " inert" : ""}>
         <div class="rd-orig"><div><b>${t.admin}</b><small>🛡️ Admin</small></div><div><b>${t.wa}</b><small>💬 WhatsApp / Factura manual</small></div><div><b>${t.app}</b><small>📱 App Cliente</small></div></div>
         <div class="rd-filas">
@@ -3067,8 +3118,13 @@ const RendimientoEquipo = (() => {
     Object.keys(refs).forEach((u) => { if (uids.indexOf(u) < 0) { try { refs[u].off(); } catch (_) {} delete refs[u]; delete datos[u]; } });
     pedirPintar();
   }
-  function iniciar() { activo = true; sincronizar(); clearInterval(timer); timer = setInterval(sincronizar, 5000); }
-  function detener() { activo = false; clearInterval(timer); soltarTodo(); const c = g("rendLista"); if (c) c.innerHTML = ""; try { EntregasAdmin.limpiar(); } catch (_) {} }
+  function escucharEntregas() {
+    if (refEnt || typeof db === "undefined") return;
+    refEnt = db.ref("entregasBrothers");
+    refEnt.on("value", (s) => { const v = s.val() || {}; Object.keys(entregas).forEach((u) => delete entregas[u]); Object.assign(entregas, v); pedirPintar(); }, () => { Object.keys(entregas).forEach((u) => delete entregas[u]); pedirPintar(); });
+  }
+  function iniciar() { activo = true; escucharEntregas(); sincronizar(); clearInterval(timer); timer = setInterval(sincronizar, 5000); }
+  function detener() { activo = false; clearInterval(timer); soltarTodo(); if (refEnt) { try { refEnt.off(); } catch (_) {} refEnt = null; } Object.keys(entregas).forEach((u) => delete entregas[u]); const c = g("rendLista"); if (c) c.innerHTML = ""; try { EntregasAdmin.limpiar(); } catch (_) {} }
 
   /* ---------- Selector de periodo (barra con flechas + ventana con calendario) ---------- */
   function pintarPeriodo() {
@@ -3120,6 +3176,11 @@ const RendimientoEquipo = (() => {
   }
   (function enlazarTarjetas() {
     const caja = g("rendLista"); if (!caja) return;
+    caja.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      const en = ev.target.closest && ev.target.closest("[data-rdent]");
+      if (en) { ev.preventDefault(); alternarEntrega(en.dataset.rdent); }
+    });
     caja.addEventListener("click", (ev) => {
       const c = ev.target.closest("[data-rdcort]");
       if (c) {
@@ -3133,6 +3194,8 @@ const RendimientoEquipo = (() => {
         const inner = card.querySelector(".rd-cuerpo-in"); if (inner && "inert" in inner) inner.inert = plegar;
         return;
       }
+      const en = ev.target.closest("[data-rdent]");
+      if (en) { alternarEntrega(en.dataset.rdent); return; }
       const p = ev.target.closest("[data-tpago]");
       if (p) { try { EntregasAdmin.alternarPago(p.dataset.uid, p.dataset.tpago); } catch (e) { console.warn(e); } return; }
       const f = ev.target.closest("[data-rdfac]");

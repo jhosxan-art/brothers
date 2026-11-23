@@ -2460,3 +2460,56 @@ body.replay-activo #barraHoja, body.replay-activo #hojaPedidos { display: none !
 #replayBar .rp-fila button { min-width: 34px !important; height: 32px !important; padding: 0 6px !important; font-size: 13px; border-radius: 9px; }
 #replayBar .rp-fila button.rp-x { background: #E5484D !important; color: #fff; }
 #replayBar .rp-info { margin-top: 1px; font-size: 11px; line-height: 1.2; }
+
+/* ============================================================
+   ADMIN · Entregar a Brother’s (tarjeta tocable → verde al confirmar)
+   ============================================================ */
+.rd-min-fila.ent.tocable { cursor: pointer; transition: background .2s, border-color .2s, color .2s, transform .1s; -webkit-tap-highlight-color: transparent; }
+.rd-min-fila.ent.tocable:active { transform: scale(.98); }
+.rd-min-fila.ent.tocable:focus-visible { outline: 3px solid var(--celeste); outline-offset: 2px; }
+.rd-min-fila.ent.entregada { background: #DCF8E3; color: #0B5D2A; border-color: #25D366; }
+.rd-tarjeta.entregada { border-color: #25D366; box-shadow: 0 0 0 1px #25D366 inset; }
+
+/* ============================================================
+   ADMIN · Chat estilo WhatsApp (cabecera con foto, burbujas, lista)
+   ============================================================ */
+body.admin .chat.messenger.wa { background: #EFEAE2; }
+body.admin .chat.messenger.wa .chat-barra { background: #008069; color: #fff; border-bottom: 0; box-shadow: 0 1px 3px rgba(0,0,0,.25); gap: 8px; }
+body.admin .chat.messenger.wa .chat-barra strong { color: #fff; font-size: 16.5px; }
+body.admin .chat.messenger.wa .chat-barra small { color: rgba(255,255,255,.82); opacity: 1; font-size: 12.5px; }
+body.admin .chat.messenger.wa .chat-barra small.escribiendo { color: #B9F6CA; font-style: italic; }
+body.admin .chat.messenger.wa .chat-barra > div:not(.msg-av) { min-width: 0; flex: 1; }
+body.admin .chat.messenger.wa .chat-atras { background: transparent; color: #fff; width: 34px; margin-right: -4px; }
+body.admin .chat.messenger.wa .msg-av { background-color: #6B7C85; border: 2px solid rgba(255,255,255,.35); }
+body.admin .chat.messenger.wa .msg-av-cab { width: 42px; height: 42px; }
+body.admin .chat.messenger.wa .chat-lista { background: #EFEAE2; padding: 12px 10px; gap: 4px; }
+body.admin .chat.messenger.wa .burbuja { max-width: 80%; padding: 6px 9px 5px; border-radius: 10px; box-shadow: 0 1px 1px rgba(11,20,26,.14); display: block; position: relative; }
+body.admin .chat.messenger.wa .burbuja p { font-size: 15px; line-height: 1.35; white-space: pre-wrap; margin: 0; }
+body.admin .chat.messenger.wa .burbuja.propia { background: #D9FDD3; color: #111B21; border-bottom-right-radius: 3px; }
+body.admin .chat.messenger.wa .burbuja.ajena { background: #fff; color: #111B21; border: 0; border-bottom-left-radius: 3px; }
+body.admin .chat.messenger.wa .burbuja.propia .quien, body.admin .chat.messenger.wa .burbuja.propia .hora { color: #667781; }
+body.admin .chat.messenger.wa .burbuja .hora { display: flex; justify-content: flex-end; align-items: center; gap: 2px; margin-top: 1px; font-size: 11px; color: #667781; opacity: 1; }
+body.admin .chat.messenger.wa .burbuja.ajena.con-av { margin-left: 38px; }
+body.admin .chat.messenger.wa .burbuja.con-av > .msg-av { left: -36px; bottom: 0; width: 30px; height: 30px; }
+body.admin .chat.messenger.wa .burbuja .quien { display: block; font-size: 12.5px; color: #008069; }
+body.admin .chat.messenger.wa .burbuja.solo-foto { background: transparent !important; box-shadow: none; }
+body.admin .chat.messenger.wa .chat-estado { background: #F0F2F5; }
+body.admin .chat.messenger.wa .chat-entrada { background: #F0F2F5; border-top: 0; gap: 6px; }
+body.admin .chat.messenger.wa .chat-entrada input[type=text] { background: #fff; border: 0; border-radius: 22px; height: 44px; padding: 0 16px; }
+body.admin .chat.messenger.wa .chat-entrada .chat-foto { background: transparent; }
+body.admin .chat.messenger.wa .chat-entrada button.primario { background: #008069; color: #fff; border-radius: 22px; height: 44px; font-weight: 800; }
+
+/* Lista de conversaciones con foto del repartidor */
+.tarjeta-rep.wa-conv { border-radius: 0; border: 0; border-bottom: 1px solid var(--linea); box-shadow: none; background: #fff; padding: 10px 12px; margin: 0; }
+.tarjeta-rep.wa-conv.nuevo { background: #F3FFF6; }
+.tarjeta-rep.wa-conv .fila { align-items: center; gap: 12px; }
+.tarjeta-rep.wa-conv .avatar.av-wa { width: 52px; height: 52px; padding: 0; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background-color: #DFE5E7; background-repeat: no-repeat; flex: none; position: relative; }
+.tarjeta-rep.wa-conv .avatar.av-wa svg { display: none; }
+.tarjeta-rep.wa-conv .avatar.av-wa:not(.con-foto)::after { content: attr(data-ini); font-size: 22px; font-weight: 800; color: #54656F; }
+.tarjeta-rep.wa-conv .wa-datos { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.wa-fila1, .wa-fila2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.wa-fila1 strong { font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wa-hora { flex: none; font-size: 12px; color: #667781; }
+.wa-hora.nuevo { color: #25D366; font-weight: 800; }
+.wa-ultimo { flex: 1; min-width: 0; font-size: 13.5px; color: #667781; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-badge { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #25D366; color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center; }

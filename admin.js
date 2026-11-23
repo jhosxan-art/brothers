@@ -974,7 +974,7 @@ function abrirChatRep(uid) {
   Chat.iniciar({
     token: uid, yo: "admin", ruta: RUTA_EQ, pedido: "Equipo", nombreRepartidor: nombreUid(uid), puedeBorrar: true, avisos: false,
     titulo: () => "Chat con " + nombreUid(uid),
-    subtitulo: () => "Equipo · Brothers ↔ repartidor",
+    subtitulo: () => { const e = { enRuta: "en ruta", libre: "en línea", sinSenal: "sin señal", desconectado: "desconectado" }[estadoDe(uid)]; return e || "Equipo · Brothers ↔ repartidor"; },
     alEnviar: (m) => { if (typeof PushAdmin !== "undefined") PushAdmin.mensaje(uid, m); },
     alCerrar: () => { chatEqAbierto = null; if (typeof ChatMessenger !== "undefined") ChatMessenger.limpiar(); }
   });
@@ -1012,7 +1012,7 @@ function iniciarMonitoreo() {
         const antes = (resEquipo[uid] && resEquipo[uid].ts) || 0;
         if (r.ultimoDe === "repartidor" && (r.ts || 0) > antes) {
           if (chatEqAbierto !== uid) sinLeerEq[uid] = (sinLeerEq[uid] || 0) + 1;
-          Voz.chatAviso("repartidor_admin");   // "El repartidor te ha escrito"
+          try { Voz.mensajeRepartidorResumen(nombreUid(uid), r.ultimo, { foto: r.ultimo === "Foto enviada", clave: "eq:" + uid + ":" + (r.ts || 0) }); } catch (_) { Voz.chatAviso("repartidor_admin"); }   // "Mensaje de <nombre>: <resumen>"
         }
       });
     }
@@ -1123,10 +1123,11 @@ function conversaciones() {
 }
 function pintarChats() {
   const { eq, cl } = conversaciones();
-  const tarjeta = (c) => `<div class="tarjeta-rep conv${selChats.has(c.key) ? " sel" : ""}" data-key="${esc(c.key)}" style="cursor:pointer"><div class="fila">
-      ${modoSel ? `<input type="checkbox" class="chk" ${selChats.has(c.key) ? "checked" : ""} tabindex="-1" aria-label="Seleccionar">` : `<span class="avatar" data-av="${esc(c.uid || "")}">${RIDER_SVG}</span>`}
-      <div class="datos"><strong>${esc(c.titulo)}${c.sinLeer ? ` <span class="badge">${c.sinLeer}</span>` : ""}</strong>
-        <small>${esc(c.sub)}</small><small>${esc(fechaCorta(c.ts))}</small></div></div></div>`;
+  const horaWa = (ts) => { if (!ts) return ""; const d = new Date(ts), h = new Date(); return d.toDateString() === h.toDateString() ? d.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString("es", { day: "2-digit", month: "short" }); };
+  const tarjeta = (c) => `<div class="tarjeta-rep conv wa-conv${selChats.has(c.key) ? " sel" : ""}${c.sinLeer ? " nuevo" : ""}" data-key="${esc(c.key)}" style="cursor:pointer"><div class="fila">
+      ${modoSel ? `<input type="checkbox" class="chk" ${selChats.has(c.key) ? "checked" : ""} tabindex="-1" aria-label="Seleccionar">` : `<span class="avatar av-wa" data-av="${esc(c.uid || "")}" data-ini="${esc(String(c.titulo || "R").replace(/^[^A-Za-z0-9ÁÉÍÓÚÑáéíóúñ]+/, "").charAt(0).toUpperCase() || "R")}">${RIDER_SVG}</span>`}
+      <div class="datos wa-datos"><div class="wa-fila1"><strong>${esc(c.titulo)}</strong><small class="wa-hora${c.sinLeer ? " nuevo" : ""}">${esc(horaWa(c.ts))}</small></div>
+        <div class="wa-fila2"><small class="wa-ultimo">${esc(c.sub)}</small>${c.sinLeer ? `<span class="wa-badge">${c.sinLeer}</span>` : ""}</div></div></div></div>`;
   $("listaChats").innerHTML =
     `<h3 class="sec">Equipo (chat con tus repartidores)</h3>` + (eq.length ? eq.map(tarjeta).join("") : '<p class="ayuda">Aún no hay repartidores.</p>') +
     `<h3 class="sec">Clientes (archivo de pedidos)</h3>` + (cl.length ? cl.map(tarjeta).join("") : '<p class="ayuda">Aún no hay conversaciones de clientes.</p>');
