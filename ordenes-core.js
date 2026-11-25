@@ -110,10 +110,10 @@ const Ordenes = (() => {
 
   async function crear(db, d) {
     const t = token();
-    const retiros = (d.retiros || []).map((r) => Object.assign(limpiarPunto(r), { producto: String(r.producto || "").trim().slice(0, 120) })).filter((r) => r.texto);
+    const retiros = (d.retiros || []).map((r) => Object.assign(limpiarPunto(r), { producto: String(r.producto || "").trim().slice(0, 600) })).filter((r) => r.texto);
     const orden = {
       codigo: codigo(), cliente: String(d.cliente || "").trim().slice(0, 60),
-      retiros, retiro: retiros[0] || { texto: "" }, entrega: limpiarPunto(d.entrega), paquete: String(d.paquete || "").trim().slice(0, 400),
+      retiros, retiro: retiros[0] || { texto: "" }, entrega: limpiarPunto(d.entrega), paquete: String(d.paquete || "").trim().slice(0, 1500),
       delivery: r2(d.delivery),
       estado: "pendiente", creado: TS, actualizado: TS
     };
