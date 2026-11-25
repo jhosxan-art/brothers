@@ -1571,6 +1571,8 @@ const PedidoRep = (() => {
 
   function seguir(nuevo) {
     if (!nuevo || nuevo === id) return;
+    /* Con una factura en curso NUNCA se cambia de pedido por detrás: soltar() la descartaría junto con los productos ya agregados */
+    try { if (id && Factura.enModoPedido()) return; } catch (_) {}
     soltar();
     id = nuevo;
     try { Metricas.iniciar(nuevo); } catch (_) {}
@@ -1725,12 +1727,12 @@ const PedidoRep = (() => {
     seguir, soltar, pintarCliente, pintarBoton, posCliente: () => cli, prioridadExtra: () => (aceptado() && prioridad() ? PRIORIDAD_EXTRA : 0), enviarFactura,
     htmlChat, alClick, abrirChat: abrirChatPedido, responderRapido, noLeidos: () => noLeidos, esMio: (t) => !!id && t === id,
     info: () => (chatDisponible() ? { cliente: nombre(), codigo: codigoApp() } : null),
-    id: () => id,
+    id: () => id, abrirFactura, sincronizar: () => { const t = OrdenAdminRep.idSel(); if (t && t !== id) seguir(t); }, facturada: (t) => !!id && t === id && facturada,
     meta: () => (id && datos ? { token: id, cliente: nombre(), codigo: codigoApp() } : null)
   };
 })();
 Factura.alEnviarPedido = (f) => PedidoRep.enviarFactura(f);
-Factura.alTerminarPedido = () => irA("mapa");
+Factura.alTerminarPedido = () => { irA("mapa"); try { PedidoRep.sincronizar(); OrdenAdminRep.reenfocar(); } catch (_) {} };
 Factura.prioridadExtra = () => PedidoRep.prioridadExtra();
 
 const FacturaVivo = (() => {
@@ -2015,13 +2017,14 @@ function escucharAdmin() {
   refGuia = db.ref("guias/" + uidActual);
   refGuia.on("value", (s) => {
     const g = s.val(), primera = guiaTsVisto === undefined;
-    if (g && g.ordenId) { OrdenAdminRep.seguir(g.ordenId); PedidoRep.seguir(g.ordenId); }
+    if (g && g.ordenId) { OrdenAdminRep.seguir(g.ordenId); PedidoRep.seguir(OrdenAdminRep.idSel() || g.ordenId); }
     if (!g || typeof g.lat !== "number") { guiaActual = null; guiaTsVisto = null; pintarGuia(); dibujarRuta(); return; }
     if (primera && g.ts && Date.now() - g.ts > 12 * 3600 * 1000) { guiaTsVisto = g.ts; return; }
     const nueva = !primera && g.ts !== guiaTsVisto;
     guiaTsVisto = g.ts;
     aplicarGuia(g, nueva);
   }, () => {});
+  OrdenAdminRep.restaurar();   // recupera los demás pedidos del admin que siguen activos (Pedido #1, #2, …)
 }
 const iconoGuia = L.divIcon({ className: "", html: htmlCliente("#2F6FED", "", "Cliente (Brothers)", true, true), iconSize: [34, 44], iconAnchor: [17, 42] });
 const guiaCliente = () => (guiaActual && guiaActual.tipo !== "negocio" ? guiaActual : null);
@@ -2034,6 +2037,7 @@ function pintarGuia() {
 }
 function aplicarGuia(g, nueva) {
   guiaActual = g;
+  if (g.ordenId && OrdenAdminRep.idSel() && g.ordenId !== OrdenAdminRep.idSel()) { pintarGuia(); return; }   // guía de otro pedido: no le quita la ruta al cliente que estás viendo
   if (g.tipo === "negocio") {
     irALugar({ nombre: g.negocio || g.nombre || "Negocio", lat: g.lat, lng: g.lng, icono: g.icono || "📍", producto: g.producto, etiqueta: !!g.ordenId, clase: g.punto === "entrega" ? "entrega" : "retiro" }, !!nueva);
     if (nueva && !g.ordenId) {
@@ -2121,7 +2125,7 @@ function aplicarHoja() {
   const h = $("hojaPedidos"), b = $("barraHoja"); if (!h || !b) return;
   h.classList.toggle("oculta", hojaOculta);
   b.setAttribute("aria-expanded", String(!hojaOculta));
-  const n = orden.length + (OrdenAdminRep.activo() ? 1 : 0), res = OrdenAdminRep.resumen();
+  const n = orden.length + OrdenAdminRep.cantidad(), res = OrdenAdminRep.resumen();
   const vsel = viajes[seleccionado]; $("barraHojaTxt").textContent = hojaOculta ? "▴ " + (res || (n ? "Mostrar pedido" + (vsel ? " · " + String(nombreDe(vsel)).slice(0, 22) : "") : "Mostrar panel")) : "▾ Ocultar pedido";
   const c = $("barraHojaCnt"); c.textContent = n; c.classList.toggle("oculto", !n);
   if (mapa) setTimeout(() => { mapa.invalidateSize(); if (Camara.getModo() === "navegacion") Camara.actualizar(true); }, 120);
@@ -2389,7 +2393,7 @@ function cambiarCliente(dir) {
   const h = $("hojaPedidos"); if (!h) return;
   let x0 = 0, y0 = 0, card = null, activo = false, horiz = false;
   h.addEventListener("touchstart", (e) => {
-    const z = e.target.closest(".pedido-card[data-token] .pc-top, .pc-pager");
+    const z = e.target.closest(".pedido-card[data-token] .pc-top, .pedido-card[data-oa] .pc-top, .pc-pager");
     if (!z || e.touches.length !== 1) { card = null; return; }
     card = z.closest(".pedido-card"); x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; activo = true; horiz = false;
   }, { passive: true });
@@ -2397,14 +2401,14 @@ function cambiarCliente(dir) {
     if (!activo || !card) return;
     const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
     if (!horiz && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.3) horiz = true;
-    if (horiz && orden.length > 1) { card.style.transition = "none"; card.style.transform = "translateX(" + Math.max(-90, Math.min(90, dx * .6)) + "px)"; card.style.opacity = String(1 - Math.min(.35, Math.abs(dx) / 400)); }
+    if (horiz && (card.dataset.oa ? OrdenAdminRep.cantidad() > 1 : orden.length > 1)) { card.style.transition = "none"; card.style.transform = "translateX(" + Math.max(-90, Math.min(90, dx * .6)) + "px)"; card.style.opacity = String(1 - Math.min(.35, Math.abs(dx) / 400)); }
   }, { passive: true });
   const fin = (e) => {
     if (!activo || !card) return;
     const c = card; activo = false; card = null;
     const dx = ((e.changedTouches && e.changedTouches[0]) || { clientX: x0 }).clientX - x0;
     c.style.transition = ""; c.style.transform = ""; c.style.opacity = "";
-    if (horiz) { ultSwipe = Date.now(); if (Math.abs(dx) >= 50) cambiarCliente(dx < 0 ? 1 : -1); }
+    if (horiz) { ultSwipe = Date.now(); if (Math.abs(dx) >= 50) { if (c.dataset.oa) OrdenAdminRep.cambiar(dx < 0 ? 1 : -1); else cambiarCliente(dx < 0 ? 1 : -1); } }
   };
   h.addEventListener("touchend", fin, { passive: true });
   h.addEventListener("touchcancel", fin, { passive: true });
@@ -2419,13 +2423,13 @@ function renderListaBase() {
   const cont = $("hojaPedidos"), delAdmin = OrdenAdminRep.html() + htmlPedidoChat();
   if (!orden.length) { cont.innerHTML = delAdmin + (delAdmin ? "" : '<p class="ayuda">No hay pedidos en ruta. Toca un cliente en el mapa o inicia una entrega desde Pedidos.</p>'); return; }
   const t = viajes[seleccionado] ? seleccionado : orden[0], v = viajes[t], i = orden.indexOf(t);
-  const nTot = orden.length, anim = dirSwipe > 0 ? " sw-izq" : dirSwipe < 0 ? " sw-der" : ""; dirSwipe = 0;
-  const pager = nTot > 1 ? `<div class="pc-pager" aria-label="Cliente ${i + 1} de ${nTot}"><button type="button" data-acc="prev" aria-label="Cliente anterior">‹</button><span class="pc-dots">${orden.map((k, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</span><small>Cliente ${i + 1} de ${nTot} · desliza</small><button type="button" data-acc="next" aria-label="Cliente siguiente">›</button></div>` : "";
+  const nAdm = OrdenAdminRep.cantidad(), nTot = orden.length, anim = dirSwipe > 0 ? " sw-izq" : dirSwipe < 0 ? " sw-der" : ""; dirSwipe = 0;
+  const pager = nTot > 1 ? `<div class="pc-pager" aria-label="Pedido #${nAdm + i + 1}"><button type="button" data-acc="prev" aria-label="Pedido anterior">‹</button><span class="pc-dots">${orden.map((k, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</span><small>Pedido #${nAdm + i + 1} de ${nAdm + nTot} · desliza</small><button type="button" data-acc="next" aria-label="Pedido siguiente">›</button></div>` : "";
   cont.innerHTML = delAdmin + `<div class="pedido-card sel${v.esChat ? " es-chat" : ""}${anim}" data-token="${t}">
       ${pager}
       <div class="pc-top">
-        <span class="pc-num">${i + 1}</span>
-        <div class="pc-datos"><strong>${escHtml(nombreDe(v))}</strong><small class="pc-sub" id="sub-${t}"></small></div>
+        <span class="pc-num">#${nAdm + i + 1}</span>
+        <div class="pc-datos"><span class="pc-ped">Pedido #${nAdm + i + 1}</span><strong>${escHtml(nombreDe(v))}</strong><small class="pc-sub" id="sub-${t}"></small></div>
         <div class="pc-total"><small>Factura</small><b id="tot-${t}">—</b></div>
       </div>
       <div class="pc-botones pc-botones-3">
@@ -2520,6 +2524,8 @@ setInterval(() => { if (orden.length) refrescarTextos(); PedidoRep.pintarCliente
 
 $("hojaPedidos").onclick = (e) => {
   if (PedidoRep.alClick(e)) return;
+  if (Date.now() - ultSwipe < 400 && e.target.closest("[data-oa]")) return;   // el gesto de deslizar no cuenta como toque
+  try { PedidoRep.sincronizar(); } catch (_) {}   // el pedido enfocado y el de la factura/chat vuelven a coincidir (si no hay factura en curso)
   if (OrdenAdminRep.alClick(e)) return;
   const card = e.target.closest(".pedido-card"); if (!card) return;
   const v = viajes[card.dataset.token]; if (!v) return;
@@ -3586,9 +3592,11 @@ const NavAtras = (() => {
 window.Atras = NavAtras;
 $("toastSalir").addEventListener("click", () => NavAtras.ocultarAviso());
 
+let pedidoModalId = null;
 function nuevoPedidoAsignado(id, o) {
   Pantalla.pedir();
-  PedidoRep.seguir(id);
+  pedidoModalId = id;
+  OrdenAdminRep.seleccionar(id);   // el pedido nuevo se enfoca (PedidoRep y ruta) mientras se decide aceptarlo
   const total = Ordenes.totalDelivery(o), sig = Ordenes.siguienteRetiro(o);
   $("nuevoPedidoCuerpo").innerHTML = OrdenAdminRep.detallesHtml(o);
   $("modalNuevoPedido").classList.remove("oculto");
@@ -3606,7 +3614,8 @@ $("btnNuevoVer").onclick = () => {
 };
 $("btnNuevoCerrar").onclick = () => $("modalNuevoPedido").classList.add("oculto");
 $("btnNuevoAceptar").onclick = async () => {
-  if (!(await OrdenAdminRep.responder("aceptado"))) return;
+  if (!(await OrdenAdminRep.responder("aceptado", pedidoModalId))) return;
+  OrdenAdminRep.seleccionar(pedidoModalId);
   $("modalNuevoPedido").classList.add("oculto");
   try { ChatsEntrantes.marcarConPedido(); } catch (_) {}
   seguirme = true;
@@ -3624,7 +3633,20 @@ $("btnNuevoAceptar").onclick = async () => {
     }
   }, 500);
 };
-$("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado")) $("modalNuevoPedido").classList.add("oculto"); };
+$("btnNuevoRechazar").onclick = async () => { if (await OrdenAdminRep.responder("rechazado", pedidoModalId)) $("modalNuevoPedido").classList.add("oculto"); };
+/* Cambia al pedido del admin elegido (deslizar / tocar): factura, chat y ruta pasan a ESE cliente */
+function enfocarPedidoAdmin(idOrden, o, desdeUsuario) {
+  if (!idOrden || !o) return;
+  try { if (PedidoRep.id() !== idOrden) PedidoRep.seguir(idOrden); } catch (_) {}
+  const d = Ordenes.destinoDe(o), esRetiro = d.etiqueta === "Retiro", num = OrdenAdminRep.numero(idOrden);
+  if (Ordenes.valido(d)) {
+    irALugar({ nombre: esRetiro ? (d.texto || "Retiro") : "Entrega · " + (o.cliente || "cliente"), lat: d.lat, lng: d.lng, icono: esRetiro ? "📦" : "🏠", producto: esRetiro ? (d.producto || "") : "", etiqueta: true, clase: esRetiro ? "retiro" : "entrega" }, !!desdeUsuario);
+  } else quitarLugarDestino();
+  if (desdeUsuario) {
+    try { navigator.vibrate && navigator.vibrate(15); } catch (_) {}
+    setEstado("🧭 Pedido #" + num + " · " + (o.cliente || "cliente") + (esRetiro ? " · ruta al retiro" : " · ruta a la entrega"), "ok");
+  }
+}
 OrdenAdminRep.init({
   db, usuario: () => usuario, uid: () => uidActual,
   alCambiar: () => { renderLista(); try { ChatsEntrantes.marcarConPedido(); } catch (_) {} barrerPush(); },
@@ -3633,7 +3655,19 @@ OrdenAdminRep.init({
     if (pago) PagosEntrega[info.id] = pago;
     return pago;
   },
-  alEntregado: () => quitarLugarDestino(), alRechazado: () => quitarLugarDestino(), alNuevo: nuevoPedidoAsignado,
+  alEntregado: () => { quitarLugarDestino(); OrdenAdminRep.reenfocar(); }, alRechazado: () => { quitarLugarDestino(); OrdenAdminRep.reenfocar(); }, alNuevo: nuevoPedidoAsignado,
+  alSeleccionar: enfocarPedidoAdmin,
+  abrirFactura: (idOrden) => {
+    if (PedidoRep.id() !== idOrden) {
+      if (Factura.enModoPedido()) {
+        if (!confirm("Tienes una factura sin enviar de otro pedido. ¿Descartarla y facturar a este cliente?")) return;
+        Factura.salirModoPedido(true);
+      }
+      PedidoRep.seguir(idOrden);
+    }
+    if (PedidoRep.id() === idOrden) PedidoRep.abrirFactura();
+  },
+  facturada: (idOrden) => PedidoRep.facturada(idOrden),
   alPrioridad: (id, o) => alertaPrioridad(id, o && etiquetaPedido(o.codigo, "app"))
 });
 
@@ -3642,7 +3676,7 @@ OrdenAdminRep.init({
    · Se detecta por GPS (con histéresis para no saltar entre ciudades vecinas) o se fija a mano.
    · Se publica en repartidores/{uid}/ciudad y ubicaciones/{uid}/ciudad (el Worker de push la usa).
    · Aísla el pool de solicitudes: solo ve las que tienen ciudadRuta === su ciudad
-     (ciudadRuta = ciudad donde se RETIRA el pedido: locales de su ciudad y «entre ciudades» que salen de ella).
+     (ciudadRuta = ciudad donde se RETIRA el pedido; los «entre ciudades» también son visibles en la ciudad de destino).
    · Las ciudades elegibles son las que el administrador habilita en configuracion/cobertura.
    · Filtra los negocios/lugares del mapa según la ciudad.
    ============================================================ */
@@ -3696,6 +3730,17 @@ const CiudadRep = (() => {
     if (id && id !== ciudadNube) publicar();
     try { ChatsEntrantes.refrescarCiudad(); } catch (_) {}
     if (ultimaPos) alPosicion(ultimaPos.lat, ultimaPos.lng);
+    detectarAlEntrar();
+  }
+  /* Detección automática al entrar: una lectura de GPS puntual (si la ciudad no está fijada a mano) para no depender del primer fix continuo */
+  function detectarAlEntrar() {
+    if (manual || !navigator.geolocation) return;
+    try {
+      navigator.geolocation.getCurrentPosition((p) => {
+        if (manual || !uidActual) return;
+        ultEval = 0; alPosicion(p.coords.latitude, p.coords.longitude);
+      }, () => {}, { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 });
+    } catch (_) {}
   }
   function reiniciar() { id = null; manual = false; ultEval = 0; pintar(); }
   function automatica() {
@@ -3707,7 +3752,19 @@ const CiudadRep = (() => {
     return typeof c === "string" && c ? c : null;
   };
   /* Solicitudes sin ciudadRuta (antiguas) siguen visibles para todos; con ciudadRuta, solo para esa ciudad */
-  const visible = (d) => { const c = ciudadRutaDe(d); return !c || (!!id && c === id); };
+  /* «Entre Ciudades»: además de la ciudad de retiro (ciudadRuta), el pedido es visible para los repartidores de la ciudad de destino */
+  const visible = (d) => {
+    const c = ciudadRutaDe(d); if (!c) return true;
+    if (!id) return false;
+    const p = (d && d.pedido) || {};
+    return c === id || (p.entreCiudades === true && p.ciudadDestino === id);
+  };
+  /* Papel de mi ciudad activa en el pedido: 'retiro' | 'destino' | 'local' */
+  function rolEnPedido(p) {
+    if (!p || !p.entreCiudades) return "local";
+    if (id && p.ciudadDestino === id && p.ciudadOrigen !== id) return "destino";
+    return "retiro";
+  }
   function etiquetaRuta(p) {
     if (!p || !Ciudades.porId(p.ciudadOrigen)) return "";
     return p.entreCiudades && Ciudades.porId(p.ciudadDestino) ? "🚚 " + Ciudades.nombre(p.ciudadOrigen) + " → " + Ciudades.nombre(p.ciudadDestino) : "🏙️ " + Ciudades.nombre(p.ciudadOrigen);
@@ -3741,7 +3798,7 @@ const CiudadRep = (() => {
   document.addEventListener("click", (e) => { const m = menu(); if (m && !m.classList.contains("oculto") && !m.contains(e.target)) cerrarMenu(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarMenu(); });
   window.addEventListener("resize", cerrarMenu);
-  return { iniciar, reiniciar, alPosicion, visible, etiquetaRuta, id: () => id };
+  return { iniciar, reiniciar, alPosicion, visible, etiquetaRuta, rolEnPedido, id: () => id };
 })();
 
 /* Un negocio/lugar pertenece a la ciudad indicada (campo «ciudad» o, si no lo tiene, la ciudad más cercana a sus coordenadas) */
@@ -4244,7 +4301,7 @@ const ChatsEntrantes = (() => {
     const f = (ic, tit, val, grande) => { if (!val) return; const r = el("div", "np-f" + (grande ? " grande" : "")); r.appendChild(el("span", "np-i", ic)); const c = el("div", ""); c.appendChild(el("small", "", tit)); c.appendChild(el("b", "", val)); r.appendChild(c); t.appendChild(r); };
     f("🛍️", "Qué desea", p.quiere ? cortar(p.quiere, 200) : "No lo indicó (chat anterior)", true);
     f("🏪", "De dónde lo desea", p.origen ? cortar(p.origen, 120) : "No lo indicó");
-    f(p.entreCiudades ? "🚚" : "🏙️", p.entreCiudades ? "Entre ciudades · lo retiras en tu ciudad" : "Ciudad del pedido", CiudadRep.etiquetaRuta(p).replace(/^\S+\s/, ""));
+    f(p.entreCiudades ? "🚚" : "🏙️", p.entreCiudades ? (CiudadRep.rolEnPedido(p) === "destino" ? "Entre ciudades · lo entregas en tu ciudad" : "Entre ciudades · lo retiras en tu ciudad") : "Ciudad del pedido", CiudadRep.etiquetaRuta(p).replace(/^\S+\s/, ""));
     if (Number(p.tarifaEstimada) > 0) f("💰", "Tarifa estimada (referencia)", "C$ " + Number(p.tarifaEstimada) + " · ~" + Number(p.kmEstimado || 0) + " km");
     f(p.modo === "envia" ? "🎁" : "📍", p.modo === "envia" ? "Lo envía a otra persona · entrega en" : "Lo recibe el cliente · ubicación", textoDestino(d));
     s.appendChild(t);
@@ -5856,4 +5913,27 @@ const GananciasDia = (() => {
     };
     return { soltar };
   } catch (e) { try { console.warn("GananciasDia", e); } catch (_) {} return {}; }
+})();
+
+/* ============================================================
+   ESCALA DE UI EN PANTALLAS DE BAJA DENSIDAD
+   - devicePixelRatio bajo o ancho CSS muy grande/ajustado → menús, botones y tarjetas se compactan
+     (html.dpi-bajo / html.dpi-muy-bajo + --escala-ui en style.css). El mapa no se escala.
+   ============================================================ */
+(function escalaUI() {
+  const R = document.documentElement;
+  function aplicar() {
+    const dpr = window.devicePixelRatio || 1, w = Math.min(window.innerWidth || 0, (window.screen && window.screen.width) || 9999) || 360;
+    let esc = 1;
+    if (dpr <= 1.25 || w <= 340) esc = 0.84;
+    else if (dpr <= 1.75 || w <= 380) esc = 0.92;
+    if (w > 600) esc = 1;   // tablets / escritorio: sin reducción
+    R.style.setProperty("--escala-ui", String(esc));
+    R.classList.toggle("dpi-bajo", esc < 1);
+    R.classList.toggle("dpi-muy-bajo", esc <= 0.84);
+    try { if (mapa) setTimeout(() => mapa.invalidateSize(), 150); } catch (_) {}
+  }
+  aplicar();
+  window.addEventListener("resize", aplicar);
+  window.addEventListener("orientationchange", () => setTimeout(aplicar, 250));
 })();

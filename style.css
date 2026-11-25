@@ -2517,3 +2517,36 @@ body.admin .chat.messenger.wa .chat-entrada button.primario { background: #00806
 /* Hora de pago dentro del botón "✔ Pagada · 2:32 p. m." */
 .tr-estado.pagada { white-space: nowrap; min-width: 108px; }
 .en-tag.pagada { white-space: nowrap; }
+
+/* ===== Pedidos del admin: «Pedido #N», deslizar entre clientes y factura por cliente ===== */
+.pc-ped { display: inline-block; width: fit-content; padding: 1px 8px; border-radius: 999px; background: var(--rojo); color: #fff; font-size: 11px; font-weight: 800; line-height: 1.5; letter-spacing: .2px; }
+.pedido-card .pc-num { min-width: 32px; width: auto; padding: 0 6px; border-radius: 999px; font-size: 13px; }
+.pd-card-adm .pc-top { touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab; }
+.pd-card-adm .pc-pager { margin: -2px 0 2px; }
+.pd-card-adm .pd-fact { width: 100%; height: 44px; font-size: 14px; font-weight: 800; }
+.pd-card-adm .pd-fact:disabled { opacity: .65; }
+
+/* ===== Pantallas de baja densidad / escala alta: controles, ajustes y tarjetas compactos (no gigantes) =====
+   repartidor.js pone html.dpi-bajo (--escala-ui .92) o html.dpi-muy-bajo (--escala-ui .84) según devicePixelRatio y ancho.
+   Solo se reduce el «chrome» de la app; el mapa (Leaflet) no se escala. */
+html.dpi-bajo body.rep > .barra-marca, html.dpi-bajo body.rep > #mainAuth, html.dpi-bajo body.rep > #vistaFactura, html.dpi-bajo body.rep > #vistaChats,
+html.dpi-bajo #vistaMapa .hoja-pedidos, html.dpi-bajo #vistaMapa .barra-hoja, html.dpi-bajo .nav-app, html.dpi-bajo .menu-ciudad-rep, html.dpi-bajo .modal-rep-caja {
+  zoom: var(--escala-ui, 1);
+}
+html.dpi-bajo .modal-rep-caja { max-height: calc((100dvh - 24px) / var(--escala-ui, 1)); }
+@media (max-resolution: 1.5dppx), (-webkit-max-device-pixel-ratio: 1.5) {
+  body { font-size: 14px; }
+  .barra-marca strong { font-size: 16px; }
+  .insignia { width: 40px; height: 40px; }
+  .nav-app button { height: 50px; font-size: 13px; }
+  .modal-rep-caja h2 { font-size: 19px; }
+  .modal-rep-caja { padding: 18px 16px; }
+  .mini { height: 36px; font-size: 12.5px; }
+  .hero .gran-icono { width: 96px; height: 96px; }
+  .hero h1 { font-size: 21px; }
+}
+@media (max-width: 360px) {
+  main, body.rep > #mainAuth { padding: 12px; gap: 10px; }
+  #vistaMapa .hoja-pedidos .pc-datos strong { font-size: 14.5px; }
+  #vistaMapa .hoja-pedidos .pc-total b { font-size: 16px; }
+}
