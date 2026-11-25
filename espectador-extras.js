@@ -13,15 +13,13 @@
 "use strict";
 
 /* Edita esta lista para cambiar los mensajes (máx. 600 caracteres c/u) */
-const RAPIDOS = [
-  "🔎 Estamos buscando un repartidor para tu pedido",
-  "🍳 El restaurante está preparando tu pedido",
-  "⏳ Seguimos buscando repartidor, gracias por tu paciencia",
-  "🛵 Ya hay repartidor asignado, va en camino",
-  "📍 Tu repartidor va en camino a tu ubicación",
-  "🙏 Disculpa la demora, estamos trabajando en tu pedido",
-  "✅ Recibimos tu pedido, lo estamos procesando",
-  "📞 ¿Puedes confirmarnos tu ubicación?"
+const RAPIDOS = [   // en el orden del recorrido del pedido
+  "✅ Su orden está en proceso",
+  "🍳 Su orden está siendo preparada por el restaurante",
+  "🛵 Su orden fue tomada por el repartidor",
+  "📦 El repartidor ha retirado su orden",
+  "📍 El repartidor va de camino",
+  "🎉 Pedido entregado"
 ];
 const KEY_MIN = "saPedidoMin";
 const ID_OK = /^sol_[A-Za-z0-9_-]{8,64}$/;

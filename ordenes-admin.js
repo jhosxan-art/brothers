@@ -558,8 +558,10 @@ const PedidosAdmin = (() => {
       }).join("") : '<p class="ayuda">Aún no hay repartidores registrados.</p>'}</div>
       <div class="as-o"><span>o</span></div>
       <button id="asInv" class="as-inv" type="button"><b>🔗 Crear enlace de invitado</b><small>Para un repartidor externo. Lo envías por WhatsApp o lo copias. El pedido va sin IVA.</small></button>
+      <button id="asEspera" class="as-inv" type="button"><b>⏳ Dejar en espera</b><small>Crea el pedido sin repartidor. Después lo envías a un repartidor registrado o generas el enlace de invitado.</small></button>
       <button id="asNo" class="oscuro" type="button">Cancelar</button></div>`);
     el("asNo").onclick = cerrarModal;
+    el("asEspera").onclick = () => confirmarCreacion(base, { tipo: "espera" });
     el("asLista").onclick = (e) => {
       const b = e.target.closest("button[data-uid]"); if (!b) return;
       confirmarCreacion(base, { tipo: "registrado", uid: b.dataset.uid, nombre: nombreUid(b.dataset.uid) });
@@ -576,14 +578,17 @@ const PedidosAdmin = (() => {
     try {
       const datos = JSON.parse(JSON.stringify({
         cliente, paquete, retiros, delivery: tot.d,
-        iva: asignacion.tipo === "registrado" ? tot.iva : 0,
+        iva: asignacion.tipo === "invitado" ? 0 : tot.iva,   // en espera lleva IVA; si luego va a un invitado se quita
         entrega: principal, entregasExtra: extras, asignacion
       }));
       const { token, orden } = await O.crear(db, datos);
       if (extras.length) db.ref("ordenes/" + token + "/entregasExtra").set(extras).catch(() => {});
       ["pdCliente", "pdPaquete", "pdDelivery", "pdIvaBase"].forEach((id) => { el(id).value = ""; }); el("pdIvaExtra").value = "0";
       retirosForm = [nuevoRetiro()]; entregasForm = [nuevaEntrega()]; pintarLugares();
-      if (asignacion.tipo === "invitado") { aviso(""); mostrarEnlaces(token, orden); }
+      if (asignacion.tipo === "espera") {
+        const t = `Pedido ${cod(orden.codigo)} creado y EN ESPERA ⏳ Toca “Asignar” en su tarjeta para enviarlo a un repartidor registrado o invitado.`;
+        aviso(t, "ok"); avisoToken = token; toast(t);
+      } else if (asignacion.tipo === "invitado") { aviso(""); mostrarEnlaces(token, orden); }
       else {
         const t = `Pedido ${cod(orden.codigo)} enviado a ${asignacion.nombre} ✓ (${O.textoDelivery(orden)})` + (O.valido(orden.retiros[0]) ? " y su ruta al primer retiro." : ".");
         aviso(t, "ok"); avisoToken = token; toast(t);
@@ -633,7 +638,11 @@ const PedidosAdmin = (() => {
       catch (err) { toast("No se pudo asignar: " + err.message); }
     };
     el("pdAsInv").onclick = async () => {
-      try { await O.asignar(db, t, o, { tipo: "invitado" }); mostrarEnlaces(t, o); }
+      try {
+        const sinIva = Object.assign({}, o); delete sinIva.iva;   // el pedido de un invitado va sin IVA
+        await db.ref("ordenes/" + t + "/iva").remove();
+        await O.asignar(db, t, sinIva, { tipo: "invitado" }); mostrarEnlaces(t, sinIva);
+      }
       catch (err) { toast("No se pudo generar el enlace: " + err.message); }
     };
   }
@@ -644,6 +653,27 @@ const PedidosAdmin = (() => {
     if (a.tipo === "registrado" && guias[a.uid] && guias[a.uid].ordenId === t) upd["guias/" + a.uid] = null;
     if (a.tipo === "invitado" && a.unido) upd[`pedidos/${t}/estado`] = "cancelado";
     try { await db.ref().update(upd); toast("Pedido cancelado."); } catch (err) { toast("No se pudo cancelar: " + err.message); }
+  }
+
+  /* Cancela al repartidor (registrado o invitado) que tiene el pedido y lo deja EN ESPERA para enviarlo a otro */
+  async function quitarRepartidor(t) {
+    const o = ordenes[t]; if (!o || !activa(o)) return;
+    const a = o.asignacion || {}; if (!a.tipo) return toast("Ese pedido no tiene repartidor.");
+    const quien = a.tipo === "invitado" ? (a.nombre ? a.nombre + " (invitado)" : "el invitado") : (a.nombre || nombreUid(a.uid) || "el repartidor");
+    if (!confirm(`¿Quitar el pedido ${cod(o.codigo)} a ${quien}?\nDesaparece de su app${a.tipo === "invitado" ? " y su enlace deja de funcionar" : ""}. Quedará EN ESPERA para enviarlo a otro repartidor registrado o invitado.${o.estado === "retirado" ? "\n\nOjo: ya estaba retirado; el nuevo repartidor deberá retirarlo otra vez." : ""}`)) return;
+    const uid = a.tipo === "invitado" ? O.uidInvitado(t) : (a.uid || "");
+    const upd = {
+      [`ordenes/${t}/asignacion`]: null, [`ordenes/${t}/estado`]: "pendiente", [`ordenes/${t}/estado_asignacion`]: null,
+      [`ordenes/${t}/asignadoPorAdmin`]: null, [`ordenes/${t}/asignadoTs`]: null, [`ordenes/${t}/retiradoTs`]: null,
+      [`ordenes/${t}/guiaAdmin`]: null, [`ordenes/${t}/actualizado`]: O.TS
+    };
+    if (Array.isArray(o.retiros)) o.retiros.forEach((r, i) => { if (r && (r.retirado || r.pagado != null)) { upd[`ordenes/${t}/retiros/${i}/retirado`] = null; upd[`ordenes/${t}/retiros/${i}/pagado`] = null; } });
+    if (a.tipo === "registrado" && uid && guias[uid] && (guias[uid].ordenId === t)) upd["guias/" + uid] = null;
+    if (a.tipo === "invitado") { upd["ubicaciones/" + uid] = null; upd["guias/" + uid] = null; }
+    upd["pedidos/" + t] = null;   // el seguimiento del cliente se vuelve a crear al asignarlo de nuevo
+    if (a.tipo === "invitado" && o.iva != null) upd[`ordenes/${t}/iva`] = null;
+    try { await db.ref().update(upd); toast(`Pedido ${cod(o.codigo)} en espera ⏳ Toca “Asignar” para enviarlo a otro.`); }
+    catch (err) { toast("No se pudo quitar el repartidor: " + err.message); }
   }
 
   async function forzarEstadoOrden(token, nuevoEstado) {
@@ -714,10 +744,11 @@ const PedidosAdmin = (() => {
     const inv = a.tipo === "invitado", btn = (acc, label, extra) => `<button class="mini ${extra || ""}" data-pa="${acc}" data-t="${esc(t)}" type="button">${label}</button>`;
     return `<div class="tarjeta-rep pd-orden">
       <div class="fila"><div class="datos"><strong>${esc(cod(o.codigo))} · ${esc(o.cliente || "Sin nombre")}</strong>
-        <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
+        <small>👤 ${esc(nombreOrden(o))}${inv ? ' <i class="pd-tag">Invitado</i>' : ""}${o.estado === "pendiente" && !a.tipo ? ' <i class="pd-tag">⏳ En espera</i>' : ""}</small></div><span class="chip ${cls}">${txt}</span></div>
       <div class="ruta">${O.paradas(o).map((p, k) => `${p.retirado ? "✅" : "📦"} ${O.paradas(o).length > 1 ? "Retiro " + (k + 1) + ": " : ""}${esc(p.texto || "—")}${p.producto ? " — <b>" + esc(p.producto) + "</b>" : ""}`).join("<br>")}<br>🏠 ${esc((o.entrega && o.entrega.texto) || "—")}${o.delivery || o.iva ? "<br>🛵 Delivery: <b>" + O.textoDelivery(o) + "</b>" : ""}${o.paquete ? "<br>📝 " + esc(o.paquete) : ""}${a.tipo === "registrado" && activa(o) ? (o.estado_asignacion === "aceptado" ? "<br>✅ Aceptado por el repartidor" : o.estado_asignacion === "rechazado" ? "<br>❌ Rechazado por el repartidor" : o.estado === "asignado" ? "<br>⏳ Esperando respuesta del repartidor" : "") : ""}${o.forzadoPorAdmin ? "<br>🛡️ <b>Forzado por el administrador</b>" + (o.motivoForzado ? ": " + esc(o.motivoForzado) : "") : ""}</div>
       <div class="acciones-fila" style="flex-wrap:wrap">
         ${inv && activa(o) ? btn("linkinv", "🔗 Enlace invitado") : ""}${inv && a.nombre && activa(o) ? btn("chatinv", "🗨 Chat invitado" + (sinLeerInv[t] ? " (" + sinLeerInv[t] + ")" : "")) : ""}${a.tipo && activa(o) ? btn("linkcli", "💬 Enlace cliente") : ""}${a.tipo && activa(o) ? btn("factura", "🧾 Factura", "pri") : ""}${inv && activa(o) ? btn("recorrido", "🗺 Recorrido") : ""}
+        ${a.tipo && activa(o) ? btn("quitarrep", "↩ Quitar repartidor") : ""}
         ${(o.estado === "pendiente" && !a.tipo) || (o.estado_asignacion === "rechazado" && activa(o)) ? btn("asignar", o.estado_asignacion === "rechazado" ? "Reasignar" : "Asignar", "pri") : ""}
         ${activa(o) ? btn("forzar-ent", "✅ Forzar entregado") + btn("forzar-canc", "🚫 Forzar cancelado") : ""}
         ${activa(o) ? btn("cancelar", "Cancelar", "peligro") : btn("borrar", "Eliminar", "peligro")}
@@ -1169,6 +1200,7 @@ const PedidosAdmin = (() => {
         else if (a === "recorrido") verRecorrido(O.uidInvitado(t));
         else if (a === "asignar") asignarExistente(t);
         else if (a === "cancelar") cancelarOrden(t);
+        else if (a === "quitarrep") quitarRepartidor(t);
         else if (a === "forzar-ent") forzarEstadoOrden(t, "entregado");
         else if (a === "forzar-canc") forzarEstadoOrden(t, "cancelado");
         else if (a === "borrar") { if (confirm("¿Eliminar este pedido del historial?")) db.ref("ordenes/" + t).remove().catch((err) => toast(err.message)); }

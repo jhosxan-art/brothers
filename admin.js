@@ -680,7 +680,7 @@ async function marcarEntregado(token) {
       estado: "entregado", fin: firebase.database.ServerValue.TIMESTAMP, entregadoPor: "admin",
       lat: null, lng: null, rumbo: null, velocidad: null, precision: null, destLat: null, destLng: null, distancia: null, cerca: null, cliente: null
     });
-    if (guias[d.repartidorUid] && guias[d.repartidorUid].token === token) db.ref("guias/" + d.repartidorUid).remove().catch(() => {});
+    soltarGuiaTrasEntrega(token, d);
     if (typeof PedidosAdmin !== "undefined") PedidosAdmin.cerrarInvitado(token, d.repartidorUid);
     toast(`Pedido ${d.pedido || ""} marcado como entregado ✓`);
   } catch (e) { toast("No se pudo marcar: " + e.message); }
@@ -891,7 +891,7 @@ function pintarGuia(uid) {
   const icono = () => L.divIcon({ className: "", html: `<div class="pin-guia" style="--c:${col}"><b>${esc(neg ? (g.icono || "📍") : "🏠")}</b></div><span class="etq-cli">Guía para ${esc(nom)}${neg ? `<small>${esc(g.nombre || "")}</small>` : ""}${c && c.calles ? `<small>Vía: ${esc(c.calles)}</small>` : ""}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] });
   if (!c) {
     c = guiaCapas[uid] = {
-      pin: L.marker(p, { icon: icono(), zIndexOffset: 300 }).addTo(mapa),
+      pin: L.marker(p, { icon: icono(), zIndexOffset: 300, title: "Toca el icono de la casa para quitar la guía" }).addTo(mapa).on("click", (ev) => { try { L.DomEvent.stopPropagation(ev); } catch (_) {} quitarGuiaUid(uid); }),
       linea: L.polyline([], { color: col, weight: 4, opacity: .85, dashArray: "4 10" }).addTo(mapa),
       flechas: L.layerGroup().addTo(mapa), clave, rutaEn: 0
     };
@@ -943,6 +943,29 @@ function pintarBannerAdmin() {
   }
   const x = $("brXAdm"); if (x) x.onclick = () => { focoUid = null; if (selUid) { selUid = null; pintarSeleccion(); pintarLista(); } pintarBannerAdmin(); };
 }
+/* Quita la guía de un repartidor (tocando el icono de casa del cliente en el mapa, o automáticamente tras la entrega) */
+function quitarGuiaUid(uid, silencioso) {
+  if (!uid || !guias[uid]) return Promise.resolve();
+  const g = guias[uid];
+  const tareas = [db.ref("guias/" + uid).remove()];
+  if (Ordenes.esInvitadoUid(uid) && typeof PedidosAdmin !== "undefined") { try { tareas.push(db.ref("ordenes/" + PedidosAdmin.tokenInv(uid) + "/guiaAdmin").remove()); } catch (_) {} }
+  return Promise.all(tareas).then(() => { if (!silencioso) toast("Guía de " + nombreUid(uid) + " quitada ✓" + (g.ordenId ? " (el pedido sigue activo)" : "")); }).catch((e) => { if (!silencioso) toast("No se pudo quitar la guía: " + e.message); });
+}
+/* Cuando el repartidor reporta la entrega, se retira la guía del admin si ese era el pedido más cercano a ella */
+function soltarGuiaTrasEntrega(token, prev) {
+  if (!prev) return;
+  const uid = prev.repartidorUid, g = uid ? guias[uid] : null;
+  if (!g || g.ordenId || g.tipo === "negocio" || g.por !== "admin") return;   // las guías de pedidos del admin (ordenId) se manejan solas
+  let quitar = g.token === token;
+  if (!quitar && !g.token && typeof g.lat === "number") {
+    const g0 = { lat: g.lat, lng: g.lng };
+    const cands = Object.entries(activos).filter(([, d]) => d.repartidorUid === uid && d.cliente && typeof d.cliente.lat === "number");
+    let mejor = null, md = Infinity;
+    cands.forEach(([t, d]) => { const m = Ordenes.distM(g0, d.cliente); if (m < md) { md = m; mejor = t; } });
+    quitar = mejor === token || (!mejor && !(prev.cliente && typeof prev.cliente.lat === "number"));
+  }
+  if (quitar) quitarGuiaUid(uid, true).then(() => toast("Guía de " + nombreUid(uid) + " retirada: entregó el pedido " + (prev.pedido || "")));
+}
 function seleccionarRep(uid) { selUid = selUid === uid ? null : uid; pintarSeleccion(); pintarLista(); }
 function pintarSeleccion() {
   Object.keys(marcadores).forEach((u) => { const e = marcadores[u].getElement(); if (e) e.classList.toggle("sel-rep", u === selUid); });
@@ -966,7 +989,7 @@ async function fijarGuia(uid, ll, tokenForzado, extra) {
   selUid = null; pintarSeleccion(); pintarLista();
 }
 $("btnGuiaCancelar").onclick = () => { selUid = null; pintarSeleccion(); pintarLista(); };
-$("btnGuiaQuitar").onclick = () => { if (selUid) db.ref("guias/" + selUid).remove().then(() => toast("Guía quitada.")).catch((e) => toast(e.message)); };
+$("btnGuiaQuitar").onclick = () => { if (selUid) quitarGuiaUid(selUid); };
 $("btnGuiaChat").onclick = () => { if (selUid) abrirChatRep(selUid); };
 
 function abrirChatRep(uid) {
@@ -1025,7 +1048,7 @@ function iniciarMonitoreo() {
   const alCambiar = (s) => { activos[s.key] = s.val(); pintarClientes(); refrescar(); pintarRutas(); };
   consultaActivos.on("child_added", alCambiar, fallo);
   consultaActivos.on("child_changed", alCambiar);
-  consultaActivos.on("child_removed", (s) => { delete activos[s.key]; pintarClientes(); refrescar(); pintarRutas(); });
+  consultaActivos.on("child_removed", (s) => { const prev = activos[s.key], nuevo = s.val() || {}; if (nuevo.estado === "entregado") soltarGuiaTrasEntrega(s.key, prev); delete activos[s.key]; pintarClientes(); refrescar(); pintarRutas(); });
 
   db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); if (refStats) cargarStats(); }, fallo);
 

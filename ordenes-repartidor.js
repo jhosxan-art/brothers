@@ -100,7 +100,7 @@ const OrdenAdminRep = (() => {
       if (items[ordenId] !== it) return;
       const o = s.val(), tenia = !!it.orden;
       const rechazado = !!o && o.estado_asignacion === "rechazado";
-      const a = o && o.asignacion, deOtro = !!(a && a.tipo === "registrado" && a.uid && ctx.uid && a.uid !== ctx.uid());   // el admin lo reasignó a otro
+      const a = o && o.asignacion, deOtro = !!o && (!a || (a.tipo === "registrado" && a.uid && ctx.uid && a.uid !== ctx.uid()));   // sin asignación = el admin le quitó el pedido   // el admin lo reasignó a otro
       it.orden = o && !rechazado && !deOtro && ["pendiente", "asignado", "retirado"].includes(o.estado) ? o : null;   // terminado, cancelado o rechazado: la tarjeta desaparece
       if (!it.orden) {
         soltarItem(it);
