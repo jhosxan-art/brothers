@@ -147,7 +147,7 @@ const PRIORIDAD_EXTRA = 10;
 const sumaExtras = (o) => (o && typeof o === "object" ? Object.values(o).reduce((t, e) => t + (Number(e && e.monto) || 0), 0) : 0);
 
 let watchId = null, bgId = null, bgPlugin = null, latido = null;
-let uidActual = null, usuario = null, ultimaPos = null, ultimaEscritura = 0;
+let uidActual = null, usuario = null, ultimaPos = null, ultimaEscritura = 0, refNombreRep = null;
 const INTERVALO_MS = 4000;
 const RADIO_AVISO_M = 200;
 const FRESCO_MS = 60000;
@@ -538,7 +538,7 @@ try { if (navigator.storage && navigator.storage.persist) navigator.storage.pers
 setTimeout(() => $("splash").classList.add("oculto"), 8000);
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); try { ChatsEntrantes.detener(); } catch (_) {} uidActual = null; usuario = null; try { CiudadRep.reiniciar(); } catch (_) {} $("clave").value = "";
+    detenerGPS(); apagarNativo(); soltarViajesEnMemoria(); soltarAdmin(); try { ChatsEntrantes.detener(); } catch (_) {} if (refNombreRep) { try { refNombreRep.off(); } catch (_) {} refNombreRep = null; } uidActual = null; usuario = null; try { CiudadRep.reiniciar(); } catch (_) {} $("clave").value = "";
     return mostrar("login");
   }
   uidActual = user.uid;
@@ -575,9 +575,26 @@ $("btnGuardarUsuario").onclick = async () => {
   entrarTurno();
 };
 
+/* El admin puede cambiar el nombre de usuario: se aplica al instante en esta app (factura, ubicación publicada, pedidos) */
+function escucharNombre() {
+  if (refNombreRep) { try { refNombreRep.off(); } catch (_) {} refNombreRep = null; }
+  if (!uidActual) return;
+  const uid = uidActual;
+  refNombreRep = db.ref("repartidores/" + uid + "/usuario");
+  refNombreRep.on("value", (s) => {
+    const v = s.val();
+    if (uid !== uidActual || typeof v !== "string" || !v.trim() || v === usuario) return;
+    const antes = usuario; usuario = v;
+    try { Factura.nombreRepartidor = v; } catch (_) {}
+    try { localStorage.setItem("repInfo_" + uid, JSON.stringify({ usuario: v })); } catch (_) {}
+    if (antes) { try { setEstado("✏️ El administrador cambió tu nombre a " + v, "ok"); } catch (_) {} }
+  }, () => {});
+}
+
 async function entrarTurno() {
   db.ref("ubicaciones/" + uidActual).onDisconnect().update({ enLinea: false, enViaje: false, conPedido: false, ts: TS });
   Factura.nombreRepartidor = usuario;
+  escucharNombre();
   Factura.codigoCompartido = () => CodigosBD.siguiente();
   CodigosBD.reponer();
   Pantalla.pedir();

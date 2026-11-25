@@ -1551,6 +1551,7 @@ const PedidosAdmin = (() => {
     forzarEstadoOrden, asignarManual,
     abrirFacturasEnRuta, abrirFacturaUid, verRecorrido, recorridoInv, volverALista, cancelarFactura,
     fv: { fila: filaFv, items: itemsFv, totales: totalesFv, sub: subFv, extras: extrasFv, banner: bannerFv, dinero },
+    cambiosNombre: (uid, v) => { const u = {}; Object.entries(ordenes).forEach(([t, o]) => { const a = o && typeof o === "object" ? o.asignacion : null; if (a && a.tipo === "registrado" && a.uid === uid && activa(o)) u["ordenes/" + t + "/asignacion/nombre"] = v; }); return u; },
     ordenesActivas: () => Object.entries(ordenes).filter(([, o]) => o && typeof o === "object" && activa(o)),
     codigo: cod
   };
@@ -1583,7 +1584,7 @@ const EQUIPO = (() => {
     if (!cont) { console.warn("[EQUIPO] No existe #listaEquipo"); return; }
 
     const hash = (() => {
-      try { return JSON.stringify([Object.keys(cache.registrados).sort(), cache.fotos, cache.error && (cache.error.message || cache.error.code), cache.cargando]); }
+      try { return JSON.stringify([Object.keys(cache.registrados).sort().map((k) => [k, cache.registrados[k] && (cache.registrados[k].usuario || cache.registrados[k].nombre || "")]), cache.fotos, cache.error && (cache.error.message || cache.error.code), cache.cargando]); }
       catch (_) { return ""; }
     })();
     if (!force && hash && hash === lastHash) return;
@@ -1666,6 +1667,7 @@ const EQUIPO = (() => {
           '</div>' +
           '<div class="acciones-fila">' +
           '<button class="mini" data-foto-uid="' + esc(uid) + '" data-foto-nom="' + esc(nombre) + '" type="button">📷 Foto</button>' +
+          '<button class="mini" data-accion="nombre" data-uid="' + esc(uid) + '" type="button">✏️ Nombre</button>' +
           '<button class="mini" data-accion="telefono" data-uid="' + esc(uid) + '" type="button">' + (tel ? "Editar WhatsApp" : "Agregar WhatsApp") + '</button>' +
           (email ? '<button class="mini" data-accion="reset" data-uid="' + esc(uid) + '" type="button">Restablecer clave</button>' : '') +
           '<button class="mini peligro" data-accion="quitar" data-uid="' + esc(uid) + '" type="button">Quitar</button>' +
