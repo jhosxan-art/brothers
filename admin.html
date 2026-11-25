@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#3DB8F5">
-  <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="icon-admin-only.png">
-  <link rel="apple-touch-icon" href="icon-admin-only.png">
+  <link rel="manifest" href="manifest.json?v=20261126a">
+  <link rel="icon" type="image/png" href="icon-admin-only.png?v=20261126a">
+  <link rel="apple-touch-icon" href="icon-admin-only.png?v=20261126a">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Brother’s Deliverys — Administrador</title>
@@ -14,8 +14,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="ordenes.css">
+  <link rel="stylesheet" href="style.css?v=20261126a">
+  <link rel="stylesheet" href="ordenes.css?v=20261126a">
   <style>
     /* ---- FASE 3 · Solicitudes entrantes (auditoría de chats cliente ↔ repartidor, solo lectura) ---- */
     nav.tabs { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 1fr; }
@@ -229,9 +229,9 @@
   </style>
 </head>
 <body class="admin">
-  <div id="splash" class="splash"><div class="splash-caja"><img class="insignia" src="icon-admin-only.png" alt="Brother’s Deliverys"><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
+  <div id="splash" class="splash"><div class="splash-caja"><img class="insignia" src="icon-admin-only.png?v=20261126a" onerror="this.onerror=null;this.src='icon-192.png'" alt="Brother’s Deliverys"><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
   <header class="barra-marca">
-    <img class="insignia" src="icon-admin-only.png" alt="Brother’s Deliverys">
+    <img class="insignia" src="icon-admin-only.png?v=20261126a" onerror="this.onerror=null;this.src='icon-192.png'" alt="Brother’s Deliverys">
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Administrador</small></div>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
@@ -540,9 +540,9 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
   <script>window.FCM_VAPID_KEY = "BJeqekVqA_37Sc75uSnVSHiAqqU-WY3LRRvnetF0crQTC-wHzym3tue2eTT3zO9Say16DaXRYEe8X9xNIETVBQA";   // Firebase Console → Cloud Messaging → Certificados push web</script>
   <script>window.NOMBRE_APP = "admin";   // sesión independiente de la del repartidor</script>
-  <script src="firebase-config.js"></script>
-  <script src="iconos.js"></script>
-  <script src="atras.js"></script>
+  <script src="firebase-config.js?v=20261126a"></script>
+  <script src="iconos.js?v=20261126a"></script>
+  <script src="atras.js?v=20261126a"></script>
   <script>
     /* FASE 1 · Navegación SPA contextual: inserta la capa NavAdmin (pila de historial de ordenes-admin.js) justo después de la cámara/chat
        en la lista de "atrás" de admin.js. Jerarquía: chat → bandeja de Chats · factura → su lista → pantalla de origen ·
@@ -556,15 +556,15 @@
       };
     })();
   </script>
-  <script src="buscador.js"></script>
-  <script src="voz.js"></script>
-  <script src="chat.js"></script>
-  <script src="policia.js"></script>
-  <script src="ordenes-core.js"></script>
-  <script src="admin.js"></script>
-  <script src="push-admin.js"></script>
-  <script src="ordenes-admin.js"></script>
-  <script src="espectador-extras.js"></script>
+  <script src="buscador.js?v=20261126a"></script>
+  <script src="voz.js?v=20261126a"></script>
+  <script src="chat.js?v=20261126a"></script>
+  <script src="policia.js?v=20261126a"></script>
+  <script src="ordenes-core.js?v=20261126a"></script>
+  <script src="admin.js?v=20261126a"></script>
+  <script src="push-admin.js?v=20261126a"></script>
+  <script src="ordenes-admin.js?v=20261126a"></script>
+  <script src="espectador-extras.js?v=20261126a"></script>
   <script>
     /* ---- FASE 1 · Service Worker de push + redirección inteligente al panel de Solicitudes ---- */
     (function () {

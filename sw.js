@@ -10,10 +10,10 @@
    ============================================================ */
 "use strict";
 
-const SW_VERSION = "admin-push-v1.2.0";
+const SW_VERSION = "admin-push-v1.3.0";
 const PUSH_CONFIG = Object.freeze({ urgency: "high", ttl: 86400 });
 const PANEL_URL = "./admin.html";
-const ICONO = "./icon-192.png";
+const ICONO = "./icon-admin-only.png";
 const BADGE = "./badge-96.png";
 const VIBRACION = [300, 120, 300, 120, 500];
 

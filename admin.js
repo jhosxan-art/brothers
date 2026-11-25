@@ -67,6 +67,8 @@ function setMsg(id, texto, tipo = "") {
   el.textContent = texto || "";
   el.className = "estado " + tipo + (texto ? "" : " oculto");
 }
+/* Nombre actual del repartidor (el que le puso el admin); si no hay registro usa el texto guardado */
+const nombreVivo = (uid, respaldo) => { const i = uid && registrados[uid] && typeof registrados[uid] === "object" ? registrados[uid] : null; return (i && (i.usuario || i.nombre)) || respaldo || "Repartidor"; };
 const infoReg = (uid) => (registrados[uid] && typeof registrados[uid] === "object" ? registrados[uid] : {});
 const nombreUid = (uid) => (ubic[uid] && ubic[uid].usuario) || infoReg(uid).usuario || infoReg(uid).nombre ||
   nombreDesdeCorreo(infoReg(uid).email) || "Repartidor";
@@ -996,6 +998,7 @@ function abrirChatRep(uid) {
   chatEqAbierto = uid; sinLeerEq[uid] = 0; pintarLista(); pintarChats();
   Chat.iniciar({
     token: uid, yo: "admin", ruta: RUTA_EQ, pedido: "Equipo", nombreRepartidor: nombreUid(uid), puedeBorrar: true, avisos: false,
+    avatar: () => ({ uid, foto: fotosCache[uid], nombre: nombreUid(uid) }),
     titulo: () => "Chat con " + nombreUid(uid),
     subtitulo: () => { const e = { enRuta: "en ruta", libre: "en línea", sinSenal: "sin señal", desconectado: "desconectado" }[estadoDe(uid)]; return e || "Equipo · Brothers ↔ repartidor"; },
     alEnviar: (m) => { if (typeof PushAdmin !== "undefined") PushAdmin.mensaje(uid, m); },
@@ -1050,12 +1053,9 @@ function iniciarMonitoreo() {
   consultaActivos.on("child_changed", alCambiar);
   consultaActivos.on("child_removed", (s) => { const prev = activos[s.key], nuevo = s.val() || {}; if (nuevo.estado === "entregado") soltarGuiaTrasEntrega(s.key, prev); delete activos[s.key]; pintarClientes(); refrescar(); pintarRutas(); });
 
-  db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; refrescar(); pintarEquipo(); pintarChats(); if (refStats) cargarStats(); }, fallo);
+  db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; sincronizarFotos(); refrescar(); pintarEquipo(); pintarChats(); if (refStats) cargarStats(); }, fallo);
 
-  db.ref("repartidorFotos").on("value", (s) => {
-    fotosCache = s.val() || {};
-    aplicarFotosAvatares();
-  }, () => { fotosCache = {}; aplicarFotosAvatares(); });
+  /* Las reglas solo dejan leer repartidorFotos/<uid> (no la lista completa): un listener por repartidor */
 
   consultaChats = db.ref("chatsResumen").orderByChild("ts").limitToLast(50);
   let primeraCargaChats = true;
@@ -1095,7 +1095,7 @@ function detener() {
   [guias, sinLeerEq].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
   resEquipo = {}; selUid = null; selChats.clear(); modoSel = false;
   db.ref("repartidores").off();
-  db.ref("repartidorFotos").off();
+  Object.keys(refsFotos).forEach((u) => { try { refsFotos[u].off(); } catch (_) {} delete refsFotos[u]; });
   Object.keys(marcadores).forEach(quitarMarcador);
   Object.keys(clientesM).forEach((t) => { mapa.removeLayer(clientesM[t].pin); delete clientesM[t]; });
   [ubic, activos].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
@@ -1140,7 +1140,7 @@ function conversaciones() {
       sub: r.ultimo ? `${r.ultimoDe === "admin" ? "Tú" : nombreUid(uid)}: ${r.ultimo}` : "Sin mensajes todavía" };
   }).sort((a, b) => b.ts - a.ts || a.titulo.localeCompare(b.titulo));
   const cl = Object.entries(resumenes).sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0)).map(([token, r]) => ({
-    key: "cl:" + token, uid: r.repartidorUid || r.uid || "", titulo: `Pedido ${r.pedido || "—"} · ${r.repartidor || "Repartidor"}`, ts: r.ts || 0, sinLeer: 0,
+    key: "cl:" + token, uid: r.repartidorUid || r.uid || "", titulo: `Pedido ${r.pedido || "—"} · ${nombreVivo(r.repartidorUid || r.uid, r.repartidor)}`, ts: r.ts || 0, sinLeer: 0,
     sub: `${r.ultimoDe === "cliente" ? "Cliente" : (r.repartidor || "Repartidor")}: ${r.ultimo || ""}` }));
   return { eq, cl };
 }
@@ -1178,8 +1178,9 @@ $("listaChats").onclick = (e) => {
   if (typeof ChatMessenger !== "undefined") ChatMessenger.limpiar();
   Chat.iniciar({
     token: id, soloLectura: true, puedeBorrar: true, pedido: r.pedido, nombreRepartidor: r.repartidor,
+    avatar: () => { const u = r.repartidorUid || r.uid || ""; return u ? { uid: u, foto: fotosCache[u], nombre: nombreVivo(u, r.repartidor) } : null; },
     titulo: (c) => "Pedido " + (c.pedido || "—"),
-    subtitulo: (c) => (c.nombreRepartidor ? "Repartidor: " + c.nombreRepartidor : "")
+    subtitulo: (c) => { const n = nombreVivo(r.repartidorUid || r.uid, c.nombreRepartidor); return n ? "Repartidor: " + n : ""; }
   });
   Chat.abrir();
 };
@@ -1284,6 +1285,7 @@ function pintarEquipo() {
       </div>
       <div class="acciones-fila">
         <button class="mini" data-foto-uid="${esc(uid)}" data-foto-nom="${esc(nombreUid(uid))}">📷 Foto</button>
+        <button class="mini" data-accion="nombre" data-uid="${esc(uid)}">✏️ Nombre</button>
         <button class="mini" data-accion="telefono" data-uid="${esc(uid)}">${i.telefono ? "Editar WhatsApp" : "Agregar WhatsApp"}</button>
         ${i.email ? `<button class="mini" data-accion="reset" data-uid="${esc(uid)}">Restablecer clave</button>` : ""}
         <button class="mini peligro" data-accion="quitar" data-uid="${esc(uid)}">Quitar</button>
@@ -1296,6 +1298,7 @@ $("listaEquipo").onclick = (e) => {
   if (fotoBtn) { abrirFotoPerfil(fotoBtn.dataset.fotoUid, fotoBtn.dataset.fotoNom); return; }
   const b = e.target.closest("button[data-accion]"); if (!b) return;
   const uid = b.dataset.uid, i = infoReg(uid), nombre = nombreUid(uid);
+  if (b.dataset.accion === "nombre") { renombrarRepartidor(uid); return; }
   if (b.dataset.accion === "telefono") {
     const escrito = prompt(`WhatsApp de ${nombre} con código de país (ej. 50588887777). Déjalo vacío para quitarlo:`, i.telefono || "");
     if (escrito === null) return;
@@ -1317,6 +1320,52 @@ $("listaEquipo").onclick = (e) => {
       .catch((err) => setMsg("msgEquipo", errorAuth(err), "error"));
   }
 };
+
+/* Cambia el nombre de usuario del repartidor: se refleja en su app (escucha en vivo), en el seguimiento del cliente,
+   en los chats y en los pedidos activos. */
+async function renombrarRepartidor(uid) {
+  const i = infoReg(uid), actual = i.usuario || i.nombre || "";
+  const escrito = prompt(`Nuevo nombre de usuario para ${actual || "este repartidor"} (2 a 24 caracteres).\nSe verá en su app y en la app de los clientes:`, actual);
+  if (escrito === null) return;
+  const v = escrito.trim().replace(/\s+/g, " ");
+  if (v.length < 2 || v.length > 24) return setMsg("msgEquipo", "El nombre debe tener entre 2 y 24 caracteres.", "error");
+  if (v === actual) return;
+  const repetido = Object.keys(registrados).some((u) => u !== uid && String((infoReg(u).usuario || infoReg(u).nombre || "")).trim().toLowerCase() === v.toLowerCase());
+  if (repetido && !confirm(`Ya hay otro repartidor llamado “${v}”. ¿Usar ese nombre de todos modos?`)) return;
+  const upd = { ["repartidores/" + uid + "/usuario"]: v };
+  if (ubic[uid]) upd["ubicaciones/" + uid + "/usuario"] = v;
+  Object.entries(activos).forEach(([t, d]) => { if (d && d.repartidorUid === uid && d.repartidorNombre != null) upd["pedidos/" + t + "/repartidorNombre"] = v; });
+  try { if (typeof SolicitudesAdmin !== "undefined") SolicitudesAdmin.activas().forEach(([id, d]) => { if (d && d.repartidorUid === uid && d.repartidorNombre != null) upd["solicitudes_entrantes/" + id + "/repartidorNombre"] = v; }); } catch (_) {}
+  try { if (typeof PedidosAdmin !== "undefined" && PedidosAdmin.cambiosNombre) Object.assign(upd, PedidosAdmin.cambiosNombre(uid, v)); } catch (_) {}
+  try {
+    await db.ref().update(upd);
+    setMsg("msgEquipo", `Nombre cambiado a “${v}”. Se actualiza solo en la app del repartidor y en la de sus clientes.`, "ok");
+  } catch (err) { setMsg("msgEquipo", "No se pudo cambiar el nombre: " + err.message, "error"); }
+}
+
+/* Visor de foto del repartidor (Equipo, bandeja de chats y encabezado del chat): toca el avatar para verla grande */
+function verFotoRep(uid) {
+  const f = fotosCache[uid];
+  if (!f || typeof f !== "string" || f.indexOf("data:image/") !== 0) { toast("Este repartidor aún no tiene foto."); return; }
+  const d = document.createElement("div");
+  d.className = "visor-foto";
+  d.innerHTML = `<div class="vf-caja"><div class="vf-img" style="background-image:url('${f}')"></div><b>${esc(nombreUid(uid))}</b>
+    <div class="vf-acc"><button type="button" class="mini" data-vf="cambiar">📷 Cambiar foto</button><button type="button" class="mini oscuro" data-vf="cerrar">Cerrar</button></div></div>`;
+  d.onclick = (e) => {
+    const b = e.target.closest("button[data-vf]");
+    if (b && b.dataset.vf === "cambiar") { d.remove(); abrirFotoPerfil(uid, nombreUid(uid)); return; }
+    if (!b && e.target.closest(".vf-caja") && !e.target.closest(".vf-img")) return;
+    d.remove();
+  };
+  document.body.appendChild(d);
+}
+document.addEventListener("click", (e) => {
+  const av = e.target.closest("#listaEquipo [data-av].con-foto, #listaChats [data-av].con-foto, .chat-av.con-foto");
+  if (!av) return;
+  const uid = av.dataset.av || av.dataset.uid; if (!uid) return;
+  e.stopPropagation(); e.preventDefault();
+  verFotoRep(uid);
+}, true);
 
 /* FASE 3 · Foto de perfil opcional al crear el repartidor (se guarda en repartidorFotos/<uid>) */
 let fotoNueva = "";
@@ -1548,6 +1597,20 @@ function comprimirFoto(file) {
     img.src = url;
   });
 }
+const refsFotos = {};
+function sincronizarFotos() {
+  Object.keys(registrados).forEach((uid) => {
+    if (refsFotos[uid]) return;
+    const r = db.ref("repartidorFotos/" + uid); refsFotos[uid] = r;
+    r.on("value", (s) => {
+      const v = s.val();
+      if (typeof v === "string" && v.indexOf("data:image/") === 0) fotosCache[uid] = v; else delete fotosCache[uid];
+      aplicarFotosAvatares();
+      try { if (typeof EQUIPO !== "undefined") EQUIPO.render(true); } catch (_) {}
+    }, () => {});
+  });
+  Object.keys(refsFotos).forEach((uid) => { if (!registrados[uid]) { try { refsFotos[uid].off(); } catch (_) {} delete refsFotos[uid]; delete fotosCache[uid]; } });
+}
 function aplicarFotosAvatares() {
   document.querySelectorAll("[data-av]").forEach((el) => {
     const f = fotosCache[el.dataset.av];
@@ -1561,6 +1624,7 @@ function aplicarFotosAvatares() {
       el.classList.remove("con-foto");
     }
   });
+  try { if (typeof Chat !== "undefined" && Chat.refrescarTitulo) Chat.refrescarTitulo(); } catch (_) {}
 }
 $("btnFotoPick").onclick = () => $("fotoFile").click();
 $("fotoFile").onchange = () => {

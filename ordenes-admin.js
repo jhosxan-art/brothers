@@ -1584,7 +1584,7 @@ const EQUIPO = (() => {
     if (!cont) { console.warn("[EQUIPO] No existe #listaEquipo"); return; }
 
     const hash = (() => {
-      try { return JSON.stringify([Object.keys(cache.registrados).sort().map((k) => [k, cache.registrados[k] && (cache.registrados[k].usuario || cache.registrados[k].nombre || "")]), cache.fotos, cache.error && (cache.error.message || cache.error.code), cache.cargando]); }
+      try { return JSON.stringify([Object.keys(cache.registrados).sort().map((k) => [k, cache.registrados[k] && (cache.registrados[k].usuario || cache.registrados[k].nombre || "")]), cache.fotos, (typeof fotosCache !== "undefined" ? Object.keys(fotosCache).map((k) => k + ":" + String(fotosCache[k]).length) : []), cache.error && (cache.error.message || cache.error.code), cache.cargando]); }
       catch (_) { return ""; }
     })();
     if (!force && hash && hash === lastHash) return;
@@ -1650,7 +1650,7 @@ const EQUIPO = (() => {
         } catch (_) {}
 
         const avatar = (typeof RIDER_SVG !== "undefined" && RIDER_SVG) ? RIDER_SVG : '<span style="font-size:24px;display:grid;place-items:center;width:100%;height:100%">🛵</span>';
-        const foto = cache.fotos[uid];
+        const foto = (typeof fotosCache !== "undefined" && fotosCache[uid]) || cache.fotos[uid];
         const tieneFoto = foto && typeof foto === "string" && foto.indexOf("data:image/") === 0;
         const avatarStyle = tieneFoto ? ' style="background-image:url(\'' + foto + '\');background-size:cover;background-position:center;background-color:transparent"' : "";
         const avatarInner = tieneFoto ? "" : avatar;
@@ -1745,14 +1745,7 @@ const EQUIPO = (() => {
       render(true);
     }
 
-    // Listener de fotos (para avatares)
-    try {
-      refFotos = db.ref("repartidorFotos");
-      refFotos.on("value", (s) => {
-        cache.fotos = s.val() || {};
-        render(true);
-      }, () => { cache.fotos = {}; });
-    } catch (e) { console.warn("[EQUIPO] refFotos:", e); }
+    // Las fotos las trae admin.js (un listener por repartidor: las reglas no permiten leer la lista completa) y llaman a render(true)
   }
 
   function detener() {
