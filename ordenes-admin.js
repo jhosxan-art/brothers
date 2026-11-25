@@ -551,7 +551,7 @@ const PedidosAdmin = (() => {
   let asw = null;   // { div, paso, idx:{retiro,entrega}, m, capa, seq, rutaKey, rutaTxt, rutaM }
   const ASW_TIT = { cliente: "Cliente", tipo: "Tipo de pedido", lista: "Lista de compras", donde: "Dónde comprar", retiro: "Dónde retiro", asignar: "Artículos por negocio", producto: "Qué retiro", entrega: "Dónde entrego", extras: "Notas y paradas", precio: "Precio del delivery", resumen: "Revisar y crear" };
   const ASW_EXTRAS = ["💵 Cobrar en efectivo al entregar", "🧊 Frágil, llevar con cuidado", "📞 Llamar al cliente al llegar", "⚡ Urgente"];
-  const ASW_PRECIOS = [35, 45, 65, 75, 85, 95, 100];   // el IVA base se suma solo (ver ivaBaseAuto)
+  const ASW_PRECIOS = [35, 45, 55, 65, 75, 85, 95, 100];   // el IVA base se suma solo al poner el precio (ver ivaBaseAuto: 35 → 7 de IVA)
   const aswMsg = { cliente: "Escribe el nombre del cliente.", tipo: "Elige el tipo de pedido.", lista: "Escribe o pega al menos un artículo.", retiro: "Elige dónde se retira: busca el negocio o toca el mapa.", entrega: "Elige dónde se entrega: busca la dirección o toca el mapa." };
 
   function aswPasos() {
@@ -630,8 +630,6 @@ const PedidosAdmin = (() => {
     aswQ("aswBarra").style.width = ((asw.paso + 1) / pasos.length * 100) + "%";
     asw.div.querySelector(".asw-atras").style.visibility = asw.paso === 0 ? "hidden" : "visible";
     aswQ("aswSig").textContent = p === "resumen" ? "✅ Crear pedido" : "Siguiente ›";
-    aswQ("aswSig").style.display = (p === "tipo" || p === "donde") ? "none" : "";   // en esas pantallas se avanza al tocar una opción
-    asw.div.querySelector(".asw-pie").classList.toggle("solo", p === "tipo" || p === "donde");
     if (p === "cliente") {
       c.innerHTML = `<h3>¿Para quién es el pedido?</h3><p class="asw-ayuda">Nombre del cliente que recibe. Presiona Intro para continuar.</p>
         <div class="asw-buscar"><span>👤</span><input id="aswCliente" maxlength="60" autocomplete="off" enterkeyhint="next" placeholder="Nombre del cliente" value="${esc(el("pdCliente").value)}"></div>`;
@@ -669,7 +667,7 @@ const PedidosAdmin = (() => {
         <div class="asw-trio"><button type="button" data-w="mas" data-k="retiro"><span>📦</span>Otro retiro</button><button type="button" data-w="mas" data-k="entrega"><span>🏠</span>Otra entrega</button><button type="button" data-w="mas" data-k="cobro"><span>💵</span>Lugar de cobro</button></div>
         <p class="asw-ayuda">${retirosForm.filter(tieneLugar).length} retiro(s) · ${entregasForm.filter(tieneLugar).length} entrega(s) hasta ahora.</p>`;
     } else if (p === "precio") {
-      c.innerHTML = `<h3>¿Cuánto cobra el delivery?</h3><p class="asw-ayuda">El IVA base se suma solo; puedes editarlo.</p>
+      c.innerHTML = `<h3>¿Cuánto cobra el delivery?</h3><p class="asw-ayuda">Al poner el precio se suma el IVA automáticamente (C$ 35 → 7 de IVA); puedes editarlo.</p>
         <div class="asw-ruta" id="aswRuta">${esc(asw.rutaTxt || "Calculando ruta…")}</div>
         <div id="aswSugP"></div>
         <label class="asw-campo"><b>Delivery (C$)</b><input id="aswDel" type="number" inputmode="decimal" min="0" step="0.01" enterkeyhint="next" placeholder="C$ 0.00" value="${esc(el("pdDelivery").value)}"></label>
@@ -677,6 +675,7 @@ const PedidosAdmin = (() => {
         <div class="asw-dos"><label class="asw-campo"><b>IVA base</b><input id="aswIvaB" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Auto" value="${esc(el("pdIvaBase").value)}"></label>
           <label class="asw-campo"><b>IVA extra</b><input id="aswIvaX" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" value="${esc(el("pdIvaExtra").value)}"></label></div>
         <div class="asw-total" id="aswTotal">${aswTotalHtml()}</div>`;
+      if (el("pdDelivery").value !== "" && el("pdIvaBase").value === "") alEscribirDelivery();   // IVA automático según el precio
       aswMarcarPrecio(); aswPintarSug(); aswCalcularRuta();
     } else {
       const t = totalForm();
