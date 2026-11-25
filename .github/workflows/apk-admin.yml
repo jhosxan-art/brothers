@@ -46,6 +46,10 @@ jobs:
           # Push del Admin: manifest + iconos de las notificaciones (sw.js ya se copia con *.js)
           cp manifest.json www/
           cp icon-192.png icon-512.png icon-maskable-512.png badge-96.png www/ 2>/dev/null || echo "::warning::Faltan iconos PNG en la raiz del repositorio (icon-192.png, icon-512.png, icon-maskable-512.png, badge-96.png)."
+          # Icono de la app (pantalla de carga y esquina superior izquierda): puede estar en la raíz o en assets/
+          if [ -f icon-admin-only.png ]; then cp icon-admin-only.png www/icon-admin-only.png
+          elif [ -f assets/icon-admin-only.png ]; then cp assets/icon-admin-only.png www/icon-admin-only.png
+          else echo "::warning::No se encontró icon-admin-only.png ni en la raiz ni en assets/."; fi
           cp admin.html www/index.html
 
       - name: Instalar dependencias
@@ -111,6 +115,9 @@ jobs:
 
       - name: Generar iconos
         run: |
+          # Si el icono está en la raíz del repositorio, se usa como fuente del icono de la app
+          mkdir -p assets
+          if [ -f icon-admin-only.png ] && [ ! -f assets/icon-admin-only.png ]; then cp icon-admin-only.png assets/icon-admin-only.png; fi
           if [ -f assets/icon-admin-only.png ]; then
             cp assets/icon-admin-only.png assets/icon-only.png
           fi
