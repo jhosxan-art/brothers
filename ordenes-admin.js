@@ -545,6 +545,207 @@ const PedidosAdmin = (() => {
       ? `<span class="as-av con-foto" style="background-image:url('${f}')"></span>`
       : `<span class="as-av">${typeof RIDER_SVG !== "undefined" ? RIDER_SVG : "🛵"}</span>`;
   }
+  /* ===== ASISTENTE «Crear pedido paso a paso»: una ventana por pregunta, con mapa en retiro y entrega ===== */
+  let asw = null;   // { div, paso, idx:{retiro,entrega}, m, capa, seq, rutaKey, rutaTxt }
+  const ASW_PASOS = ["cliente", "retiro", "producto", "entrega", "extras", "precio", "resumen"];
+  const ASW_TIT = { cliente: "Cliente", retiro: "Dónde retiro", producto: "Qué retiro", entrega: "Dónde entrego", extras: "Mandado extra", precio: "Precio del delivery", resumen: "Revisar y crear" };
+  const ASW_EXTRAS = ["💵 Cobrar en efectivo al entregar", "🧊 Frágil, llevar con cuidado", "🛒 Mandado: comprar en el lugar", "📞 Llamar al cliente al llegar", "⚡ Urgente"];
+  const ASW_PRECIOS = [35, 50, 70, 100, 150, 200];
+
+  function limpiarMapaAsw() { if (asw && asw.m) { try { asw.m.remove(); } catch (_) {} asw.m = null; asw.capa = null; } }
+  function cerrarAsistente() { if (!asw) return; limpiarMapaAsw(); asw.div.remove(); asw = null; }
+  function aswValido(paso) {
+    if (paso === "cliente") return !!el("pdCliente").value.trim();
+    if (paso === "retiro") return retirosForm.some(tieneLugar);
+    if (paso === "entrega") return entregasForm.some(tieneLugar);
+    return true;
+  }
+  const aswMsg = { cliente: "Escribe el nombre del cliente.", retiro: "Elige dónde se retira: toca el mapa o escribe el negocio.", entrega: "Elige dónde se entrega: toca el mapa o escribe la dirección." };
+
+  function abrirAsistente(paso) {
+    cerrarAsistente(); cerrarMapaForm();
+    const div = document.createElement("div");
+    div.className = "asw";
+    div.innerHTML = `<div class="asw-caja" role="dialog" aria-modal="true" aria-label="Crear pedido paso a paso">
+      <div class="asw-top"><button type="button" class="asw-x" data-w="cerrar" aria-label="Cerrar (se guarda el borrador)">✕</button>
+        <div class="asw-prog"><div class="asw-tit" id="aswTit"></div><div class="asw-barra"><i id="aswBarra"></i></div></div></div>
+      <div class="asw-cuerpo" id="aswCuerpo"></div>
+      <div class="asw-pie"><button type="button" class="asw-atras" data-w="atras">‹ Atrás</button><button type="button" class="asw-sig" id="aswSig" data-w="sig">Siguiente ›</button></div>
+    </div>`;
+    document.body.appendChild(div);
+    asw = { div, paso: 0, idx: { retiro: 0, entrega: 0 }, m: null, capa: null, seq: 0, rutaKey: "", rutaTxt: "" };
+    div.addEventListener("click", aswClick);
+    div.addEventListener("input", aswInput);
+    aswIr(typeof paso === "number" ? paso : 0);
+  }
+  function aswIr(n) {
+    if (!asw) return;
+    limpiarMapaAsw();
+    asw.paso = Math.max(0, Math.min(ASW_PASOS.length - 1, n));
+    aswPintar();
+    const c = asw.div.querySelector("#aswCuerpo"); if (c) c.scrollTop = 0;
+  }
+  const aswQ = (id) => (asw ? asw.div.querySelector("#" + id) : null);
+
+  function aswTotalHtml() {
+    const t = totalForm(), partes = [t.d.toFixed(2)];
+    if (t.base) partes.push(`${t.base.toFixed(2)} IVA`);
+    if (t.extra) partes.push(`${t.extra.toFixed(2)} extra`);
+    return `<span>Total general<small>${t.d || t.iva ? partes.join(" + ") : "Escribe el delivery: el IVA base se calcula solo"}</small></span><b>${esc(O.money(t.total))}</b>`;
+  }
+
+  function aswPintar() {
+    const p = ASW_PASOS[asw.paso], c = aswQ("aswCuerpo"), ultimo = p === "resumen";
+    aswQ("aswTit").textContent = `Paso ${asw.paso + 1} de ${ASW_PASOS.length} · ${ASW_TIT[p]}`;
+    aswQ("aswBarra").style.width = ((asw.paso + 1) / ASW_PASOS.length * 100) + "%";
+    asw.div.querySelector(".asw-atras").style.visibility = asw.paso === 0 ? "hidden" : "visible";
+    aswQ("aswSig").textContent = ultimo ? "✅ Crear pedido" : "Siguiente ›";
+    if (p === "cliente") {
+      c.innerHTML = `<h3>👤 ¿Para quién es el pedido?</h3><p class="asw-ayuda">Nombre del cliente que recibe el pedido.</p>
+        <input id="aswCliente" maxlength="60" autocomplete="off" placeholder="Nombre del cliente" value="${esc(el("pdCliente").value)}">`;
+      setTimeout(() => { const i = aswQ("aswCliente"); if (i) i.focus(); }, 60);
+    } else if (p === "retiro" || p === "entrega") aswPintarMapa(p);
+    else if (p === "producto") {
+      const lis = retirosForm.map((r, i) => ({ r, i })).filter((x) => tieneLugar(x.r));
+      c.innerHTML = `<h3>🛍 ¿Qué se retira?</h3><p class="asw-ayuda">Describe el producto de cada retiro (ej. 2 pizzas medianas). Puedes dejarlo vacío.</p>` +
+        (lis.length ? lis.map((x) => `<label class="asw-campo"><b>${icono("retiro", x.r)} ${esc(etiqueta("retiro", x.i))}</b><small>${esc(textoPunto(x.r))}</small><input data-prod="${x.i}" maxlength="120" autocomplete="off" placeholder="Producto a retirar aquí" value="${esc(x.r.producto)}"></label>`).join("")
+          : `<p class="asw-vacio">Aún no hay lugar de retiro. Vuelve atrás y elígelo.</p>`);
+    } else if (p === "extras") {
+      c.innerHTML = `<h3>🧩 ¿Algún mandado extra o indicación?</h3><p class="asw-ayuda">Notas para el repartidor y paradas adicionales. Todo es opcional.</p>
+        <textarea id="aswPaq" rows="3" maxlength="400" placeholder="Qué lleva, tamaño, indicaciones…">${esc(el("pdPaquete").value)}</textarea>
+        <div class="asw-chips asw-chips-txt">${ASW_EXTRAS.map((t) => `<button type="button" data-w="txt" data-t="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+        <div class="asw-sec">Paradas adicionales</div>
+        <div class="asw-trio"><button type="button" data-w="mas" data-k="retiro">📦 Otro retiro</button><button type="button" data-w="mas" data-k="entrega">🏠 Otra entrega</button><button type="button" data-w="mas" data-k="cobro">💵 Lugar de cobro</button></div>
+        <p class="asw-ayuda">${retirosForm.filter(tieneLugar).length} retiro(s) · ${entregasForm.filter(tieneLugar).length} entrega(s) hasta ahora.</p>`;
+    } else if (p === "precio") {
+      c.innerHTML = `<h3>🛵 ¿Cuánto cobra el delivery?</h3><p class="asw-ayuda">El IVA base se calcula solo según el delivery; puedes editarlo.</p>
+        <div class="asw-ruta" id="aswRuta">${esc(asw.rutaTxt || "Calculando ruta…")}</div>
+        <label class="asw-campo"><b>Delivery (C$)</b><input id="aswDel" type="number" inputmode="decimal" min="0" step="0.01" placeholder="C$ 0.00" value="${esc(el("pdDelivery").value)}"></label>
+        <div class="asw-chips">${ASW_PRECIOS.map((v) => `<button type="button" data-w="precio" data-v="${v}">C$ ${v}</button>`).join("")}</div>
+        <div class="asw-dos"><label class="asw-campo"><b>IVA base</b><input id="aswIvaB" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Auto" value="${esc(el("pdIvaBase").value)}"></label>
+          <label class="asw-campo"><b>IVA extra</b><input id="aswIvaX" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0" value="${esc(el("pdIvaExtra").value)}"></label></div>
+        <div class="asw-total" id="aswTotal">${aswTotalHtml()}</div>`;
+      aswCalcularRuta();
+    } else {
+      const t = totalForm();
+      const fila = (ico, titulo, sub, ir, aviso) => `<div class="asw-fila"><span class="asw-ico">${ico}</span><div class="asw-fd"><b>${esc(titulo)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}${aviso ? `<small class="asw-aviso">${esc(aviso)}</small>` : ""}</div><button type="button" data-w="go" data-p="${ir}">Editar</button></div>`;
+      const rs = retirosForm.filter(tieneLugar), es = entregasForm.filter(tieneLugar), paq = el("pdPaquete").value.trim();
+      c.innerHTML = `<h3>✅ Revisa y crea el pedido</h3><div class="asw-res">`
+        + fila("👤", el("pdCliente").value.trim() || "Sin nombre", "Cliente", 0, el("pdCliente").value.trim() ? "" : "Falta el nombre")
+        + rs.map((r, i) => fila("📦", (rs.length > 1 ? "Retiro " + (i + 1) + ": " : "Retiro: ") + textoPunto(r), r.producto.trim() || "Sin producto indicado", 1, okLL(r.ll) ? "" : "Solo dirección: sin ubicación en el mapa")).join("")
+        + es.map((r, i) => fila(r.tipo === "cobro" ? "💵" : "🏠", (r.tipo === "cobro" ? "Cobro " : es.length > 1 ? "Entrega " + (i + 1) + ": " : "Entrega: ") + textoPunto(r), (r.nota || "").trim(), 3, okLL(r.ll) ? "" : "Solo dirección: sin ubicación en el mapa")).join("")
+        + (paq ? fila("📝", paq, "Notas del paquete", 4, "") : "")
+        + fila("🛵", t.d ? "Delivery " + O.money(t.d) : "Delivery sin precio", t.iva ? "IVA " + O.money(t.iva) : "", 5, t.d ? "" : "Falta el precio del delivery")
+        + `</div><div class="asw-total">${aswTotalHtml()}</div><p class="asw-ayuda">Al crear, eliges: repartidor registrado, enlace de invitado o dejarlo en espera.</p>`;
+    }
+  }
+
+  function aswPintarMapa(cual) {
+    const c = aswQ("aswCuerpo"), arr = lista(cual);
+    asw.idx[cual] = Math.min(Math.max(asw.idx[cual], 0), arr.length - 1);
+    const i = asw.idx[cual], pt = arr[i], extra = cual === "entrega" && i > 0;
+    const chips = arr.map((q, k) => `<button type="button" data-w="chip" data-i="${k}" class="${k === i ? "on" : ""}">${icono(cual, q)} ${esc(etiqueta(cual, k))}${okLL(q.ll) ? " ✓" : ""}</button>`).join("");
+    const mas = cual === "retiro" ? `<button type="button" data-w="mas" data-k="retiro">➕ Otro retiro</button>` : `<button type="button" data-w="mas" data-k="entrega">➕ Otra entrega</button><button type="button" data-w="mas" data-k="cobro">💵 Cobro</button>`;
+    c.innerHTML = `<h3>${cual === "retiro" ? "📦 ¿Dónde se retira?" : "🏠 ¿Dónde se entrega?"}</h3>
+      <div class="asw-chips">${chips}${mas}</div>
+      <div class="asw-mapa" id="aswMapa"></div>
+      <div class="asw-info" id="aswInfo"></div>
+      <input id="aswDir" maxlength="160" autocomplete="off" placeholder="${cual === "retiro" ? "Negocio o dirección de retiro" : esCobro(cual, pt) ? "Dirección del lugar de cobro" : "Dirección de entrega"}" value="${esc(pt.texto)}">
+      <div id="aswSug" class="pdm-sug oculto"></div>
+      ${cual === "entrega" ? `${extra ? `<div class="asw-seg"><button type="button" data-w="tipo" data-t="entrega" class="${pt.tipo !== "cobro" ? "on" : ""}">🏠 Entrega</button><button type="button" data-w="tipo" data-t="cobro" class="${pt.tipo === "cobro" ? "on" : ""}">💵 Cobro</button></div>` : ""}<input id="aswNota" maxlength="140" autocomplete="off" placeholder="Detalle para el repartidor (opcional, ej. cobrar C$350)" value="${esc(pt.nota || "")}">` : ""}
+      ${arr.length > 1 ? `<button type="button" class="asw-quitar" data-w="quitar">🗑 Quitar ${esc(etiqueta(cual, i))}</button>` : ""}`;
+    const centro = okLL(pt.ll) ? [pt.ll.lat, pt.ll.lng] : (puntosForm().find((q) => okLL(q.p.ll)) ? (() => { const q = puntosForm().find((x) => okLL(x.p.ll)); return [q.p.ll.lat, q.p.ll.lng]; })() : (mapa ? [mapa.getCenter().lat, mapa.getCenter().lng] : [12.5700, -87.1311]));
+    setTimeout(() => {
+      if (!asw || !aswQ("aswMapa")) return;
+      const m = L.map(aswQ("aswMapa"), { zoomControl: false }).setView(centro, okLL(pt.ll) ? 17 : (mapa ? Math.max(mapa.getZoom(), 13) : 14));
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(m);
+      asw.m = m; asw.capa = L.layerGroup().addTo(m);
+      m.on("click", (e) => { const q = lista(cual)[asw.idx[cual]]; q.ll = { lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6) }; q.auto = false; aswMarcar(cual); });
+      aswMarcar(cual);
+      m.invalidateSize();
+    }, 60);
+    aswInfoMapa(cual);
+  }
+  function aswInfoMapa(cual) {
+    const q = lista(cual)[asw.idx[cual]], inf = aswQ("aswInfo"); if (!inf || !q) return;
+    inf.textContent = okLL(q.ll) ? "✓ Ubicación fijada. Toca otro punto del mapa para moverla." : "Toca el mapa para fijar la ubicación, o escribe el nombre del negocio.";
+    inf.classList.toggle("ok", okLL(q.ll));
+  }
+  function aswMarcar(cual) {
+    if (!asw || !asw.capa) return;
+    asw.capa.clearLayers();
+    const act = asw.idx[cual];
+    puntosForm().forEach((q) => { if (okLL(q.p.ll)) L.marker([q.p.ll.lat, q.p.ll.lng], { icon: O.pinIcono(q.cual, icono(q.cual, q.p)), opacity: q.cual === cual ? 1 : .45, zIndexOffset: q.cual === cual && q.i === act ? 800 : 0 }).addTo(asw.capa); });
+    aswInfoMapa(cual);
+    const chips = asw.div.querySelectorAll(".asw-chips button[data-w='chip']");
+    lista(cual).forEach((q, k) => { if (chips[k]) chips[k].innerHTML = `${icono(cual, q)} ${esc(etiqueta(cual, k))}${okLL(q.ll) ? " ✓" : ""}`; });
+  }
+  async function aswCalcularRuta() {
+    const pts = puntosForm().filter((q) => okLL(q.p.ll)).map((q) => q.p.ll), key = JSON.stringify(pts), est = aswQ("aswRuta");
+    if (pts.length < 2) { asw.rutaTxt = "Sin ubicaciones en el mapa para calcular distancia."; if (est) est.textContent = asw.rutaTxt; return; }
+    if (asw.rutaKey === key && asw.rutaTxt) { if (est) est.textContent = asw.rutaTxt; return; }
+    const mio = asw, seq = ++mio.seq; let dist = 0, dur = 0;
+    for (let k = 0; k < pts.length - 1; k++) {
+      let r = null; try { r = await O.rutaCalles({ lat: pts[k].lat, lng: pts[k].lng }, { lat: pts[k + 1].lat, lng: pts[k + 1].lng }); } catch (_) {}
+      if (asw !== mio || seq !== mio.seq) return;
+      if (!r) { mio.rutaTxt = "No se pudo calcular la ruta por calles."; const e2 = aswQ("aswRuta"); if (e2) e2.textContent = mio.rutaTxt; return; }
+      dist += r.dist; dur += r.dur;
+    }
+    mio.rutaKey = key; mio.rutaTxt = `🛣 Ruta ${fmtKm(dist)} · ⏱ ≈ ${fmtEta(dur)}`;
+    const e3 = aswQ("aswRuta"); if (e3) e3.textContent = mio.rutaTxt;
+  }
+
+  function aswInput(e) {
+    const t = e.target, id = t.id;
+    if (id === "aswCliente") el("pdCliente").value = t.value;
+    else if (id === "aswPaq") el("pdPaquete").value = t.value;
+    else if (t.dataset && t.dataset.prod != null) { const r = retirosForm[+t.dataset.prod]; if (r) r.producto = t.value; }
+    else if (id === "aswDir" || id === "aswNota") {
+      const cual = ASW_PASOS[asw.paso], q = lista(cual)[asw.idx[cual]]; if (!q) return;
+      if (id === "aswNota") { q.nota = t.value; return; }
+      q.texto = t.value;
+      const hit = hitLugar(t.value);
+      if (hit) { q.ll = { lat: hit.lat, lng: hit.lng }; q.auto = true; mostrarSug(aswQ("aswSug"), ""); if (asw.m) asw.m.setView([hit.lat, hit.lng], Math.max(asw.m.getZoom(), 16)); aswMarcar(cual); return; }
+      if (q.auto) { q.ll = null; q.auto = false; aswMarcar(cual); }
+      mostrarSug(aswQ("aswSug"), t.value);
+    } else if (id === "aswDel") { el("pdDelivery").value = t.value; alEscribirDelivery(); const b = aswQ("aswIvaB"); if (b) b.value = el("pdIvaBase").value; aswQ("aswTotal").innerHTML = aswTotalHtml(); }
+    else if (id === "aswIvaB") { el("pdIvaBase").value = t.value; pintarTotalDelivery(); aswQ("aswTotal").innerHTML = aswTotalHtml(); }
+    else if (id === "aswIvaX") { el("pdIvaExtra").value = t.value; pintarTotalDelivery(); aswQ("aswTotal").innerHTML = aswTotalHtml(); }
+  }
+
+  function aswClick(e) {
+    const sug = e.target.closest("button[data-lid]");
+    if (sug) {
+      const cual = ASW_PASOS[asw.paso], q = lista(cual)[asw.idx[cual]], l = lugares[sug.dataset.lid]; if (!q || !l) return;
+      q.texto = l.nombre; q.ll = { lat: l.lat, lng: l.lng }; q.auto = true;
+      aswQ("aswDir").value = l.nombre; mostrarSug(aswQ("aswSug"), "");
+      if (asw.m) asw.m.setView([l.lat, l.lng], Math.max(asw.m.getZoom(), 16)); aswMarcar(cual); return;
+    }
+    const b = e.target.closest("button[data-w]"); if (!b) return;
+    const w = b.dataset.w, paso = ASW_PASOS[asw.paso];
+    if (w === "cerrar") { cerrarAsistente(); toast("Borrador guardado. Toca “Crear pedido paso a paso” para continuar."); }
+    else if (w === "atras") aswIr(asw.paso - 1);
+    else if (w === "sig") {
+      if (!aswValido(paso)) return toast(aswMsg[paso]);
+      if (paso !== "resumen") return aswIr(asw.paso + 1);
+      if (!el("pdCliente").value.trim()) { toast(aswMsg.cliente); return aswIr(0); }
+      if (!retirosForm.some(tieneLugar)) { toast(aswMsg.retiro); return aswIr(1); }
+      if (!entregasForm.some(tieneLugar)) { toast(aswMsg.entrega); return aswIr(3); }
+      cerrarAsistente(); crearPedido();
+    }
+    else if (w === "go") aswIr(+b.dataset.p);
+    else if (w === "chip") { asw.idx[paso] = +b.dataset.i; aswIr(asw.paso); }
+    else if (w === "mas") {
+      const k = b.dataset.k, cual = k === "retiro" ? "retiro" : "entrega";
+      const n = añadir(cual); if (k === "cobro") lista(cual)[n].tipo = "cobro";
+      asw.idx[cual] = n; aswIr(cual === "retiro" ? 1 : 3);
+    }
+    else if (w === "tipo") { const q = lista(paso)[asw.idx[paso]]; if (q) { q.tipo = b.dataset.t === "cobro" ? "cobro" : "entrega"; aswIr(asw.paso); } }
+    else if (w === "quitar") { const arr = lista(paso), i = asw.idx[paso]; if (arr.length > 1) { arr.splice(i, 1); asw.idx[paso] = Math.max(0, i - 1); aswIr(asw.paso); } }
+    else if (w === "txt") { const ta = aswQ("aswPaq"); if (ta) { ta.value = (ta.value.trim() ? ta.value.trim() + "\n" : "") + b.dataset.t; el("pdPaquete").value = ta.value; ta.focus(); } }
+    else if (w === "precio") { const d = aswQ("aswDel"); if (d) { d.value = b.dataset.v; aswInput({ target: d }); } }
+  }
+
   function pedirAsignacion(base) {
     const rango = { libre: 0, enRuta: 1, sinSenal: 2, desconectado: 3, sinDatos: 4 };
     const ids = Object.keys(registrados).sort((a, b) => (rango[estadoDe(a)] - rango[estadoDe(b)]) || nombreUid(a).localeCompare(nombreUid(b)));
@@ -1171,10 +1372,12 @@ const PedidosAdmin = (() => {
       try { iniciarPulsacionLarga(); } catch (e) { console.warn("[pulsación larga]", e); }
       new MutationObserver(() => { if (el("modalAdmin").classList.contains("oculto")) quitarTemp(); }).observe(el("modalAdmin"), { attributes: true, attributeFilter: ["class"] });
       
-      document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { cerrarMapaForm(); if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
+      document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => { cerrarMapaForm(); cerrarAsistente(); if (b.dataset.tab === "panelPedidos") pintarSelectorReg(); }));
       try { Brujula.iniciar(); ChatMessenger.iniciar(); } catch (e) { console.warn("[FASE2] brújula/chat:", e); }
       const btnFv = el("btnFacturasVivo"); if (btnFv) btnFv.onclick = abrirFacturasEnRuta;
       el("pdCrear").onclick = crearPedido;
+      el("pdAsistente").onclick = () => abrirAsistente(0);
+      el("pdClasico").onclick = () => { const f = el("pdAsistente").closest(".pd-form"), c = f.classList.toggle("pd-modo-asist"); el("pdClasico").textContent = c ? "Usar formulario clásico" : "Volver al paso a paso"; };
       el("pdDelivery").addEventListener("input", alEscribirDelivery);
       el("pdIvaBase").addEventListener("input", pintarTotalDelivery);
       el("pdIvaExtra").addEventListener("input", pintarTotalDelivery);

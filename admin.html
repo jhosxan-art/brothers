@@ -389,8 +389,10 @@
 
     <!-- Pedidos: formulario, asignación (registrado o invitado) y estado en vivo -->
     <section id="panelPedidos" class="oculto">
-      <div class="pd-form">
+      <div class="pd-form pd-modo-asist">
         <h2>Nuevo pedido</h2>
+        <button id="pdAsistente" class="primario pd-asistente" type="button">➕ Crear pedido paso a paso</button>
+        <button id="pdClasico" class="mini pd-clasico" type="button">Usar formulario clásico</button>
         <input id="pdCliente" maxlength="60" autocomplete="off" placeholder="Nombre del cliente" aria-label="Cliente">
         <div class="pdl-card" id="pdLugares">
           <div class="pdl-head"><span class="pdl-titulo">📍 Lugar de Retiro y Entrega</span><button id="pdAbrirMapa" class="pdl-mapa" type="button">🗺 Abrir mapa</button></div>

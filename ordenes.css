@@ -205,3 +205,65 @@ body.admin .tabs { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; 
 .sa-nomtel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .sa-tel-btn { width: auto; height: auto; padding: 3px 10px; border: 1px solid #BFE3CE; border-radius: 999px; background: #EAF8EF; color: #12803F; font-size: 12.5px; font-weight: 800; line-height: 1.3; cursor: pointer; }
 .sa-tel-btn:active { transform: scale(.97); background: #D7F1E1; }
+
+/* ===== Asistente «Crear pedido paso a paso» ===== */
+.pd-asistente { width: 100%; height: 52px; font-size: 16px; font-weight: 800; border-radius: 14px; }
+.pd-clasico { justify-self: center; }
+.pd-modo-asist > #pdCliente, .pd-modo-asist > #pdLugares, .pd-modo-asist > .pd-dinero, .pd-modo-asist > label, .pd-modo-asist #pdTotalDel, .pd-modo-asist #pdCrear { display: none; }
+.asw { position: fixed; inset: 0; z-index: 3000; background: rgba(14,20,27,.55); display: flex; justify-content: center; align-items: stretch; }
+.asw-caja { width: 100%; max-width: 560px; height: 100dvh; display: flex; flex-direction: column; background: #fff; }
+.asw-top { flex: none; display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 12px 8px; border-bottom: 1px solid var(--linea); }
+.asw-x { flex: none; width: 42px; height: 42px; border: 0; border-radius: 50%; background: var(--gris); color: var(--tinta); font-size: 18px; font-weight: 800; }
+.asw-prog { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.asw-tit { font-size: 13px; font-weight: 800; color: var(--tinta); }
+.asw-barra { height: 6px; border-radius: 99px; background: var(--gris); overflow: hidden; }
+.asw-barra i { display: block; height: 100%; width: 0; border-radius: 99px; background: var(--celeste); transition: width .25s; }
+.asw-cuerpo { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 10px; padding: 14px 14px 18px; }
+.asw-cuerpo h3 { font-size: 20px; font-weight: 800; line-height: 1.2; }
+.asw-ayuda { font-size: 13px; line-height: 1.35; color: var(--texto2); }
+.asw-vacio { padding: 14px; border-radius: 12px; background: var(--rojo-suave); color: var(--rojo); font-size: 14px; font-weight: 700; }
+.asw input, .asw textarea { width: 100%; box-sizing: border-box; padding: 0 12px; border: 1.5px solid var(--linea); border-radius: 12px; background: var(--gris); color: var(--tinta); font: inherit; font-size: 16px; }
+.asw input { height: 48px; }
+.asw textarea { padding: 10px 12px; resize: vertical; }
+.asw-campo { display: grid; gap: 4px; }
+.asw-campo b { font-size: 13px; font-weight: 800; }
+.asw-campo small { font-size: 12px; color: var(--texto2); }
+.asw-dos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.asw-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0; scrollbar-width: none; }
+.asw-chips::-webkit-scrollbar { display: none; }
+.asw-chips button, .asw-seg button, .asw-trio button, .asw-fila button { flex: none; height: 42px; padding: 0 14px; border: 1.5px solid var(--linea); border-radius: 21px; background: #fff; color: var(--tinta); font-size: 14px; font-weight: 800; white-space: nowrap; }
+.asw-chips button.on, .asw-seg button.on { background: var(--tinta); color: #fff; border-color: var(--celeste); }
+.asw-chips-txt { flex-wrap: wrap; overflow: visible; }
+.asw-chips-txt button { height: auto; min-height: 38px; padding: 6px 12px; white-space: normal; text-align: left; border-radius: 14px; font-size: 13px; }
+.asw-sec { margin-top: 4px; font-size: 13px; font-weight: 800; color: var(--texto2); text-transform: uppercase; letter-spacing: .3px; }
+.asw-trio { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.asw-trio button { height: 54px; padding: 0 6px; white-space: normal; border-radius: 14px; border-style: dashed; border-color: var(--celeste-prof); font-size: 13px; }
+.asw-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.asw-mapa { height: 38vh; min-height: 220px; border-radius: 14px; overflow: hidden; border: 1.5px solid var(--linea); background: #dfe6ec; z-index: 0; }
+.asw-info { font-size: 13px; line-height: 1.3; color: var(--texto2); }
+.asw-info.ok { color: #0b7a3b; font-weight: 700; }
+.asw-quitar { height: 44px; border: 0; border-radius: 12px; background: var(--rojo-suave); color: var(--rojo); font-size: 14px; font-weight: 800; }
+.asw .pdm-sug { display: grid; max-height: 24vh; overflow-y: auto; border: 1.5px solid var(--linea); border-radius: 12px; background: #fff; }
+.asw .pdm-sug.oculto { display: none; }
+.asw .pdm-burb { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--linea); background: #fff; color: var(--tinta); text-align: left; font-size: 14px; }
+.asw .pdm-burb:last-child { border-bottom: 0; }
+.asw .pdm-burb .pdm-bn { flex: none; max-width: 60%; font-weight: 600; }
+.asw .pdm-burb .pdm-bn b { font-weight: 800; color: var(--celeste-prof); }
+.asw .pdm-burb small { min-width: 0; color: var(--texto2); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asw-ruta { padding: 10px 12px; border-radius: 12px; background: var(--gris); font-size: 14px; font-weight: 700; }
+.asw-total { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--tinta); color: #fff; }
+.asw-total span { display: grid; font-size: 14px; font-weight: 800; }
+.asw-total small { font-size: 12px; font-weight: 600; opacity: .8; }
+.asw-total b { font-size: 22px; font-weight: 800; }
+.asw-res { display: grid; gap: 8px; }
+.asw-fila { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--linea); border-radius: 14px; }
+.asw-ico { flex: none; font-size: 22px; }
+.asw-fd { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.asw-fd b { font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
+.asw-fd small { font-size: 12px; color: var(--texto2); overflow-wrap: anywhere; }
+.asw-fd .asw-aviso { color: var(--rojo); font-weight: 800; }
+.asw-fila button { height: 34px; padding: 0 12px; font-size: 13px; }
+.asw-pie { flex: none; display: grid; grid-template-columns: 1fr 2fr; gap: 10px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--linea); background: #fff; }
+.asw-pie button { height: 52px; border: 0; border-radius: 14px; font-size: 16px; font-weight: 800; }
+.asw-atras { background: var(--gris); color: var(--tinta); }
+.asw-sig { background: var(--celeste); color: var(--tinta); }
