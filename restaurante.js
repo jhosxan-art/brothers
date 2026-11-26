@@ -142,7 +142,10 @@ function escucharPedido(id) {
   };
   [["vista", "vistaRestaurante"], ["estado", "estado"], ["rest", "rest"], ["rep", "repartidorNombre"]].forEach(([k, ruta]) => {
     const r = db.ref(base + "/" + ruta); lista.push(r);
-    r.on("value", (s) => { parte[k] = s.val(); armar(); }, (e) => { diag.pedidos = e.code || e.message; pintarDiag(); });
+    r.on("value", (s) => { parte[k] = s.val(); armar(); }, (e) => {
+      (refsPed[id] || []).forEach((x) => { try { x.off(); } catch (_) {} }); refsPed[id] = [];
+      delete pedidos[id]; diag["pedido " + bonito(id) + " " + ruta] = e.code || e.message; pintarDiag(); pintarPedidos();
+    });
   });
   refsPed[id] = lista;
 }
