@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#E5322D">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>Brother’s Deliverys — Restaurante</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="restaurante.css?v=20261126">
+</head>
+<body class="restaurante">
+
+  <div id="splash" class="splash"><div class="splash-caja"><img class="insignia" src="icon-192.png" alt="Brother’s Deliverys"><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
+
+  <header class="barra-marca">
+    <img class="insignia" src="icon-192.png" alt="Brother’s Deliverys">
+    <div class="titulo"><strong id="rtNombreBarra">Brother’s Deliverys</strong><small>Restaurante</small></div>
+    <button id="btnAbierto" class="rt-estado oculto" type="button" role="switch" aria-checked="false" aria-label="Abrir o cerrar el restaurante"><i aria-hidden="true"></i><span>Cerrado</span></button>
+    <button id="btnSalir" class="salir oculto" type="button" aria-label="Cerrar sesión">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+    </button>
+  </header>
+
+  <!-- Inicio de sesión (la cuenta la crea el administrador) -->
+  <main id="loginMain">
+    <section id="vistaLogin" class="acciones">
+      <div class="hero">
+        <div class="gran-icono" aria-hidden="true">🍔</div>
+        <h1>Panel del restaurante</h1>
+        <p>Entra con el correo y la contraseña que te dio la central.</p>
+      </div>
+      <label>Correo <input id="email" type="email" autocomplete="username"></label>
+      <label>Contraseña <input id="clave" type="password" autocomplete="current-password"></label>
+      <div id="msgLogin" class="estado oculto" role="alert"></div>
+      <button id="btnLogin" class="primario" type="button">Entrar</button>
+    </section>
+  </main>
+
+  <!-- Cuenta que no es de restaurante -->
+  <main id="vistaDenegado" class="oculto">
+    <section class="acciones">
+      <div class="hero">
+        <div class="gran-icono" aria-hidden="true">🚫</div>
+        <h1>Cuenta sin acceso</h1>
+        <p>Esta cuenta no es de un restaurante o está desactivada. Habla con la central.</p>
+      </div>
+      <button id="btnDenegadoSalir" class="oscuro" type="button">Cerrar sesión</button>
+    </section>
+  </main>
+
+  <!-- Aplicación -->
+  <div id="vistaApp" class="oculto">
+
+    <div id="rtAviso" class="aviso-sonido oculto" style="margin:8px 12px 0">
+      <span>🔊 Toca una vez para activar el sonido de los pedidos nuevos.</span>
+      <button id="btnActivarSonido" class="primario" type="button">Activar</button>
+    </div>
+
+    <!-- 1) PEDIDOS -->
+    <section id="panelPedidos">
+      <div class="rt-cab">
+        <h2>Pedidos</h2>
+        <span id="rtCuenta" class="rt-cuenta">0</span>
+      </div>
+      <div class="rt-filtros" id="rtFiltros" role="tablist">
+        <button class="on" type="button" data-f="nuevo">Nuevos <span class="rt-n" id="rtN_nuevo">0</span></button>
+        <button type="button" data-f="curso">En curso <span class="rt-n" id="rtN_curso">0</span></button>
+        <button type="button" data-f="finalizado">Finalizados <span class="rt-n" id="rtN_finalizado">0</span></button>
+      </div>
+      <div id="rtMsg" class="estado oculto" role="status"></div>
+      <div id="rtListaPedidos" class="acciones"></div>
+    </section>
+
+    <!-- 2) MENÚ (menus/{uid}) -->
+    <section id="panelMenu" class="oculto">
+      <div class="rt-cab">
+        <h2>Mi menú</h2>
+        <button id="btnNuevoPlato" class="mini pri" type="button">➕ Plato</button>
+      </div>
+      <p class="ayuda">Lo que actives aquí lo ven los clientes al elegir «Pedir Comida». Desactiva un plato cuando se agote.</p>
+      <div class="rt-cats" id="rtCats" role="tablist"></div>
+      <div id="rtListaMenu" class="acciones"></div>
+    </section>
+
+    <!-- 3) PERFIL / NEGOCIO (restaurantes/{uid} + lugares/rest_{uid}) -->
+    <section id="panelPerfil" class="oculto">
+      <h2>Mi restaurante</h2>
+      <div class="rt-form">
+        <div class="eq-foto-fila">
+          <button id="rtFotoPrev" class="avatar eq-av-xl" type="button" aria-label="Elegir logo o foto del restaurante">🍔</button>
+          <div class="eq-foto-txt">
+            <strong>Logo o foto</strong>
+            <small>Opcional. El cliente la verá en el menú.</small>
+            <div class="acciones-fila">
+              <button id="rtFotoElegir" class="mini" type="button">Elegir foto</button>
+              <button id="rtFotoQuitar" class="mini peligro oculto" type="button">Quitar</button>
+            </div>
+          </div>
+          <input id="rtFotoFile" type="file" accept="image/*" hidden>
+        </div>
+        <label>Nombre del restaurante <input id="pfNombre" maxlength="60" autocomplete="off" placeholder="Ej. Pollo Brother"></label>
+        <label>Descripción corta <textarea id="pfDesc" rows="2" maxlength="160" placeholder="Pollo frito, hamburguesas…"></textarea></label>
+        <label>Teléfono (WhatsApp) <input id="pfTel" type="tel" inputmode="tel" autocomplete="off" placeholder="50588887777 (con código de país)"></label>
+        <label>Ciudad <select id="pfCiudad"></select></label>
+        <label>Dirección <input id="pfDir" maxlength="160" autocomplete="off" placeholder="Barrio, calle, referencias"></label>
+        <div class="rt-ubic">
+          <div id="rtMapa" aria-label="Ubicación del restaurante en el mapa"></div>
+          <div class="acciones-fila">
+            <button id="btnUbicGps" class="mini" type="button">📡 Usar mi ubicación</button>
+            <span id="pfCoord" class="rt-coord">Toca el mapa para fijar el pin</span>
+          </div>
+        </div>
+        <label>Tiempo de preparación (min) <input id="pfPrep" type="number" inputmode="numeric" min="5" max="120" step="5" value="20"></label>
+        <div id="msgPerfil" class="estado oculto" role="status"></div>
+        <button id="btnGuardarPerfil" class="primario" type="button">Guardar</button>
+      </div>
+      <div class="eq-pie" style="margin-top:18px;text-align:center"><button id="btnActiva" class="mini pri" type="button">🔋 Mantener la app activa (sin ahorro de batería)</button></div>
+    </section>
+
+    <!-- Chat del pedido (chats/{id}) -->
+    <div id="modalChat" class="modal-rep oculto" role="dialog" aria-modal="true" aria-labelledby="chTitulo">
+      <div class="modal-rep-caja rt-chat-caja">
+        <div class="rt-chat-cab">
+          <div><strong id="chTitulo">Cliente</strong><small id="chSub"></small></div>
+          <button id="chCerrar" class="rt-x" type="button" aria-label="Cerrar chat">✕</button>
+        </div>
+        <div id="chMsgs" class="rt-chat-msgs" role="log" aria-live="polite"></div>
+        <form id="chForm" class="rt-chat-form" autocomplete="off">
+          <textarea id="chIn" rows="1" maxlength="1000" placeholder="Escribe un mensaje…" aria-label="Mensaje" enterkeyhint="send"></textarea>
+          <button id="chEnviar" class="primario" type="submit" aria-label="Enviar">➤</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal genérico (plato, confirmaciones) -->
+    <div id="modalRt" class="modal-rep oculto" role="dialog" aria-modal="true"><div class="modal-rep-caja" id="modalRtCaja" style="text-align:left"></div></div>
+
+    <div id="toastRt" class="toast-admin oculto" role="status"></div>
+
+    <nav class="tabs">
+      <button class="activa" data-tab="panelPedidos">Pedidos<span id="rtBadge" class="badge-nav rojo oculto">0</span></button>
+      <button data-tab="panelMenu">Menú</button>
+      <button data-tab="panelPerfil">Mi negocio</button>
+    </nav>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+  <script>window.NOMBRE_APP = "restaurante";   // sesión independiente de admin y repartidor</script>
+  <script src="firebase-config.js"></script>
+  <script src="iconos.js"></script>
+  <script src="restaurante.js?v=20261126"></script>
+</body>
+</html>

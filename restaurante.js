@@ -1,0 +1,505 @@
+/* ============================================================
+   RESTAURANTE · panel del restaurante de Brother’s Deliverys (window.NOMBRE_APP = "restaurante")
+
+   Nodos de Realtime Database (brothers-deliverys):
+     restaurantes/{uid}   ficha PÚBLICA: { nombre, desc, ciudad, dir, lat, lng, prepMin, foto, abierto, activo, creado, actualizado }
+     restaurantesPriv/{uid}  datos privados (solo dueño + admin + Worker): { email, tel, fcmToken }
+                          (la cuenta la crea el administrador con la app secundaria «authSec»; aquí solo se edita la ficha)
+     lugares/rest_{uid}   pin del negocio que ven admin y repartidores: { nombre, icono, dir, lat, lng, ciudad, tipo:"restaurante", restauranteUid }
+     menus/{uid}/{id}     platos: { nombre, desc, precio, cat, activo, foto, orden, creado }
+     solicitudes_entrantes/{id}   pedidos de «Pedir Comida» con restauranteUid == uid (consulta orderByChild("restauranteUid"))
+        pedido.items = [{ n, q, p }] · pedido.subtotal · s.nombre = cliente
+        rest: { estado: pendiente|aceptado|preparando|listo|rechazado, prepMin, ts, aceptadoTs, listoTs, motivo }  ← lo escribe SOLO este panel
+        mensajes/{k}: { de:"restaurante", tipo:"texto", texto, ts }  ← chat del pedido
+   ============================================================ */
+(function () {
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const auth = APP.auth();
+const db = APP.database();
+const TS = firebase.database.ServerValue.TIMESTAMP;
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+const bonito = (id) => "#" + String(id || "").replace(/^sol_/, "").slice(0, 5).toUpperCase();
+const hora = (ts) => ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "";
+const hace = (ts) => {
+  if (!ts) return "";
+  const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+  if (m < 1) return "ahora";
+  if (m < 60) return "hace " + m + " min";
+  const h = Math.floor(m / 60);
+  return h < 24 ? "hace " + h + " h" : new Date(ts).toLocaleDateString("es");
+};
+const claveDeToken = (t) => { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return "w" + (h >>> 0).toString(36); };
+
+let uid = null, perfil = {}, menu = {}, pedidos = {}, ciudadesOk = [];
+let refPerfil = null, refMenu = null, refPedidos = null;
+let filtro = "nuevo", catSel = "Todos", fotoPerfil = "", primeraCarga = true;
+const vistos = new Set();
+let sonidoOk = false, audioCtx = null;
+
+/* ---------- Utilidades de interfaz ---------- */
+let tToast = null;
+function toast(t) {
+  const e = $("toastRt"); if (!e) return;
+  e.textContent = t; e.classList.remove("oculto");
+  clearTimeout(tToast); tToast = setTimeout(() => e.classList.add("oculto"), 3500);
+}
+function setMsg(id, t, tipo) {
+  const e = $(id); if (!e) return;
+  e.textContent = t || ""; e.className = "estado" + (tipo ? " " + tipo : "") + (t ? "" : " oculto");
+}
+function modal(html) { $("modalRtCaja").innerHTML = html; $("modalRt").classList.remove("oculto"); }
+function cerrarModal() { $("modalRt").classList.add("oculto"); $("modalRtCaja").innerHTML = ""; }
+$("modalRt").addEventListener("click", (e) => { if (e.target === $("modalRt")) cerrarModal(); });
+
+function vista(v) {   // login | denegado | app
+  $("loginMain").classList.toggle("oculto", v !== "login");
+  $("vistaDenegado").classList.toggle("oculto", v !== "denegado");
+  $("vistaApp").classList.toggle("oculto", v !== "app");
+  $("btnSalir").classList.toggle("oculto", v === "login");
+  $("btnAbierto").classList.toggle("oculto", v !== "app");
+  const s = $("splash"); if (s) s.classList.add("oculto");
+}
+const errorAuth = (e) => ({
+  "auth/invalid-email": "El correo no es válido.", "auth/user-not-found": "No existe una cuenta con ese correo.",
+  "auth/wrong-password": "Contraseña incorrecta.", "auth/invalid-credential": "Correo o contraseña incorrectos.",
+  "auth/too-many-requests": "Demasiados intentos. Espera unos minutos.", "auth/network-request-failed": "Sin conexión a internet."
+}[e && e.code] || (e && e.message) || "No se pudo iniciar sesión.");
+
+/* ---------- Sonido de pedido nuevo (WebAudio; el navegador exige un toque antes) ---------- */
+function activarSonido() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    sonidoOk = true; $("rtAviso").classList.add("oculto");
+  } catch (_) {}
+}
+function pitar() {
+  try { if (navigator.vibrate) navigator.vibrate([220, 100, 220]); } catch (_) {}
+  if (!sonidoOk || !audioCtx) return;
+  [0, .25, .5].forEach((d, i) => {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = "sine"; o.frequency.value = i === 1 ? 988 : 784;
+    g.gain.setValueAtTime(.0001, audioCtx.currentTime + d);
+    g.gain.exponentialRampToValueAtTime(.35, audioCtx.currentTime + d + .02);
+    g.gain.exponentialRampToValueAtTime(.0001, audioCtx.currentTime + d + .2);
+    o.connect(g); g.connect(audioCtx.destination); o.start(audioCtx.currentTime + d); o.stop(audioCtx.currentTime + d + .22);
+  });
+}
+$("btnActivarSonido").onclick = activarSonido;
+document.addEventListener("pointerdown", () => { if (!sonidoOk) activarSonido(); }, { once: true, passive: true });
+
+/* ---------- Sesión ---------- */
+$("btnLogin").onclick = async () => {
+  const email = $("email").value.trim(), clave = $("clave").value;
+  if (!email || !clave) return setMsg("msgLogin", "Escribe tu correo y contraseña.", "error");
+  setMsg("msgLogin", "Entrando…"); $("btnLogin").disabled = true;
+  try { await auth.signInWithEmailAndPassword(email, clave); setMsg("msgLogin", ""); }
+  catch (e) { setMsg("msgLogin", errorAuth(e), "error"); }
+  finally { $("btnLogin").disabled = false; }
+};
+$("clave").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLogin").click(); });
+$("btnSalir").onclick = async () => { if (!confirm("¿Cerrar sesión?")) return; await quitarPush(); auth.signOut(); };
+$("btnDenegadoSalir").onclick = () => auth.signOut();
+
+auth.onAuthStateChanged(async (u) => {
+  if (!u) { detener(); vista("login"); return; }
+  try {
+    const f = await db.ref("restaurantes/" + u.uid).once("value");
+    if (!f.exists() || (f.val() && f.val().activo === false)) { detener(); vista("denegado"); return; }
+    uid = u.uid; perfil = f.val() || {};
+    iniciar(); vista("app");
+  } catch (e) { detener(); vista("denegado"); }
+});
+
+function iniciar() {
+  detener();
+  primeraCarga = true; vistos.clear();
+  refPerfil = db.ref("restaurantes/" + uid);
+  refPerfil.on("value", (s) => { perfil = s.val() || {}; pintarPerfilBarra(); if (!perfilPintado) pintarPerfil(); }, () => {});
+  refMenu = db.ref("menus/" + uid);
+  refMenu.on("value", (s) => { menu = s.val() || {}; pintarMenu(); }, () => {});
+  refPedidos = db.ref("solicitudes_entrantes").orderByChild("restauranteUid").equalTo(uid).limitToLast(100);
+  refPedidos.on("value", (s) => { pedidos = s.val() || {}; pintarPedidos(); }, (e) => setMsg("rtMsg", "No se pudieron leer los pedidos: " + (e.code || e.message), "error"));
+  try { Ciudades.suscribir(db, () => { llenarCiudades(); }); } catch (_) {}
+  llenarCiudades();
+  registrarPush();
+}
+function detener() {
+  [refPerfil, refMenu, refPedidos].forEach((r) => { try { r && r.off(); } catch (_) {} });
+  refPerfil = refMenu = refPedidos = null; cerrarChat();
+  uid = null; perfil = {}; menu = {}; pedidos = {}; perfilPintado = false;
+}
+
+/* ---------- Pestañas ---------- */
+document.querySelectorAll(".tabs button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("activa", x === b));
+    ["panelPedidos", "panelMenu", "panelPerfil"].forEach((p) => $(p).classList.toggle("oculto", p !== b.dataset.tab));
+    if (b.dataset.tab === "panelPerfil") { iniciarMapa(); }
+  };
+});
+
+/* ---------- Abierto / Cerrado ---------- */
+function pintarPerfilBarra() {
+  $("rtNombreBarra").textContent = perfil.nombre || "Brother’s Deliverys";
+  const on = perfil.abierto === true, b = $("btnAbierto");
+  b.setAttribute("aria-checked", on ? "true" : "false"); b.querySelector("span").textContent = on ? "Abierto" : "Cerrado";
+}
+$("btnAbierto").onclick = async () => {
+  const on = !(perfil.abierto === true);
+  if (on && (!Number.isFinite(perfil.lat) || !Number.isFinite(perfil.lng) || !perfil.nombre)) { toast("Primero completa tu nombre y ubicación en «Mi negocio»."); return; }
+  try { await db.ref("restaurantes/" + uid).update({ abierto: on, actualizado: TS }); toast(on ? "Restaurante abierto ✓" : "Restaurante cerrado"); }
+  catch (e) { toast("No se pudo cambiar: " + (e.code || e.message)); }
+};
+
+/* ============================================================
+   1) PEDIDOS
+   ============================================================ */
+const FIN = (s) => s.estado === "entregado" || s.estado === "cancelado";
+function grupoDe(s) {
+  const r = (s.rest && s.rest.estado) || "pendiente";
+  if (FIN(s) || r === "rechazado") return "finalizado";
+  return r === "pendiente" ? "nuevo" : "curso";
+}
+function itemsHtml(s) {
+  const p = s.pedido || {};
+  if (Array.isArray(p.items) && p.items.length) {
+    return p.items.map((i) => `<div class="rt-item"><span>${esc(i.q || 1)} × ${esc(i.n)}</span><b>${money((Number(i.p) || 0) * (Number(i.q) || 1))}</b></div>`).join("");
+  }
+  return `<div class="rt-item"><span>${esc(p.quiere || "Pedido")}</span></div>`;
+}
+const etiqueta = (s) => {
+  const r = (s.rest && s.rest.estado) || "pendiente";
+  if (s.estado === "cancelado") return ["rech", "Cancelado"];
+  if (s.estado === "entregado") return ["fin", "Entregado"];
+  return { pendiente: ["", "Nuevo"], aceptado: ["prep", "Aceptado"], preparando: ["prep", "Preparando"], listo: ["listo", "Listo para retirar"], rechazado: ["rech", "Rechazado"] }[r] || ["", r];
+};
+function tarjeta(s) {
+  const r = (s.rest && s.rest.estado) || "pendiente", g = grupoDe(s), [cl, tx] = etiqueta(s), p = s.pedido || {};
+  const total = Number(p.subtotal) || (Array.isArray(p.items) ? p.items.reduce((a, i) => a + (Number(i.p) || 0) * (Number(i.q) || 1), 0) : 0);
+  let acc = "";
+  if (g === "nuevo") acc = `<button class="ok" data-a="aceptar" type="button">✅ Aceptar</button><button class="no" data-a="rechazar" type="button">✖ Rechazar</button>`;
+  else if (g === "curso") {
+    if (r === "aceptado") acc = `<button class="ok" data-a="preparando" type="button">👨‍🍳 Empezar a preparar</button>`;
+    else if (r === "preparando") acc = `<button class="ok" data-a="listo" type="button">🛍️ Listo para retirar</button>`;
+    else if (r === "listo") acc = `<span class="rt-rep">Esperando al repartidor…</span>`;
+    if (r === "aceptado" || r === "preparando") acc += `<button class="no" data-a="rechazar" type="button">✖ No puedo</button>`;
+  }
+  const rep = s.repartidorNombre ? `<div class="rt-rep">🛵 ${esc(s.repartidorNombre)}</div>` : (g === "curso" ? `<div class="rt-rep">🛵 Buscando repartidor…</div>` : "");
+  const prep = s.rest && s.rest.prepMin && g === "curso" ? `<div class="rt-rep">⏱ Preparación: ${esc(s.rest.prepMin)} min</div>` : "";
+  const mot = s.rest && s.rest.motivo && r === "rechazado" ? `<div class="rt-nota">Motivo: ${esc(s.rest.motivo)}</div>` : "";
+  return `<article class="rt-ped ${g === "nuevo" ? "nuevo" : ""}" data-id="${esc(s.id)}">
+    <div class="rt-ped-top"><div><strong>${esc(s.nombre || "Cliente")} · ${esc(bonito(s.id))}</strong><small>${esc(hace(s.creado || s.ts))} · ${esc(hora(s.creado || s.ts))}</small></div><span class="rt-chip ${cl}">${esc(tx)}</span></div>
+    <div class="rt-items">${itemsHtml(s)}</div>
+    ${p.nota ? `<div class="rt-nota">📝 ${esc(p.nota)}</div>` : ""}
+    ${total ? `<div class="rt-total"><span>Productos</span><span>${money(total)}</span></div>` : ""}
+    ${rep}${prep}${mot}
+    <div class="rt-acc">${acc}<button data-a="chat" type="button">💬 Chat</button></div>
+  </article>`;
+}
+function pintarPedidos() {
+  const lista = Object.entries(pedidos).map(([id, s]) => Object.assign({ id }, s)).sort((a, b) => (b.creado || b.ts || 0) - (a.creado || a.ts || 0));
+  const cnt = { nuevo: 0, curso: 0, finalizado: 0 };
+  lista.forEach((s) => { cnt[grupoDe(s)]++; });
+  ["nuevo", "curso", "finalizado"].forEach((k) => { const e = $("rtN_" + k); e.textContent = cnt[k]; e.classList.toggle("hay", k === "nuevo" && cnt.nuevo > 0); });
+  $("rtCuenta").textContent = lista.length;
+  const b = $("rtBadge"); b.textContent = cnt.nuevo; b.classList.toggle("oculto", !cnt.nuevo);
+  const ver = lista.filter((s) => grupoDe(s) === filtro);
+  $("rtListaPedidos").innerHTML = ver.length ? ver.map(tarjeta).join("") : `<p class="rt-vacio">${filtro === "nuevo" ? "No hay pedidos nuevos." : filtro === "curso" ? "No tienes pedidos en curso." : "Aún no hay pedidos finalizados."}</p>`;
+  /* Pedido nuevo → sonido (no en la carga inicial) */
+  const nuevos = lista.filter((s) => grupoDe(s) === "nuevo" && !vistos.has(s.id));
+  lista.forEach((s) => vistos.add(s.id));
+  if (!primeraCarga && nuevos.length) { pitar(); toast("📥 Pedido nuevo de " + (nuevos[0].nombre || "cliente")); }
+  primeraCarga = false;
+}
+$("rtFiltros").onclick = (e) => {
+  const b = e.target.closest("[data-f]"); if (!b) return;
+  filtro = b.dataset.f;
+  document.querySelectorAll("#rtFiltros button").forEach((x) => x.classList.toggle("on", x === b));
+  pintarPedidos();
+};
+$("rtListaPedidos").onclick = (e) => {
+  const b = e.target.closest("[data-a]"), art = e.target.closest("[data-id]"); if (!b || !art) return;
+  accion(art.dataset.id, b.dataset.a);
+};
+async function actualizar(id, cambios, ok) {
+  try { await db.ref("solicitudes_entrantes/" + id).update(cambios); if (ok) toast(ok); }
+  catch (e) { toast("No se pudo guardar: " + (e.code || e.message)); }
+}
+function accion(id, a) {
+  const s = pedidos[id]; if (!s) return;
+  if (a === "chat") return abrirChat(id);
+  if (a === "aceptar") {
+    const prep = Number(perfil.prepMin) || 20;
+    modal(`<h2>✅ Aceptar pedido ${esc(bonito(id))}</h2>
+      <label>Tiempo de preparación (min)<input id="apPrep" type="number" inputmode="numeric" min="5" max="120" step="5" value="${prep}"></label>
+      <button id="apOk" class="primario" type="button">Aceptar</button><button id="apNo" class="oscuro" type="button">Cancelar</button>`);
+    $("apNo").onclick = cerrarModal;
+    $("apOk").onclick = () => {
+      const m = Math.max(5, Math.min(120, parseInt($("apPrep").value, 10) || prep));
+      cerrarModal();
+      actualizar(id, { "rest/estado": "aceptado", "rest/prepMin": m, "rest/ts": TS, "rest/aceptadoTs": TS }, "Pedido aceptado ✓");
+    };
+    return;
+  }
+  if (a === "preparando") return actualizar(id, { "rest/estado": "preparando", "rest/ts": TS }, "Preparando…");
+  if (a === "listo") return actualizar(id, { "rest/estado": "listo", "rest/ts": TS, "rest/listoTs": TS }, "Marcado como listo ✓");
+  if (a === "rechazar") {
+    modal(`<h2>✖ Rechazar pedido ${esc(bonito(id))}</h2>
+      <p class="ayuda">El cliente y la central verán el motivo.</p>
+      <label>Motivo<input id="rzMot" maxlength="120" placeholder="Ej. Se terminó el plato"></label>
+      <button id="rzOk" class="peligro" type="button">Rechazar</button><button id="rzNo" class="oscuro" type="button">Volver</button>`);
+    $("rzNo").onclick = cerrarModal;
+    $("rzOk").onclick = () => {
+      const mot = $("rzMot").value.trim();
+      if (mot.length < 3) return toast("Escribe el motivo.");
+      cerrarModal();
+      actualizar(id, { "rest/estado": "rechazado", "rest/motivo": mot.slice(0, 120), "rest/ts": TS }, "Pedido rechazado");
+    };
+  }
+}
+
+/* ============================================================
+   2) MENÚ  (menus/{uid}/{id})
+   ============================================================ */
+const CATS_BASE = ["Platos", "Bebidas", "Postres", "Extras"];
+function categorias() {
+  const v = new Set(CATS_BASE);
+  Object.values(menu).forEach((p) => { if (p && p.cat) v.add(p.cat); });
+  return ["Todos", ...v];
+}
+function pintarMenu() {
+  const cats = categorias(); if (cats.indexOf(catSel) < 0) catSel = "Todos";
+  $("rtCats").innerHTML = cats.map((c) => `<button type="button" class="${c === catSel ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("");
+  const lista = Object.entries(menu).map(([id, p]) => Object.assign({ id }, p)).filter((p) => catSel === "Todos" || p.cat === catSel)
+    .sort((a, b) => (a.orden || 0) - (b.orden || 0) || String(a.nombre).localeCompare(String(b.nombre)));
+  $("rtListaMenu").innerHTML = lista.length ? lista.map((p) => `<div class="rt-plato ${p.activo === false ? "off" : ""}" data-id="${esc(p.id)}">
+      <div class="rt-plato-img">${p.foto ? `<img src="${esc(p.foto)}" alt="">` : "🍽️"}</div>
+      <div class="rt-plato-tx"><b>${esc(p.nombre)}</b>${p.desc ? `<small>${esc(p.desc)}</small>` : ""}<em>${money(p.precio)}</em></div>
+      <div class="rt-plato-acc"><button class="rt-sw" type="button" role="switch" data-a="sw" aria-checked="${p.activo !== false}" aria-label="Disponible"></button><button class="mini" type="button" data-a="ed">✏️ Editar</button></div>
+    </div>`).join("") : `<p class="rt-vacio">${Object.keys(menu).length ? "No hay platos en esta categoría." : "Aún no tienes platos. Toca «➕ Plato» para agregar el primero."}</p>`;
+}
+$("rtCats").onclick = (e) => { const b = e.target.closest("[data-c]"); if (b) { catSel = b.dataset.c; pintarMenu(); } };
+$("rtListaMenu").onclick = async (e) => {
+  const b = e.target.closest("[data-a]"), c = e.target.closest("[data-id]"); if (!b || !c) return;
+  const id = c.dataset.id, p = menu[id]; if (!p) return;
+  if (b.dataset.a === "ed") return formPlato(p, id);
+  try { await db.ref("menus/" + uid + "/" + id + "/activo").set(p.activo === false); }
+  catch (err) { toast("No se pudo cambiar: " + (err.code || err.message)); }
+};
+$("btnNuevoPlato").onclick = () => formPlato({ cat: catSel === "Todos" ? "Platos" : catSel }, null);
+
+/* Foto reducida a ~480 px JPEG para que quepa en la base de datos */
+function reducirFoto(file, max, calidad) {
+  return new Promise((res, rej) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", calidad));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("No se pudo leer la imagen.")); };
+    img.src = url;
+  });
+}
+function formPlato(p, id) {
+  let foto = p.foto || "";
+  const cats = categorias().filter((c) => c !== "Todos");
+  modal(`<h2>${id ? "✏️ Editar plato" : "➕ Nuevo plato"}</h2>
+    <label>Nombre<input id="plNombre" maxlength="60" value="${esc(p.nombre || "")}" placeholder="Ej. Pollo con tajadas"></label>
+    <label>Descripción (opcional)<textarea id="plDesc" rows="2" maxlength="160" placeholder="Acompañado de…">${esc(p.desc || "")}</textarea></label>
+    <div class="rt-fila2">
+      <label>Precio (C$)<input id="plPrecio" type="number" inputmode="decimal" min="0" step="0.01" value="${p.precio != null ? esc(p.precio) : ""}" placeholder="0.00"></label>
+      <label>Categoría<input id="plCat" list="plCats" maxlength="24" value="${esc(p.cat || "Platos")}"><datalist id="plCats">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist></label>
+    </div>
+    <div class="eq-foto-fila"><div id="plFotoPrev" class="rt-plato-img">${foto ? `<img src="${esc(foto)}" alt="">` : "🍽️"}</div>
+      <div class="eq-foto-txt"><strong>Foto (opcional)</strong><div class="acciones-fila"><button id="plFotoBtn" class="mini" type="button">Elegir</button><button id="plFotoQ" class="mini peligro ${foto ? "" : "oculto"}" type="button">Quitar</button></div></div>
+      <input id="plFotoFile" type="file" accept="image/*" hidden></div>
+    <div id="plMsg" class="estado oculto" role="alert"></div>
+    <button id="plOk" class="primario" type="button">Guardar</button>
+    ${id ? `<button id="plDel" class="peligro" type="button">🗑 Eliminar plato</button>` : ""}
+    <button id="plNo" class="oscuro" type="button">Cancelar</button>`);
+  const prev = () => { $("plFotoPrev").innerHTML = foto ? `<img src="${esc(foto)}" alt="">` : "🍽️"; $("plFotoQ").classList.toggle("oculto", !foto); };
+  $("plNo").onclick = cerrarModal;
+  $("plFotoBtn").onclick = () => $("plFotoFile").click();
+  $("plFotoQ").onclick = () => { foto = ""; prev(); };
+  $("plFotoFile").onchange = async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return;
+    try { foto = await reducirFoto(f, 480, 0.72); prev(); } catch (err) { setMsg("plMsg", err.message, "error"); }
+  };
+  if (id) $("plDel").onclick = async () => {
+    if (!confirm("¿Eliminar este plato del menú?")) return;
+    try { await db.ref("menus/" + uid + "/" + id).remove(); cerrarModal(); toast("Plato eliminado."); } catch (err) { setMsg("plMsg", err.code || err.message, "error"); }
+  };
+  $("plOk").onclick = async () => {
+    const nombre = $("plNombre").value.trim(), precio = parseFloat($("plPrecio").value), cat = $("plCat").value.trim() || "Platos";
+    if (nombre.length < 2) return setMsg("plMsg", "Escribe el nombre del plato.", "error");
+    if (!(precio >= 0)) return setMsg("plMsg", "Escribe un precio válido.", "error");
+    const d = { nombre, desc: $("plDesc").value.trim().slice(0, 160), precio: Math.round(precio * 100) / 100, cat: cat.slice(0, 24), foto: foto || null, actualizado: TS };
+    $("plOk").disabled = true;
+    try {
+      if (id) await db.ref("menus/" + uid + "/" + id).update(d);
+      else { const k = db.ref("menus/" + uid).push().key; await db.ref("menus/" + uid + "/" + k).set(Object.assign(d, { activo: true, orden: Date.now(), creado: TS })); }
+      cerrarModal(); toast("Plato guardado ✓");
+    } catch (err) { setMsg("plMsg", "No se pudo guardar: " + (err.code || err.message), "error"); $("plOk").disabled = false; }
+  };
+}
+
+/* ============================================================
+   3) MI NEGOCIO  (restaurantes/{uid} + lugares/rest_{uid})
+   ============================================================ */
+let perfilPintado = false, mapa = null, pin = null, pinLL = null;
+function llenarCiudades() {
+  try { ciudadesOk = Ciudades.habilitadas(); } catch (_) { ciudadesOk = []; }
+  const sel = $("pfCiudad"), actual = sel.value || perfil.ciudad || "";
+  sel.innerHTML = ciudadesOk.map((c) => `<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join("");
+  if (actual && ciudadesOk.some((c) => c.id === actual)) sel.value = actual;
+}
+function pintarFotoPerfil() {
+  const b = $("rtFotoPrev");
+  b.innerHTML = fotoPerfil ? `<img src="${esc(fotoPerfil)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : "🍔";
+  $("rtFotoQuitar").classList.toggle("oculto", !fotoPerfil);
+}
+function pintarCoord() {
+  $("pfCoord").textContent = pinLL ? pinLL.lat.toFixed(6) + ", " + pinLL.lng.toFixed(6) : "Toca el mapa para fijar el pin";
+}
+function pintarPerfil() {
+  perfilPintado = true;
+  $("pfNombre").value = perfil.nombre || ""; $("pfDesc").value = perfil.desc || "";
+  db.ref("restaurantesPriv/" + uid + "/tel").once("value").then((t) => { if (!$("pfTel").value) $("pfTel").value = t.val() || ""; }).catch(() => {});
+  $("pfDir").value = perfil.dir || ""; $("pfPrep").value = perfil.prepMin || 20;
+  llenarCiudades(); if (perfil.ciudad) $("pfCiudad").value = perfil.ciudad;
+  fotoPerfil = perfil.foto || ""; pintarFotoPerfil();
+  pinLL = Number.isFinite(perfil.lat) && Number.isFinite(perfil.lng) ? { lat: perfil.lat, lng: perfil.lng } : null; pintarCoord();
+  pintarPerfilBarra();
+}
+function ponerPin(ll, centrar) {
+  pinLL = { lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6) };
+  if (mapa) {
+    if (pin) pin.setLatLng(pinLL);
+    else pin = L.marker(pinLL, { draggable: true }).addTo(mapa).on("dragend", () => { const p = pin.getLatLng(); ponerPin(p, false); });
+    if (centrar) mapa.setView(pinLL, Math.max(mapa.getZoom(), 16));
+  }
+  pintarCoord();
+}
+function iniciarMapa() {
+  if (!mapa) {
+    const c = (() => { try { return Ciudades.porId($("pfCiudad").value) || Ciudades.CATALOGO[0]; } catch (_) { return { lat: 12.6294, lng: -87.1311 }; } })();
+    mapa = L.map("rtMapa", { zoomControl: true }).setView(pinLL ? [pinLL.lat, pinLL.lng] : [c.lat, c.lng], pinLL ? 16 : 14);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
+    mapa.on("click", (e) => ponerPin(e.latlng, false));
+    if (pinLL) ponerPin(pinLL, false);
+  }
+  setTimeout(() => mapa.invalidateSize(), 120);
+}
+$("btnUbicGps").onclick = () => {
+  if (!navigator.geolocation) return toast("Tu dispositivo no permite ubicación.");
+  navigator.geolocation.getCurrentPosition((p) => { iniciarMapa(); ponerPin({ lat: p.coords.latitude, lng: p.coords.longitude }, true); },
+    () => toast("No se pudo obtener tu ubicación. Toca el mapa para fijar el pin."), { enableHighAccuracy: true, timeout: 15000 });
+};
+$("pfCiudad").onchange = () => { if (mapa && !pinLL) { const c = Ciudades.porId($("pfCiudad").value); if (c) mapa.setView([c.lat, c.lng], 14); } };
+$("rtFotoElegir").onclick = $("rtFotoPrev").onclick = () => $("rtFotoFile").click();
+$("rtFotoQuitar").onclick = () => { fotoPerfil = ""; pintarFotoPerfil(); };
+$("rtFotoFile").onchange = async (e) => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  try { fotoPerfil = await reducirFoto(f, 360, 0.75); pintarFotoPerfil(); } catch (err) { setMsg("msgPerfil", err.message, "error"); }
+};
+const normalizarTel = (t) => String(t || "").replace(/\D+/g, "");
+$("btnGuardarPerfil").onclick = async () => {
+  const nombre = $("pfNombre").value.trim(), tel = normalizarTel($("pfTel").value), ciudad = $("pfCiudad").value;
+  if (nombre.length < 2) return setMsg("msgPerfil", "Escribe el nombre del restaurante.", "error");
+  if ($("pfTel").value.trim() && (tel.length < 8 || tel.length > 15)) return setMsg("msgPerfil", "El teléfono no es válido. Usa números con código de país, ej. 50588887777.", "error");
+  if (!pinLL) return setMsg("msgPerfil", "Fija la ubicación del restaurante en el mapa.", "error");
+  if (!ciudad) return setMsg("msgPerfil", "Elige la ciudad.", "error");
+  const dir = $("pfDir").value.trim().slice(0, 160), prep = Math.max(5, Math.min(120, parseInt($("pfPrep").value, 10) || 20));
+  const ficha = { nombre, desc: $("pfDesc").value.trim().slice(0, 160), ciudad, dir, lat: pinLL.lat, lng: pinLL.lng, prepMin: prep, foto: fotoPerfil || null, actualizado: TS };
+  setMsg("msgPerfil", "Guardando…"); $("btnGuardarPerfil").disabled = true;
+  try {
+    await db.ref("restaurantes/" + uid).update(ficha);
+    await db.ref("restaurantesPriv/" + uid + "/tel").set(tel || null);
+    const existe = (await db.ref("lugares/rest_" + uid + "/creado").once("value")).exists();
+    const lugar = { nombre, icono: "🍔", dir, lat: pinLL.lat, lng: pinLL.lng, ciudad, tipo: "restaurante", restauranteUid: uid, actualizado: TS };
+    if (!existe) lugar.creado = TS;
+    await db.ref("lugares/rest_" + uid).update(lugar);
+    setMsg("msgPerfil", "Guardado ✓ Los repartidores ya ven tu restaurante en el mapa.", "ok");
+  } catch (e) { setMsg("msgPerfil", "No se pudo guardar: " + (e.code || e.message), "error"); }
+  finally { $("btnGuardarPerfil").disabled = false; }
+};
+
+/* ============================================================
+   Chat del pedido (solicitudes_entrantes/{id}/mensajes)
+   ============================================================ */
+let chatId = null, refChat = null;
+function burbuja(key, m) {
+  const caja = $("chMsgs"); if (!caja || !m || document.getElementById("m-" + key)) return;
+  const d = document.createElement("div"); d.id = "m-" + key;
+  if (m.tipo === "factura") { d.className = "rt-b sis"; d.textContent = "🧾 Factura · " + money(m.factura && m.factura.totalFinal); }
+  else {
+    const yo = m.de === "restaurante";
+    d.className = "rt-b" + (yo ? " yo" : "");
+    const quien = yo ? "" : m.de === "cliente" ? "Cliente" : m.de === "repartidor" ? "Repartidor" : "Central";
+    d.innerHTML = (quien ? `<span class="q">${quien}</span>` : "") + `<p>${esc(m.texto || (m.tipo === "foto" ? "📷 Foto" : ""))}</p><time>${esc(hora(m.ts))}</time>`;
+  }
+  const abajo = caja.scrollHeight - caja.scrollTop - caja.clientHeight < 80;
+  caja.appendChild(d); if (abajo) caja.scrollTop = caja.scrollHeight;
+}
+function abrirChat(id) {
+  const s = pedidos[id]; if (!s) return;
+  cerrarChat(); chatId = id;
+  $("chTitulo").textContent = (s.nombre || "Cliente") + " · " + bonito(id);
+  $("chSub").textContent = s.repartidorNombre ? "Repartidor: " + s.repartidorNombre : "Chat del pedido";
+  $("chMsgs").innerHTML = ""; $("modalChat").classList.remove("oculto");
+  refChat = db.ref("solicitudes_entrantes/" + id + "/mensajes").limitToLast(200);
+  refChat.on("child_added", (x) => burbuja(x.key, x.val()), (e) => { $("chMsgs").innerHTML = `<div class="rt-b sis">No se pudo abrir el chat: ${esc(e.code || e.message)}</div>`; });
+  setTimeout(() => { $("chMsgs").scrollTop = $("chMsgs").scrollHeight; }, 300);
+}
+function cerrarChat() {
+  if (refChat) { try { refChat.off(); } catch (_) {} refChat = null; }
+  chatId = null; const m = $("modalChat"); if (m) m.classList.add("oculto");
+}
+$("chCerrar").onclick = cerrarChat;
+$("modalChat").addEventListener("click", (e) => { if (e.target === $("modalChat")) cerrarChat(); });
+$("chIn").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("chForm").requestSubmit(); } });
+$("chForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const texto = $("chIn").value.trim().slice(0, 600); if (!texto || !chatId) return;
+  $("chIn").value = "";
+  const k = db.ref("solicitudes_entrantes/" + chatId + "/mensajes").push().key;
+  try { await db.ref("solicitudes_entrantes/" + chatId + "/mensajes/" + k).set({ de: "restaurante", tipo: "texto", texto, ts: TS }); }
+  catch (err) { $("chIn").value = texto; toast("No se pudo enviar: " + (err.code || err.message)); }
+};
+
+/* ============================================================
+   Push (APK Capacitor) y segundo plano
+   ============================================================ */
+const cap = () => window.Capacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins : null;
+async function registrarPush() {
+  try {
+    const P = cap() && cap().PushNotifications; if (!P || !uid) return;
+    try { await P.createChannel({ id: "pedidos", name: "Pedidos", importance: 5, sound: "default", vibration: true, visibility: 1 }); } catch (_) {}
+    const perm = await P.requestPermissions(); if (perm.receive !== "granted") return;
+    P.addListener("registration", (t) => { if (uid && t && t.value) db.ref("restaurantesPriv/" + uid + "/fcmToken").set(t.value).catch(() => {}); });
+    P.addListener("pushNotificationReceived", () => { pitar(); });
+    await P.register();
+  } catch (e) { console.warn("Push restaurante:", e && e.message ? e.message : e); }
+}
+async function quitarPush() { try { if (uid) await db.ref("restaurantesPriv/" + uid + "/fcmToken").remove(); } catch (_) {} }
+$("btnActiva").onclick = async () => {
+  try {
+    const B = cap() && (cap().BackgroundMode || cap().CapacitorBackgroundMode);
+    if (B && B.enable) { await B.enable(); if (B.disableWebViewOptimizations) await B.disableWebViewOptimizations(); if (B.requestDisableBatteryOptimizations) await B.requestDisableBatteryOptimizations(); toast("Segundo plano activado ✓"); }
+    else toast("En el celular: Ajustes → Batería → Brothers Restaurante → Sin restricciones.");
+  } catch (e) { toast("No se pudo activar: " + (e && e.message ? e.message : e)); }
+};
+
+/* Botón «atrás» de Android: cierra capas abiertas antes de salir */
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("modalRt").classList.contains("oculto")) cerrarModal(); else cerrarChat();
+});
+setTimeout(() => { const s = $("splash"); if (s && !auth.currentUser) s.classList.add("oculto"); }, 4000);
+})();

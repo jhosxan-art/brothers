@@ -2117,8 +2117,13 @@ const SolicitudesAdmin = (() => {
       const tf = typeof TarifaAdmin !== "undefined" ? TarifaAdmin.resumen(d) : "";
       if (tf) etiquetas.appendChild(el("span", "sa-lbl tarifa", tf));
       if (valoracion(d)) etiquetas.appendChild(el("span", "sa-lbl estrellas", estrellas(valoracion(d))));
+      if (d.restauranteUid || p.restauranteUid) {   // pedido de restaurante: estado que fija restaurante.html (solicitudes_entrantes/{id}/rest)
+        const re = d.rest && d.rest.estado || "pendiente";
+        const et = { pendiente: "⏳ esperando", aceptado: "✅ aceptó", preparando: "👨‍🍳 preparando", listo: "🛍️ listo", rechazado: "⚠️ rechazó" }[re] || re;
+        etiquetas.appendChild(el("span", "sa-lbl tarifa", "🍔 " + cortar(p.restauranteNombre || "Restaurante", 24) + " · " + et + (re === "rechazado" && d.rest.motivo ? " (" + cortar(d.rest.motivo, 40) + ")" : "")));
+      }
       dat.appendChild(etiquetas);
-      const ult = d.ultimoMensaje ? (d.ultimoDe === "cliente" ? "Cliente: " : d.ultimoDe === "repartidor" ? "Repartidor: " : d.ultimoDe === "admin" ? "Central: " : "") + String(d.ultimoMensaje) : "Sin mensajes todavía";
+      const ult = d.ultimoMensaje ? (d.ultimoDe === "cliente" ? "Cliente: " : d.ultimoDe === "repartidor" ? "Repartidor: " : d.ultimoDe === "admin" ? "Central: " : d.ultimoDe === "restaurante" ? "Restaurante: " : "") + String(d.ultimoMensaje) : "Sin mensajes todavía";
       dat.appendChild(el("span", "sa-ult", "💬 " + ult + (d.ts ? " · " + horaDe(d.ts) : "")));
       fila.appendChild(dat);
       f.appendChild(fila);
@@ -2127,11 +2132,7 @@ const SolicitudesAdmin = (() => {
       const b = el("button", "oscuro", "👁 Ver");
       b.type = "button"; b.addEventListener("click", () => abrirVisor(k, PANEL));
       acc.appendChild(b);
-      if (d.negociacion && typeof TarifaAdmin !== "undefined") {
-        const bt = TarifaAdmin.boton(k, d);
-        if (finalizada) { bt.disabled = true; bt.classList.add("tf-off"); bt.title = "No disponible: el pedido ya fue entregado o cancelado"; }   // entregado/cancelado: solo se ve el chat
-        acc.appendChild(bt);
-      }
+      if (d.negociacion && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.boton(k, d));
       if (!d.repartidorUid && (d.estado === "nuevo" || d.estado == null) && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.botonAsignar(k));
       if (typeof TarifaAdmin !== "undefined" && TarifaAdmin.libre(d)) acc.appendChild(TarifaAdmin.botonCancelar(k));
 
@@ -2222,7 +2223,7 @@ const SolicitudesAdmin = (() => {
   }
   function cabeceraVisor() {
     const d = lista[visorId];
-    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); g("saForzarEnt").classList.add("oculto"); g("saForzarCanc").classList.add("oculto"); bloquearEspectador(true); try { window.dispatchEvent(new CustomEvent("visor-estado", { detail: { id: visorId, fin: true } })); } catch (_) {} return; }
+    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); g("saForzarEnt").classList.add("oculto"); g("saForzarCanc").classList.add("oculto"); bloquearEspectador(true); return; }
     g("saTitulo").textContent = cortar(contactoCliente ? contactoCliente.nombre + " " + contactoCliente.apellido : (d.nombre || "Cliente"), 40);
     let tel = g("saTelCliente");
     if (!tel) { tel = document.createElement("div"); tel.id = "saTelCliente"; tel.className = "sa-tel-cliente oculto"; g("saSub").insertAdjacentElement("afterend", tel); }
@@ -2239,7 +2240,6 @@ const SolicitudesAdmin = (() => {
     g("saForzarEnt").classList.toggle("oculto", !activa);
     g("saForzarCanc").classList.toggle("oculto", !activa);
     bloquearEspectador(fin(d));
-    try { window.dispatchEvent(new CustomEvent("visor-estado", { detail: { id: visorId, fin: fin(d) } })); } catch (_) {}   // espectador-extras.js bloquea los mensajes rápidos
     const p = d.pedido;
     const r = g("saPedido");
     
@@ -2369,13 +2369,13 @@ const SolicitudesAdmin = (() => {
   }
 
   function pintarMensaje(m, clave) {
-    const c = g("saMsgs"), ts = Number(m.ts) || Date.now(), adm = m.de === "admin", rep = m.de === "repartidor" || adm;
+    const c = g("saMsgs"), ts = Number(m.ts) || Date.now(), adm = m.de === "admin", rst = m.de === "restaurante", rep = m.de === "repartidor" || adm || rst;
     const pegado = c.scrollHeight - c.scrollTop - c.clientHeight < 80;
     const dia = new Date(ts).toDateString();
     if (dia !== ultDia) { ultDia = dia; c.appendChild(el("div", "sa-dia", etiquetaDia(ts))); }
     const d = lista[visorId] || {};
     const b = el("div", "sa-b" + (rep ? " rep" : ""));
-    b.appendChild(el("div", "sa-quien", adm ? "Central" : rep ? cortar(d.repartidorNombre || "Repartidor", 40) : cortar(d.nombre || "Cliente", 40)));
+    b.appendChild(el("div", "sa-quien", adm ? "Central" : rst ? "🍔 " + cortar((d.pedido && d.pedido.restauranteNombre) || "Restaurante", 40) : rep ? cortar(d.repartidorNombre || "Repartidor", 40) : cortar(d.nombre || "Cliente", 40)));
     if (m.tipo === "factura" && m.factura && typeof m.factura === "object") {
       b.classList.add("fac");
       b.appendChild(tarjetaFactura(m.factura));
@@ -4145,19 +4145,15 @@ const TarifaAdmin = (() => {
   }
   function panelAsignar(d) {
     if (!libre(d)) return `<div class="ng-vacio"><span>🔒</span>Este pedido ya no está libre.</div>`;
-    const omit = d.omitidoPor || {}, a = acordadoDe(d), equipo = listaEquipo();
-    const filas = equipo.map((r) => {
-      const nom = r.nombre || nombreRep(r.uid), et = String(r.etiqueta || "");
-      const cls = /desconect|sin se[nñ]al/i.test(et) ? "off" : /ruta/i.test(et) ? "ruta" : /libre|l[ií]nea|conect/i.test(et) ? "ok" : "off";
-      const sub = [r.conPedido ? "con pedido" : "", omit[r.uid] ? "lo devolvió" : ""].filter(Boolean).join(" · ");
-      return `<button type="button" class="ng-rep${F.sel === r.uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(r.uid)}"><span class="ng-rep-av" data-av="${esc(r.uid)}">${esc((String(nom).trim()[0] || "?").toUpperCase())}</span><span class="ng-rep-t"><b>${esc(nom)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</span><span class="ng-est ${cls}">${esc(et || "Sin datos")}</span><span class="ng-chk" aria-hidden="true"></span></button>`;
+    const omit = d.omitidoPor || {}, a = acordadoDe(d);
+    const filas = listaEquipo().map((r) => {
+      const nota = [r.etiqueta, r.conPedido ? "con pedido" : "", omit[r.uid] ? "lo devolvió" : ""].filter(Boolean).join(" · ");
+      return `<button type="button" class="ng-rep${F.sel === r.uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(r.uid)}"><b>${esc(r.nombre || nombreRep(r.uid))}</b>${nota ? "<small>" + esc(nota) + "</small>" : ""}</button>`;
     }).join("");
-    const selR = equipo.find((r) => r.uid === F.sel), precio = a ? a.monto : tmp.precio;
-    return `<div class="ng-sec">Elige el repartidor</div>
-      <div class="ng-reps">${filas || `<div class="ng-vacio">Aún no hay repartidores en el equipo.</div>`}</div>
-      <div class="ng-envio"><label for="ngPrecio">💵 Envío</label><div class="ng-campo"><span>C$</span><input id="ngPrecio" type="number" min="0" step="1" inputmode="numeric" placeholder="${a ? "" : "Opcional"}" value="${esc(precio)}" ${a ? "readonly" : ""}></div></div>
-      <p class="ng-ayuda">${a ? "Tarifa acordada con el cliente: se mantiene y el repartidor no puede cambiarla." : "Déjalo vacío si el repartidor fija el delivery en la factura."}</p>
-      <button type="button" class="ng-pri ancho" data-tf="asignar"${F.sel ? "" : " disabled"}>${selR ? "✅ Asignar a " + esc(selR.nombre || nombreRep(selR.uid)) : "Elige un repartidor"}</button>`;
+    const precio = a ? a.monto : tmp.precio;
+    return `<div class="ng-reps">${filas || `<div class="ng-vacio">Aún no hay repartidores en el equipo.</div>`}</div>
+      <div class="ng-fila"><label for="ngPrecio">💵 Envío</label><input id="ngPrecio" type="number" min="0" step="1" inputmode="numeric" placeholder="${a ? "" : "Opcional"}" value="${esc(precio)}" ${a ? "readonly" : ""}><button type="button" class="ng-pri" data-tf="asignar"${F.sel ? "" : " disabled"}>✅ Asignar</button></div>
+      <p class="ng-ayuda">${a ? "Tarifa acordada con el cliente: se mantiene y el repartidor no puede cambiarla." : "Déjalo vacío si el repartidor fija el delivery en la factura."}</p>`;
   }
   function panelMensaje(d) {
     const chips = RESPUESTAS.map((t, i) => `<button type="button" class="ng-resp" data-tf="resp" data-i="${i}">${esc(t)}</button>`).join("");
@@ -4179,13 +4175,11 @@ const TarifaAdmin = (() => {
       <div class="ng-cab"><div class="ng-av">${esc((String(d.nombre || "?").trim()[0] || "?").toUpperCase())}</div>
         <div class="ng-t"><b>${esc(d.nombre || "Cliente")}</b><small>#${esc(String(abierto).slice(-5).toUpperCase())} · ${hace(d.creado || d.ts)}</small></div>
         <button type="button" class="ng-x" data-tf="cerrar" aria-label="Cerrar">✕</button></div>
-      <div class="ng-scroll">
-        <div class="ng-ped"><span>🛍️</span><p>${esc(p.quiere || "Pedido")}${p.origen ? " · 🏪 " + esc(p.origen) : ""}</p></div>
-        <div class="ng-hero ${hero.c}"><span>${hero.t}</span><b>${hero.v}</b></div>
-        <div class="ng-tabs" role="tablist">${tabs}</div>
-        <div class="ng-panel">${panel}</div>
-        <div id="ngMsg2" class="ng-msg" aria-live="polite"></div>
-      </div>
+      <div class="ng-ped">🛍️ ${esc(p.quiere || "Pedido")}${p.origen ? " · 🏪 " + esc(p.origen) : ""}</div>
+      <div class="ng-hero ${hero.c}"><span>${hero.t}</span><b>${hero.v}</b></div>
+      <div class="ng-tabs" role="tablist">${tabs}</div>
+      <div class="ng-panel">${panel}</div>
+      <div id="ngMsg2" class="ng-msg" aria-live="polite"></div>
       <div class="ng-pie">${lib ? `<button type="button" class="ng-canc" data-tf="cancelarped">🚫 Cancelar pedido</button>` : ""}<button type="button" class="ng-cerrar" data-tf="cerrar">Cerrar</button></div>
     </div>`;
   }
@@ -4241,10 +4235,8 @@ const TarifaAdmin = (() => {
     const act = document.activeElement && document.activeElement.id;
     const pe = document.getElementById("ngProp"), me = document.getElementById("ngMsg"), pr = document.getElementById("ngPrecio");
     if (pe) tmp.prop = pe.value; if (me) tmp.msg = me.value; if (pr && !pr.readOnly) { tmp.precio = pr.value; tmp.editado = true; }
-    const scr = c.querySelector(".ng-scroll"), top = scr ? scr.scrollTop : 0;
     c.innerHTML = html(d);
     c.onclick = alClick;
-    try { const n = c.querySelector(".ng-scroll"); if (n) n.scrollTop = top; if (typeof aplicarFotosAvatares === "function") aplicarFotosAvatares(); } catch (_) {}
     if (act && ["ngProp", "ngMsg", "ngPrecio"].includes(act)) {
       const ne = document.getElementById(act); if (ne) { ne.focus(); try { ne.setSelectionRange(ne.value.length, ne.value.length); } catch (_) {} }
     }
@@ -4278,7 +4270,6 @@ const TarifaAdmin = (() => {
 
   function abrir(id, m) {
     if (!sol[id]) return toast("Solicitud no disponible todavía.");
-    if (sol[id].estado === "entregado" || sol[id].estado === "cancelado") return toast("El pedido ya terminó: solo puedes ver el chat.");
     abierto = id; modo = m || (ofertasDe(sol[id]).length ? "ofertas" : "proponer"); F = { sel: "" }; tmp = { prop: "", msg: "", precio: "", editado: false };
     modal(""); pintar();
   }

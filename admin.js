@@ -998,6 +998,7 @@ function abrirChatRep(uid) {
   chatEqAbierto = uid; sinLeerEq[uid] = 0; pintarLista(); pintarChats();
   Chat.iniciar({
     token: uid, yo: "admin", ruta: RUTA_EQ, pedido: "Equipo", nombreRepartidor: nombreUid(uid), puedeBorrar: true, avisos: false,
+    avatar: () => ({ uid, foto: fotosCache[uid], nombre: nombreUid(uid) }),
     titulo: () => "Chat con " + nombreUid(uid),
     subtitulo: () => { const e = { enRuta: "en ruta", libre: "en línea", sinSenal: "sin señal", desconectado: "desconectado" }[estadoDe(uid)]; return e || "Equipo · Brothers ↔ repartidor"; },
     alEnviar: (m) => { if (typeof PushAdmin !== "undefined") PushAdmin.mensaje(uid, m); },
@@ -1052,6 +1053,7 @@ function iniciarMonitoreo() {
   consultaActivos.on("child_changed", alCambiar);
   consultaActivos.on("child_removed", (s) => { const prev = activos[s.key], nuevo = s.val() || {}; if (nuevo.estado === "entregado") soltarGuiaTrasEntrega(s.key, prev); delete activos[s.key]; pintarClientes(); refrescar(); pintarRutas(); });
 
+  iniciarRestaurantes();
   db.ref("repartidores").on("value", (s) => { registrados = s.val() || {}; sincronizarFotos(); refrescar(); pintarEquipo(); pintarChats(); if (refStats) cargarStats(); }, fallo);
 
   /* Las reglas solo dejan leer repartidorFotos/<uid> (no la lista completa): un listener por repartidor */
@@ -1094,6 +1096,7 @@ function detener() {
   [guias, sinLeerEq].forEach((o) => Object.keys(o).forEach((k) => delete o[k]));
   resEquipo = {}; selUid = null; selChats.clear(); modoSel = false;
   db.ref("repartidores").off();
+  detenerRestaurantes();
   Object.keys(refsFotos).forEach((u) => { try { refsFotos[u].off(); } catch (_) {} delete refsFotos[u]; });
   Object.keys(marcadores).forEach(quitarMarcador);
   Object.keys(clientesM).forEach((t) => { mapa.removeLayer(clientesM[t].pin); delete clientesM[t]; });
@@ -1127,7 +1130,7 @@ function pintarLista() {
   const enRuta = ids.filter((u) => estadoDe(u) === "enRuta").length;
   const enLinea = ids.filter((u) => ["enRuta", "libre"].includes(estadoDe(u))).length;
   $("contador").textContent = `${enRuta} en ruta · ${enLinea} en línea · ${facturasHoy} 🧾` + (ocultos.size ? ` · ${ocultos.size} 👁‍🗨 ocultos` : "");
-  $("btnOcultar").querySelector("small").textContent = ocultos.size ? ocultos.size + " ocultos" : "Equipo";
+  $("btnOcultar").querySelector("small").textContent = ocultos.size ? ocultos.size + " ocultos" : "Repartidores";
 }
 
 const RUTA_CL = { chats: "chats", resumen: "chatsResumen", fotos: "fotos" };
@@ -1177,6 +1180,7 @@ $("listaChats").onclick = (e) => {
   if (typeof ChatMessenger !== "undefined") ChatMessenger.limpiar();
   Chat.iniciar({
     token: id, soloLectura: true, puedeBorrar: true, pedido: r.pedido, nombreRepartidor: r.repartidor,
+    avatar: () => { const u = r.repartidorUid || r.uid || ""; return u ? { uid: u, foto: fotosCache[u], nombre: nombreVivo(u, r.repartidor) } : null; },
     titulo: (c) => "Pedido " + (c.pedido || "—"),
     subtitulo: (c) => { const n = nombreVivo(r.repartidorUid || r.uid, c.nombreRepartidor); return n ? "Repartidor: " + n : ""; }
   });
@@ -1358,9 +1362,9 @@ function verFotoRep(uid) {
   document.body.appendChild(d);
 }
 document.addEventListener("click", (e) => {
-  const av = e.target.closest("#listaEquipo [data-av].con-foto, #listaChats [data-av].con-foto, .msg-av.con-foto");
+  const av = e.target.closest("#listaEquipo [data-av].con-foto, #listaChats [data-av].con-foto, .chat-av.con-foto");
   if (!av) return;
-  const uid = av.dataset.av || av.dataset.uid || (av.parentElement && av.parentElement.dataset.av); if (!uid) return;
+  const uid = av.dataset.av || av.dataset.uid; if (!uid) return;
   e.stopPropagation(); e.preventDefault();
   verFotoRep(uid);
 }, true);
@@ -1425,6 +1429,117 @@ $("btnAgregar").onclick = async () => {
   }
 };
 
+/* ============================================================
+   RESTAURANTES · alta y gestión de cuentas del módulo restaurante.html
+   restaurantes/{uid}        ficha pública (nombre, ciudad, lat/lng, abierto, activo…) · la completa el propio restaurante
+   restaurantesPriv/{uid}    { email, tel, fcmToken } (solo admin + dueño + Worker)
+   menus/{uid} · lugares/rest_{uid}   se limpian al quitar el restaurante
+   La cuenta de Firebase Auth se crea con la app secundaria (authSec) para no cerrar la sesión del administrador.
+   ============================================================ */
+let restaurantes = {}, restPriv = {}, refRest = null, refRestPriv = null;
+const authSec = () => { secundaria = secundaria || firebase.initializeApp(FIREBASE_CONFIG, "secundaria"); return secundaria.auth(); };
+function llenarCiudadesRest() {
+  const sel = $("nuevoRestCiudad"); if (!sel) return;
+  const v = sel.value;
+  sel.innerHTML = Ciudades.habilitadas().map((c) => `<option value="${esc(c.id)}">${esc(c.nombre)}</option>`).join("");
+  if (v && Ciudades.habilitada(v)) sel.value = v;
+}
+function iniciarRestaurantes() {
+  if (refRest) return;
+  llenarCiudadesRest();
+  try { Ciudades.suscribir(db, llenarCiudadesRest); } catch (_) {}
+  refRest = db.ref("restaurantes");
+  refRest.on("value", (s) => { restaurantes = s.val() || {}; pintarRestaurantes(); }, () => { refRest = null; });
+  refRestPriv = db.ref("restaurantesPriv");   // correo y teléfono: solo el admin los lee
+  refRestPriv.on("value", (s) => { restPriv = s.val() || {}; pintarRestaurantes(); }, () => { refRestPriv = null; });
+}
+function detenerRestaurantes() {
+  if (refRest) { refRest.off(); refRest = null; }
+  if (refRestPriv) { refRestPriv.off(); refRestPriv = null; }
+  restaurantes = {}; restPriv = {}; pintarRestaurantes();
+}
+function pintarRestaurantes() {
+  const cont = $("listaRest"); if (!cont) return;
+  const ids = Object.keys(restaurantes).sort((a, b) => String(restaurantes[a].nombre || "").localeCompare(String(restaurantes[b].nombre || "")));
+  $("rtAdmCuenta").textContent = ids.length;
+  if (!ids.length) { cont.innerHTML = '<p class="ayuda">Aún no hay restaurantes registrados.</p>'; return; }
+  cont.innerHTML = ids.map((uid) => {
+    const r = restaurantes[uid] || {}, inactivo = r.activo === false, email = (restPriv[uid] || {}).email || "";
+    const [texto, clase] = inactivo ? ["Desactivado", "gris"] : r.abierto === true ? ["Abierto", "vivo"] : ["Cerrado", "alerta"];
+    const ciudad = r.ciudad && Ciudades.porId(r.ciudad) ? Ciudades.nombre(r.ciudad) : "Sin ciudad";
+    const sinUbic = !(Number.isFinite(r.lat) && Number.isFinite(r.lng));
+    return `<div class="tarjeta-rep">
+      <div class="fila">
+        <span class="avatar">🍔</span>
+        <div class="datos"><strong>${esc(r.nombre || "Sin nombre")}</strong>
+          <small>${esc(email || uid.slice(0, 8) + "…")} · ${esc(ciudad)}</small>
+          <small>${sinUbic ? "⚠️ Aún no fija su ubicación" : "📍 Ubicación lista"}</small></div>
+        <span class="chip ${clase}">${texto}</span>
+      </div>
+      <div class="acciones-fila">
+        ${inactivo ? "" : `<button class="mini" data-ra="abierto" data-uid="${esc(uid)}">${r.abierto === true ? "Cerrar" : "Abrir"}</button>`}
+        <button class="mini" data-ra="activo" data-uid="${esc(uid)}">${inactivo ? "Activar" : "Desactivar"}</button>
+        ${email ? `<button class="mini" data-ra="reset" data-uid="${esc(uid)}">Restablecer clave</button>` : ""}
+        <button class="mini peligro" data-ra="quitar" data-uid="${esc(uid)}">Quitar</button>
+      </div></div>`;
+  }).join("");
+}
+$("listaRest").onclick = (e) => {
+  const b = e.target.closest("button[data-ra]"); if (!b) return;
+  const uid = b.dataset.uid, r = restaurantes[uid] || {}, n = r.nombre || "el restaurante", TS = firebase.database.ServerValue.TIMESTAMP;
+  const ok = (t) => setMsg("msgRest", t, "ok"), mal = (err) => setMsg("msgRest", "No se pudo completar: " + (err && err.message ? err.message : err), "error");
+  if (b.dataset.ra === "abierto") {
+    const abrir = r.abierto !== true;
+    if (abrir && !(Number.isFinite(r.lat) && Number.isFinite(r.lng))) return setMsg("msgRest", n + " aún no fija su ubicación en la app del restaurante.", "error");
+    db.ref("restaurantes/" + uid).update({ abierto: abrir, actualizado: TS }).then(() => ok(n + (abrir ? " abierto." : " cerrado."))).catch(mal);
+  } else if (b.dataset.ra === "activo") {
+    const activar = r.activo === false;
+    if (!activar && !confirm(`¿Desactivar a ${n}? No podrá entrar a su app y dejará de aparecer a los clientes.`)) return;
+    db.ref("restaurantes/" + uid).update(activar ? { activo: true, actualizado: TS } : { activo: false, abierto: false, actualizado: TS })
+      .then(() => ok(n + (activar ? " activado." : " desactivado."))).catch(mal);
+  } else if (b.dataset.ra === "reset") {
+    const em = (restPriv[uid] || {}).email; if (!em) return;
+    auth.sendPasswordResetEmail(em).then(() => ok(`Enviamos un correo a ${em} para cambiar su contraseña.`)).catch((err) => setMsg("msgRest", errorAuth(err), "error"));
+  } else if (b.dataset.ra === "quitar") {
+    if (!confirm(`¿Quitar a ${n}? Se borran su ficha, su menú y su pin del mapa.`)) return;
+    db.ref().update({ ["restaurantes/" + uid]: null, ["restaurantesPriv/" + uid]: null, ["menus/" + uid]: null, ["lugares/rest_" + uid]: null })
+      .then(() => ok(n + " fue quitado.")).catch(mal);
+  }
+};
+$("btnAgregarRest").onclick = async () => {
+  const email = $("nuevoRestCorreo").value.trim().toLowerCase(), clave = $("nuevoRestClave").value;
+  const nombre = $("nuevoRestNombre").value.trim().replace(/\s+/g, " "), ciudad = $("nuevoRestCiudad").value;
+  const tel = normalizarTelefono($("nuevoRestTel").value);
+  if (!email || clave.length < 6) return setMsg("msgRest", "Escribe el correo y una contraseña de al menos 6 caracteres.", "error");
+  if (nombre.length < 2) return setMsg("msgRest", "Escribe el nombre del restaurante.", "error");
+  if (!ciudad) return setMsg("msgRest", "Elige la ciudad.", "error");
+  if ($("nuevoRestTel").value.trim() && !tel) return setMsg("msgRest", "El número de WhatsApp no es válido. Usa solo números con código de país, ej. 50588887777.", "error");
+  setMsg("msgRest", "Creando restaurante…"); $("btnAgregarRest").disabled = true;
+  const a = authSec();
+  try {
+    let uid;
+    try { uid = (await a.createUserWithEmailAndPassword(email, clave)).user.uid; }
+    catch (e) {
+      if (e.code !== "auth/email-already-in-use") throw e;
+      try { uid = (await a.signInWithEmailAndPassword(email, clave)).user.uid; }
+      catch (_) { throw { message: "Ese correo ya existe. Escribe su contraseña actual para volver a registrarlo, o usa “Restablecer clave”." }; }
+    }
+    if (registrados[uid]) throw { message: "Ese correo ya pertenece a un repartidor. Usa otro correo para el restaurante." };
+    await db.ref().update({
+      ["restaurantes/" + uid]: { nombre: nombre.slice(0, 60), ciudad, prepMin: 20, abierto: false, activo: true, creado: firebase.database.ServerValue.TIMESTAMP },
+      ["restaurantesPriv/" + uid + "/email"]: email,
+      ["restaurantesPriv/" + uid + "/tel"]: tel || null
+    });
+    ["nuevoRestCorreo", "nuevoRestClave", "nuevoRestNombre", "nuevoRestTel"].forEach((k) => { $(k).value = ""; });
+    setMsg("msgRest", `Listo: ${email} ya puede entrar a restaurante.html. Debe fijar su ubicación y cargar su menú.`, "ok");
+  } catch (e) {
+    setMsg("msgRest", e.code ? errorAuth(e) : e.message, "error");
+  } finally {
+    try { await a.signOut(); } catch (_) {}
+    $("btnAgregarRest").disabled = false;
+  }
+};
+
 Atras.iniciar([
   () => Chat.cerrarCapa(),
   () => (typeof PedidosAdmin !== "undefined" && PedidosAdmin.cerrarMapaForm()),
@@ -1476,20 +1591,6 @@ function abrirOcultar() {
   $("ocListo").onclick = cerrarModal;
 }
 $("btnOcultar").onclick = abrirOcultar;
-/* Mostrar / ocultar las herramientas del mapa (se recuerda la elección) */
-(function () {
-  const b = $("btnHerrToggle"), bar = $("barraHerr"); if (!b || !bar) return;
-  const aplicar = (oc) => {
-    bar.classList.toggle("herr-oculta", oc);
-    b.setAttribute("aria-expanded", String(!oc));
-    b.setAttribute("aria-label", oc ? "Mostrar herramientas del mapa" : "Ocultar herramientas del mapa");
-    b.querySelector(".ht-ico").textContent = oc ? "🧰" : "✕";
-    try { localStorage.setItem("herrOculta", oc ? "1" : "0"); } catch (_) {}
-  };
-  let oc = false; try { oc = localStorage.getItem("herrOculta") === "1"; } catch (_) {}
-  aplicar(oc);
-  b.onclick = () => aplicar(!bar.classList.contains("herr-oculta"));
-})();
 
 function nombreCliente(token, r) {
   const f = activos[token] && activos[token].factura;
@@ -1624,8 +1725,7 @@ function sincronizarFotos() {
   Object.keys(refsFotos).forEach((uid) => { if (!registrados[uid]) { try { refsFotos[uid].off(); } catch (_) {} delete refsFotos[uid]; delete fotosCache[uid]; } });
 }
 function aplicarFotosAvatares() {
-  /* Solo avatares: las burbujas del chat también llevan data-av (lo pone ChatMessenger) y NO deben recibir la foto de fondo */
-  document.querySelectorAll("[data-av]:not(.burbuja):not(.con-av)").forEach((el) => {
+  document.querySelectorAll("[data-av]").forEach((el) => {
     const f = fotosCache[el.dataset.av];
     if (f && typeof f === "string" && f.indexOf("data:image/") === 0) {
       el.style.backgroundImage = "url('" + f + "')";
@@ -1637,6 +1737,7 @@ function aplicarFotosAvatares() {
       el.classList.remove("con-foto");
     }
   });
+  try { if (typeof Chat !== "undefined" && Chat.refrescarTitulo) Chat.refrescarTitulo(); } catch (_) {}
 }
 $("btnFotoPick").onclick = () => $("fotoFile").click();
 $("fotoFile").onchange = () => {

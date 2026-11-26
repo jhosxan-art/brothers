@@ -600,8 +600,10 @@
       ultimoMensaje: "",
       ultimoDe: "",
       ciudadRuta: pedido.ciudadRuta,
+      ...(pedido.restauranteUid ? { restauranteUid: pedido.restauranteUid } : {}),
       pedido
     };
+    restPrev = null;
     try {
       await refSolicitud.set(base);
     } catch (e) {
@@ -727,6 +729,23 @@
     });
   }
 
+  /* ---------- Estado del restaurante (solicitudes_entrantes/{id}/rest, lo escribe restaurante.js) ---------- */
+  let restPrev = null;
+  function pintarRestaurante(r) {
+    if (!pedidoActual || !pedidoActual.restauranteUid) return;
+    const e = r && typeof r.estado === "string" ? r.estado : "pendiente";
+    if (e === restPrev) return;
+    restPrev = e;
+    const n = String(pedidoActual.restauranteNombre || "El restaurante").slice(0, 60);
+    const t = {
+      aceptado: "🍔 " + n + " aceptó tu pedido" + (Number(r.prepMin) ? " (~" + Math.round(Number(r.prepMin)) + " min de preparación)." : "."),
+      preparando: "👨‍🍳 " + n + " está preparando tu pedido.",
+      listo: "🛍️ Tu pedido ya está listo en " + n + ". El repartidor pasa por él.",
+      rechazado: "⚠️ " + n + " no puede preparar tu pedido" + (r && r.motivo ? ": " + String(r.motivo).slice(0, 120) : ".") + " Puedes cancelar la solicitud o esperar indicaciones de la central."
+    }[e];
+    if (t) avisoSistema(t);
+  }
+
   /* ---------- Estado de la solicitud ---------- */
   function escucharSolicitud() {
     refSolicitud.on("value", (s) => {
@@ -740,6 +759,7 @@
       }
       const d = s.val() || {};
       pedidoActual = d.pedido && typeof d.pedido === "object" ? d.pedido : null;
+      pintarRestaurante(d.rest);
       $("btnCambiarNombre").classList.toggle("oculto", !(d.estado === "nuevo"));
 
       if (d.estado === "entregado" || d.estado === "cancelado") { recuperando = false; borrarSesion(); return cerrarCiclo(d); }
@@ -981,6 +1001,7 @@
       else db.ref(RAIZ_FOTOS + "/" + perfil.solicitudId + "/" + clave).once("value").then((x) => poner(x.val())).catch(() => { img.alt = "No se pudo cargar la foto"; });
     } else {
       if (m.de === "admin") { const q = document.createElement("small"); q.className = "wa-de"; q.textContent = "🛵 Central"; burbuja.appendChild(q); }
+      else if (m.de === "restaurante") { const q = document.createElement("small"); q.className = "wa-de"; q.textContent = "🍔 " + String((pedidoActual && pedidoActual.restauranteNombre) || "Restaurante").slice(0, 40); burbuja.appendChild(q); }
       const p = document.createElement("p");
       p.textContent = String(m.texto || "");
       burbuja.appendChild(p);
@@ -1480,6 +1501,14 @@
       ciudadOrigen: cO, ciudadDestino: cD, ciudadRuta: cO, entreCiudades: entre   // ciudadRuta = ciudad donde se RETIRA: sus repartidores reciben el pedido
     };
     if (p.retiro) o.retiro = lug(p.retiro, "retiro", cO);
+    if (p.restauranteUid && Array.isArray(p.items) && p.items.length) {
+      o.restauranteUid = String(p.restauranteUid).slice(0, 64);
+      o.restauranteNombre = limpiarNombre(p.restauranteNombre).slice(0, 60);
+      o.items = p.items.slice(0, 30).map((i) => ({ n: limpiarNombre(i.n).slice(0, 60), q: Math.max(1, Math.min(99, parseInt(i.q, 10) || 1)), p: Math.round((Number(i.p) || 0) * 100) / 100 }));
+      o.subtotal = Math.round(o.items.reduce((a, i) => a + i.p * i.q, 0) * 100) / 100;
+      const nota = limpiarTexto(p.nota).slice(0, 200);
+      if (nota) o.nota = nota;
+    }
     const contacto = limpiarNombre(p.contacto).slice(0, 80);
     if (contacto.length >= 2) o.contacto = contacto;
     const est = estimarTarifa(o);
@@ -1581,8 +1610,120 @@
   }
 
   /* ---------- Flujo PEDIR COMIDA ---------- */
+  const RESUMEN_ITEMS = (items) => items.map((i) => i.q + " × " + i.n).join(", ").slice(0, 1000);
+
+  /* Restaurantes ABIERTOS de la ciudad activa (restaurantes/{uid}, ficha pública). Si falla o no hay, el flujo sigue como antes (texto libre). */
+  async function cargarRestaurantes() {
+    try {
+      const s = await db.ref("restaurantes").orderByChild("ciudad").equalTo(ciudadActiva.id).once("value");
+      return Object.entries(s.val() || {})
+        .filter(([, r]) => r && r.activo !== false && r.abierto === true && typeof r.nombre === "string" && okLL(Number(r.lat), Number(r.lng)))
+        .map(([uid, r]) => ({ uid, nombre: String(r.nombre).slice(0, 60), lat: Number(r.lat), lng: Number(r.lng), prepMin: Number(r.prepMin) || 0 }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 12);
+    } catch (_) { return []; }
+  }
+
+  function estiloMenu() {
+    if (document.getElementById("estiloMenuRest")) return;
+    const st = document.createElement("style"); st.id = "estiloMenuRest";
+    st.textContent = ".wa-menu{align-self:stretch;margin:6px 0;background:#fff;border-radius:14px;padding:10px;box-shadow:0 1px 3px rgba(0,0,0,.18);display:grid;gap:8px;color:#0E141B}" +
+      ".wa-menu h4{margin:0;font-size:15px;font-weight:800}.wa-menu .wm-cat{margin:6px 0 0;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#5B6672}" +
+      ".wa-menu .wm-fila{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #E1E6EB}" +
+      ".wa-menu .wm-n{min-width:0;display:grid;gap:1px}.wa-menu .wm-n b{font-size:14px;overflow-wrap:anywhere}.wa-menu .wm-n small{font-size:12px;color:#5B6672;overflow-wrap:anywhere}.wa-menu .wm-n em{font-style:normal;font-size:13px;font-weight:800;color:#075E54}" +
+      ".wa-menu .wm-q{display:flex;align-items:center;gap:8px}.wa-menu .wm-q button{width:34px;height:34px;border-radius:50%;border:1.5px solid #075E54;background:#fff;color:#075E54;font-size:18px;font-weight:800;line-height:1;padding:0}" +
+      ".wa-menu .wm-q span{min-width:18px;text-align:center;font-weight:800}.wa-menu .wm-pie{display:grid;gap:8px;margin-top:4px}" +
+      ".wa-menu .wm-ok{height:46px;border:0;border-radius:23px;background:#075E54;color:#fff;font-weight:800;font-size:15px}.wa-menu .wm-ok:disabled{opacity:.45}.wa-menu .wm-no{height:38px;border:0;background:none;color:#5B6672;font-weight:700}";
+    document.head.appendChild(st);
+  }
+
+  /* Menú del restaurante dentro del hilo (menus/{uid}). Resuelve { items, nota } | { sinMenu } | { volver } */
+  function armarPedidoMenu(id, r) {
+    return new Promise(async (res) => {
+      let platos = [];
+      try {
+        const s = await db.ref("menus/" + r.uid).once("value");
+        platos = Object.entries(s.val() || {}).map(([k, p]) => ({ k, ...p }))
+          .filter((p) => p && p.activo !== false && typeof p.nombre === "string" && Number(p.precio) >= 0)
+          .sort((a, b) => String(a.cat || "").localeCompare(String(b.cat || "")) || (a.orden || 0) - (b.orden || 0)).slice(0, 60);
+      } catch (_) { }
+      if (!vivo(id)) return;
+      if (!platos.length) return res({ sinMenu: true });
+      estiloMenu();
+      const cant = {}, caja = document.createElement("div");
+      caja.className = "wa-menu";
+      const h = document.createElement("h4"); h.textContent = "🍔 " + r.nombre + " — Menú"; caja.appendChild(h);
+      const lista = document.createElement("div"); caja.appendChild(lista);
+      const pie = document.createElement("div"); pie.className = "wm-pie";
+      const tot = document.createElement("b"); tot.textContent = "Elige tus platos";
+      const ok = document.createElement("button"); ok.type = "button"; ok.className = "wm-ok"; ok.disabled = true; ok.textContent = "Confirmar pedido";
+      const no = document.createElement("button"); no.type = "button"; no.className = "wm-no"; no.textContent = "↩️ Elegir otro restaurante";
+      pie.append(tot, ok, no); caja.appendChild(pie);
+      let cat = null;
+      platos.forEach((p) => {
+        if ((p.cat || "") !== cat) { cat = p.cat || ""; const c = document.createElement("div"); c.className = "wm-cat"; c.textContent = cat || "Menú"; lista.appendChild(c); }
+        const f = document.createElement("div"); f.className = "wm-fila";
+        const n = document.createElement("div"); n.className = "wm-n";
+        n.innerHTML = "<b></b>" + (p.desc ? "<small></small>" : "") + "<em></em>";
+        n.querySelector("b").textContent = p.nombre; if (p.desc) n.querySelector("small").textContent = p.desc;
+        n.querySelector("em").textContent = "C$ " + (Math.round(Number(p.precio) * 100) / 100).toFixed(2);
+        const q = document.createElement("div"); q.className = "wm-q";
+        const mn = document.createElement("button"); mn.type = "button"; mn.textContent = "−"; mn.setAttribute("aria-label", "Quitar uno");
+        const nq = document.createElement("span"); nq.textContent = "0";
+        const mas = document.createElement("button"); mas.type = "button"; mas.textContent = "+"; mas.setAttribute("aria-label", "Agregar uno");
+        const set = (d) => { cant[p.k] = Math.max(0, Math.min(20, (cant[p.k] || 0) + d)); nq.textContent = cant[p.k]; calc(); };
+        mn.onclick = () => set(-1); mas.onclick = () => set(1);
+        q.append(mn, nq, mas); f.append(n, q); lista.appendChild(f);
+      });
+      const elegidos = () => platos.filter((p) => cant[p.k] > 0).map((p) => ({ n: p.nombre, q: cant[p.k], p: Math.round(Number(p.precio) * 100) / 100 }));
+      function calc() {
+        const it = elegidos(), t = it.reduce((a, i) => a + i.p * i.q, 0);
+        tot.textContent = it.length ? "Total productos: C$ " + (Math.round(t * 100) / 100).toFixed(2) : "Elige tus platos";
+        ok.disabled = !it.length;
+      }
+      no.onclick = () => { if (!vivo(id)) return; caja.remove(); res({ volver: true }); };
+      ok.onclick = async () => {
+        if (!vivo(id)) return;
+        const items = elegidos(); if (!items.length) return;
+        caja.remove();
+        addYo("🧾 " + RESUMEN_ITEMS(items) + " · C$ " + (Math.round(items.reduce((a, i) => a + i.p * i.q, 0) * 100) / 100).toFixed(2));
+        let nota = "";
+        const k = await opciones(id, [{ clave: "n", texto: "📝 Agregar nota" }, { clave: "s", texto: "➡️ Continuar" }]);
+        if (!vivo(id)) return;
+        if (k === "n") {
+          if (!(await di(id, "Escribe tu nota para el restaurante (sin cebolla, bien cocido…).", "c0n"))) return;
+          nota = await pedirTexto(id, "Ej. Sin cebolla", 2, "Escribe la nota (mínimo 2 letras).", 200);
+          if (!vivo(id)) return;
+        }
+        res({ items, nota });
+      };
+      $("convo").appendChild(caja); bajar();
+    });
+  }
+
   async function flujoComida(id) {
     const v = datos.v;
+    if (!v.rest && !v.quiere && !v.libre) {
+      const lista = await cargarRestaurantes();
+      if (!vivo(id)) return;
+      if (!lista.length) guardar("libre", true);
+      else {
+        if (!(await di(id, "🍔 ¡Qué rico! ¿De cuál restaurante quieres pedir?", "c0"))) return;
+        const k = await opciones(id, lista.map((r, i) => ({ clave: String(i), texto: "🍔 " + r.nombre + (r.prepMin ? " · ~" + r.prepMin + " min" : "") })).concat([{ clave: "otro", texto: "✍️ Otro establecimiento" }]));
+        if (!vivo(id)) return;
+        if (k === "otro") guardar("libre", true);
+        else {
+          const r = lista[Number(k)];
+          const m = await armarPedidoMenu(id, r);
+          if (!vivo(id)) return;
+          if (m.volver) return flujoComida(id);
+          if (m.sinMenu) { if (!(await di(id, "Ese restaurante aún no tiene su menú disponible. Cuéntame qué deseas pedir."))) return; guardar("libre", true); }
+          else {
+            guardar("rest", { uid: r.uid, nombre: r.nombre, lat: r.lat, lng: r.lng, items: m.items, nota: m.nota || "" });
+            guardar("quiere", RESUMEN_ITEMS(m.items)); guardar("origen", r.nombre);
+          }
+        }
+      }
+    }
     if (!v.quiere) {
       if (!(await di(id, "🍔 ¡Qué rico! ¿Qué deseas pedir?", "c1"))) return;
       const t = await pedirTexto(id, "Ej. 2 hamburguesas y una Coca-Cola", 2, "Cuéntame qué deseas pedir (mínimo 2 letras).");
@@ -1613,7 +1754,8 @@
         guardar("destino", d);
       }
     }
-    await finalizar(id, { servicio: "comida", tipo: "compra", quiere: v.quiere, origen: v.origen, modo: v.quien === "yo" ? "recibe" : "envia", destino: v.destino });
+    const rst = v.rest && v.rest.uid ? { retiro: { tipo: "pin", lat: v.rest.lat, lng: v.rest.lng }, restauranteUid: v.rest.uid, restauranteNombre: v.rest.nombre, items: v.rest.items, nota: v.rest.nota } : {};
+    await finalizar(id, { servicio: "comida", tipo: "compra", quiere: v.quiere, origen: v.origen, modo: v.quien === "yo" ? "recibe" : "envia", destino: v.destino, ...rst });
   }
 
   /* ---------- Flujo MANDADO (compramos o hacemos algo por el cliente) ---------- */

@@ -1,0 +1,119 @@
+/* ============================================================
+   RESTAURANTE · estilos del panel (prefijo rt-). Reutiliza las variables y clases de style.css
+   ============================================================ */
+body.restaurante { display: flex; flex-direction: column; height: 100%; height: 100dvh; min-height: 100dvh; overflow-x: hidden; }
+body.restaurante #loginMain, body.restaurante #vistaDenegado { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; max-width: 480px; width: 100%; margin: 0 auto; }
+body.restaurante #vistaApp { position: relative; }
+body.restaurante #vistaApp > section { flex: 1 1 auto; min-height: 0; width: 100%; max-width: 640px; margin-inline: auto; padding: 14px 14px calc(20px + env(safe-area-inset-bottom)); display: grid; gap: 12px; align-content: start; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+body.restaurante #vistaApp > section.oculto { display: none !important; }
+body.restaurante #vistaApp > section > * { min-width: 0; max-width: 100%; }
+body.restaurante .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); flex: none; }
+body.restaurante .tabs button { font-size: 13px; line-height: 1.1; padding: 0 4px; }
+body.restaurante .tabs .badge-nav { margin-left: 4px; min-width: 18px; height: 18px; padding: 0 5px; font-size: 11px; }
+body.restaurante h2 { font-size: 20px; font-weight: 800; }
+body.restaurante .toast-admin { position: fixed; top: calc(64px + env(safe-area-inset-top)); z-index: 3000; }
+body.restaurante .toast-admin.oculto { display: none; }
+
+/* Interruptor Abierto / Cerrado en la barra */
+.rt-estado { flex: none; width: auto; height: 36px; padding: 0 12px 0 10px; display: inline-flex; align-items: center; gap: 8px; border-radius: 18px; font-size: 13px; font-weight: 800; background: #FDECEB; border: 1.5px solid #E5322D; color: #8E1B17; }
+.rt-estado i { width: 10px; height: 10px; border-radius: 50%; background: #E5322D; }
+.rt-estado[aria-checked="true"] { background: #E8F6EE; border-color: #1E9B5A; color: #0E5B33; }
+.rt-estado[aria-checked="true"] i { background: #1E9B5A; box-shadow: 0 0 0 4px rgba(30,155,90,.2); }
+.rt-estado.oculto { display: none; }
+
+/* Cabeceras de sección */
+.rt-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rt-cuenta { min-width: 26px; padding: 2px 10px; border-radius: 999px; background: var(--tinta); color: #fff; font-size: 12px; font-weight: 800; text-align: center; }
+
+/* Filtros de pedidos */
+.rt-filtros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.rt-filtros button { min-width: 0; height: 40px; padding: 0 6px; border-radius: 20px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-filtros button.on { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.rt-n { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 3px; border-radius: 9px; background: rgba(14,20,27,.1); font-size: 11px; line-height: 18px; text-align: center; }
+.rt-filtros button.on .rt-n { background: rgba(255,255,255,.22); }
+.rt-filtros button[data-f="nuevo"] .rt-n.hay { background: var(--rojo); color: #fff; }
+
+/* Tarjeta de pedido */
+.rt-vacio { padding: 14px; border-radius: 14px; background: #fff; border: 1px dashed #D6DDE3; font-size: 13.5px; font-weight: 600; color: var(--texto2); }
+.rt-ped { display: grid; gap: 10px; padding: 14px; border-radius: 16px; background: #fff; border: 1px solid var(--linea); }
+.rt-ped.nuevo { border-color: var(--celeste); box-shadow: inset 4px 0 0 var(--celeste); }
+.rt-ped-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.rt-ped-top > div { min-width: 0; display: grid; gap: 2px; }
+.rt-ped-top strong { font-size: 15.5px; font-weight: 800; overflow-wrap: anywhere; }
+.rt-ped-top small { font-size: 12px; font-weight: 600; color: var(--texto2); }
+.rt-chip { flex: none; padding: 3px 10px; border-radius: 10px; font-size: 11.5px; font-weight: 800; background: var(--celeste-suave); }
+.rt-chip.prep { background: #FFF3D6; color: #7A4B00; }
+.rt-chip.listo { background: #E8F6EE; color: #17794A; }
+.rt-chip.fin { background: var(--gris); color: var(--texto2); }
+.rt-chip.rech { background: var(--rojo-suave); color: #8E1B17; }
+.rt-items { display: grid; gap: 4px; padding: 8px 10px; border-radius: 12px; background: var(--gris); font-size: 14px; }
+.rt-item { display: flex; justify-content: space-between; gap: 10px; }
+.rt-item span { min-width: 0; overflow-wrap: anywhere; }
+.rt-item b { white-space: nowrap; font-weight: 700; }
+.rt-nota { font-size: 12.5px; font-weight: 600; color: #7A4B00; overflow-wrap: anywhere; }
+.rt-total { display: flex; justify-content: space-between; font-size: 15px; font-weight: 800; padding-top: 6px; border-top: 1px dashed var(--linea); }
+.rt-rep { font-size: 12.5px; font-weight: 700; color: var(--texto2); }
+.rt-acc { display: flex; flex-wrap: wrap; gap: 8px; }
+.rt-acc button { flex: 1 1 auto; width: auto; min-width: 0; height: 42px; padding: 0 12px; font-size: 13px; border-radius: 12px; white-space: nowrap; }
+.rt-acc .ok { background: #E8F6EE; border-color: #1E9B5A; }
+.rt-acc .no { background: var(--rojo-suave); border-color: var(--rojo); color: #8E1B17; }
+
+/* Menú */
+.rt-cats { display: flex; gap: 8px; overflow-x: auto; padding: 2px; scrollbar-width: none; }
+.rt-cats::-webkit-scrollbar { display: none; }
+.rt-cats button { flex: none; width: auto; height: 38px; padding: 0 14px; border-radius: 19px; font-size: 13px; white-space: nowrap; }
+.rt-cats button.on { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+.rt-plato { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 16px; background: #fff; border: 1px solid var(--linea); }
+.rt-plato.off { opacity: .55; }
+.rt-plato-img { width: 56px; height: 56px; border-radius: 14px; background: var(--gris); display: grid; place-items: center; font-size: 26px; overflow: hidden; }
+.rt-plato-img img { width: 100%; height: 100%; object-fit: cover; }
+.rt-plato-tx { min-width: 0; display: grid; gap: 2px; text-align: left; }
+.rt-plato-tx b { font-size: 15px; font-weight: 800; overflow-wrap: anywhere; }
+.rt-plato-tx small { font-size: 12px; font-weight: 600; color: var(--texto2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.rt-plato-tx em { font-style: normal; font-size: 14px; font-weight: 800; }
+.rt-plato-acc { display: grid; gap: 6px; justify-items: end; }
+.rt-plato-acc .mini { height: 32px; padding: 0 10px; font-size: 12px; flex: none; }
+.rt-sw { position: relative; width: 46px; height: 26px; padding: 0; border: 0; border-radius: 13px; background: #C9D1D8; flex: none; }
+.rt-sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.rt-sw[aria-checked="true"] { background: #1E9B5A; }
+.rt-sw[aria-checked="true"]::after { transform: translateX(20px); }
+
+/* Formularios */
+.rt-form { display: grid; gap: 12px; background: #fff; border: 1px solid var(--linea); border-radius: 18px; padding: 14px; }
+.rt-form input, .rt-form select, .rt-form textarea { max-width: 100%; }
+.rt-ubic { display: grid; gap: 8px; }
+#rtMapa { height: 220px; border-radius: 16px; overflow: hidden; border: 1.5px solid var(--linea); background: #dfe6ec; z-index: 0; }
+.rt-coord { flex: 2; font-size: 12px; font-weight: 700; color: var(--texto2); align-self: center; text-align: right; }
+.rt-fila2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* Chat con el cliente */
+.rt-chat-caja { max-width: 480px; height: min(92vh, 720px); height: min(92dvh, 720px); padding: 0; gap: 0; overflow: hidden; display: flex; flex-direction: column; background: #EAF2F6; text-align: left; }
+.rt-chat-cab { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #fff; border-bottom: 1px solid var(--linea); }
+.rt-chat-cab > div { flex: 1; min-width: 0; display: grid; line-height: 1.2; }
+.rt-chat-cab strong { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt-chat-cab small { font-size: 12px; font-weight: 600; color: var(--texto2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt-x { flex: none; width: 38px; height: 38px; padding: 0; border-radius: 50%; background: var(--gris); border: 0; font-size: 16px; }
+.rt-chat-msgs { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.rt-b { max-width: 84%; padding: 7px 10px 5px; border-radius: 14px; border-top-left-radius: 4px; background: #fff; align-self: flex-start; overflow-wrap: anywhere; }
+.rt-b.yo { align-self: flex-end; background: #D3EEFC; border-top-left-radius: 14px; border-top-right-radius: 4px; }
+.rt-b.sis { align-self: center; max-width: 92%; background: rgba(255,255,255,.7); font-size: 12px; font-weight: 700; color: var(--texto2); text-align: center; }
+.rt-b .q { display: block; font-size: 11.5px; font-weight: 800; color: var(--celeste-prof); margin-bottom: 1px; }
+.rt-b p { margin: 0; white-space: pre-wrap; font-size: 14.5px; }
+.rt-b time { display: block; text-align: right; margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--texto2); }
+.rt-chat-form { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 8px; align-items: end; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid var(--linea); }
+.rt-chat-form textarea { min-height: 48px; max-height: 120px; resize: none; padding: 12px 14px; border-radius: 24px; }
+.rt-chat-form button { width: 52px; height: 48px; padding: 0; border-radius: 24px; }
+
+@media (min-width: 700px) {
+  body.restaurante #vistaApp > section { max-width: 760px; padding: 20px 20px calc(24px + env(safe-area-inset-bottom)); gap: 16px; }
+}
+@media (max-width: 380px) {
+  .rt-plato { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 8px; }
+  .rt-plato-img { width: 48px; height: 48px; }
+  .rt-estado span { display: none; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .rt-chat-caja { height: 96dvh; }
+  #rtMapa { height: 160px; }
+}
+@media (prefers-reduced-motion: reduce) { .rt-sw::after { transition: none; } }
