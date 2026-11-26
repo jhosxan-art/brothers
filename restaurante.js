@@ -106,13 +106,13 @@ $("btnSalir").onclick = async () => { if (!confirm("¿Cerrar sesión?")) return;
 $("btnDenegadoSalir").onclick = () => auth.signOut();
 
 auth.onAuthStateChanged(async (u) => {
-  if (!u) { detener(); vista("login"); return; }
+  if (!u) { detener(); uid = null; vista("login"); return; }
   try {
     const f = await db.ref("restaurantes/" + u.uid).once("value");
-    if (!f.exists() || (f.val() && f.val().activo === false)) { detener(); vista("denegado"); return; }
+    if (!f.exists() || (f.val() && f.val().activo === false)) { detener(); uid = null; vista("denegado"); return; }
     uid = u.uid; perfil = f.val() || {};
     iniciar(); vista("app");
-  } catch (e) { detener(); vista("denegado"); }
+  } catch (e) { detener(); uid = null; vista("denegado"); }
 });
 
 function iniciar() {
@@ -144,7 +144,7 @@ function detener() {
   Object.keys(diag).forEach((k) => { delete diag[k]; });
   [refPerfil, refMenu, refPedidos].forEach((r) => { try { r && r.off(); } catch (_) {} });
   refPerfil = refMenu = refPedidos = null; cerrarChat();
-  uid = null; perfil = {}; menu = {}; pedidos = {}; perfilPintado = false;
+  perfil = {}; menu = {}; pedidos = {}; perfilPintado = false;   // OJO: uid NO se borra aquí (iniciar() lo necesita)
 }
 
 /* ---------- Pestañas ---------- */
