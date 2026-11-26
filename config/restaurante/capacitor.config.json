@@ -1,1 +1,9 @@
-
+{
+  "appId": "com.brothers.restaurante",
+  "appName": "Brothers Restaurante",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "plugins": {
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] }
+  }
+}
