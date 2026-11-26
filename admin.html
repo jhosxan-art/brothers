@@ -272,16 +272,19 @@
         </div>
         <span id="contador" class="contador chip-mapa">0 en ruta</span>
         <!-- Herramientas del mapa (columna a la derecha, sin tapar nada) -->
-        <div class="barra-herr">
+        <div class="barra-herr" id="barraHerr">
+          <button id="btnHerrToggle" class="herr-toggle" type="button" aria-expanded="true" aria-label="Ocultar herramientas del mapa"><span class="ht-ico">✕</span></button>
+          <div class="herr-panel" id="herrPanel">
           <button id="btnVerNegocios" class="herr on" type="button" aria-label="Mostrar u ocultar negocios"><b>🏪</b><small>Negocios</small></button>
           <button id="btnPolicia" class="herr" type="button" aria-label="Reportar policía"><b>🚨</b><small>Policía</small></button>
-          <button id="btnOcultar" class="herr" type="button" aria-label="Elegir qué repartidores se ven en el mapa"><b>👁</b><small>Repartidores</small></button>
-          <button id="btnZonas" class="herr" type="button" aria-label="Zonas: barrios, repartos y comarcas"><b>🗺️</b><small>Zonas</small></button>
+          <button id="btnOcultar" class="herr" type="button" aria-label="Elegir qué repartidores se ven en el mapa"><b>👁</b><small>Equipo</small></button>
+          <button id="btnZonas" class="herr sep" type="button" aria-label="Zonas: barrios, repartos y comarcas"><b>🗺️</b><small>Zonas</small></button>
           <button id="btnNegocio" class="herr" type="button" aria-label="Agregar negocio"><b>➕</b><small>Agregar</small></button>
-          <button id="btnIconoMas" class="herr" type="button" aria-label="Iconos de repartidor más grandes"><b>🛵＋</b><small>Más grande</small></button>
-          <button id="btnIconoMenos" class="herr" type="button" aria-label="Iconos de repartidor más pequeños"><b>🛵－</b><small>Más chico</small></button>
-          <button id="btnFacturasVivo" class="herr" type="button" aria-label="Auditar facturas en curso de los repartidores"><b>🧾</b><small>Facturas</small></button>
+          <button id="btnIconoMas" class="herr sep" type="button" aria-label="Iconos de repartidor más grandes"><b>🛵＋</b><small>Iconos +</small></button>
+          <button id="btnIconoMenos" class="herr" type="button" aria-label="Iconos de repartidor más pequeños"><b>🛵－</b><small>Iconos −</small></button>
+          <button id="btnFacturasVivo" class="herr sep" type="button" aria-label="Auditar facturas en curso de los repartidores"><b>🧾</b><small>Facturas</small></button>
           <button id="btnCentrar" class="herr" type="button" aria-label="Ver a todos"><b>⛶</b><small>Ver todos</small></button>
+          </div>
         </div>
         <!-- Guiar: toca el icono de un repartidor y luego el mapa -->
         <div id="panelGuia" class="panel-guia oculto">

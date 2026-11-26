@@ -2127,7 +2127,11 @@ const SolicitudesAdmin = (() => {
       const b = el("button", "oscuro", "👁 Ver");
       b.type = "button"; b.addEventListener("click", () => abrirVisor(k, PANEL));
       acc.appendChild(b);
-      if (d.negociacion && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.boton(k, d));
+      if (d.negociacion && typeof TarifaAdmin !== "undefined") {
+        const bt = TarifaAdmin.boton(k, d);
+        if (finalizada) { bt.disabled = true; bt.classList.add("tf-off"); bt.title = "No disponible: el pedido ya fue entregado o cancelado"; }   // entregado/cancelado: solo se ve el chat
+        acc.appendChild(bt);
+      }
       if (!d.repartidorUid && (d.estado === "nuevo" || d.estado == null) && typeof TarifaAdmin !== "undefined") acc.appendChild(TarifaAdmin.botonAsignar(k));
       if (typeof TarifaAdmin !== "undefined" && TarifaAdmin.libre(d)) acc.appendChild(TarifaAdmin.botonCancelar(k));
 
@@ -2218,7 +2222,7 @@ const SolicitudesAdmin = (() => {
   }
   function cabeceraVisor() {
     const d = lista[visorId];
-    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); g("saForzarEnt").classList.add("oculto"); g("saForzarCanc").classList.add("oculto"); bloquearEspectador(true); return; }
+    if (!d) { g("saSub").textContent = "Este chat fue eliminado."; g("saBorrarUno").classList.add("oculto"); g("saForzarEnt").classList.add("oculto"); g("saForzarCanc").classList.add("oculto"); bloquearEspectador(true); try { window.dispatchEvent(new CustomEvent("visor-estado", { detail: { id: visorId, fin: true } })); } catch (_) {} return; }
     g("saTitulo").textContent = cortar(contactoCliente ? contactoCliente.nombre + " " + contactoCliente.apellido : (d.nombre || "Cliente"), 40);
     let tel = g("saTelCliente");
     if (!tel) { tel = document.createElement("div"); tel.id = "saTelCliente"; tel.className = "sa-tel-cliente oculto"; g("saSub").insertAdjacentElement("afterend", tel); }
@@ -2235,6 +2239,7 @@ const SolicitudesAdmin = (() => {
     g("saForzarEnt").classList.toggle("oculto", !activa);
     g("saForzarCanc").classList.toggle("oculto", !activa);
     bloquearEspectador(fin(d));
+    try { window.dispatchEvent(new CustomEvent("visor-estado", { detail: { id: visorId, fin: fin(d) } })); } catch (_) {}   // espectador-extras.js bloquea los mensajes rápidos
     const p = d.pedido;
     const r = g("saPedido");
     
@@ -4273,6 +4278,7 @@ const TarifaAdmin = (() => {
 
   function abrir(id, m) {
     if (!sol[id]) return toast("Solicitud no disponible todavía.");
+    if (sol[id].estado === "entregado" || sol[id].estado === "cancelado") return toast("El pedido ya terminó: solo puedes ver el chat.");
     abierto = id; modo = m || (ofertasDe(sol[id]).length ? "ofertas" : "proponer"); F = { sel: "" }; tmp = { prop: "", msg: "", precio: "", editado: false };
     modal(""); pintar();
   }

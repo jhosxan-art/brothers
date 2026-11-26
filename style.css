@@ -2588,3 +2588,24 @@ html.dpi-bajo .modal-rep-caja { max-height: calc((100dvh - 24px) / var(--escala-
 .vf-caja b { color: #fff; font-size: 18px; font-weight: 800; text-align: center; }
 .vf-acc { display: flex; gap: 10px; }
 .vf-acc .mini { width: auto; padding: 0 18px; }
+
+/* ===== Herramientas del mapa: panel compacto y ocultable ===== */
+.barra-herr { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-height: calc(100% - 74px); overflow: visible; padding: 0; }
+.herr-toggle { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: #fff; color: var(--tinta); box-shadow: 0 3px 12px rgba(14,20,27,.28); display: grid; place-items: center; font-size: 18px; font-weight: 800; }
+.herr-toggle:active { transform: scale(.94); }
+.herr-panel { width: 72px; max-height: calc(100dvh - 250px); overflow-y: auto; overflow-x: hidden; scrollbar-width: none; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 22px; background: rgba(255,255,255,.94); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid rgba(14,20,27,.08); box-shadow: 0 6px 22px rgba(14,20,27,.28); }
+.herr-panel::-webkit-scrollbar { display: none; }
+.barra-herr.herr-oculta .herr-panel { display: none; }
+.herr-panel .herr { flex: none; width: 100%; height: 56px; min-height: 0; margin: 0; padding: 4px 2px; border: 0; border-radius: 16px; background: transparent; box-shadow: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; line-height: 1; color: var(--tinta); }
+.herr-panel .herr.sep { margin-top: 5px; position: relative; }
+.herr-panel .herr.sep::before { content: ""; position: absolute; top: -4px; left: 14px; right: 14px; height: 1px; background: rgba(14,20,27,.12); }
+.herr-panel .herr b { font-size: 20px; font-weight: 700; line-height: 1; white-space: nowrap; }
+.herr-panel .herr small { display: block; max-width: 100%; font-size: 10px; font-weight: 800; line-height: 1.1; color: var(--texto2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.herr-panel .herr.on { background: var(--celeste-suave); }
+.herr-panel .herr.on small { color: var(--celeste-prof); }
+.herr-panel .herr.activo { background: var(--tinta); }
+.herr-panel .herr.activo b, .herr-panel .herr.activo small { color: #fff; }
+.herr-panel .herr:active { transform: scale(.96); }
+/* Solicitudes terminadas: botón Envío y mensajes rápidos deshabilitados */
+.tf-btn.tf-off, .tf-btn:disabled { opacity: .45; cursor: not-allowed; }
+#saRapidos.sa-off { opacity: .55; }

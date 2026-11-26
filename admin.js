@@ -1127,7 +1127,7 @@ function pintarLista() {
   const enRuta = ids.filter((u) => estadoDe(u) === "enRuta").length;
   const enLinea = ids.filter((u) => ["enRuta", "libre"].includes(estadoDe(u))).length;
   $("contador").textContent = `${enRuta} en ruta · ${enLinea} en línea · ${facturasHoy} 🧾` + (ocultos.size ? ` · ${ocultos.size} 👁‍🗨 ocultos` : "");
-  $("btnOcultar").querySelector("small").textContent = ocultos.size ? ocultos.size + " ocultos" : "Repartidores";
+  $("btnOcultar").querySelector("small").textContent = ocultos.size ? ocultos.size + " ocultos" : "Equipo";
 }
 
 const RUTA_CL = { chats: "chats", resumen: "chatsResumen", fotos: "fotos" };
@@ -1476,6 +1476,20 @@ function abrirOcultar() {
   $("ocListo").onclick = cerrarModal;
 }
 $("btnOcultar").onclick = abrirOcultar;
+/* Mostrar / ocultar las herramientas del mapa (se recuerda la elección) */
+(function () {
+  const b = $("btnHerrToggle"), bar = $("barraHerr"); if (!b || !bar) return;
+  const aplicar = (oc) => {
+    bar.classList.toggle("herr-oculta", oc);
+    b.setAttribute("aria-expanded", String(!oc));
+    b.setAttribute("aria-label", oc ? "Mostrar herramientas del mapa" : "Ocultar herramientas del mapa");
+    b.querySelector(".ht-ico").textContent = oc ? "🧰" : "✕";
+    try { localStorage.setItem("herrOculta", oc ? "1" : "0"); } catch (_) {}
+  };
+  let oc = false; try { oc = localStorage.getItem("herrOculta") === "1"; } catch (_) {}
+  aplicar(oc);
+  b.onclick = () => aplicar(!bar.classList.contains("herr-oculta"));
+})();
 
 function nombreCliente(token, r) {
   const f = activos[token] && activos[token].factura;

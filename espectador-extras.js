@@ -25,7 +25,7 @@ const KEY_MIN = "saPedidoMin";
 const ID_OK = /^sol_[A-Za-z0-9_-]{8,64}$/;
 const $ = (id) => document.getElementById(id);
 
-let idActual = null, estado = null, refEstado = null, ocupado = false, ultimo = { t: "", ts: 0 }, msgTimer = null;
+let terminados = {}, idActual = null, estado = null, refEstado = null, ocupado = false, ultimo = { t: "", ts: 0 }, msgTimer = null;
 
 /* ---------- 1) Minimizar / mostrar el pedido ---------- */
 function leerMin() { try { return localStorage.getItem(KEY_MIN) === "1"; } catch (_) { return false; } }
@@ -58,12 +58,17 @@ function aviso(txt, error) {
   m.textContent = txt || ""; m.classList.toggle("error", !!error);
   if (txt) msgTimer = setTimeout(() => { m.textContent = ""; }, 2500);
 }
-function puedeEnviar() { return !!idActual && !ocupado && (estado === "nuevo" || estado === "atendido"); }
+function puedeEnviar() { return !!idActual && !ocupado && !terminados[idActual] && (estado === "nuevo" || estado === "atendido"); }
 function pintarChips() {
   const caja = $("saRapidos"); if (!caja) return;
   const ok = puedeEnviar();
   caja.querySelectorAll("button").forEach((b) => { b.disabled = !ok; });
-  caja.title = !idActual ? "No se pudo identificar la solicitud" : (estado === "entregado" || estado === "cancelado") ? "El pedido ya terminó" : "";
+  const fin = !!idActual && (terminados[idActual] || estado === "entregado" || estado === "cancelado");
+  caja.title = !idActual ? "No se pudo identificar la solicitud" : fin ? "El pedido ya terminó" : "";
+  caja.classList.toggle("sa-off", !!fin);
+  const m = $("saRapidosMsg");
+  if (m && fin) { clearTimeout(msgTimer); m.textContent = "Pedido terminado: solo puedes ver el chat."; m.classList.remove("error"); }
+  else if (m && m.textContent === "Pedido terminado: solo puedes ver el chat.") m.textContent = "";
 }
 function crearChips() {
   const caja = $("saRapidos"); if (!caja) return;
@@ -111,6 +116,11 @@ window.addEventListener("visor-abierto", (e) => {
     refEstado.on("value", (s) => { estado = s.val(); pintarChips(); }, () => { estado = null; pintarChips(); });
   }
   pintarChips(); pintarPedido();
+});
+window.addEventListener("visor-estado", (e) => {
+  const d = e.detail || {}; if (!d.id) return;
+  terminados[d.id] = !!d.fin;
+  if (String(d.id) === idActual) pintarChips();
 });
 window.addEventListener("visor-cerrado", () => {
   soltarEstado(); estado = null; idActual = null; ocupado = false; aviso(""); pintarChips();
