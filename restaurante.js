@@ -35,6 +35,7 @@ const claveDeToken = (t) => { let h = 0; for (let i = 0; i < t.length; i++) h = 
 
 let uid = null, perfil = {}, menu = {}, pedidos = {}, ciudadesOk = [];
 let refPerfil = null, refMenu = null, refPedidos = null;
+const refsPed = {}, diag = {};
 let filtro = "nuevo", catSel = "Todos", fotoPerfil = "", primeraCarga = true;
 const vistos = new Set();
 let sonidoOk = false, audioCtx = null;
@@ -118,16 +119,29 @@ function iniciar() {
   detener();
   primeraCarga = true; vistos.clear();
   refPerfil = db.ref("restaurantes/" + uid);
-  refPerfil.on("value", (s) => { perfil = s.val() || {}; pintarPerfilBarra(); if (!perfilPintado) pintarPerfil(); }, () => {});
+  refPerfil.on("value", (s) => { diag.perfil = "ok"; pintarDiag(); perfil = s.val() || {}; pintarPerfilBarra(); if (!perfilPintado) pintarPerfil(); }, (e) => { diag.perfil = e.code || e.message; pintarDiag(); });
   refMenu = db.ref("menus/" + uid);
-  refMenu.on("value", (s) => { menu = s.val() || {}; pintarMenu(); }, () => {});
-  refPedidos = db.ref("solicitudes_entrantes").orderByChild("restauranteUid").equalTo(uid);
-  refPedidos.on("value", (s) => { pedidos = Object.fromEntries(Object.entries(s.val() || {}).sort((x, y) => (y[1].creado || y[1].ts || 0) - (x[1].creado || x[1].ts || 0)).slice(0, 100)); pintarPedidos(); }, (e) => setMsg("rtMsg", "No se pudieron leer los pedidos: " + (e.code || e.message), "error"));
+  refMenu.on("value", (s) => { diag.menu = "ok"; pintarDiag(); menu = s.val() || {}; pintarMenu(); }, (e) => { diag.menu = e.code || e.message; pintarDiag(); });
+  /* Pedidos: índice restaurantePedidos/{uid}/{id} (lo escribe el cliente al pedir) + un oyente por pedido */
+  refPedidos = db.ref("restaurantePedidos/" + uid).limitToLast(100);
+  refPedidos.on("child_added", (x) => { diag.indice = "ok"; pintarDiag(); escucharPedido(x.key); }, (e) => { diag.indice = e.code || e.message; pintarDiag(); });
+  refPedidos.once("value", () => { diag.indice = "ok"; pintarDiag(); }, () => {});
   try { Ciudades.suscribir(db, () => { llenarCiudades(); }); } catch (_) {}
   llenarCiudades();
   registrarPush();
 }
+function escucharPedido(id) {
+  if (refsPed[id]) return;
+  const r = db.ref("solicitudes_entrantes/" + id); refsPed[id] = r;
+  r.on("value", (s) => { diag.pedidos = "ok"; if (s.exists()) pedidos[id] = s.val(); else delete pedidos[id]; pintarPedidos(); pintarDiag(); }, (e) => { diag.pedidos = e.code || e.message; pintarDiag(); });
+}
+function pintarDiag() {
+  const mal = Object.entries(diag).filter(([, v]) => v !== "ok");
+  setMsg("rtMsg", mal.length ? "Sin permiso en: " + mal.map(([k, v]) => k + " (" + v + ")").join(", ") + " · cuenta " + String(uid || "").slice(0, 8) : "", "error");
+}
 function detener() {
+  Object.keys(refsPed).forEach((k) => { try { refsPed[k].off(); } catch (_) {} delete refsPed[k]; });
+  Object.keys(diag).forEach((k) => { delete diag[k]; });
   [refPerfil, refMenu, refPedidos].forEach((r) => { try { r && r.off(); } catch (_) {} });
   refPerfil = refMenu = refPedidos = null; cerrarChat();
   uid = null; perfil = {}; menu = {}; pedidos = {}; perfilPintado = false;
@@ -210,9 +224,9 @@ function pintarPedidos() {
   const ver = lista.filter((s) => grupoDe(s) === filtro);
   $("rtListaPedidos").innerHTML = ver.length ? ver.map(tarjeta).join("") : `<p class="rt-vacio">${filtro === "nuevo" ? "No hay pedidos nuevos." : filtro === "curso" ? "No tienes pedidos en curso." : "Aún no hay pedidos finalizados."}</p>`;
   /* Pedido nuevo → sonido (no en la carga inicial) */
-  const nuevos = lista.filter((s) => grupoDe(s) === "nuevo" && !vistos.has(s.id));
+  const nuevos = lista.filter((s) => grupoDe(s) === "nuevo" && !vistos.has(s.id) && Date.now() - (s.creado || s.ts || 0) < 120000);
   lista.forEach((s) => vistos.add(s.id));
-  if (!primeraCarga && nuevos.length) { pitar(); toast("📥 Pedido nuevo de " + (nuevos[0].nombre || "cliente")); }
+  if (nuevos.length) { pitar(); toast("📥 Pedido nuevo de " + (nuevos[0].nombre || "cliente")); }
   primeraCarga = false;
 }
 $("rtFiltros").onclick = (e) => {

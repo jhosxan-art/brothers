@@ -620,6 +620,17 @@
         }
       }
     },
+    "restaurantePedidos": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$sid": {
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (!data.exists() && $sid.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('restaurantes').child($uid).exists() && root.child('solicitudes_entrantes').child($sid).child('restauranteUid').val() === $uid))",
+          ".validate": "newData.isNumber()"
+        }
+      }
+    },
     "zonas": {
       ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",

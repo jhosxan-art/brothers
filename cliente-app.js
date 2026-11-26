@@ -620,6 +620,9 @@
         await refSolicitud.set({ ...baseSin, pedido: anterior });
       }
     }
+    if (pedido.restauranteUid && perfil && perfil.solicitudId) {   // índice que lee el restaurante (restaurantePedidos/{uid}/{id})
+      try { await db.ref("restaurantePedidos/" + pedido.restauranteUid + "/" + perfil.solicitudId).set(firebase.database.ServerValue.TIMESTAMP); } catch (_) { }
+    }
     avisarServidorSolicitud();
   }
 
