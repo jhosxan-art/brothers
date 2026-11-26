@@ -121,8 +121,8 @@ function iniciar() {
   refPerfil.on("value", (s) => { perfil = s.val() || {}; pintarPerfilBarra(); if (!perfilPintado) pintarPerfil(); }, () => {});
   refMenu = db.ref("menus/" + uid);
   refMenu.on("value", (s) => { menu = s.val() || {}; pintarMenu(); }, () => {});
-  refPedidos = db.ref("solicitudes_entrantes").orderByChild("restauranteUid").equalTo(uid).limitToLast(100);
-  refPedidos.on("value", (s) => { pedidos = s.val() || {}; pintarPedidos(); }, (e) => setMsg("rtMsg", "No se pudieron leer los pedidos: " + (e.code || e.message), "error"));
+  refPedidos = db.ref("solicitudes_entrantes").orderByChild("restauranteUid").equalTo(uid);
+  refPedidos.on("value", (s) => { pedidos = Object.fromEntries(Object.entries(s.val() || {}).sort((x, y) => (y[1].creado || y[1].ts || 0) - (x[1].creado || x[1].ts || 0)).slice(0, 100)); pintarPedidos(); }, (e) => setMsg("rtMsg", "No se pudieron leer los pedidos: " + (e.code || e.message), "error"));
   try { Ciudades.suscribir(db, () => { llenarCiudades(); }); } catch (_) {}
   llenarCiudades();
   registrarPush();
