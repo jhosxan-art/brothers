@@ -998,7 +998,6 @@ function abrirChatRep(uid) {
   chatEqAbierto = uid; sinLeerEq[uid] = 0; pintarLista(); pintarChats();
   Chat.iniciar({
     token: uid, yo: "admin", ruta: RUTA_EQ, pedido: "Equipo", nombreRepartidor: nombreUid(uid), puedeBorrar: true, avisos: false,
-    avatar: () => ({ uid, foto: fotosCache[uid], nombre: nombreUid(uid) }),
     titulo: () => "Chat con " + nombreUid(uid),
     subtitulo: () => { const e = { enRuta: "en ruta", libre: "en línea", sinSenal: "sin señal", desconectado: "desconectado" }[estadoDe(uid)]; return e || "Equipo · Brothers ↔ repartidor"; },
     alEnviar: (m) => { if (typeof PushAdmin !== "undefined") PushAdmin.mensaje(uid, m); },
@@ -1178,7 +1177,6 @@ $("listaChats").onclick = (e) => {
   if (typeof ChatMessenger !== "undefined") ChatMessenger.limpiar();
   Chat.iniciar({
     token: id, soloLectura: true, puedeBorrar: true, pedido: r.pedido, nombreRepartidor: r.repartidor,
-    avatar: () => { const u = r.repartidorUid || r.uid || ""; return u ? { uid: u, foto: fotosCache[u], nombre: nombreVivo(u, r.repartidor) } : null; },
     titulo: (c) => "Pedido " + (c.pedido || "—"),
     subtitulo: (c) => { const n = nombreVivo(r.repartidorUid || r.uid, c.nombreRepartidor); return n ? "Repartidor: " + n : ""; }
   });
@@ -1360,9 +1358,9 @@ function verFotoRep(uid) {
   document.body.appendChild(d);
 }
 document.addEventListener("click", (e) => {
-  const av = e.target.closest("#listaEquipo [data-av].con-foto, #listaChats [data-av].con-foto, .chat-av.con-foto");
+  const av = e.target.closest("#listaEquipo [data-av].con-foto, #listaChats [data-av].con-foto, .msg-av.con-foto");
   if (!av) return;
-  const uid = av.dataset.av || av.dataset.uid; if (!uid) return;
+  const uid = av.dataset.av || av.dataset.uid || (av.parentElement && av.parentElement.dataset.av); if (!uid) return;
   e.stopPropagation(); e.preventDefault();
   verFotoRep(uid);
 }, true);
@@ -1612,7 +1610,8 @@ function sincronizarFotos() {
   Object.keys(refsFotos).forEach((uid) => { if (!registrados[uid]) { try { refsFotos[uid].off(); } catch (_) {} delete refsFotos[uid]; delete fotosCache[uid]; } });
 }
 function aplicarFotosAvatares() {
-  document.querySelectorAll("[data-av]").forEach((el) => {
+  /* Solo avatares: las burbujas del chat también llevan data-av (lo pone ChatMessenger) y NO deben recibir la foto de fondo */
+  document.querySelectorAll("[data-av]:not(.burbuja):not(.con-av)").forEach((el) => {
     const f = fotosCache[el.dataset.av];
     if (f && typeof f === "string" && f.indexOf("data:image/") === 0) {
       el.style.backgroundImage = "url('" + f + "')";
@@ -1624,7 +1623,6 @@ function aplicarFotosAvatares() {
       el.classList.remove("con-foto");
     }
   });
-  try { if (typeof Chat !== "undefined" && Chat.refrescarTitulo) Chat.refrescarTitulo(); } catch (_) {}
 }
 $("btnFotoPick").onclick = () => $("fotoFile").click();
 $("fotoFile").onchange = () => {

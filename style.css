@@ -2267,65 +2267,94 @@ body.admin :is(button, a, summary, input, select, textarea):focus-visible { outl
 #modalCaja .tf-canc { min-height: 44px; border-radius: 10px; border: 1px solid #CF222E; background: #CF222E; color: #fff; font-size: 15px; font-weight: 700; }
 
 /* ============================================================
-   NEGOCIACIÓN · ventana compacta por pestañas (sin scroll)
+   NEGOCIACIÓN · hoja inferior estilo apps de delivery (cabecera y pie fijos, cuerpo con scroll, tarjetas amplias)
    ============================================================ */
-#modalCaja .ng { display: flex; flex-direction: column; gap: 10px; color: #1F2328; }
-#modalCaja .ng * { box-sizing: border-box; min-width: 0; }
-#modalCaja .ng-cab { display: flex; align-items: center; gap: 10px; }
-#modalCaja .ng-av { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: #0969DA; color: #fff; font-size: 18px; font-weight: 800; }
-#modalCaja .ng-t { flex: 1; display: grid; }
-#modalCaja .ng-t b { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#modalCaja .ng-t small { font-size: 12px; color: #57606A; }
-#modalCaja .ng-x { flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: #EEF1F4; color: #3C4043; font-size: 16px; font-weight: 700; }
-#modalCaja .ng-ped { padding: 8px 10px; border: 1px solid #D8DEE4; border-radius: 10px; background: #F6F8FA; font-size: 13px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
-#modalCaja .ng-hero { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border: 1px solid; border-radius: 12px; }
-#modalCaja .ng-hero span { font-size: 13px; font-weight: 700; }
-#modalCaja .ng-hero b { font-size: 22px; }
-#modalCaja .ng-hero.ok { background: #DAFBE1; border-color: #4AC26B; color: #1A7F37; }
-#modalCaja .ng-hero.pen { background: #FFF8C5; border-color: #D4A72C; color: #7D4E00; }
-#modalCaja .ng-hero.mal { background: #FFEBE9; border-color: #FF8182; color: #CF222E; }
-#modalCaja .ng-hero.nue { background: #DDF4FF; border-color: #54AEFF; color: #0969DA; }
-#modalCaja .ng-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: 12px; background: #EEF1F4; }
-#modalCaja .ng-tab { position: relative; display: grid; justify-items: center; gap: 1px; min-height: 46px; padding: 6px 2px; border: 0; border-radius: 9px; background: transparent; color: #57606A; font-size: 11px; font-weight: 700; }
-#modalCaja .ng-tab span { font-size: 17px; line-height: 1; }
-#modalCaja .ng-tab.on { background: #fff; color: #1F2328; box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
-#modalCaja .ng-tab em { position: absolute; top: 2px; right: 6px; min-width: 16px; padding: 0 4px; border-radius: 999px; background: #CF222E; color: #fff; font-size: 10px; font-style: normal; line-height: 16px; }
-#modalCaja .ng-panel { display: flex; flex-direction: column; gap: 8px; min-height: 168px; }
-#modalCaja .ng-lista { display: grid; gap: 6px; max-height: 30vh; overflow-y: auto; }
-#modalCaja .ng-of { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid #D8DEE4; border-radius: 12px; background: #fff; }
+#modalAdmin:has(.ng) { align-items: end; padding: 0; }
+#modalAdmin:has(.ng) .modal-rep-caja { max-width: 520px; width: 100%; padding: 0; gap: 0; display: flex; flex-direction: column; text-align: left; border-radius: 26px 26px 0 0; max-height: 94dvh; overflow: hidden; }
+@media (min-width: 768px) { #modalAdmin:has(.ng) { align-items: center; padding: 20px; } #modalAdmin:has(.ng) .modal-rep-caja { border-radius: 26px; max-height: 90dvh; } }
+#modalCaja .ng { display: flex; flex-direction: column; flex: 1; min-height: 0; color: #0E141B; }
+#modalCaja .ng *, #modalCaja .ng *::before, #modalCaja .ng *::after { box-sizing: border-box; min-width: 0; }
+/* los botones de la app tienen ancho/alto globales: aquí cada uno define los suyos */
+#modalCaja .ng button { width: auto; height: auto; min-height: 0; margin: 0; font-family: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+#modalCaja .ng p { margin: 0; color: inherit; }
+#modalCaja .ng-cab { flex: none; display: flex; align-items: center; gap: 14px; padding: 20px 18px 14px; }
+#modalCaja .ng-av { flex: none; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: #3DB8F5; color: #0E141B; font-size: 22px; font-weight: 800; }
+#modalCaja .ng-t { flex: 1; display: grid; gap: 2px; }
+#modalCaja .ng-t b { font-size: 21px; font-weight: 800; letter-spacing: -.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#modalCaja .ng-t small { font-size: 13px; color: #6B7580; font-weight: 600; }
+#modalCaja .ng-x { flex: none; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 50%; background: #F1F3F5; color: #0E141B; font-size: 17px; font-weight: 800; }
+#modalCaja .ng-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 14px; padding: 2px 18px 18px; }
+#modalCaja .ng-scroll > * { flex: none; }
+#modalCaja .ng-ped { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1.5px solid #E6EAEE; border-radius: 18px; background: #fff; }
+#modalCaja .ng-ped > span { flex: none; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: #F1F3F5; font-size: 20px; }
+#modalCaja .ng-ped p { flex: 1; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; align-self: center; }
+#modalCaja .ng-hero { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 1.5px solid; border-radius: 18px; }
+#modalCaja .ng-hero span { font-size: 15px; font-weight: 800; }
+#modalCaja .ng-hero b { font-size: 22px; font-weight: 800; }
+#modalCaja .ng-hero.ok { background: #E8F8EE; border-color: #7ED39B; color: #14703A; }
+#modalCaja .ng-hero.pen { background: #FFF6D6; border-color: #E8C453; color: #7A4B00; }
+#modalCaja .ng-hero.mal { background: #FFECEA; border-color: #FF9A94; color: #B42318; }
+#modalCaja .ng-hero.nue { background: #E6F5FF; border-color: #7CC4F5; color: #0B62B5; }
+#modalCaja .ng-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 18px; background: #F1F3F5; }
+#modalCaja .ng-tab { position: relative; display: grid; justify-items: center; align-content: center; gap: 3px; height: 58px; padding: 4px 2px; border: 0; border-radius: 14px; background: transparent; color: #6B7580; font-size: 12px; font-weight: 700; line-height: 1.1; }
+#modalCaja .ng-tab span { font-size: 20px; line-height: 1; }
+#modalCaja .ng-tab.on { background: #fff; color: #0E141B; box-shadow: 0 2px 8px rgba(14,20,27,.14); }
+#modalCaja .ng-tab em { position: absolute; top: 4px; right: 8px; min-width: 18px; padding: 0 5px; border-radius: 999px; background: #E5322D; color: #fff; font-size: 10px; font-style: normal; font-weight: 800; line-height: 18px; }
+#modalCaja .ng-panel { display: flex; flex-direction: column; gap: 12px; min-height: 120px; }
+#modalCaja .ng-sec { font-size: 12px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: #6B7580; }
+#modalCaja .ng-lista { display: grid; gap: 10px; }
+#modalCaja .ng-of { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border: 1.5px solid #E6EAEE; border-radius: 18px; background: #fff; }
 #modalCaja .ng-of.gan { border-color: #1A7F37; box-shadow: 0 0 0 2px #1A7F37; background: #F1FBF5; }
 #modalCaja .ng-of.no { opacity: .6; }
-#modalCaja .ng-of-i { flex: 1; display: grid; gap: 1px; }
-#modalCaja .ng-of-i small { font-size: 12px; color: #57606A; overflow-wrap: anywhere; }
-#modalCaja .ng-of strong { font-size: 17px; white-space: nowrap; }
-#modalCaja .ng-vacio { display: grid; justify-items: center; gap: 4px; padding: 18px 10px; text-align: center; color: #57606A; font-size: 14px; }
-#modalCaja .ng-vacio span { font-size: 26px; }
-#modalCaja .ng-vacio small { font-size: 12px; }
-#modalCaja .ng-alerta { padding: 8px 10px; border: 1px solid #FF8182; border-radius: 10px; background: #FFEBE9; color: #82071E; font-size: 13px; font-weight: 600; }
-#modalCaja .ng-ayuda { margin: 0; font-size: 13px; color: #57606A; }
+#modalCaja .ng-of-i { flex: 1; display: grid; gap: 2px; }
+#modalCaja .ng-of-i b { font-size: 15px; }
+#modalCaja .ng-of-i small { font-size: 12px; color: #6B7580; overflow-wrap: anywhere; }
+#modalCaja .ng-of strong { flex: none; font-size: 19px; font-weight: 800; white-space: nowrap; }
+#modalCaja .ng-vacio { display: grid; justify-items: center; gap: 6px; padding: 26px 12px; border: 1.5px dashed #D0D7DE; border-radius: 18px; text-align: center; color: #6B7580; font-size: 14px; font-weight: 600; }
+#modalCaja .ng-vacio span { font-size: 30px; }
+#modalCaja .ng-vacio small { font-size: 12px; font-weight: 500; }
+#modalCaja .ng-alerta { padding: 12px 14px; border: 1.5px solid #FF9A94; border-radius: 16px; background: #FFECEA; color: #82071E; font-size: 13px; font-weight: 700; }
+#modalCaja .ng-ayuda { font-size: 13px; line-height: 1.4; color: #6B7580; }
 #modalCaja .ng-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-#modalCaja .ng-chip { min-height: 38px; padding: 0 14px; border: 1px solid #D0D7DE; border-radius: 999px; background: #F6F8FA; color: #24292F; font-size: 14px; font-weight: 700; }
-#modalCaja .ng-fila { display: flex; align-items: center; gap: 8px; }
-#modalCaja .ng-fila label { flex: none; font-size: 13px; font-weight: 700; }
-#modalCaja .ng-fila input, #modalCaja .ng textarea { flex: 1; width: 100%; height: 44px; padding: 0 12px; border: 1px solid #D0D7DE; border-radius: 12px; background: #fff; color: #0E141B; font-size: 16px; }
-#modalCaja .ng textarea { height: auto; min-height: 64px; padding: 10px 12px; resize: none; font-family: inherit; }
-#modalCaja .ng-pri { flex: none; min-height: 44px; padding: 0 16px; border: 1px solid #4AC26B; border-radius: 12px; background: #DAFBE1; color: #1A7F37; font-size: 14px; font-weight: 700; }
+#modalCaja .ng-chip { height: 44px; padding: 0 18px; border: 1.5px solid #E6EAEE; border-radius: 22px; background: #fff; color: #0E141B; font-size: 15px; font-weight: 800; }
+#modalCaja .ng-fila { display: flex; align-items: stretch; gap: 10px; }
+#modalCaja .ng-fila input, #modalCaja .ng textarea, #modalCaja .ng-campo input { width: 100%; border: 2px solid transparent; border-radius: 16px; background: #F1F3F5; color: #0E141B; font: inherit; font-size: 17px; font-weight: 600; outline: 0; }
+#modalCaja .ng-fila input { flex: 1; height: 54px; padding: 0 16px; }
+#modalCaja .ng textarea { padding: 14px 16px; min-height: 84px; resize: none; line-height: 1.4; }
+#modalCaja .ng-fila input:focus, #modalCaja .ng textarea:focus, #modalCaja .ng-campo:focus-within { border-color: #0E141B; background: #fff; }
+#modalCaja .ng-pri { flex: none; height: 54px; padding: 0 20px; border: 0; border-radius: 16px; background: #0E141B; color: #fff; font-size: 15px; font-weight: 800; }
 #modalCaja .ng-pri.ancho { width: 100%; }
-#modalCaja .ng-pri:disabled { opacity: .45; }
-#modalCaja .ng-reps { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: 26vh; overflow-y: auto; }
-#modalCaja .ng-rep { display: grid; gap: 1px; padding: 8px 10px; border: 1px solid #D0D7DE; border-radius: 12px; background: #fff; color: #1F2328; text-align: left; }
-#modalCaja .ng-rep b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#modalCaja .ng-rep small { font-size: 11px; color: #57606A; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#modalCaja .ng-rep.sel { border-color: #1A7F37; background: #E8F6EE; box-shadow: 0 0 0 2px #1A7F37; }
-#modalCaja .ng-resps { display: grid; gap: 6px; }
-#modalCaja .ng-resp { padding: 8px 10px; border: 1px solid #D0D7DE; border-radius: 10px; background: #F6F8FA; color: #24292F; font-size: 13px; text-align: left; }
-#modalCaja .ng-msg { min-height: 0; font-size: 13px; font-weight: 700; color: #CF222E; }
-#modalCaja .ng-msg.ok { color: #1A7F37; }
+#modalCaja .ng-pri:disabled { background: #E6EAEE; color: #9AA3AD; cursor: default; }
+/* Lista de repartidores: filas con foto, estado y selector (en vez de una cuadrícula apretada) */
+#modalCaja .ng-reps { display: grid; gap: 8px; }
+#modalCaja .ng-rep { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto 24px; align-items: center; column-gap: 12px; width: 100%; min-height: 66px; padding: 10px 14px; border: 1.5px solid #E6EAEE; border-radius: 18px; background: #fff; color: #0E141B; text-align: left; }
+#modalCaja .ng-rep.sel { border-color: #0E141B; background: #F6F8FA; box-shadow: 0 0 0 1px #0E141B; }
+#modalCaja .ng-rep-av { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; background: #E6F5FF center / cover no-repeat; color: #0B62B5; font-size: 19px; font-weight: 800; }
+#modalCaja .ng-rep-av.con-foto { color: transparent; }
+#modalCaja .ng-rep-t { display: grid; gap: 2px; }
+#modalCaja .ng-rep-t b { font-size: 16px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#modalCaja .ng-rep-t small { font-size: 12px; color: #6B7580; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#modalCaja .ng-est { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+#modalCaja .ng-est.ok { background: #E8F8EE; color: #14703A; }
+#modalCaja .ng-est.ruta { background: #FFF1D6; color: #8A5200; }
+#modalCaja .ng-est.off { background: #F1F3F5; color: #6B7580; }
+#modalCaja .ng-chk { width: 24px; height: 24px; border: 2px solid #C9D0D8; border-radius: 50%; display: grid; place-items: center; }
+#modalCaja .ng-rep.sel .ng-chk { border-color: #0E141B; background: #0E141B; }
+#modalCaja .ng-rep.sel .ng-chk::after { content: "✓"; color: #fff; font-size: 14px; font-weight: 800; line-height: 1; }
+#modalCaja .ng-envio { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+#modalCaja .ng-envio label { flex: none; font-size: 15px; font-weight: 800; }
+#modalCaja .ng-campo { flex: 1; display: flex; align-items: center; gap: 8px; max-width: 200px; padding: 0 14px; border: 2px solid transparent; border-radius: 16px; background: #F1F3F5; }
+#modalCaja .ng-campo span { flex: none; font-size: 15px; font-weight: 800; color: #6B7580; }
+#modalCaja .ng-campo input { height: 50px; padding: 0; border: 0; background: transparent; text-align: right; }
+#modalCaja .ng-resps { display: grid; gap: 8px; }
+#modalCaja .ng-resp { width: 100%; padding: 13px 16px; border: 1.5px solid #E6EAEE; border-radius: 16px; background: #fff; color: #0E141B; font-size: 14px; font-weight: 600; line-height: 1.35; text-align: left; }
+#modalCaja .ng-msg { font-size: 13px; font-weight: 700; color: #B42318; }
+#modalCaja .ng-msg.ok { color: #14703A; }
 #modalCaja .ng-msg:empty { display: none; }
-#modalCaja .ng-pie { display: flex; gap: 8px; }
-#modalCaja .ng-pie button { flex: 1; min-height: 44px; border-radius: 12px; font-size: 14px; font-weight: 700; }
-#modalCaja .ng-canc { border: 1px solid #FF8182; background: #FFEBE9; color: #CF222E; }
-#modalCaja .ng-cerrar { border: 1px solid #D0D7DE; background: #F6F8FA; color: #24292F; }
+#modalCaja .ng-pie { flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 10px; padding: 12px 18px calc(14px + env(safe-area-inset-bottom)); border-top: 1px solid #E6EAEE; background: #fff; }
+#modalCaja .ng-pie button { height: 54px; padding: 0 10px; border-radius: 16px; font-size: 15px; font-weight: 800; }
+#modalCaja .ng-canc { border: 0; background: #FFECEA; color: #B42318; }
+#modalCaja .ng-cerrar { border: 0; background: #F1F3F5; color: #0E141B; }
 
 /* ============================================================
    TICKET DEL PEDIDO (visor) y hoja de captura para el restaurante
@@ -2552,10 +2581,7 @@ html.dpi-bajo .modal-rep-caja { max-height: calc((100dvh - 24px) / var(--escala-
 }
 
 /* Foto del repartidor: encabezado del chat y visor ampliado */
-.chat-av { flex: none; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; border: 2px solid #fff; background: #fff center / cover no-repeat; color: var(--tinta); font-size: 18px; font-weight: 800; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
-.chat-av.oculto { display: none; }
-.chat-av.con-foto { cursor: zoom-in; }
-#listaEquipo [data-av].con-foto, #listaChats [data-av].con-foto { cursor: zoom-in; }
+#listaEquipo [data-av].con-foto, #listaChats [data-av].con-foto, .msg-av.con-foto { cursor: zoom-in; }
 .visor-foto { position: fixed; inset: 0; z-index: 4000; display: grid; place-items: center; padding: 20px; background: rgba(14,20,27,.82); }
 .vf-caja { display: grid; justify-items: center; gap: 12px; width: min(92vw, 420px); }
 .vf-img { width: min(86vw, 400px); aspect-ratio: 1; border-radius: 24px; background: #fff center / cover no-repeat; box-shadow: 0 10px 40px rgba(0,0,0,.5); }

@@ -41,7 +41,6 @@ const Chat = (() => {
     el.innerHTML = `
       <div class="chat-barra">
         <button class="chat-atras" type="button" aria-label="Volver">‹</button>
-        <span class="chat-av oculto" id="chatAv" aria-label="Foto del repartidor"></span>
         <div><strong id="chatTitulo"></strong><small id="chatSub"></small></div>
       </div>
       <div class="chat-lista" id="chatLista" role="log" aria-live="polite"></div>
@@ -156,19 +155,6 @@ const Chat = (() => {
     q("chatTitulo").textContent = opciones.titulo ? opciones.titulo(ctx) : "Chat";
     subtituloBase = opciones.subtitulo ? opciones.subtitulo(ctx) : "";
     q("chatSub").textContent = subtituloBase;
-    /* Foto (o inicial) de la otra persona del chat: opciones.avatar(ctx) → { uid, foto, nombre } */
-    const av = q("chatAv");
-    if (av) {
-      const inf = opciones.avatar ? opciones.avatar(ctx) : null;
-      if (!inf) av.classList.add("oculto");
-      else {
-        const ok = !!inf.foto && String(inf.foto).indexOf("data:image/") === 0;
-        av.classList.remove("oculto"); av.classList.toggle("con-foto", ok);
-        av.style.backgroundImage = ok ? "url('" + inf.foto + "')" : "";
-        av.textContent = ok ? "" : (String(inf.nombre || "").trim().charAt(0).toUpperCase() || "🛵");
-        av.dataset.uid = inf.uid || "";
-      }
-    }
     pintarTyping();
   }
 
@@ -446,5 +432,5 @@ const Chat = (() => {
     if (abierto) { cerrar(); atras(); return true; }
     return false;
   }
-  return { iniciar, abrir, cerrar, detener, setContexto, pitido, enviarA, cerrarCapa, COLOR_LEIDO, COLOR_ENVIADO, refrescarTitulo: () => { try { if (el && opciones) titular(); } catch (_) {} } };
+  return { iniciar, abrir, cerrar, detener, setContexto, pitido, enviarA, cerrarCapa, COLOR_LEIDO, COLOR_ENVIADO };
 })();

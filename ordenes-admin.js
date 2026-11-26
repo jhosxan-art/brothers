@@ -4140,15 +4140,19 @@ const TarifaAdmin = (() => {
   }
   function panelAsignar(d) {
     if (!libre(d)) return `<div class="ng-vacio"><span>🔒</span>Este pedido ya no está libre.</div>`;
-    const omit = d.omitidoPor || {}, a = acordadoDe(d);
-    const filas = listaEquipo().map((r) => {
-      const nota = [r.etiqueta, r.conPedido ? "con pedido" : "", omit[r.uid] ? "lo devolvió" : ""].filter(Boolean).join(" · ");
-      return `<button type="button" class="ng-rep${F.sel === r.uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(r.uid)}"><b>${esc(r.nombre || nombreRep(r.uid))}</b>${nota ? "<small>" + esc(nota) + "</small>" : ""}</button>`;
+    const omit = d.omitidoPor || {}, a = acordadoDe(d), equipo = listaEquipo();
+    const filas = equipo.map((r) => {
+      const nom = r.nombre || nombreRep(r.uid), et = String(r.etiqueta || "");
+      const cls = /desconect|sin se[nñ]al/i.test(et) ? "off" : /ruta/i.test(et) ? "ruta" : /libre|l[ií]nea|conect/i.test(et) ? "ok" : "off";
+      const sub = [r.conPedido ? "con pedido" : "", omit[r.uid] ? "lo devolvió" : ""].filter(Boolean).join(" · ");
+      return `<button type="button" class="ng-rep${F.sel === r.uid ? " sel" : ""}" data-tf="sel" data-uid="${esc(r.uid)}"><span class="ng-rep-av" data-av="${esc(r.uid)}">${esc((String(nom).trim()[0] || "?").toUpperCase())}</span><span class="ng-rep-t"><b>${esc(nom)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</span><span class="ng-est ${cls}">${esc(et || "Sin datos")}</span><span class="ng-chk" aria-hidden="true"></span></button>`;
     }).join("");
-    const precio = a ? a.monto : tmp.precio;
-    return `<div class="ng-reps">${filas || `<div class="ng-vacio">Aún no hay repartidores en el equipo.</div>`}</div>
-      <div class="ng-fila"><label for="ngPrecio">💵 Envío</label><input id="ngPrecio" type="number" min="0" step="1" inputmode="numeric" placeholder="${a ? "" : "Opcional"}" value="${esc(precio)}" ${a ? "readonly" : ""}><button type="button" class="ng-pri" data-tf="asignar"${F.sel ? "" : " disabled"}>✅ Asignar</button></div>
-      <p class="ng-ayuda">${a ? "Tarifa acordada con el cliente: se mantiene y el repartidor no puede cambiarla." : "Déjalo vacío si el repartidor fija el delivery en la factura."}</p>`;
+    const selR = equipo.find((r) => r.uid === F.sel), precio = a ? a.monto : tmp.precio;
+    return `<div class="ng-sec">Elige el repartidor</div>
+      <div class="ng-reps">${filas || `<div class="ng-vacio">Aún no hay repartidores en el equipo.</div>`}</div>
+      <div class="ng-envio"><label for="ngPrecio">💵 Envío</label><div class="ng-campo"><span>C$</span><input id="ngPrecio" type="number" min="0" step="1" inputmode="numeric" placeholder="${a ? "" : "Opcional"}" value="${esc(precio)}" ${a ? "readonly" : ""}></div></div>
+      <p class="ng-ayuda">${a ? "Tarifa acordada con el cliente: se mantiene y el repartidor no puede cambiarla." : "Déjalo vacío si el repartidor fija el delivery en la factura."}</p>
+      <button type="button" class="ng-pri ancho" data-tf="asignar"${F.sel ? "" : " disabled"}>${selR ? "✅ Asignar a " + esc(selR.nombre || nombreRep(selR.uid)) : "Elige un repartidor"}</button>`;
   }
   function panelMensaje(d) {
     const chips = RESPUESTAS.map((t, i) => `<button type="button" class="ng-resp" data-tf="resp" data-i="${i}">${esc(t)}</button>`).join("");
@@ -4170,11 +4174,13 @@ const TarifaAdmin = (() => {
       <div class="ng-cab"><div class="ng-av">${esc((String(d.nombre || "?").trim()[0] || "?").toUpperCase())}</div>
         <div class="ng-t"><b>${esc(d.nombre || "Cliente")}</b><small>#${esc(String(abierto).slice(-5).toUpperCase())} · ${hace(d.creado || d.ts)}</small></div>
         <button type="button" class="ng-x" data-tf="cerrar" aria-label="Cerrar">✕</button></div>
-      <div class="ng-ped">🛍️ ${esc(p.quiere || "Pedido")}${p.origen ? " · 🏪 " + esc(p.origen) : ""}</div>
-      <div class="ng-hero ${hero.c}"><span>${hero.t}</span><b>${hero.v}</b></div>
-      <div class="ng-tabs" role="tablist">${tabs}</div>
-      <div class="ng-panel">${panel}</div>
-      <div id="ngMsg2" class="ng-msg" aria-live="polite"></div>
+      <div class="ng-scroll">
+        <div class="ng-ped"><span>🛍️</span><p>${esc(p.quiere || "Pedido")}${p.origen ? " · 🏪 " + esc(p.origen) : ""}</p></div>
+        <div class="ng-hero ${hero.c}"><span>${hero.t}</span><b>${hero.v}</b></div>
+        <div class="ng-tabs" role="tablist">${tabs}</div>
+        <div class="ng-panel">${panel}</div>
+        <div id="ngMsg2" class="ng-msg" aria-live="polite"></div>
+      </div>
       <div class="ng-pie">${lib ? `<button type="button" class="ng-canc" data-tf="cancelarped">🚫 Cancelar pedido</button>` : ""}<button type="button" class="ng-cerrar" data-tf="cerrar">Cerrar</button></div>
     </div>`;
   }
@@ -4230,8 +4236,10 @@ const TarifaAdmin = (() => {
     const act = document.activeElement && document.activeElement.id;
     const pe = document.getElementById("ngProp"), me = document.getElementById("ngMsg"), pr = document.getElementById("ngPrecio");
     if (pe) tmp.prop = pe.value; if (me) tmp.msg = me.value; if (pr && !pr.readOnly) { tmp.precio = pr.value; tmp.editado = true; }
+    const scr = c.querySelector(".ng-scroll"), top = scr ? scr.scrollTop : 0;
     c.innerHTML = html(d);
     c.onclick = alClick;
+    try { const n = c.querySelector(".ng-scroll"); if (n) n.scrollTop = top; if (typeof aplicarFotosAvatares === "function") aplicarFotosAvatares(); } catch (_) {}
     if (act && ["ngProp", "ngMsg", "ngPrecio"].includes(act)) {
       const ne = document.getElementById(act); if (ne) { ne.focus(); try { ne.setSelectionRange(ne.value.length, ne.value.length); } catch (_) {} }
     }
