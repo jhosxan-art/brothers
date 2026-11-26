@@ -552,9 +552,41 @@ window.Factura = {
   }
 
   const NEGOCIO_WA = '50586265619';
+
+  /* ---- Facturas manuales enviadas por WhatsApp: se guardan 48 h para REENVIARLAS si se fue la red al crearlas ---- */
+  const CLAVE_WA = 'brothersFacturasWA', VIDA_WA_MS = 48 * 3600 * 1000;
+  function leerWA() {
+      try {
+          const a = JSON.parse(localStorage.getItem(CLAVE_WA) || '[]');
+          return Array.isArray(a) ? a.filter((x) => x && typeof x.texto === 'string' && Date.now() - (Number(x.ts) || 0) < VIDA_WA_MS) : [];
+      } catch (_) { return []; }
+  }
+  function guardarWA(f) {
+      if (!f || !f.texto) return;
+      const a = leerWA().filter((x) => x.id !== f.token);
+      a.unshift({ id: f.token, ts: Date.now(), cliente: String(f.cliente || ''), total: Number(f.totalFinal) || 0, texto: f.texto });
+      try { localStorage.setItem(CLAVE_WA, JSON.stringify(a.slice(0, 10))); } catch (_) {}
+      pintarWA();
+  }
+  function pintarWA() {
+      const box = document.getElementById('fxUltimaWA'); if (!box) return;
+      const a = leerWA(), manual = !pedidoSistema && !chatDestino;
+      if (!a.length || !manual) { box.style.display = 'none'; box.innerHTML = ''; return; }
+      const hora = (ts) => new Date(ts).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+      const fila = (x, i) => `<div class="fx-wa-fila"><div><b>${escHtml(x.cliente) || 'Sin nombre'}</b><small>${formatMoney(x.total)} · ${hora(x.ts)}</small></div><button type="button" onclick="reenviarFacturaWA(${i})">🔁 Reenviar</button></div>`;
+      box.style.display = '';
+      box.innerHTML = '<div class="fx-wa-tit">📲 Facturas enviadas por WhatsApp</div>' + fila(a[0], 0)
+          + (a.length > 1 ? `<details><summary>Anteriores (${a.length - 1})</summary>${a.slice(1).map((x, i) => fila(x, i + 1)).join('')}</details>` : '')
+          + '<small class="fx-wa-ayuda">Si se fue la red y la factura no llegó, reenvíala desde aquí.</small>';
+  }
+  function reenviarFacturaWA(i) {
+      const x = leerWA()[Number(i) || 0]; if (!x) return;
+      abrirEnlaceExterno(`https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(x.texto)}`);   // no vuelve a contarla: solo abre WhatsApp con el mismo texto
+  }
   function enviarFacturaWhatsApp() {
       if (!facturaActual) return;
       const f = facturaActual; facturaActual = null;
+      guardarWA(f);
       const url = `https://wa.me/${NEGOCIO_WA}?text=${encodeURIComponent(f.texto)}`;
       if (window.Factura && typeof window.Factura.alEnviar === 'function') window.Factura.alEnviar(f);
       abrirEnlaceExterno(url);
@@ -595,6 +627,7 @@ window.Factura = {
   }
   function pintarModoPedido() {
       const on = !!pedidoSistema, enChat = !on && !!chatDestino, g = (id) => document.getElementById(id);
+      try { pintarWA(); } catch (_) {}
       g('pedidoBanner').style.display = (on || enChat) ? '' : 'none';
       g('deliveryManual').style.display = on ? 'none' : '';
       g('deliverySistema').style.display = on ? '' : 'none';
@@ -817,9 +850,10 @@ window.Factura = {
 
   restaurarBorrador(); renderProductList();
   restaurarSnap();
+  try { pintarWA(); } catch (_) {}   // muestra las facturas recientes por si hay que reenviarlas
   ['customerName', 'currentProductName', 'currentProductPrice'].forEach((id) => { const e = document.getElementById(id); if (e) e.addEventListener('input', guardarBorrador); });
   toggleExtraErrand(extraErrand); calculateTotal();
   checkAndResetStats(); checkSessionAndLogin(); renderDepositInvoices();
 
-  Object.assign(window, { abrirEnlaceExterno, showCustomAlert, closeCustomAlert, closeCustomConfirm, cancelarFactura, cancelarFacturaNueva, cancelarFacturaEditar, cerrarCancelFactura, showStats, hideStats, calculateTotal, toggleExtraErrand, cambiarIvasExtras, pintarIvasExtras, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto, reintentarEnvioPedido });
+  Object.assign(window, { reenviarFacturaWA, abrirEnlaceExterno, showCustomAlert, closeCustomAlert, closeCustomConfirm, cancelarFactura, cancelarFacturaNueva, cancelarFacturaEditar, cerrarCancelFactura, showStats, hideStats, calculateTotal, toggleExtraErrand, cambiarIvasExtras, pintarIvasExtras, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto, reintentarEnvioPedido });
 })();

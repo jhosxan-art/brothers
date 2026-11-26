@@ -20,6 +20,16 @@
     @keyframes pinActualizado { 0% { transform: scale(1); } 35% { transform: scale(1.35); } 100% { transform: scale(1); } }
     .pin-actualizado .pin-cli { animation: pinActualizado 1s ease-out 1; }
     @media (prefers-reduced-motion: reduce) { .pin-actualizado .pin-cli { animation: none; } }
+    .fx .fx-wa { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: #E8F8EE; border: 2px solid #25D366; color: #0E141B; }
+    .fx .fx-wa-tit { font-size: 13px; font-weight: 800; color: #14703A; }
+    .fx .fx-wa-fila { display: flex; align-items: center; gap: 10px; }
+    .fx .fx-wa-fila > div { flex: 1; min-width: 0; display: grid; gap: 1px; }
+    .fx .fx-wa-fila b { font-size: 14px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fx .fx-wa-fila small, .fx .fx-wa-ayuda { font-size: 12px; color: #4B5563; }
+    .fx .fx-wa-fila button { flex: none; width: auto; height: 40px; padding: 0 14px; border: 0; border-radius: 20px; background: #25D366; color: #fff; font-size: 13px; font-weight: 800; }
+    .fx .fx-wa details { font-size: 13px; }
+    .fx .fx-wa summary { padding: 6px 0; font-weight: 700; color: #14703A; cursor: pointer; }
+    .fx .fx-wa details .fx-wa-fila { padding: 6px 0; border-top: 1px solid rgba(0,0,0,.08); }
     .fx .fx-pedido-banner { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: #E8F6EE; border: 2px solid #1E9B5A; color: #0E141B; }
     .fx .fx-pedido-banner > div { flex: 1; min-width: 0; display: grid; gap: 2px; }
     .fx .fx-pedido-banner b { font-size: 14px; font-weight: 800; }
@@ -266,6 +276,7 @@
 
   <div id="vistaFactura" class="fx oculto">
     <div class="invoice-container" id="invoiceContainer">
+      <div id="fxUltimaWA" class="fx-wa" style="display:none"></div>
       <div id="pedidoBanner" class="fx-pedido-banner" style="display:none">
         <div><b>🧾 Factura del pedido <span id="pedidoBannerCod"></span></b><small id="pedidoBannerTxt"></small></div>
         <button type="button" onclick="Factura.salirModoPedido()" aria-label="Salir de la factura de este pedido">✕</button>
