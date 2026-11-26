@@ -21,7 +21,7 @@ const db = APP.database();
 const TS = firebase.database.ServerValue.TIMESTAMP;
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = (n) => "C$ " + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
-const bonito = (id) => "#" + String(id || "").replace(/^sol_/, "").slice(0, 5).toUpperCase();
+const bonito = (id) => "#" + String(id || "").slice(-5).toUpperCase();   // mismo número que ve la central
 const hora = (ts) => ts ? new Date(ts).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "";
 const hace = (ts) => {
   if (!ts) return "";
@@ -130,17 +130,28 @@ function iniciar() {
   llenarCiudades();
   registrarPush();
 }
+/* Privacidad: el restaurante NO lee la solicitud completa (nombre, celular, GPS, direcciones…). Solo 4 datos sueltos:
+   vistaRestaurante {items, subtotal, nota, ts} · estado · rest · repartidorNombre. */
 function escucharPedido(id) {
   if (refsPed[id]) return;
-  const r = db.ref("solicitudes_entrantes/" + id); refsPed[id] = r;
-  r.on("value", (s) => { diag.pedidos = "ok"; if (s.exists()) pedidos[id] = s.val(); else delete pedidos[id]; pintarPedidos(); pintarDiag(); }, (e) => { diag.pedidos = e.code || e.message; pintarDiag(); });
+  const base = "solicitudes_entrantes/" + id, parte = {}, lista = [];
+  const armar = () => {
+    if (!parte.vista) return;
+    pedidos[id] = { estado: parte.estado || "nuevo", rest: parte.rest || null, repartidorNombre: parte.rep || "", creado: parte.vista.ts || 0, pedido: { items: parte.vista.items, subtotal: parte.vista.subtotal, nota: parte.vista.nota } };
+    diag.pedidos = "ok"; pintarPedidos(); pintarDiag();
+  };
+  [["vista", "vistaRestaurante"], ["estado", "estado"], ["rest", "rest"], ["rep", "repartidorNombre"]].forEach(([k, ruta]) => {
+    const r = db.ref(base + "/" + ruta); lista.push(r);
+    r.on("value", (s) => { parte[k] = s.val(); armar(); }, (e) => { diag.pedidos = e.code || e.message; pintarDiag(); });
+  });
+  refsPed[id] = lista;
 }
 function pintarDiag() {
   const mal = Object.entries(diag).filter(([, v]) => v !== "ok");
   setMsg("rtMsg", mal.length ? "Sin permiso en: " + mal.map(([k, v]) => k + " (" + v + ")").join(", ") + " · cuenta " + String(uid || "").slice(0, 8) : "", "error");
 }
 function detener() {
-  Object.keys(refsPed).forEach((k) => { try { refsPed[k].off(); } catch (_) {} delete refsPed[k]; });
+  Object.keys(refsPed).forEach((k) => { (refsPed[k] || []).forEach((r) => { try { r.off(); } catch (_) {} }); delete refsPed[k]; });
   Object.keys(diag).forEach((k) => { delete diag[k]; });
   [refPerfil, refMenu, refPedidos].forEach((r) => { try { r && r.off(); } catch (_) {} });
   refPerfil = refMenu = refPedidos = null; cerrarChat();
@@ -183,7 +194,7 @@ function itemsHtml(s) {
   if (Array.isArray(p.items) && p.items.length) {
     return p.items.map((i) => `<div class="rt-item"><span>${esc(i.q || 1)} × ${esc(i.n)}</span><b>${money((Number(i.p) || 0) * (Number(i.q) || 1))}</b></div>`).join("");
   }
-  return `<div class="rt-item"><span>${esc(p.quiere || "Pedido")}</span></div>`;
+  return `<div class="rt-item"><span>Pedido</span></div>`;
 }
 const etiqueta = (s) => {
   const r = (s.rest && s.rest.estado) || "pendiente";
@@ -206,12 +217,12 @@ function tarjeta(s) {
   const prep = s.rest && s.rest.prepMin && g === "curso" ? `<div class="rt-rep">⏱ Preparación: ${esc(s.rest.prepMin)} min</div>` : "";
   const mot = s.rest && s.rest.motivo && r === "rechazado" ? `<div class="rt-nota">Motivo: ${esc(s.rest.motivo)}</div>` : "";
   return `<article class="rt-ped ${g === "nuevo" ? "nuevo" : ""}" data-id="${esc(s.id)}">
-    <div class="rt-ped-top"><div><strong>${esc(s.nombre || "Cliente")} · ${esc(bonito(s.id))}</strong><small>${esc(hace(s.creado || s.ts))} · ${esc(hora(s.creado || s.ts))}</small></div><span class="rt-chip ${cl}">${esc(tx)}</span></div>
+    <div class="rt-ped-top"><div><strong>🛵 Brother’s Deliverys · ${esc(bonito(s.id))}</strong><small>${esc(hace(s.creado || s.ts))} · ${esc(hora(s.creado || s.ts))}</small></div><span class="rt-chip ${cl}">${esc(tx)}</span></div>
     <div class="rt-items">${itemsHtml(s)}</div>
     ${p.nota ? `<div class="rt-nota">📝 ${esc(p.nota)}</div>` : ""}
     ${total ? `<div class="rt-total"><span>Productos</span><span>${money(total)}</span></div>` : ""}
     ${rep}${prep}${mot}
-    <div class="rt-acc">${acc}<button data-a="chat" type="button">💬 Chat</button></div>
+    <div class="rt-acc">${acc}</div>
   </article>`;
 }
 function pintarPedidos() {
@@ -226,7 +237,7 @@ function pintarPedidos() {
   /* Pedido nuevo → sonido (no en la carga inicial) */
   const nuevos = lista.filter((s) => grupoDe(s) === "nuevo" && !vistos.has(s.id) && Date.now() - (s.creado || s.ts || 0) < 120000);
   lista.forEach((s) => vistos.add(s.id));
-  if (nuevos.length) { pitar(); toast("📥 Pedido nuevo de " + (nuevos[0].nombre || "cliente")); }
+  if (nuevos.length) { pitar(); toast("📥 Pedido nuevo de Brother’s Deliverys " + bonito(nuevos[0].id)); }
   primeraCarga = false;
 }
 $("rtFiltros").onclick = (e) => {
@@ -245,7 +256,6 @@ async function actualizar(id, cambios, ok) {
 }
 function accion(id, a) {
   const s = pedidos[id]; if (!s) return;
-  if (a === "chat") return abrirChat(id);
   if (a === "aceptar") {
     const prep = Number(perfil.prepMin) || 20;
     modal(`<h2>✅ Aceptar pedido ${esc(bonito(id))}</h2>
@@ -292,7 +302,7 @@ function pintarMenu() {
     .sort((a, b) => (a.orden || 0) - (b.orden || 0) || String(a.nombre).localeCompare(String(b.nombre)));
   $("rtListaMenu").innerHTML = lista.length ? lista.map((p) => `<div class="rt-plato ${p.activo === false ? "off" : ""}" data-id="${esc(p.id)}">
       <div class="rt-plato-img">${p.foto ? `<img src="${esc(p.foto)}" alt="">` : "🍽️"}</div>
-      <div class="rt-plato-tx"><b>${esc(p.nombre)}</b>${p.desc ? `<small>${esc(p.desc)}</small>` : ""}<em>${money(p.precio)}</em></div>
+      <div class="rt-plato-tx"><b>${esc(p.nombre)}</b>${p.desc ? `<small>${esc(p.desc)}</small>` : ""}<em>${money(p.precio)}</em>${Array.isArray(p.sabores) && p.sabores.length ? `<small>🥤 ${esc(p.sabores.join(", "))}</small>` : ""}</div>
       <div class="rt-plato-acc"><button class="rt-sw" type="button" role="switch" data-a="sw" aria-checked="${p.activo !== false}" aria-label="Disponible"></button><button class="mini" type="button" data-a="ed">✏️ Editar</button></div>
     </div>`).join("") : `<p class="rt-vacio">${Object.keys(menu).length ? "No hay platos en esta categoría." : "Aún no tienes platos. Toca «➕ Plato» para agregar el primero."}</p>`;
 }
@@ -330,6 +340,7 @@ function formPlato(p, id) {
       <label>Precio (C$)<input id="plPrecio" type="number" inputmode="decimal" min="0" step="0.01" value="${p.precio != null ? esc(p.precio) : ""}" placeholder="0.00"></label>
       <label>Categoría<input id="plCat" list="plCats" maxlength="24" value="${esc(p.cat || "Platos")}"><datalist id="plCats">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist></label>
     </div>
+    <label>Sabores (opcional, separados por coma)<input id="plSab" maxlength="160" value="${esc(Array.isArray(p.sabores) ? p.sabores.join(", ") : "")}" placeholder="Ej. Naranja, Piña, Cola"></label>
     <div class="eq-foto-fila"><div id="plFotoPrev" class="rt-plato-img">${foto ? `<img src="${esc(foto)}" alt="">` : "🍽️"}</div>
       <div class="eq-foto-txt"><strong>Foto (opcional)</strong><div class="acciones-fila"><button id="plFotoBtn" class="mini" type="button">Elegir</button><button id="plFotoQ" class="mini peligro ${foto ? "" : "oculto"}" type="button">Quitar</button></div></div>
       <input id="plFotoFile" type="file" accept="image/*" hidden></div>
@@ -353,7 +364,8 @@ function formPlato(p, id) {
     const nombre = $("plNombre").value.trim(), precio = parseFloat($("plPrecio").value), cat = $("plCat").value.trim() || "Platos";
     if (nombre.length < 2) return setMsg("plMsg", "Escribe el nombre del plato.", "error");
     if (!(precio >= 0)) return setMsg("plMsg", "Escribe un precio válido.", "error");
-    const d = { nombre, desc: $("plDesc").value.trim().slice(0, 160), precio: Math.round(precio * 100) / 100, cat: cat.slice(0, 24), foto: foto || null, actualizado: TS };
+    const sabores = [...new Set($("plSab").value.split(",").map((x) => x.trim().slice(0, 20)).filter(Boolean))].slice(0, 8);
+    const d = { sabores: sabores.length ? sabores : null, nombre, desc: $("plDesc").value.trim().slice(0, 160), precio: Math.round(precio * 100) / 100, cat: cat.slice(0, 24), foto: foto || null, actualizado: TS };
     $("plOk").disabled = true;
     try {
       if (id) await db.ref("menus/" + uid + "/" + id).update(d);
@@ -435,9 +447,7 @@ $("btnGuardarPerfil").onclick = async () => {
   try {
     await db.ref("restaurantes/" + uid).update(ficha);
     await db.ref("restaurantesPriv/" + uid + "/tel").set(tel || null);
-    const existe = (await db.ref("lugares/rest_" + uid + "/creado").once("value")).exists();
     const lugar = { nombre, icono: "🍔", dir, lat: pinLL.lat, lng: pinLL.lng, ciudad, tipo: "restaurante", restauranteUid: uid, actualizado: TS };
-    if (!existe) lugar.creado = TS;
     await db.ref("lugares/rest_" + uid).update(lugar);
     setMsg("msgPerfil", "Guardado ✓ Los repartidores ya ven tu restaurante en el mapa.", "ok");
   } catch (e) { setMsg("msgPerfil", "No se pudo guardar: " + (e.code || e.message), "error"); }

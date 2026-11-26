@@ -605,6 +605,11 @@
           "foto": {
             ".validate": "newData.isString() && newData.val().length < 120000"
           },
+          "sabores": {
+            "$i": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 20"
+            }
+          },
           "orden": {
             ".validate": "newData.isNumber()"
           },
@@ -771,9 +776,9 @@
         "repartidorUid",
         "restauranteUid"
       ],
-      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists() || (root.child('restaurantes').child(auth.uid).exists() && query.orderByChild === 'restauranteUid' && query.equalTo === auth.uid))",
+      ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('repartidores').child(auth.uid).exists())",
       "$solicitudId": {
-        ".read": "auth != null && ((auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/)) || (root.child('restaurantes').child(auth.uid).exists() && data.child('restauranteUid').val() === auth.uid))",
+        ".read": "auth != null && auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/)",
         ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && !data.exists() && newData.child('estado').val() === 'nuevo' && !newData.child('repartidorUid').exists() && !newData.child('mensajes').exists() && newData.child('clienteId').isString() && $solicitudId === 'sol_' + newData.child('clienteId').val() && newData.child('nombre').isString() && newData.child('nombre').val().length >= 2 && newData.child('nombre').val().length <= 24))",
         "clienteId": {
           ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 64"
@@ -787,7 +792,8 @@
         },
         "estado": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()) || (auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').exists() && newData.val() === 'cancelado'))",
-          ".validate": "newData.isString() && (newData.val() === data.val() || (newData.val() === 'nuevo' && (!data.exists() || data.val() === 'atendido')) || (newData.val() === 'atendido' && data.val() === 'nuevo') || (newData.val() === 'cancelado' && data.val() === 'nuevo') || ((newData.val() === 'entregado' || newData.val() === 'cancelado') && data.val() === 'atendido') || (root.child('admins').child(auth.uid).exists() && (newData.val() === 'entregado' || newData.val() === 'cancelado') && data.val() !== 'entregado' && data.val() !== 'cancelado'))"
+          ".validate": "newData.isString() && (newData.val() === data.val() || (newData.val() === 'nuevo' && (!data.exists() || data.val() === 'atendido')) || (newData.val() === 'atendido' && data.val() === 'nuevo') || (newData.val() === 'cancelado' && data.val() === 'nuevo') || ((newData.val() === 'entregado' || newData.val() === 'cancelado') && data.val() === 'atendido') || (root.child('admins').child(auth.uid).exists() && (newData.val() === 'entregado' || newData.val() === 'cancelado') && data.val() !== 'entregado' && data.val() !== 'cancelado'))",
+          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid"
         },
         "repartidorUid": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && ((!data.exists() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo') || data.val() === auth.uid)) || (root.child('admins').child(auth.uid).exists()))",
@@ -795,7 +801,8 @@
         },
         "repartidorNombre": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()))",
-          ".validate": "newData.isString() && newData.val().length <= 60"
+          ".validate": "newData.isString() && newData.val().length <= 60",
+          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid"
         },
         "atendidoTs": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()))",
@@ -1223,6 +1230,40 @@
           },
           "motivo": {
             ".validate": "newData.isString() && newData.val().length <= 120"
+          },
+          "$otro": {
+            ".validate": false
+          },
+          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid"
+        },
+        "vistaRestaurante": {
+          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid",
+          ".validate": "newData.hasChildren(['items', 'subtotal', 'ts'])",
+          "items": {
+            "$i": {
+              ".validate": "newData.hasChildren(['n', 'q', 'p'])",
+              "n": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 60"
+              },
+              "q": {
+                ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 99"
+              },
+              "p": {
+                ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+              },
+              "$otro": {
+                ".validate": false
+              }
+            }
+          },
+          "subtotal": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000000"
+          },
+          "nota": {
+            ".validate": "newData.isString() && newData.val().length <= 200"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
           },
           "$otro": {
             ".validate": false

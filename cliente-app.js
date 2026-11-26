@@ -600,7 +600,7 @@
       ultimoMensaje: "",
       ultimoDe: "",
       ciudadRuta: pedido.ciudadRuta,
-      ...(pedido.restauranteUid ? { restauranteUid: pedido.restauranteUid } : {}),
+      ...(pedido.restauranteUid && Array.isArray(pedido.items) ? { restauranteUid: pedido.restauranteUid, vistaRestaurante: { items: pedido.items, subtotal: pedido.subtotal || 0, ...(pedido.nota ? { nota: pedido.nota } : {}), ts: firebase.database.ServerValue.TIMESTAMP } } : {}),
       pedido
     };
     restPrev = null;
@@ -1622,65 +1622,119 @@
       return Object.entries(s.val() || {})
         .filter(([, r]) => r && r.activo !== false && r.abierto === true && typeof r.nombre === "string" && okLL(Number(r.lat), Number(r.lng)))
         .map(([uid, r]) => ({ uid, nombre: String(r.nombre).slice(0, 60), lat: Number(r.lat), lng: Number(r.lng), prepMin: Number(r.prepMin) || 0 }))
-        .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 12);
+        .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 30);
     } catch (_) { return []; }
+  }
+
+  const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  const cachePlatos = {};
+  /* Platos activos de un restaurante (menus/{uid}), con caché por sesión. */
+  async function cargarPlatos(uid) {
+    if (cachePlatos[uid]) return cachePlatos[uid];
+    let platos = [];
+    try {
+      const s = await db.ref("menus/" + uid).once("value");
+      platos = Object.entries(s.val() || {}).map(([k, p]) => ({ k, ...p }))
+        .filter((p) => p && p.activo !== false && typeof p.nombre === "string" && Number(p.precio) >= 0)
+        .map((p) => ({ ...p, sabores: Array.isArray(p.sabores) ? p.sabores.filter((x) => typeof x === "string" && x).slice(0, 8) : [] }))
+        .sort((a, b) => String(a.cat || "").localeCompare(String(b.cat || "")) || (a.orden || 0) - (b.orden || 0)).slice(0, 60);
+    } catch (_) { }
+    return (cachePlatos[uid] = platos);
+  }
+
+  /* Busca por nombre del negocio o por plato/categoría. Devuelve solo los negocios que lo tienen. */
+  async function buscarRestaurantes(lista, texto) {
+    const tk = norm(texto).split(/\s+/).filter((x) => x.length >= 2);
+    if (!tk.length) return [];
+    const res = await Promise.all(lista.map(async (r) => {
+      const platos = await cargarPlatos(r.uid), nn = norm(r.nombre);
+      const hit = platos.filter((p) => { const h = norm(p.nombre + " " + (p.desc || "") + " " + (p.cat || "")); return tk.every((x) => h.includes(x)); });
+      const porNombre = tk.every((x) => nn.includes(x));
+      if (!porNombre && !hit.length) return null;
+      return { ...r, _n: porNombre ? 0 : 1, hint: hit.slice(0, 2).map((p) => p.nombre).join(", ") };
+    }));
+    return res.filter(Boolean).sort((a, b) => a._n - b._n || a.nombre.localeCompare(b.nombre));
   }
 
   function estiloMenu() {
     if (document.getElementById("estiloMenuRest")) return;
     const st = document.createElement("style"); st.id = "estiloMenuRest";
     st.textContent = ".wa-menu{align-self:stretch;margin:6px 0;background:#fff;border-radius:14px;padding:10px;box-shadow:0 1px 3px rgba(0,0,0,.18);display:grid;gap:8px;color:#0E141B}" +
-      ".wa-menu h4{margin:0;font-size:15px;font-weight:800}.wa-menu .wm-cat{margin:6px 0 0;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#5B6672}" +
-      ".wa-menu .wm-fila{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #E1E6EB}" +
-      ".wa-menu .wm-n{min-width:0;display:grid;gap:1px}.wa-menu .wm-n b{font-size:14px;overflow-wrap:anywhere}.wa-menu .wm-n small{font-size:12px;color:#5B6672;overflow-wrap:anywhere}.wa-menu .wm-n em{font-style:normal;font-size:13px;font-weight:800;color:#075E54}" +
-      ".wa-menu .wm-q{display:flex;align-items:center;gap:8px}.wa-menu .wm-q button{width:34px;height:34px;border-radius:50%;border:1.5px solid #075E54;background:#fff;color:#075E54;font-size:18px;font-weight:800;line-height:1;padding:0}" +
-      ".wa-menu .wm-q span{min-width:18px;text-align:center;font-weight:800}.wa-menu .wm-pie{display:grid;gap:8px;margin-top:4px}" +
+      ".wa-menu h4{margin:0;font-size:15px;font-weight:800}.wa-menu .wm-cat{margin:8px 0 2px;font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#5B6672}" +
+      ".wa-menu .wm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}" +
+      ".wa-menu .wm-card{display:grid;grid-template-rows:auto 1fr;border:1px solid #E1E6EB;border-radius:12px;overflow:hidden;background:#fff}.wa-menu .wm-card.on{border-color:#075E54;box-shadow:0 0 0 1.5px #075E54}.wa-menu .wm-card.ancho{grid-column:1/-1}" +
+      ".wa-menu .wm-img{aspect-ratio:4/3;background:#F1F4F7;display:grid;place-items:center;font-size:34px;overflow:hidden}.wa-menu .wm-img img{width:100%;height:100%;object-fit:cover;display:block}" +
+      ".wa-menu .wm-n{min-width:0;display:grid;gap:3px;padding:8px;align-content:start}.wa-menu .wm-n b{font-size:14px;line-height:1.2;overflow-wrap:anywhere}.wa-menu .wm-n small{font-size:12px;color:#5B6672;overflow-wrap:anywhere}.wa-menu .wm-n em{font-style:normal;font-size:13.5px;font-weight:800;color:#075E54}" +
+      ".wa-menu .wm-q{display:flex;align-items:center;justify-content:center;gap:10px;padding:0 8px 8px}.wa-menu .wm-q button{width:34px;height:34px;border-radius:50%;border:1.5px solid #075E54;background:#fff;color:#075E54;font-size:18px;font-weight:800;line-height:1;padding:0}" +
+      ".wa-menu .wm-q span{min-width:18px;text-align:center;font-weight:800}" +
+      ".wa-menu .wm-sab{display:grid;gap:4px;padding:0 8px 8px}.wa-menu .wm-sab>div{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid #E1E6EB;padding-top:4px}.wa-menu .wm-sab>div>span{font-size:13px;font-weight:700;min-width:0;overflow-wrap:anywhere}.wa-menu .wm-sab .wm-q{padding:0}" +
+      ".wa-menu .wm-pie{display:grid;gap:8px;margin-top:4px}" +
       ".wa-menu .wm-ok{height:46px;border:0;border-radius:23px;background:#075E54;color:#fff;font-weight:800;font-size:15px}.wa-menu .wm-ok:disabled{opacity:.45}.wa-menu .wm-no{height:38px;border:0;background:none;color:#5B6672;font-weight:700}";
     document.head.appendChild(st);
   }
 
-  /* Menú del restaurante dentro del hilo (menus/{uid}). Resuelve { items, nota } | { sinMenu } | { volver } */
+  /* Menú del restaurante en mosaico (menus/{uid}). Bebidas con sabores: una fila por sabor.
+     Resuelve { items, nota } | { sinMenu } | { volver } */
   function armarPedidoMenu(id, r) {
     return new Promise(async (res) => {
-      let platos = [];
-      try {
-        const s = await db.ref("menus/" + r.uid).once("value");
-        platos = Object.entries(s.val() || {}).map(([k, p]) => ({ k, ...p }))
-          .filter((p) => p && p.activo !== false && typeof p.nombre === "string" && Number(p.precio) >= 0)
-          .sort((a, b) => String(a.cat || "").localeCompare(String(b.cat || "")) || (a.orden || 0) - (b.orden || 0)).slice(0, 60);
-      } catch (_) { }
+      const platos = await cargarPlatos(r.uid);
       if (!vivo(id)) return;
       if (!platos.length) return res({ sinMenu: true });
       estiloMenu();
-      const cant = {}, caja = document.createElement("div");
+      const cant = {}, unidades = [], caja = document.createElement("div");
       caja.className = "wa-menu";
       const h = document.createElement("h4"); h.textContent = "🍔 " + r.nombre + " — Menú"; caja.appendChild(h);
       const lista = document.createElement("div"); caja.appendChild(lista);
       const pie = document.createElement("div"); pie.className = "wm-pie";
-      const tot = document.createElement("b"); tot.textContent = "Elige tus platos";
+      const tot = document.createElement("b"); tot.textContent = "Elige tus productos";
       const ok = document.createElement("button"); ok.type = "button"; ok.className = "wm-ok"; ok.disabled = true; ok.textContent = "Confirmar pedido";
-      const no = document.createElement("button"); no.type = "button"; no.className = "wm-no"; no.textContent = "↩️ Elegir otro restaurante";
+      const no = document.createElement("button"); no.type = "button"; no.className = "wm-no"; no.textContent = "↩️ Elegir otro negocio";
       pie.append(tot, ok, no); caja.appendChild(pie);
-      let cat = null;
-      platos.forEach((p) => {
-        if ((p.cat || "") !== cat) { cat = p.cat || ""; const c = document.createElement("div"); c.className = "wm-cat"; c.textContent = cat || "Menú"; lista.appendChild(c); }
-        const f = document.createElement("div"); f.className = "wm-fila";
-        const n = document.createElement("div"); n.className = "wm-n";
-        n.innerHTML = "<b></b>" + (p.desc ? "<small></small>" : "") + "<em></em>";
-        n.querySelector("b").textContent = p.nombre; if (p.desc) n.querySelector("small").textContent = p.desc;
-        n.querySelector("em").textContent = "C$ " + (Math.round(Number(p.precio) * 100) / 100).toFixed(2);
+      const precio = (p) => Math.round(Number(p.precio) * 100) / 100;
+      const contador = (key, card) => {
         const q = document.createElement("div"); q.className = "wm-q";
         const mn = document.createElement("button"); mn.type = "button"; mn.textContent = "−"; mn.setAttribute("aria-label", "Quitar uno");
         const nq = document.createElement("span"); nq.textContent = "0";
         const mas = document.createElement("button"); mas.type = "button"; mas.textContent = "+"; mas.setAttribute("aria-label", "Agregar uno");
-        const set = (d) => { cant[p.k] = Math.max(0, Math.min(20, (cant[p.k] || 0) + d)); nq.textContent = cant[p.k]; calc(); };
+        const set = (d) => { cant[key] = Math.max(0, Math.min(20, (cant[key] || 0) + d)); nq.textContent = cant[key]; card.classList.toggle("on", unidades.some((u) => u.card === card && cant[u.key] > 0)); calc(); };
         mn.onclick = () => set(-1); mas.onclick = () => set(1);
-        q.append(mn, nq, mas); f.append(n, q); lista.appendChild(f);
+        q.append(mn, nq, mas); return q;
+      };
+      let cat = null, grid = null;
+      platos.forEach((p) => {
+        if (!grid || (p.cat || "") !== cat) {
+          cat = p.cat || ""; const c = document.createElement("div"); c.className = "wm-cat"; c.textContent = cat || "Menú"; lista.appendChild(c);
+          grid = document.createElement("div"); grid.className = "wm-grid"; lista.appendChild(grid);
+        }
+        const card = document.createElement("div"); card.className = "wm-card" + (p.sabores.length ? " ancho" : "");
+        const img = document.createElement("div"); img.className = "wm-img";
+        if (typeof p.foto === "string" && p.foto.indexOf("data:image/") === 0) { const im = document.createElement("img"); im.alt = ""; im.src = p.foto; img.appendChild(im); }
+        else img.textContent = /beb|jug|refr/i.test(p.cat || "") ? "🥤" : "🍽️";
+        const n = document.createElement("div"); n.className = "wm-n";
+        n.innerHTML = "<b></b>" + (p.desc ? "<small></small>" : "") + "<em></em>";
+        n.querySelector("b").textContent = p.nombre; if (p.desc) n.querySelector("small").textContent = p.desc;
+        n.querySelector("em").textContent = "C$ " + precio(p).toFixed(2);
+        card.append(img, n);
+        const cuerpo = document.createElement("div"); cuerpo.style.display = "contents";
+        if (p.sabores.length) {
+          const sb = document.createElement("div"); sb.className = "wm-sab";
+          const t2 = document.createElement("small"); t2.textContent = "Elige el sabor:"; t2.style.cssText = "font-weight:800;color:#5B6672"; sb.appendChild(t2);
+          p.sabores.forEach((s) => {
+            const key = p.k + "\u0001" + s, fila = document.createElement("div"), sp = document.createElement("span"); sp.textContent = s;
+            unidades.push({ key, card, n: (p.nombre.slice(0, 60 - s.length - 3) + " (" + s + ")"), p: precio(p) });
+            fila.append(sp, contador(key, card)); sb.appendChild(fila);
+          });
+          n.appendChild(sb);
+        } else {
+          unidades.push({ key: p.k, card, n: p.nombre.slice(0, 60), p: precio(p) });
+          card.appendChild(contador(p.k, card));
+        }
+        grid.appendChild(card);
       });
-      const elegidos = () => platos.filter((p) => cant[p.k] > 0).map((p) => ({ n: p.nombre, q: cant[p.k], p: Math.round(Number(p.precio) * 100) / 100 }));
+      const elegidos = () => unidades.filter((u) => cant[u.key] > 0).map((u) => ({ n: u.n, q: cant[u.key], p: u.p }));
       function calc() {
         const it = elegidos(), t = it.reduce((a, i) => a + i.p * i.q, 0);
-        tot.textContent = it.length ? "Total productos: C$ " + (Math.round(t * 100) / 100).toFixed(2) : "Elige tus platos";
+        tot.textContent = it.length ? "Total productos: C$ " + (Math.round(t * 100) / 100).toFixed(2) : "Elige tus productos";
         ok.disabled = !it.length;
       }
       no.onclick = () => { if (!vivo(id)) return; caja.remove(); res({ volver: true }); };
@@ -1693,7 +1747,7 @@
         const k = await opciones(id, [{ clave: "n", texto: "📝 Agregar nota" }, { clave: "s", texto: "➡️ Continuar" }]);
         if (!vivo(id)) return;
         if (k === "n") {
-          if (!(await di(id, "Escribe tu nota para el restaurante (sin cebolla, bien cocido…).", "c0n"))) return;
+          if (!(await di(id, "Escribe tu nota para el negocio (sin cebolla, bien cocido…).", "c0n"))) return;
           nota = await pedirTexto(id, "Ej. Sin cebolla", 2, "Escribe la nota (mínimo 2 letras).", 200);
           if (!vivo(id)) return;
         }
@@ -1710,21 +1764,35 @@
       if (!vivo(id)) return;
       if (!lista.length) guardar("libre", true);
       else {
-        if (!(await di(id, "🍔 ¡Qué rico! ¿De cuál restaurante quieres pedir?", "c0"))) return;
-        const k = await opciones(id, lista.map((r, i) => ({ clave: String(i), texto: "🍔 " + r.nombre + (r.prepMin ? " · ~" + r.prepMin + " min" : "") })).concat([{ clave: "otro", texto: "✍️ Otro establecimiento" }]));
-        if (!vivo(id)) return;
-        if (k === "otro") guardar("libre", true);
-        else {
-          const r = lista[Number(k)];
+        if (!(await di(id, "🍔 ¡Qué rico! ¿Qué se te antoja? Busca un negocio o un plato y te muestro quién lo tiene.", "c0"))) return;
+        const menuModo = () => opciones(id, [{ clave: "b", texto: "🔎 Buscar negocio o antojo" }, { clave: "t", texto: "🍔 Ver todos los negocios" }, { clave: "otro", texto: "✍️ Otro establecimiento" }]);
+        let modo = await menuModo(), hecho = false;
+        while (vivo(id) && !hecho) {
+          if (modo === "otro") { guardar("libre", true); break; }
+          let cand = lista;
+          if (modo === "b") {
+            const q = await pedirTexto(id, "Ej. guapollón, pollo frito, pizza", 2, "Escribe al menos 2 letras.", 60);
+            if (!vivo(id)) return;
+            cand = await buscarRestaurantes(lista, q);
+            if (!vivo(id)) return;
+            if (!cand.length) {
+              if (!(await di(id, "No encontré negocios abiertos con «" + q.slice(0, 40) + "» 😕"))) return;
+              modo = await menuModo(); continue;
+            }
+          }
+          const k = await opciones(id, cand.map((r, i) => ({ clave: String(i), texto: "🍔 " + r.nombre + (r.hint ? " · " + r.hint : "") + (r.prepMin ? " · ~" + r.prepMin + " min" : "") })).concat([{ clave: "x", texto: "↩️ Volver" }]));
+          if (!vivo(id)) return;
+          if (k === "x") { modo = await menuModo(); continue; }
+          const r = cand[Number(k)];
           const m = await armarPedidoMenu(id, r);
           if (!vivo(id)) return;
-          if (m.volver) return flujoComida(id);
-          if (m.sinMenu) { if (!(await di(id, "Ese restaurante aún no tiene su menú disponible. Cuéntame qué deseas pedir."))) return; guardar("libre", true); }
-          else {
-            guardar("rest", { uid: r.uid, nombre: r.nombre, lat: r.lat, lng: r.lng, items: m.items, nota: m.nota || "" });
-            guardar("quiere", RESUMEN_ITEMS(m.items)); guardar("origen", r.nombre);
-          }
+          if (m.volver) { modo = await menuModo(); continue; }
+          if (m.sinMenu) { if (!(await di(id, "Ese negocio aún no tiene su menú disponible. Cuéntame qué deseas pedir."))) return; guardar("libre", true); break; }
+          guardar("rest", { uid: r.uid, nombre: r.nombre, lat: r.lat, lng: r.lng, items: m.items, nota: m.nota || "" });
+          guardar("quiere", RESUMEN_ITEMS(m.items)); guardar("origen", r.nombre);
+          hecho = true;
         }
+        if (!vivo(id)) return;
       }
     }
     if (!v.quiere) {
