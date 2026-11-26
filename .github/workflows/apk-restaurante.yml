@@ -144,9 +144,16 @@ jobs:
           python3 - <<'PY'
           import os, re, sys
           ws = os.environ['GITHUB_WORKSPACE']
+          # Si no hay llave propia del restaurante se reutiliza la del admin (Android permite la misma llave en apps con distinto appId)
           if not (os.path.exists('restaurante-release.keystore') and os.path.exists('restaurante-release.properties')):
-              print('::error::Faltan restaurante-release.keystore y restaurante-release.properties en la raiz del repositorio.')
-              sys.exit(1)
+              if os.path.exists('admin-release.keystore') and os.path.exists('admin-release.properties'):
+                  import shutil
+                  shutil.copy('admin-release.keystore', 'restaurante-release.keystore')
+                  shutil.copy('admin-release.properties', 'restaurante-release.properties')
+                  print('::notice::Sin llave propia: se usa la del admin para firmar.')
+              else:
+                  print('::error::Faltan restaurante-release.keystore/.properties (o admin-release.keystore/.properties) en la raiz del repositorio.')
+                  sys.exit(1)
           props = {}
           for linea in open('restaurante-release.properties', encoding='utf-8'):
               if '=' in linea:
