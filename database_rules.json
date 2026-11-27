@@ -494,7 +494,7 @@
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$id": {
         ".validate": "newData.hasChildren(['nombre', 'lat', 'lng'])",
-        ".write": "auth != null && $id === 'rest_' + auth.uid && root.child('restaurantes').child(auth.uid).exists() && root.child('restaurantes').child(auth.uid).child('activo').val() !== false"
+        ".write": "auth != null && ($id === 'rest_' + auth.uid || $id.beginsWith('rest_' + auth.uid + '~')) && root.child('restaurantes').child(auth.uid).exists() && root.child('restaurantes').child(auth.uid).child('activo').val() !== false"
       }
     },
     "restaurantes": {
@@ -507,46 +507,46 @@
         ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
         ".validate": "newData.hasChildren(['nombre', 'ciudad'])",
         "nombre": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 60"
         },
         "desc": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isString() && newData.val().length <= 160"
         },
         "menuDe": {
           ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 64 && newData.val() !== $uid && root.child('restaurantes').child(newData.val()).exists()"
         },
         "ciudad": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isString() && newData.val().matches(/^[a-z0-9-]{2,30}$/)"
         },
         "dir": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isString() && newData.val().length <= 160"
         },
         "lat": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
         },
         "lng": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
         },
         "prepMin": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isNumber() && newData.val() >= 5 && newData.val() <= 120"
         },
         "foto": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isString() && newData.val().length < 120000"
         },
         "abierto": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isBoolean()"
         },
         "actualizado": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isNumber()"
         },
         "activo": {
@@ -559,6 +559,9 @@
         },
         "$otro": {
           ".validate": false
+        },
+        "suspendida": {
+          ".validate": "newData.isBoolean()"
         }
       }
     },
@@ -566,8 +569,8 @@
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid && root.child('restaurantes').child($uid).exists()",
+        ".read": "auth != null && (auth.uid === $uid || $uid.beginsWith(auth.uid + '~'))",
+        ".write": "auth != null && (auth.uid === $uid || $uid.beginsWith(auth.uid + '~')) && root.child('restaurantes').child($uid).exists()",
         "tel": {
           ".validate": "newData.isString() && newData.val().matches(/^[0-9]{8,15}$/)"
         },
@@ -587,7 +590,7 @@
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || root.child('restaurantes').child(auth.uid).child('menuDe').val() === $uid) && root.child('restaurantes').child(auth.uid).exists() && root.child('restaurantes').child(auth.uid).child('activo').val() !== false))",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~') || root.child('restaurantes').child(auth.uid).child('menuDe').val() === $uid) && root.child('restaurantes').child(auth.uid).exists() && root.child('restaurantes').child(auth.uid).child('activo').val() !== false))",
         "$id": {
           ".validate": "newData.hasChildren(['nombre', 'precio'])",
           "nombre": {
@@ -611,18 +614,33 @@
           "variantes": {
             "$i": {
               ".validate": "newData.hasChildren(['n', 'p'])",
-              "n": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 24" },
-              "p": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
-              "$otro": { ".validate": false }
+              "n": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 24"
+              },
+              "p": {
+                ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+              },
+              "$otro": {
+                ".validate": false
+              }
             }
           },
           "extras": {
             "$i": {
               ".validate": "newData.hasChildren(['n', 'p'])",
-              "n": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 24" },
-              "p": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
-              "$otro": { ".validate": false }
+              "n": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 24"
+              },
+              "p": {
+                ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+              },
+              "$otro": {
+                ".validate": false
+              }
             }
+          },
+          "nSab": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 6"
           },
           "sabores": {
             "$i": {
@@ -647,7 +665,7 @@
     "menusCats": {
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || root.child('restaurantes').child(auth.uid).child('menuDe').val() === $uid) && root.child('restaurantes').child(auth.uid).exists() && root.child('restaurantes').child(auth.uid).child('activo').val() !== false))",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || $uid.beginsWith(auth.uid + '~') || root.child('restaurantes').child(auth.uid).child('menuDe').val() === $uid) && root.child('restaurantes').child(auth.uid).exists() && root.child('restaurantes').child(auth.uid).child('activo').val() !== false))",
         "$i": {
           ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 24"
         }
@@ -657,7 +675,7 @@
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
+        ".read": "auth != null && (auth.uid === $uid || $uid.beginsWith(auth.uid + '~'))",
         "$sid": {
           ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (!data.exists() && $sid.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('restaurantes').child($uid).exists() && root.child('solicitudes_entrantes').child($sid).child('restauranteUid').val() === $uid))",
           ".validate": "newData.isNumber()"
@@ -821,7 +839,7 @@
         "estado": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()) || (auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && $solicitudId === 'sol_' + root.child('solicitudes_entrantes').child($solicitudId).child('clienteId').val() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo' && !root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').exists() && newData.val() === 'cancelado'))",
           ".validate": "newData.isString() && (newData.val() === data.val() || (newData.val() === 'nuevo' && (!data.exists() || data.val() === 'atendido')) || (newData.val() === 'atendido' && data.val() === 'nuevo') || (newData.val() === 'cancelado' && data.val() === 'nuevo') || ((newData.val() === 'entregado' || newData.val() === 'cancelado') && data.val() === 'atendido') || (root.child('admins').child(auth.uid).exists() && (newData.val() === 'entregado' || newData.val() === 'cancelado') && data.val() !== 'entregado' && data.val() !== 'cancelado'))",
-          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid"
+          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && (data.parent().child('restauranteUid').val() === auth.uid || data.parent().child('restauranteUid').val().beginsWith(auth.uid + '~'))"
         },
         "repartidorUid": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && ((!data.exists() && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'nuevo') || data.val() === auth.uid)) || (root.child('admins').child(auth.uid).exists()))",
@@ -830,7 +848,7 @@
         "repartidorNombre": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()))",
           ".validate": "newData.isString() && newData.val().length <= 60",
-          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid"
+          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && (data.parent().child('restauranteUid').val() === auth.uid || data.parent().child('restauranteUid').val().beginsWith(auth.uid + '~'))"
         },
         "atendidoTs": {
           ".write": "auth != null && ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid) || (root.child('admins').child(auth.uid).exists()))",
@@ -1210,7 +1228,7 @@
         },
         "mensajes": {
           "$id": {
-            ".write": "auth != null && !data.exists() && newData.exists() && ((auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido' && newData.child('de').val() === 'cliente') || ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido') && newData.child('de').val() === 'repartidor') || (root.child('restaurantes').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('restauranteUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() !== 'entregado' && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() !== 'cancelado' && newData.child('de').val() === 'restaurante'))",
+            ".write": "auth != null && !data.exists() && newData.exists() && ((auth.token.firebase.sign_in_provider === 'anonymous' && $solicitudId.matches(/^sol_[A-Za-z0-9_-]{8,64}$/) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido' && newData.child('de').val() === 'cliente') || ((root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() === 'atendido') && newData.child('de').val() === 'repartidor') || (root.child('restaurantes').child(auth.uid).exists() && (root.child('solicitudes_entrantes').child($solicitudId).child('restauranteUid').val() === auth.uid || root.child('solicitudes_entrantes').child($solicitudId).child('restauranteUid').val().beginsWith(auth.uid + '~')) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() !== 'entregado' && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() !== 'cancelado' && newData.child('de').val() === 'restaurante'))",
             ".validate": "newData.hasChildren(['de', 'tipo', 'ts']) && (newData.child('de').val() === 'cliente' || newData.child('de').val() === 'repartidor' || newData.child('de').val() === 'admin' || newData.child('de').val() === 'restaurante') && (newData.child('de').val() !== 'cliente' || auth.token.firebase.sign_in_provider === 'anonymous') && (newData.child('de').val() !== 'repartidor' || auth.token.firebase.sign_in_provider !== 'anonymous') && (newData.child('de').val() !== 'admin' || root.child('admins').child(auth.uid).exists()) && (newData.child('de').val() !== 'restaurante' || (auth.token.firebase.sign_in_provider !== 'anonymous' && root.child('restaurantes').child(auth.uid).exists())) && (newData.child('tipo').val() === 'texto' || newData.child('tipo').val() === 'factura' || newData.child('tipo').val() === 'foto') && (newData.child('tipo').val() !== 'texto' || (newData.child('texto').isString() && newData.child('texto').val().length >= 1 && newData.child('texto').val().length <= 600)) && (newData.child('tipo').val() !== 'factura' || newData.child('factura').hasChildren(['productos', 'totalFinal']))",
             "de": {
               ".validate": "newData.isString()"
@@ -1237,10 +1255,10 @@
           ".validate": "newData.isString() && newData.val().matches(/^[a-z0-9-]{2,30}$/)"
         },
         "restauranteUid": {
-          ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 64 && root.child('restaurantes').child(newData.val()).child('activo').val() !== false && root.child('restaurantes').child(newData.val()).child('abierto').val() === true"
+          ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 64 && root.child('restaurantes').child(newData.val()).child('activo').val() !== false && root.child('restaurantes').child(newData.val()).child('abierto').val() === true && root.child('restaurantes').child(newData.val()).child('suspendida').val() !== true"
         },
         "rest": {
-          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('restaurantes').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('restauranteUid').val() === auth.uid && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() !== 'entregado' && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() !== 'cancelado'))",
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('restaurantes').child(auth.uid).exists() && (root.child('solicitudes_entrantes').child($solicitudId).child('restauranteUid').val() === auth.uid || root.child('solicitudes_entrantes').child($solicitudId).child('restauranteUid').val().beginsWith(auth.uid + '~')) && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() !== 'entregado' && root.child('solicitudes_entrantes').child($solicitudId).child('estado').val() !== 'cancelado'))",
           "estado": {
             ".validate": "newData.isString() && (newData.val() === 'pendiente' || newData.val() === 'aceptado' || newData.val() === 'preparando' || newData.val() === 'listo' || newData.val() === 'rechazado')"
           },
@@ -1262,17 +1280,23 @@
           "$otro": {
             ".validate": false
           },
-          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid"
+          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && (data.parent().child('restauranteUid').val() === auth.uid || data.parent().child('restauranteUid').val().beginsWith(auth.uid + '~'))"
         },
         "retiroRest": {
           ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid))",
           ".validate": "newData.hasChildren(['ts', 'delivery'])",
-          "ts": { ".validate": "newData.isNumber()" },
-          "delivery": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
-          "$otro": { ".validate": false }
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "delivery": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+          },
+          "$otro": {
+            ".validate": false
+          }
         },
         "vistaRestaurante": {
-          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid",
+          ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && (data.parent().child('restauranteUid').val() === auth.uid || data.parent().child('restauranteUid').val().beginsWith(auth.uid + '~'))",
           ".validate": "newData.hasChildren(['items', 'subtotal', 'ts'])",
           "items": {
             "$i": {

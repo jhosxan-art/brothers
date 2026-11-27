@@ -33,6 +33,7 @@ const hace = (ts) => {
 };
 const claveDeToken = (t) => { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return "w" + (h >>> 0).toString(36); };
 
+let uidBase = null, sedes = [], eligiendo = false;
 let uid = null, perfil = {}, menu = {}, pedidos = {}, ciudadesOk = [];
 let refPerfil = null, refMenu = null, refPedidos = null;
 const refsPed = {}, diag = {};
@@ -53,7 +54,7 @@ function setMsg(id, t, tipo) {
 }
 function modal(html) { $("modalRtCaja").innerHTML = html; $("modalRt").classList.remove("oculto"); }
 function cerrarModal() { $("modalRt").classList.add("oculto"); $("modalRtCaja").innerHTML = ""; }
-$("modalRt").addEventListener("click", (e) => { if (e.target === $("modalRt")) cerrarModal(); });
+$("modalRt").addEventListener("click", (e) => { if (e.target === $("modalRt") && !eligiendo) cerrarModal(); });
 
 function vista(v) {   // login | denegado | app
   $("loginMain").classList.toggle("oculto", v !== "login");
@@ -97,7 +98,7 @@ $("btnLogin").onclick = async () => {
   const email = $("email").value.trim(), clave = $("clave").value;
   if (!email || !clave) return setMsg("msgLogin", "Escribe tu correo y contraseña.", "error");
   setMsg("msgLogin", "Entrando…"); $("btnLogin").disabled = true;
-  try { await auth.signInWithEmailAndPassword(email, clave); setMsg("msgLogin", ""); }
+  try { try { sessionStorage.setItem("rt_ask", "1"); } catch (_) {} await auth.signInWithEmailAndPassword(email, clave); setMsg("msgLogin", ""); }
   catch (e) { setMsg("msgLogin", errorAuth(e), "error"); }
   finally { $("btnLogin").disabled = false; }
 };
@@ -105,13 +106,62 @@ $("clave").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLog
 $("btnSalir").onclick = async () => { if (!confirm("¿Cerrar sesión?")) return; await quitarPush(); auth.signOut(); };
 $("btnDenegadoSalir").onclick = () => auth.signOut();
 
+const nomCiudad = (id) => { try { return Ciudades.nombre(id); } catch (_) { return id || "Ciudad"; } };
+/* Cada ciudad es una sucursal (restaurantes/{uid} = ciudad principal, restaurantes/{uid}~{ciudad} = las demás).
+   El administrador activa las ciudades; al entrar, el negocio indica en cuál opera hoy. */
+function entrarSede(s) {
+  eligiendo = false; cerrarModal();
+  detener();
+  uid = s.id; perfil = s;
+  try { localStorage.setItem("rt_sede_" + uidBase, s.id); sessionStorage.removeItem("rt_ask"); } catch (_) {}
+  iniciar(); vista("app"); pintarPerfilBarra();
+  const pie = $("btnActiva") && $("btnActiva").parentNode, ya = $("btnCambiarSede");
+  if (sedes.length > 1 && pie && !ya) {
+    const b = document.createElement("button"); b.id = "btnCambiarSede"; b.type = "button"; b.className = "mini"; b.style.marginRight = "8px";
+    b.textContent = "🏙️ Cambiar de ciudad"; b.onclick = elegirCiudad; pie.insertBefore(b, $("btnActiva"));
+  }
+}
+function elegirCiudad() {
+  eligiendo = true; vista("login"); $("loginMain").classList.add("oculto");
+  const activas = sedes.filter((s) => s.suspendida !== true), lista = activas.map((s) => nomCiudad(s.ciudad)).join(", ");
+  modal(`<h2>📍 ¿En qué ciudad vas a operar?</h2>
+    <p class="ayuda">Tu administrador te dio acceso en: <b>${esc(lista)}</b>. Los pedidos de esa ciudad llegarán a esta sucursal.</p>
+    <div class="rt-catlista">${sedes.map((s) => s.suspendida === true
+      ? `<button class="mini" type="button" disabled>🔒 ${esc(nomCiudad(s.ciudad))} · no habilitada</button>`
+      : `<button class="primario" type="button" data-sede="${esc(s.id)}">🏙️ ${esc(nomCiudad(s.ciudad))}</button>`).join("")}</div>
+    <div id="elMsg" class="estado oculto" role="alert"></div>
+    <button id="elGps" class="oscuro" type="button">📍 Usar mi ubicación en tiempo real</button>
+    <button id="elSalir" class="mini" type="button">Cerrar sesión</button>`);
+  $("modalRtCaja").querySelectorAll("[data-sede]").forEach((b) => { b.onclick = () => entrarSede(sedes.find((s) => s.id === b.dataset.sede)); });
+  $("elSalir").onclick = () => { eligiendo = false; cerrarModal(); auth.signOut(); };
+  $("elGps").onclick = () => {
+    if (!navigator.geolocation) return setMsg("elMsg", "Tu dispositivo no permite ubicación. Elige tu ciudad de la lista.", "error");
+    setMsg("elMsg", "Buscando tu ubicación…"); $("elGps").disabled = true;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      $("elGps").disabled = false;
+      let c = null; try { c = Ciudades.deCoord(pos.coords.latitude, pos.coords.longitude); } catch (_) {}
+      const s = c && activas.find((x) => x.ciudad === c.id);
+      if (s) return entrarSede(s);
+      setMsg("elMsg", (c ? "Estás en " + c.nombre + ", donde tu negocio no tiene sucursal activa." : "No estás en una ciudad con cobertura.") + " Tienes acceso en: " + lista + ".", "error");
+    }, () => { $("elGps").disabled = false; setMsg("elMsg", "No pude obtener tu ubicación. Elige tu ciudad de la lista.", "error"); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  };
+}
 auth.onAuthStateChanged(async (u) => {
-  if (!u) { detener(); uid = null; vista("login"); return; }
+  if (!u) { eligiendo = false; detener(); uid = null; uidBase = null; sedes = []; vista("login"); return; }
   try {
+    uidBase = u.uid;
     const f = await db.ref("restaurantes/" + u.uid).once("value");
     if (!f.exists() || (f.val() && f.val().activo === false)) { detener(); uid = null; vista("denegado"); return; }
-    uid = u.uid; perfil = f.val() || {};
-    iniciar(); vista("app");
+    let ramas = {};
+    try { ramas = (await db.ref("restaurantes").orderByKey().startAt(u.uid + "~").endAt(u.uid + "~").once("value")).val() || {}; } catch (_) {}
+    sedes = [{ id: u.uid, ...f.val() }].concat(Object.entries(ramas).filter(([, r]) => r && r.activo !== false).map(([id, r]) => ({ id, ...r })));
+    const activas = sedes.filter((s) => s.suspendida !== true);
+    if (!activas.length) { detener(); uid = null; vista("denegado"); return; }
+    if (activas.length === 1) return entrarSede(activas[0]);
+    let ask = false, g = null;
+    try { ask = sessionStorage.getItem("rt_ask") === "1"; g = activas.find((s) => s.id === localStorage.getItem("rt_sede_" + u.uid)); } catch (_) {}
+    if (g && !ask) return entrarSede(g);
+    elegirCiudad();
   } catch (e) { detener(); uid = null; vista("denegado"); }
 });
 
@@ -184,7 +234,7 @@ document.querySelectorAll(".tabs button").forEach((b) => {
 
 /* ---------- Abierto / Cerrado ---------- */
 function pintarPerfilBarra() {
-  $("rtNombreBarra").textContent = perfil.nombre || "Brother’s Deliverys";
+  $("rtNombreBarra").textContent = (perfil.nombre || "Brother’s Deliverys") + (sedes.length > 1 && perfil.ciudad ? " · " + nomCiudad(perfil.ciudad) : "");
   const on = perfil.abierto === true, b = $("btnAbierto");
   b.setAttribute("aria-checked", on ? "true" : "false"); b.querySelector("span").textContent = on ? "Abierto" : "Cerrado";
 }
@@ -412,6 +462,8 @@ function formPlato(p, id) {
       <label>Precio (C$)<input id="plPrecio" type="number" inputmode="decimal" min="0" step="0.01" value="${p.precio != null ? esc(p.precio) : ""}" placeholder="0.00"></label>
       <label>Categoría<select id="plCat">${cats.map((c) => `<option value="${esc(c)}" ${c === catIni ? "selected" : ""}>${esc(c)}</option>`).join("")}<option value="__nueva">➕ Nueva categoría…</option></select></label>
     </div>
+    <div id="plSugs" class="rt-pl-sab" style="margin:-4px 0 4px"></div>
+    <label>Refrescos que incluye este plato (para elegir sabores)<input id="plNSab" type="number" inputmode="numeric" min="1" max="6" value="${esc(p.nSab || 1)}"></label>
     <label>Tamaños u opciones con precio (opcional, una por línea)<textarea id="plVar" rows="3" placeholder="Media libra = 90&#10;Una libra = 170">${esc(opcTxt(p.variantes))}</textarea></label>
     <label>Adicionales opcionales (una por línea, el cliente decide)<textarea id="plExt" rows="3" placeholder="Con bebida = 25&#10;Extra queso = 15">${esc(opcTxt(p.extras))}</textarea></label>
     <input id="plCatNueva" class="oculto" maxlength="24" placeholder="Nombre de la nueva categoría">
@@ -425,6 +477,20 @@ function formPlato(p, id) {
     <button id="plNo" class="oscuro" type="button">Cancelar</button>`);
   const prev = () => { $("plFotoPrev").innerHTML = foto ? `<img src="${esc(foto)}" alt="">` : "🍽️"; $("plFotoQ").classList.toggle("oculto", !foto); };
   $("plNo").onclick = cerrarModal;
+  /* Sabores ya usados en el menú: se sugieren para no escribirlos otra vez */
+  const conocidos = [...new Set(Object.values(menu).flatMap((x) => (x && Array.isArray(x.sabores) ? x.sabores : [])))];
+  const pintarSugs = () => {
+    const act = $("plSab").value.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+    const faltan = conocidos.filter((s) => act.indexOf(s.toLowerCase()) < 0);
+    $("plSugs").innerHTML = faltan.length ? "<small style='width:100%;font-weight:700;color:var(--texto2)'>Sabores de tu menú (toca para agregar):</small>" + faltan.map((s) => `<button type="button" class="mini" data-s="${esc(s)}">+ ${esc(s)}</button>`).join("") + (faltan.length > 1 ? `<button type="button" class="mini" data-s="__todos">➕ Todos</button>` : "") : "";
+  };
+  $("plSugs").onclick = (e) => {
+    const b = e.target.closest("[data-s]"); if (!b) return;
+    const act = $("plSab").value.split(",").map((x) => x.trim()).filter(Boolean), add = b.dataset.s === "__todos" ? conocidos : [b.dataset.s];
+    add.forEach((s) => { if (act.map((x) => x.toLowerCase()).indexOf(s.toLowerCase()) < 0) act.push(s); });
+    $("plSab").value = act.join(", "); pintarSugs();
+  };
+  $("plSab").oninput = pintarSugs; pintarSugs();
   $("plCat").onchange = () => { const n = $("plCat").value === "__nueva"; $("plCatNueva").classList.toggle("oculto", !n); if (n) $("plCatNueva").focus(); };
   $("plFotoBtn").onclick = () => $("plFotoFile").click();
   $("plFotoQ").onclick = () => { foto = ""; prev(); };
@@ -446,7 +512,7 @@ function formPlato(p, id) {
     if (!(precio >= 0) && variantes.length) precio = Math.min(...variantes.map((v) => v.p));
     if (!(precio >= 0)) return setMsg("plMsg", "Escribe un precio válido.", "error");
     const sabores = [...new Set($("plSab").value.split(",").map((x) => x.trim().slice(0, 20)).filter(Boolean))].slice(0, 8);
-    const d = { sabores: sabores.length ? sabores : null, variantes: variantes.length ? variantes : null, extras: extras.length ? extras : null, nombre, desc: $("plDesc").value.trim().slice(0, 160), precio: Math.round(precio * 100) / 100, cat: cat.slice(0, 24), foto: foto || null, actualizado: TS };
+    const d = { sabores: sabores.length ? sabores : null, nSab: sabores.length && parseInt($("plNSab").value, 10) > 1 ? Math.min(6, parseInt($("plNSab").value, 10)) : null, variantes: variantes.length ? variantes : null, extras: extras.length ? extras : null, nombre, desc: $("plDesc").value.trim().slice(0, 160), precio: Math.round(precio * 100) / 100, cat: cat.slice(0, 24), foto: foto || null, actualizado: TS };
     $("plOk").disabled = true;
     try {
       if (id) await db.ref("menus/" + mid() + "/" + id).update(d);
@@ -481,6 +547,7 @@ function pintarPerfil() {
   db.ref("restaurantesPriv/" + uid + "/tel").once("value").then((t) => { if (!$("pfTel").value) $("pfTel").value = t.val() || ""; }).catch(() => {});
   $("pfDir").value = perfil.dir || ""; $("pfPrep").value = perfil.prepMin || 20;
   llenarCiudades(); if (perfil.ciudad) $("pfCiudad").value = perfil.ciudad;
+  if (sedes.length > 1) $("pfCiudad").disabled = true;
   fotoPerfil = perfil.foto || ""; pintarFotoPerfil();
   pinLL = Number.isFinite(perfil.lat) && Number.isFinite(perfil.lng) ? { lat: perfil.lat, lng: perfil.lng } : null; pintarCoord();
   pintarPerfilBarra();

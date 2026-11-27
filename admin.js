@@ -1458,9 +1458,10 @@ function detenerRestaurantes() {
   if (refRestPriv) { refRestPriv.off(); refRestPriv = null; }
   restaurantes = {}; restPriv = {}; pintarRestaurantes();
 }
+const rtPanel = new Set();
 function pintarRestaurantes() {
   const cont = $("listaRest"); if (!cont) return;
-  const ids = Object.keys(restaurantes).sort((a, b) => String(restaurantes[a].nombre || "").localeCompare(String(restaurantes[b].nombre || "")));
+  const ids = Object.keys(restaurantes).filter((u) => u.indexOf("~") < 0).sort((a, b) => String(restaurantes[a].nombre || "").localeCompare(String(restaurantes[b].nombre || "")));
   $("rtAdmCuenta").textContent = ids.length;
   if (!ids.length) { cont.innerHTML = '<p class="ayuda">Aún no hay restaurantes registrados.</p>'; return; }
   cont.innerHTML = ids.map((uid) => {
@@ -1468,21 +1469,29 @@ function pintarRestaurantes() {
     const [texto, clase] = inactivo ? ["Desactivado", "gris"] : r.abierto === true ? ["Abierto", "vivo"] : ["Cerrado", "alerta"];
     const ciudad = r.ciudad && Ciudades.porId(r.ciudad) ? Ciudades.nombre(r.ciudad) : "Sin ciudad";
     const sinUbic = !(Number.isFinite(r.lat) && Number.isFinite(r.lng));
+    const sedesDe = [uid].concat(Object.keys(restaurantes).filter((u) => u.indexOf(uid + "~") === 0)).map((u) => restaurantes[u]).filter(Boolean);
+    const activasDe = sedesDe.filter((s) => s.suspendida !== true).map((s) => Ciudades.nombre(s.ciudad));
+    const panel = rtPanel.has(uid) ? `<div class="rt-sedes" data-sedes="${esc(uid)}" style="margin-top:8px;display:grid;gap:6px">
+        <small><b>Ciudades activas para ${esc(r.nombre || "este negocio")}</b> (solo estas reciben pedidos y salen al cliente):</small>
+        ${Ciudades.habilitadas().map((c) => { const bid = c.id === r.ciudad ? uid : uid + "~" + c.id, s = restaurantes[bid], on = !!s && s.suspendida !== true; return `<label style="display:flex;gap:8px;align-items:center;font-weight:700"><input type="checkbox" data-c="${esc(c.id)}" ${on ? "checked" : ""}> ${esc(c.nombre)}${c.id === r.ciudad ? " (principal)" : ""}</label>`; }).join("")}
+        <button class="mini" data-ra="sedes-guardar" data-uid="${esc(uid)}">💾 Guardar ciudades</button></div>` : "";
     return `<div class="tarjeta-rep">
       <div class="fila">
         <span class="avatar">🍔</span>
         <div class="datos"><strong>${esc(r.nombre || "Sin nombre")}</strong>
           <small>${esc(email || uid.slice(0, 8) + "…")} · ${esc(ciudad)}</small>
+          <small>🏙️ Sucursales activas: ${esc(activasDe.join(", ") || "ninguna")}</small>
           <small>${sinUbic ? "⚠️ Aún no fija su ubicación" : "📍 Ubicación lista"}${r.menuDe && restaurantes[r.menuDe] ? " · 🔗 Menú de " + esc(restaurantes[r.menuDe].nombre || "") + " (" + esc(restaurantes[r.menuDe].ciudad && Ciudades.porId(restaurantes[r.menuDe].ciudad) ? Ciudades.nombre(restaurantes[r.menuDe].ciudad) : "") + ")" : ""}</small></div>
         <span class="chip ${clase}">${texto}</span>
       </div>
       <div class="acciones-fila">
         ${inactivo ? "" : `<button class="mini" data-ra="abierto" data-uid="${esc(uid)}">${r.abierto === true ? "Cerrar" : "Abrir"}</button>`}
+        <button class="mini" data-ra="sedes" data-uid="${esc(uid)}">🏙️ Sucursales</button>
         <button class="mini" data-ra="menu" data-uid="${esc(uid)}">🔗 Menú compartido</button>
         <button class="mini" data-ra="activo" data-uid="${esc(uid)}">${inactivo ? "Activar" : "Desactivar"}</button>
         ${email ? `<button class="mini" data-ra="reset" data-uid="${esc(uid)}">Restablecer clave</button>` : ""}
         <button class="mini peligro" data-ra="quitar" data-uid="${esc(uid)}">Quitar</button>
-      </div></div>`;
+      </div>${panel}</div>`;
   }).join("");
 }
 $("listaRest").onclick = (e) => {
@@ -1498,6 +1507,20 @@ $("listaRest").onclick = (e) => {
     if (!activar && !confirm(`¿Desactivar a ${n}? No podrá entrar a su app y dejará de aparecer a los clientes.`)) return;
     db.ref("restaurantes/" + uid).update(activar ? { activo: true, actualizado: TS } : { activo: false, abierto: false, actualizado: TS })
       .then(() => ok(n + (activar ? " activado." : " desactivado."))).catch(mal);
+  } else if (b.dataset.ra === "sedes") {
+    if (rtPanel.has(uid)) rtPanel.delete(uid); else rtPanel.add(uid);
+    pintarRestaurantes();
+  } else if (b.dataset.ra === "sedes-guardar") {
+    const marcadas = new Set([...document.querySelectorAll('[data-sedes="' + uid + '"] input[data-c]:checked')].map((x) => x.dataset.c));
+    const cambios = {};
+    Ciudades.habilitadas().forEach((c) => {
+      const bid = c.id === r.ciudad ? uid : uid + "~" + c.id, s = restaurantes[bid], on = marcadas.has(c.id);
+      if (on && !s) cambios["restaurantes/" + bid] = { nombre: String(r.nombre || "").slice(0, 60), ciudad: c.id, prepMin: Number(r.prepMin) || 20, abierto: false, activo: true, suspendida: false, menuDe: r.menuDe || uid, creado: TS, actualizado: TS };
+      else if (on && s && s.suspendida === true) { cambios["restaurantes/" + bid + "/suspendida"] = false; cambios["restaurantes/" + bid + "/actualizado"] = TS; }
+      else if (!on && s && s.suspendida !== true) { cambios["restaurantes/" + bid + "/suspendida"] = true; cambios["restaurantes/" + bid + "/abierto"] = false; cambios["restaurantes/" + bid + "/actualizado"] = TS; cambios["lugares/rest_" + bid] = null; }
+    });
+    if (!Object.keys(cambios).length) return ok("Sin cambios.");
+    db.ref().update(cambios).then(() => ok("Ciudades de " + n + " actualizadas.")).catch(mal);
   } else if (b.dataset.ra === "menu") {
     const otros = Object.keys(restaurantes).filter((u) => u !== uid && !restaurantes[u].menuDe)
       .sort((x, y) => String(restaurantes[x].nombre || "").localeCompare(String(restaurantes[y].nombre || "")));
@@ -1514,7 +1537,8 @@ $("listaRest").onclick = (e) => {
     auth.sendPasswordResetEmail(em).then(() => ok(`Enviamos un correo a ${em} para cambiar su contraseña.`)).catch((err) => setMsg("msgRest", errorAuth(err), "error"));
   } else if (b.dataset.ra === "quitar") {
     if (!confirm(`¿Quitar a ${n}? Se borran su ficha, su menú y su pin del mapa.`)) return;
-    db.ref().update({ ["restaurantes/" + uid]: null, ["restaurantesPriv/" + uid]: null, ["menus/" + uid]: null, ["lugares/rest_" + uid]: null })
+    const todo = {}; [uid].concat(Object.keys(restaurantes).filter((u) => u.indexOf(uid + "~") === 0)).forEach((u) => { todo["restaurantes/" + u] = null; todo["restaurantesPriv/" + u] = null; todo["lugares/rest_" + u] = null; }); todo["menus/" + uid] = null; todo["menusCats/" + uid] = null;
+    db.ref().update(todo)
       .then(() => ok(n + " fue quitado.")).catch(mal);
   }
 };

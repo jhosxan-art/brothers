@@ -1645,7 +1645,7 @@
     try {
       const s = await db.ref("restaurantes").orderByChild("ciudad").equalTo(ciudadActiva.id).once("value");
       return Object.entries(s.val() || {})
-        .filter(([, r]) => r && r.activo !== false && r.abierto === true && typeof r.nombre === "string")
+        .filter(([, r]) => r && r.activo !== false && r.suspendida !== true && r.abierto === true && typeof r.nombre === "string")
         .map(([uid, r]) => ({ uid, nombre: String(r.nombre).slice(0, 60), lat: Number(r.lat), lng: Number(r.lng), prepMin: Number(r.prepMin) || 0, menuDe: typeof r.menuDe === "string" ? r.menuDe : "" }))
         .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 30);
     } catch (er) { errRest = (er && (er.code || er.message)) || "error"; return []; }
