@@ -1639,14 +1639,16 @@
   const RESUMEN_ITEMS = (items) => items.map((i) => i.q + " × " + i.n).join(", ").slice(0, 1000);
 
   /* Restaurantes ABIERTOS de la ciudad activa (restaurantes/{uid}, ficha pública). Si falla o no hay, el flujo sigue como antes (texto libre). */
+  let errRest = "";
   async function cargarRestaurantes() {
+    errRest = "";
     try {
       const s = await db.ref("restaurantes").orderByChild("ciudad").equalTo(ciudadActiva.id).once("value");
       return Object.entries(s.val() || {})
-        .filter(([, r]) => r && r.activo !== false && r.abierto === true && typeof r.nombre === "string" && okLL(Number(r.lat), Number(r.lng)))
+        .filter(([, r]) => r && r.activo !== false && r.abierto === true && typeof r.nombre === "string")
         .map(([uid, r]) => ({ uid, nombre: String(r.nombre).slice(0, 60), lat: Number(r.lat), lng: Number(r.lng), prepMin: Number(r.prepMin) || 0, menuDe: typeof r.menuDe === "string" ? r.menuDe : "" }))
         .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 30);
-    } catch (_) { return []; }
+    } catch (er) { errRest = (er && (er.code || er.message)) || "error"; return []; }
   }
 
   const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
@@ -1654,7 +1656,7 @@
   const normOpc = (a, max) => (Array.isArray(a) ? a : []).filter((x) => x && typeof x.n === "string" && x.n && Number(x.p) >= 0).slice(0, max).map((x) => ({ n: x.n.slice(0, 24), p: Math.round(Number(x.p) * 100) / 100 }));
   /* Platos activos de un restaurante (menus/{uid}), con caché por sesión. */
   async function cargarPlatos(uid) {
-    if (cachePlatos[uid]) return cachePlatos[uid];
+    if (cachePlatos[uid] && Date.now() - cachePlatos[uid].t < 60000) return cachePlatos[uid].v;
     let platos = [];
     try {
       const s = await db.ref("menus/" + uid).once("value");
@@ -1664,21 +1666,31 @@
           variantes: normOpc(p.variantes, 6), extras: normOpc(p.extras, 8) }))
         .sort((a, b) => String(a.cat || "").localeCompare(String(b.cat || "")) || (a.orden || 0) - (b.orden || 0)).slice(0, 60);
     } catch (_) { }
-    return (cachePlatos[uid] = platos);
+    cachePlatos[uid] = { t: Date.now(), v: platos }; return platos;
   }
 
-  /* Busca por nombre del negocio o por plato/categoría. Devuelve solo los negocios que lo tienen. */
+  const STOP = new Set(["de", "del", "la", "el", "los", "las", "con", "sin", "y", "un", "una", "unos", "unas", "quiero", "quisiera", "pedir", "comer", "para", "por", "algo", "me", "mi", "en", "al"]);
+  const raiz = (w) => (w.length > 5 ? w.slice(0, 5) : w.length > 3 ? w.replace(/(es|s)$/, "") : w);
+  /* Busca por nombre del negocio o por plato/categoría (solo platos disponibles). Devuelve los negocios que lo tienen,
+     los que coinciden con todo primero y los que coinciden con parte después. */
   async function buscarRestaurantes(lista, texto) {
-    const tk = norm(texto).split(/\s+/).filter((x) => x.length >= 2);
+    const tk = [...new Set(norm(texto).split(/[^a-z0-9ñ]+/).filter((x) => x.length >= 2 && !STOP.has(x)))];
     if (!tk.length) return [];
     const res = await Promise.all(lista.map(async (r) => {
       const platos = await cargarPlatos(r.menuDe || r.uid), nn = norm(r.nombre);
-      const hit = platos.filter((p) => { const h = norm(p.nombre + " " + (p.desc || "") + " " + (p.cat || "")); return tk.every((x) => h.includes(x)); });
-      const porNombre = tk.every((x) => nn.includes(x));
-      if (!porNombre && !hit.length) return null;
-      return { ...r, _n: porNombre ? 0 : 1, hint: hit.slice(0, 2).map((p) => p.nombre).join(", ") };
+      let mejor = 0; const hit = [];
+      platos.forEach((p) => {
+        const h = norm(p.nombre + " " + (p.desc || "") + " " + (p.cat || "") + " " + (p.sabores || []).join(" "));
+        const n = tk.filter((x) => h.includes(raiz(x))).length;
+        if (n) { hit.push({ n, nombre: p.nombre }); mejor = Math.max(mejor, n); }
+      });
+      const nomN = tk.filter((x) => nn.includes(raiz(x))).length;
+      const total = Math.max(mejor, nomN);
+      if (!total) return null;
+      hit.sort((a, b) => b.n - a.n);
+      return { ...r, _n: total, _t: tk.length, hint: hit.filter((x) => x.n === mejor).slice(0, 2).map((x) => x.nombre).join(", ") };
     }));
-    return res.filter(Boolean).sort((a, b) => a._n - b._n || a.nombre.localeCompare(b.nombre));
+    return res.filter(Boolean).sort((a, b) => b._n - a._n || a.nombre.localeCompare(b.nombre));
   }
 
   function estiloMenu() {
@@ -1766,10 +1778,14 @@
                 const v = p.variantes[Number(s)]; partes.push(v.n); pu = v.p;
               }
               if (p.sabores.length) {
-                if (!(await di(id, "🥤 ¿De qué sabor quieres " + rotulo + "?"))) return;
-                const s = await opciones(id, p.sabores.map((x, i) => ({ clave: String(i), texto: x })));
-                if (!vivo(id)) return;
-                partes.push(p.sabores[Number(s)]);
+                const nb = Math.max(1, Math.min(6, Number(p.nSab) || 1)), sel = [];
+                for (let j = 1; j <= nb; j++) {
+                  if (!(await di(id, "🥤 " + (nb > 1 ? "Refresco " + j + " de " + nb + " de " : "¿De qué sabor quieres ") + rotulo + (nb > 1 ? ": ¿qué sabor?" : "?")))) return;
+                  const s = await opciones(id, p.sabores.map((x, i) => ({ clave: String(i), texto: x })));
+                  if (!vivo(id)) return;
+                  sel.push(p.sabores[Number(s)]);
+                }
+                partes.push(sel.join(" + "));
               }
               for (const x of p.extras) {
                 if (!(await di(id, "➕ ¿Quieres agregar «" + x.n + "» a " + rotulo + "? (+C$ " + x.p.toFixed(2) + ")"))) return;
@@ -1805,8 +1821,10 @@
     if (!v.rest && !v.quiere && !v.libre) {
       const lista = await cargarRestaurantes();
       if (!vivo(id)) return;
-      if (!lista.length) guardar("libre", true);
-      else {
+      if (!lista.length) {
+        if (!(await di(id, "No encontré negocios abiertos en tu ciudad ahora mismo" + (errRest ? " (" + errRest + ")" : "") + ". Cuéntame qué deseas pedir y lo coordinamos."))) return;
+        guardar("libre", true);
+      } else {
         if (!(await di(id, "🍔 ¡Qué rico! ¿Qué se te antoja? Busca un negocio o un plato y te muestro quién lo tiene.", "c0"))) return;
         const menuModo = () => opciones(id, [{ clave: "b", texto: "🔎 Buscar negocio o antojo" }, { clave: "t", texto: "🍔 Ver todos los negocios" }, { clave: "otro", texto: "✍️ Otro establecimiento" }]);
         let modo = await menuModo(), hecho = false;
@@ -1819,11 +1837,11 @@
             cand = await buscarRestaurantes(lista, q);
             if (!vivo(id)) return;
             if (!cand.length) {
-              if (!(await di(id, "No encontré negocios abiertos con «" + q.slice(0, 40) + "» 😕"))) return;
+              if (!(await di(id, "No encontré negocios abiertos que vendan «" + q.slice(0, 40) + "» 😕 Prueba con otra palabra o mira todos los negocios."))) return;
               modo = await menuModo(); continue;
             }
           }
-          const k = await opciones(id, cand.map((r, i) => ({ clave: String(i), texto: "🍔 " + r.nombre + (r.hint ? " · " + r.hint : "") + (r.prepMin ? " · ~" + r.prepMin + " min" : "") })).concat([{ clave: "x", texto: "↩️ Volver" }]));
+          const k = await opciones(id, cand.map((r, i) => ({ clave: String(i), texto: "🍔 " + r.nombre + (r.hint ? " · " + r.hint : "") + (r._t > 1 && r._n < r._t ? " (parecido)" : "") + (r.prepMin ? " · ~" + r.prepMin + " min" : "") })).concat([{ clave: "x", texto: "↩️ Volver" }]));
           if (!vivo(id)) return;
           if (k === "x") { modo = await menuModo(); continue; }
           const r = cand[Number(k)];
@@ -1867,7 +1885,7 @@
         guardar("destino", d);
       }
     }
-    const rst = v.rest && v.rest.uid ? { retiro: { tipo: "pin", lat: v.rest.lat, lng: v.rest.lng }, restauranteUid: v.rest.uid, restauranteNombre: v.rest.nombre, items: v.rest.items, nota: v.rest.nota } : {};
+    const rst = v.rest && v.rest.uid ? { ...(okLL(Number(v.rest.lat), Number(v.rest.lng)) ? { retiro: { tipo: "pin", lat: v.rest.lat, lng: v.rest.lng } } : {}), restauranteUid: v.rest.uid, restauranteNombre: v.rest.nombre, items: v.rest.items, nota: v.rest.nota } : {};
     await finalizar(id, { servicio: "comida", tipo: "compra", quiere: v.quiere, origen: v.origen, modo: v.quien === "yo" ? "recibe" : "envia", destino: v.destino, ...rst });
   }
 
