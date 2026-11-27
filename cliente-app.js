@@ -1279,6 +1279,40 @@
     });
   }
 
+  /* Selección múltiple: el cliente marca varias opciones y pulsa el botón final. Resuelve con lista de claves. */
+  function multiOpciones(id, lista, textoOk, textoNada) {
+    return new Promise((res) => {
+      if (!vivo(id)) return;
+      const g = document.createElement("div");
+      g.className = "wa-quick wa-quick-hilo";
+      g.setAttribute("role", "group");
+      const sel = new Set(), bs = [];
+      const ok = document.createElement("button");
+      ok.type = "button"; ok.className = "wa-quick-btn"; ok.style.cssText = "font-weight:800;border-color:#FF6A00";
+      const pintarOk = () => { ok.textContent = sel.size ? "✅ " + (textoOk || "Continuar") + " (" + sel.size + ")" : "➡️ " + (textoNada || "Ninguno, continuar"); };
+      lista.forEach((o) => {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "wa-quick-btn"; b.textContent = "⬜ " + o.texto;
+        b.addEventListener("click", () => {
+          if (sel.has(o.clave)) { sel.delete(o.clave); b.textContent = "⬜ " + o.texto; b.style.background = ""; b.style.color = ""; }
+          else { sel.add(o.clave); b.textContent = "☑️ " + o.texto; b.style.background = "#FF6A00"; b.style.color = "#fff"; }
+          pintarOk();
+        });
+        bs.push(b); g.appendChild(b);
+      });
+      ok.addEventListener("click", () => {
+        if (!vivo(id)) return;
+        const claves = lista.filter((o) => sel.has(o.clave));
+        g.remove();
+        addYo(claves.length ? "➕ " + claves.map((o) => o.texto.replace(/\s*·.*$/, "")).join(", ") : "No, gracias");
+        res(claves.map((o) => o.clave));
+      });
+      pintarOk(); g.appendChild(ok);
+      $("convo").appendChild(g);
+      bajar();
+    });
+  }
+
   /* Respuesta escrita: habilita el compositor inferior hasta que el cliente envía. */
   function apagarComposer() {
     const i = $("inConvo");
@@ -1767,8 +1801,9 @@
         const e = elegidos(); if (!e.length) return;
         caja.remove();
         /* Opciones por unidad: tamaño/variante, sabor y adicionales */
-        const items = [], agg = {};
+        const items = [], agg = {}, fotosPed = [];
         for (const p of e) {
+          if (typeof p.foto === "string" && p.foto.indexOf("data:image/") === 0) fotosPed.push({ src: p.foto, n: p.nombre });
           let prev = null;
           for (let u = 1; u <= cant[p.k]; u++) {
             const rotulo = p.nombre + (cant[p.k] > 1 ? " (" + u + " de " + cant[p.k] + ")" : "");
@@ -1788,11 +1823,11 @@
                 if (!vivo(id)) return;
                 const v = p.variantes[Number(s)]; partes.push(v.n); pu = v.p;
               }
-              for (const x of p.extras) {
-                if (!(await di(id, "➕ ¿Quieres agregar «" + x.n + "» a " + rotulo + "? (+C$ " + x.p.toFixed(2) + ")"))) return;
-                const s = await opciones(id, [{ clave: "s", texto: "✅ Sí, agregar (+C$ " + x.p.toFixed(2) + ")" }, { clave: "n", texto: "No, gracias" }]);
+              if (p.extras.length) {
+                if (!(await di(id, "➕ ¿Quieres agregar algún adicional a " + rotulo + "? Marca los que quieras:"))) return;
+                const cl = await multiOpciones(id, p.extras.map((x, i) => ({ clave: String(i), texto: x.n + " · +C$ " + x.p.toFixed(2) })), "Agregar", "Ninguno, continuar");
                 if (!vivo(id)) return;
-                if (s === "s") { ext.push(x.n); pu += x.p; }
+                for (const c of cl) { const x = p.extras[Number(c)]; ext.push(x.n); pu += x.p; }
               }
               const esBeb = /beb|refr|gas|jug|soda|fresco|batid/i.test((p.cat || "") + " " + p.nombre);
               if (p.sabores.length && (!p.extras.length || ext.length || esBeb)) {
@@ -1814,6 +1849,17 @@
           }
         }
         addYo("🧾 " + RESUMEN_ITEMS(items) + " · C$ " + (Math.round(items.reduce((a, i) => a + i.p * i.q, 0) * 100) / 100).toFixed(2));
+        if (fotosPed.length) {
+          const fx = document.createElement("div");
+          fx.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px auto;justify-content:flex-end;max-width:92%";
+          fotosPed.slice(0, 8).forEach((f) => {
+            const w = document.createElement("figure"); w.style.cssText = "margin:0;width:92px;text-align:center";
+            const im = document.createElement("img"); im.alt = f.n; im.src = f.src; im.style.cssText = "width:92px;height:92px;object-fit:cover;border-radius:14px;border:2px solid #FF6A00;display:block";
+            const c = document.createElement("figcaption"); c.textContent = f.n; c.style.cssText = "font-size:11px;font-weight:700;margin-top:2px;line-height:1.15;overflow:hidden;max-height:2.4em";
+            w.appendChild(im); w.appendChild(c); fx.appendChild(w);
+          });
+          $("convo").appendChild(fx); bajar();
+        }
         let nota = "";
         const kk = await opciones(id, [{ clave: "n", texto: "📝 Agregar nota" }, { clave: "s", texto: "➡️ Continuar" }]);
         if (!vivo(id)) return;

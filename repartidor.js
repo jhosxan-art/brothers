@@ -1917,7 +1917,7 @@ function escucharCliente(v) {
   v.refCli.on("value", (s) => {
     const c = s.val(), antes = v.cliPos;
     v.cliPos = c && typeof c.lat === "number" ? { lat: c.lat, lng: c.lng, manual: !!c.manual, ts: c.ts || 0, precision: c.precision || 0 } : null;
-    if (v.cliPos && !v.destManual) v.destino = { lat: v.cliPos.lat, lng: v.cliPos.lng };
+    { const rr = window.__rutaRest && window.__rutaRest(v.token); if (rr && !v.destManual) v.destino = rr; else if (v.cliPos && !v.destManual) v.destino = { lat: v.cliPos.lat, lng: v.cliPos.lng }; }
     pintarCliente(v);
     if (v.cliPos && (!antes || antes.lat !== v.cliPos.lat || antes.lng !== v.cliPos.lng)) pulsarMarca(v.destManual ? v.marcaCli : v.marca);
     if (v.token === seleccionado) { dibujarRuta(); pedirRuta(v); }
@@ -1929,12 +1929,14 @@ function escucharCliente(v) {
 function evaluarViaje(v, base) {
   const cambios = base ? Object.assign({}, base) : {};
   let dispararCerca = false;
+  const alRetiro = !!(window.__rutaRest && window.__rutaRest(v.token));   // yendo al negocio: no se avisa nada al cliente
   if (v.destino) {
-    cambios.destLat = v.destino.lat; cambios.destLng = v.destino.lng;
+    if (!alRetiro) { cambios.destLat = v.destino.lat; cambios.destLng = v.destino.lng; }
     if (ultimaPos) {
       const dist = Math.round(distanciaM(ultimaPos.lat, ultimaPos.lng, v.destino.lat, v.destino.lng));
-      v.dist = dist; cambios.distancia = dist;
-      if (dist <= RADIO_AVISO_M && !v.cerca) { v.cerca = true; cambios.cerca = true; cambios.cercaTs = TS; dispararCerca = true; }
+      v.dist = dist; if (!alRetiro) cambios.distancia = dist;
+      if (alRetiro) { /* sin aviso */ }
+      else if (dist <= RADIO_AVISO_M && !v.cerca) { v.cerca = true; cambios.cerca = true; cambios.cercaTs = TS; dispararCerca = true; }
       else if (v.cerca && dist > RADIO_AVISO_M * 2) { v.cerca = false; cambios.cerca = false; }
     }
   }
@@ -3900,6 +3902,13 @@ const ChatsEntrantes = (() => {
     const x = d && d.pedido && d.pedido.destino;
     return x && okLL(x.lat, x.lng) ? { lat: x.lat, lng: x.lng } : null;
   }
+  /* Pedido de negocio: primero la ruta va al NEGOCIO (pin de retiro); al confirmar «Ya retiré» pasa al cliente */
+  function puntoRetiroPend(d) {
+    if (!d || !d.restauranteUid || (d.retiroRest && d.retiroRest.ts) || (d.rest && d.rest.estado === "rechazado")) return null;
+    const r = d.pedido && d.pedido.retiro;
+    return r && okLL(r.lat, r.lng) ? { lat: r.lat, lng: r.lng } : null;
+  }
+  window.__rutaRest = (tk) => { const d = lista[tk]; return d && mio(d) ? puntoRetiroPend(d) : null; };
   // FASE 1 · ya no mostramos coordenadas numéricas: solo texto de "ubicación en vivo"
   function textoDestino(d) {
     const x = d && d.pedido && d.pedido.destino;
@@ -4098,8 +4107,10 @@ const ChatsEntrantes = (() => {
   function sincronizarDestinosChat() {
     Object.keys(lista).forEach((id) => {
       const v = viajes[id], d = lista[id];
-      if (!v || !mio(d) || v.destManual || v.cliPos) return;
-      const pt = puntoDe(d); if (!pt) return;
+      if (!v || !mio(d) || v.destManual) return;
+      const rp = puntoRetiroPend(d);
+      if (!rp && v.cliPos && v.destino && distanciaM(v.destino.lat, v.destino.lng, v.cliPos.lat, v.cliPos.lng) <= 15) return;
+      const pt = rp || (v.cliPos ? { lat: v.cliPos.lat, lng: v.cliPos.lng } : puntoDe(d)); if (!pt) return;
       if (!v.destino || distanciaM(v.destino.lat, v.destino.lng, pt.lat, pt.lng) > 15) {
         v.destino = pt; pintarCliente(v);
         if (id === seleccionado) { dibujarRuta(); pedirRuta(v); }
@@ -4116,8 +4127,8 @@ const ChatsEntrantes = (() => {
     if (!viajes[id]) {
       crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true, esChat: true });
       try { guardarViajes(); sincronizarContactos(); } catch (_) {}
-      const vv = viajes[id], pt = puntoDe(d);
-      if (vv && pt && !vv.cliPos && !vv.destManual) vv.destino = pt;
+      const vv = viajes[id], rp = puntoRetiroPend(d), pt = rp || puntoDe(d);
+      if (vv && pt && (rp || !vv.cliPos) && !vv.destManual) vv.destino = pt;
       pintarMapa();
     }
     seleccionar(id, true);
@@ -4816,6 +4827,7 @@ const ChatsEntrantes = (() => {
   let retTick = null, retEdit = false, retFirma = "";
   function pintarRetiroPanel() {
     const id = abiertoId, d = id && lista[id];
+    { const bf = $("cnFacturar"); if (bf) bf.style.display = d && d.restauranteUid ? "none" : ""; }   // pedido de negocio: precios fijos, solo «Mandado Extra»
     if (!d || !mio(d) || !d.restauranteUid) { clearInterval(retTick); retFirma = ""; retEl.classList.add("oculto"); return; }
     const e = (d.rest && d.rest.estado) || "pendiente", hecho = !!(d.retiroRest && d.retiroRest.ts), fin = finRest(d);
     const firma = [id, e, hecho, retEdit, fin].join("|");
@@ -4823,6 +4835,7 @@ const ChatsEntrantes = (() => {
       retFirma = firma; retEl.textContent = ""; retEl.classList.remove("oculto");
       const f1 = el("div", "rr-f"); f1.appendChild(el("b", "", "🍔 " + cortar(d.pedido && d.pedido.restauranteNombre || "Negocio", 40)));
       const t = el("span", "rr-t", ""); t.id = "rrT"; f1.appendChild(t); retEl.appendChild(f1);
+      const dd = el("div", "rr-d", ""); dd.id = "rrD"; dd.style.cssText = "font-size:13px;font-weight:700;color:#0B4F7A;background:#EAF6FE;border-radius:10px;padding:6px 10px"; retEl.appendChild(dd);
       if (hecho) { retEl.appendChild(el("div", "rr-ok", "✅ Retirado · Delivery C$ " + Number(d.retiroRest.delivery || 0).toFixed(2) + " · factura enviada")); }
       else if (e === "rechazado") retEl.appendChild(el("div", "rr-ok", "⚠️ El negocio rechazó el pedido."));
       else if (!retEdit) {
@@ -4856,8 +4869,21 @@ const ChatsEntrantes = (() => {
     clearInterval(retTick);
     const t = document.getElementById("rrT");
     if (!t) return;
-    if (hecho) { t.textContent = ""; return; }
+    const dEl = document.getElementById("rrD");
+    const pintarDist = () => {
+      if (!dEl) return;
+      const rp = d.pedido && d.pedido.retiro, cl = d.pedido && d.pedido.destino, g = d.clienteGps;
+      const pc = g && okLL(g.lat, g.lng) ? g : (cl && okLL(cl.lat, cl.lng) ? cl : null);
+      const nr = rp && okLL(rp.lat, rp.lng) ? rp : null, p = [];
+      if (ultimaPos && !hecho && nr) p.push("📍 Tú → negocio: " + formatoDist(distanciaM(ultimaPos.lat, ultimaPos.lng, nr.lat, nr.lng)));
+      if (!hecho && nr && pc) p.push("🏪 Negocio → entrega: " + formatoDist(distanciaM(nr.lat, nr.lng, pc.lat, pc.lng)));
+      if (hecho && ultimaPos && pc) p.push("📍 Tú → entrega: " + formatoDist(distanciaM(ultimaPos.lat, ultimaPos.lng, pc.lat, pc.lng)));
+      dEl.textContent = p.length ? p.join("  ·  ") + "  (en línea recta)" : ""; dEl.style.display = p.length ? "" : "none";
+    };
+    pintarDist();
+    if (hecho) { t.textContent = ""; retTick = setInterval(pintarDist, 3000); return; }
     const tick = () => {
+      pintarDist();
       if (e === "listo") { t.textContent = "🛍️ Listo"; t.className = "rr-t ok"; return; }
       if (!fin) { t.textContent = e === "pendiente" ? "Esperando…" : ""; t.className = "rr-t ok"; return; }
       const ms = fin - Date.now(); t.textContent = "⏱ " + mmssRep(ms); t.className = "rr-t" + (ms < 0 ? " tarde" : "");
@@ -5306,7 +5332,7 @@ const ChatsEntrantes = (() => {
       crearViaje({ token: id, pedido: d.pedido || "", cliente: d.nombre || "", sinFactura: true, esChat: true });
       try { guardarViajes(); sincronizarContactos(); } catch (_) {}
     } else { viajes[id].esChat = true; }
-    { const vv = viajes[id], pt = puntoDe(d); if (vv && pt && !vv.cliPos && !vv.destManual) { vv.destino = pt; pintarCliente(vv); } }
+    { const vv = viajes[id], rp = puntoRetiroPend(d), pt = rp || puntoDe(d); if (vv && pt && (rp || !vv.cliPos) && !vv.destManual) { vv.destino = pt; pintarCliente(vv); } }
     cerrarConversacion();
     irA("mapa");
     seleccionar(id, false);
