@@ -14,14 +14,14 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="restaurante.css?v=20261126">
+  <link rel="stylesheet" href="restaurante.css?v=2026112713">
 </head>
 <body class="restaurante">
 
-  <div id="splash" class="splash"><div class="splash-caja"><img class="insignia" src="icon-192.png" alt="Brother’s Deliverys"><strong>Brother’s Deliverys</strong><small>Cargando…</small></div></div>
+  <div id="splash" class="splash"><div class="splash-caja"><img class="splash-logo" src="logo.png" alt="Brother’s Deliverys" onerror="this.onerror=null;this.src='icon-192.png'"><small>Cargando…</small></div></div>
 
   <header class="barra-marca">
-    <img class="insignia" src="icon-192.png" alt="Brother’s Deliverys">
+    <img class="insignia" src="restaurante-icon.png" alt="Restaurante" onerror="this.onerror=null;this.src='icon-192.png'">
     <div class="titulo"><strong id="rtNombreBarra">Brother’s Deliverys</strong><small>Restaurante</small></div>
     <button id="btnAbierto" class="rt-estado oculto" type="button" role="switch" aria-checked="false" aria-label="Abrir o cerrar el restaurante"><i aria-hidden="true"></i><span>Cerrado</span></button>
     <button id="btnSalir" class="salir oculto" type="button" aria-label="Cerrar sesión">
@@ -31,16 +31,23 @@
 
   <!-- Inicio de sesión (la cuenta la crea el administrador) -->
   <main id="loginMain">
-    <section id="vistaLogin" class="acciones">
-      <div class="hero">
-        <div class="gran-icono" aria-hidden="true">🍔</div>
+    <section id="vistaLogin" class="acciones rt-login">
+      <div class="rt-login-marca">
+        <img src="logo.png" alt="Brother’s Deliverys" onerror="this.onerror=null;this.src='icon-192.png'">
         <h1>Panel del restaurante</h1>
         <p>Entra con el correo y la contraseña que te dio la central.</p>
       </div>
-      <label>Correo <input id="email" type="email" autocomplete="username"></label>
-      <label>Contraseña <input id="clave" type="password" autocomplete="current-password"></label>
-      <div id="msgLogin" class="estado oculto" role="alert"></div>
-      <button id="btnLogin" class="primario" type="button">Entrar</button>
+      <form id="formLogin" class="rt-login-caja" autocomplete="on" novalidate>
+        <label>Correo
+          <input id="email" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="negocio@correo.com">
+        </label>
+        <label>Contraseña
+          <span class="rt-clave"><input id="clave" name="password" type="password" autocomplete="current-password" placeholder="Tu contraseña"><button id="btnVerClave" type="button" aria-label="Mostrar contraseña">👁</button></span>
+        </label>
+        <label class="rt-recordar"><input id="recordar" type="checkbox" checked> <span>Recordar mi correo y contraseña en este dispositivo</span></label>
+        <div id="msgLogin" class="estado oculto" role="alert"></div>
+        <button id="btnLogin" class="primario" type="submit">Entrar</button>
+      </form>
     </section>
   </main>
 
@@ -119,6 +126,8 @@
           </div>
         </div>
         <label>Tiempo de preparación (min) <input id="pfPrep" type="number" inputmode="numeric" min="5" max="120" step="5" value="20"></label>
+        <div class="rt-horario"><strong>🕒 Horario de atención</strong><small>Marca los días que abres. Fuera de este horario los clientes no te ven. Si no marcas ningún día, estás disponible siempre que estés «Abierto».</small>
+          <div id="pfHorario"></div><button id="btnCopiarHorario" class="mini" type="button">📋 Copiar el primer día marcado a todos</button></div>
         <div id="msgPerfil" class="estado oculto" role="status"></div>
         <button id="btnGuardarPerfil" class="primario" type="button">Guardar</button>
       </div>
@@ -160,6 +169,6 @@
   <script>window.NOMBRE_APP = "restaurante";   // sesión independiente de admin y repartidor</script>
   <script src="firebase-config.js"></script>
   <script src="iconos.js"></script>
-  <script src="restaurante.js?v=20261126"></script>
+  <script src="restaurante.js?v=2026112713"></script>
 </body>
 </html>

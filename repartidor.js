@@ -4794,7 +4794,10 @@ const ChatsEntrantes = (() => {
     st.textContent = "#vistaChats .cn-pi-it{font-size:14px;font-weight:600;overflow-wrap:anywhere}" +
       ".cn-retiro{margin:6px 10px;padding:10px 12px;border-radius:14px;background:#fff;border:1px solid #D0D7DE;display:grid;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}.cn-retiro.oculto{display:none}" +
       ".cn-retiro .rr-f{display:flex;align-items:center;justify-content:space-between;gap:8px}.cn-retiro b{font-size:14px}.cn-retiro .rr-t{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:#0B4F7A}.cn-retiro .rr-t.tarde{color:#B3261E}.cn-retiro .rr-t.ok{color:#1A7F37;font-size:15px}" +
-      ".cn-retiro button{min-height:44px;border:0;border-radius:12px;background:#1A7F37;color:#fff;font-weight:800;font-size:15px;padding:0 14px}.cn-retiro button.gris{background:#EEF1F4;color:#24292F}.cn-retiro input{height:44px;border:1px solid #D0D7DE;border-radius:12px;padding:0 12px;font-size:16px;min-width:0;flex:1}.cn-retiro .rr-ok{font-size:13px;font-weight:700;color:#1A7F37}";
+      ".cn-retiro button{min-height:44px;border:0;border-radius:12px;background:#1A7F37;color:#fff;font-weight:800;font-size:15px;padding:0 14px}.cn-retiro button.gris{background:#EEF1F4;color:#24292F}.cn-retiro input{height:44px;border:1px solid #D0D7DE;border-radius:12px;padding:0 12px;font-size:16px;min-width:0;flex:1}.cn-retiro .rr-ok{font-size:13px;font-weight:700;color:#1A7F37}" +
+      ".cn-retiro .rr-caja{display:grid;gap:8px;padding:10px;border:2px solid #1A7F37;border-radius:14px;background:#F2FBF5}.cn-retiro .rr-tit{font-size:16px;color:#0E141B}.cn-retiro .rr-ayuda{font-size:12.5px;color:#3B4651;line-height:1.3}" +
+      ".cn-retiro .rr-input{display:flex;align-items:center;gap:8px;background:#fff;border:2px solid #0E141B;border-radius:14px;padding:0 12px}.cn-retiro .rr-input span{font-size:20px;font-weight:800;color:#0E141B}.cn-retiro .rr-input input{border:0;outline:0;background:transparent;color:#0E141B;font-size:28px;font-weight:800;height:56px;width:100%;padding:0}" +
+      ".cn-retiro .rr-total{font-size:13px;font-weight:700;color:#1A7F37;min-height:16px}";
     document.head.appendChild(st);
   })();
   const retEl = el("div", "cn-retiro oculto"); retEl.id = "cnRetiro";
@@ -4825,10 +4828,20 @@ const ChatsEntrantes = (() => {
       else if (!retEdit) {
         const bt = el("button", "", "✅ Ya retiré"); bt.type = "button"; bt.onclick = () => { retEdit = true; pintarRetiroPanel(); }; retEl.appendChild(bt);
       } else {
-        const f2 = el("div", "rr-f"), inp = el("input", ""); inp.type = "number"; inp.inputMode = "decimal"; inp.min = "0"; inp.step = "1"; inp.placeholder = "Delivery C$";
+        const prod = r2(((d.pedido && Array.isArray(d.pedido.items)) ? d.pedido.items : []).reduce((s, i) => s + (Number(i.p) || 0) * (Number(i.q) || 1), 0));
+        const caja = el("div", "rr-caja");
+        caja.appendChild(el("strong", "rr-tit", "💵 ¿Cuánto cobras de DELIVERY?"));
+        caja.appendChild(el("small", "rr-ayuda", "Escribe solo el precio del envío. Los productos (C$ " + prod.toFixed(2) + ") ya van en la factura."));
+        const fi = el("div", "rr-input"), pre = el("span", "", "C$"), inp = el("input", "");
+        inp.type = "number"; inp.inputMode = "decimal"; inp.min = "0"; inp.step = "1"; inp.placeholder = "0.00"; inp.setAttribute("aria-label", "Precio del delivery en córdobas");
         const fj = typeof precioFijoDe === "function" ? Number(precioFijoDe(d)) : 0; if (fj > 0) inp.value = fj;
-        const ok = el("button", "", "Confirmar"); ok.type = "button";
-        const no = el("button", "gris", "✕"); no.type = "button"; no.onclick = () => { retEdit = false; pintarRetiroPanel(); };
+        fi.append(pre, inp); caja.appendChild(fi);
+        const tot = el("div", "rr-total", "");
+        const pintarTot = () => { const v = parseFloat(inp.value); tot.textContent = v >= 0 ? "Total para el cliente: C$ " + r2(prod + v).toFixed(2) + "  (productos " + prod.toFixed(2) + " + delivery " + v.toFixed(2) + ")" : ""; };
+        inp.oninput = pintarTot; pintarTot(); caja.appendChild(tot);
+        const f2 = el("div", "rr-f");
+        const ok = el("button", "", "✅ Confirmar retiro y enviar factura"); ok.type = "button"; ok.style.flex = "1";
+        const no = el("button", "gris", "Cancelar"); no.type = "button"; no.onclick = () => { retEdit = false; pintarRetiroPanel(); };
         ok.onclick = async () => {
           const v = parseFloat(inp.value); if (!(v >= 0)) { inp.focus(); return; }
           ok.disabled = true;
@@ -4836,7 +4849,8 @@ const ChatsEntrantes = (() => {
           catch (er) { aviso("No se pudo registrar el retiro: " + (er.code || er.message)); ok.disabled = false; }
           pintarRetiroPanel();
         };
-        f2.append(inp, ok, no); retEl.appendChild(f2);
+        f2.append(ok, no); caja.appendChild(f2); retEl.appendChild(caja);
+        setTimeout(() => { try { inp.focus(); } catch (_) {} }, 50);
       }
     }
     clearInterval(retTick);

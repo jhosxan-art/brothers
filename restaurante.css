@@ -148,3 +148,25 @@ body.restaurante .toast-admin.oculto { display: none; }
 .rt-catfila{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border:1px solid var(--linea);border-radius:12px;background:#fff;font-weight:700}
 .rt-catfila .mini{width:auto;height:34px;padding:0 12px}
 #plCat{width:100%}
+
+.splash-logo{width:min(72vw,280px);height:auto;display:block;margin:0 auto 10px}
+.barra-marca .insignia{width:44px;height:44px;border-radius:12px;object-fit:cover}
+.rt-login{max-width:440px;margin:0 auto;display:grid;gap:14px;padding:18px 16px 28px}
+.rt-login-marca{text-align:center;display:grid;gap:6px;justify-items:center}
+.rt-login-marca img{width:min(62vw,220px);height:auto}
+.rt-login-marca h1{margin:4px 0 0;font-size:22px}
+.rt-login-marca p{margin:0;color:var(--texto2);font-size:14px}
+.rt-login-caja{display:grid;gap:12px;background:#fff;border:1px solid var(--linea);border-radius:20px;padding:16px;box-shadow:0 6px 24px rgba(15,23,32,.08)}
+.rt-login-caja label{display:grid;gap:6px;font-weight:700;font-size:13px}
+.rt-login-caja input[type=email],.rt-login-caja input[type=password],.rt-login-caja input[type=text]{height:50px;border:1.5px solid var(--linea);border-radius:14px;padding:0 14px;font-size:16px;width:100%;box-sizing:border-box}
+.rt-clave{position:relative;display:block}.rt-clave input{padding-right:52px!important}
+.rt-clave button{position:absolute;right:4px;top:4px;width:42px;height:42px;border:0;background:none;font-size:20px}
+.rt-login-caja label.rt-recordar{display:flex;align-items:center;gap:10px;font-weight:600;font-size:13px;color:var(--texto2)}
+.rt-recordar input{width:20px;height:20px;flex:none}
+.rt-horario{display:grid;gap:8px;margin:6px 0;padding:12px;border:1px solid var(--linea);border-radius:14px;background:#fff}
+.rt-horario small{color:var(--texto2);font-size:12px}
+.rt-hd{display:grid;grid-template-columns:96px 1fr;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--linea)}
+.rt-hd label{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}.rt-hd label input{width:20px;height:20px}
+.rt-hd .horas{display:flex;align-items:center;gap:6px}.rt-hd input[type=time]{height:40px;border:1.5px solid var(--linea);border-radius:10px;padding:0 8px;font-size:15px;min-width:0;flex:1}
+.rt-hd.off .horas{opacity:.35;pointer-events:none}
+.rt-fuera{display:block;font-size:11px;font-weight:800;color:#B3261E}

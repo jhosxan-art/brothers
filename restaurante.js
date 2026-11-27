@@ -94,15 +94,29 @@ $("btnActivarSonido").onclick = activarSonido;
 document.addEventListener("pointerdown", () => { if (!sonidoOk) activarSonido(); }, { once: true, passive: true });
 
 /* ---------- Sesión ---------- */
-$("btnLogin").onclick = async () => {
+/* Recordar correo y contraseña (solo en este dispositivo) */
+const CRED = "rt_cred";
+(function () {
+  try {
+    const g = JSON.parse(localStorage.getItem(CRED) || "null");
+    if (g && g.e) { $("email").value = g.e; try { $("clave").value = atob(g.c || ""); } catch (_) {} $("recordar").checked = true; }
+  } catch (_) {}
+})();
+$("btnVerClave").onclick = () => { const p = $("clave"), ver = p.type === "password"; p.type = ver ? "text" : "password"; $("btnVerClave").textContent = ver ? "🙈" : "👁"; };
+$("formLogin").addEventListener("submit", (e) => e.preventDefault());
+$("btnLogin").onclick = async (ev) => {
+  if (ev) ev.preventDefault();
   const email = $("email").value.trim(), clave = $("clave").value;
   if (!email || !clave) return setMsg("msgLogin", "Escribe tu correo y contraseña.", "error");
   setMsg("msgLogin", "Entrando…"); $("btnLogin").disabled = true;
-  try { try { sessionStorage.setItem("rt_ask", "1"); } catch (_) {} await auth.signInWithEmailAndPassword(email, clave); setMsg("msgLogin", ""); }
+  try {
+    try { sessionStorage.setItem("rt_ask", "1"); } catch (_) {}
+    await auth.signInWithEmailAndPassword(email, clave); setMsg("msgLogin", "");
+    try { if ($("recordar").checked) localStorage.setItem(CRED, JSON.stringify({ e: email, c: btoa(clave) })); else localStorage.removeItem(CRED); } catch (_) {}
+  }
   catch (e) { setMsg("msgLogin", errorAuth(e), "error"); }
   finally { $("btnLogin").disabled = false; }
 };
-$("clave").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLogin").click(); });
 $("btnSalir").onclick = async () => { if (!confirm("¿Cerrar sesión?")) return; await quitarPush(); auth.signOut(); };
 $("btnDenegadoSalir").onclick = () => auth.signOut();
 
@@ -236,7 +250,8 @@ document.querySelectorAll(".tabs button").forEach((b) => {
 function pintarPerfilBarra() {
   $("rtNombreBarra").textContent = (perfil.nombre || "Brother’s Deliverys") + (sedes.length > 1 && perfil.ciudad ? " · " + nomCiudad(perfil.ciudad) : "");
   const on = perfil.abierto === true, b = $("btnAbierto");
-  b.setAttribute("aria-checked", on ? "true" : "false"); b.querySelector("span").textContent = on ? "Abierto" : "Cerrado";
+  const fuera = on && !dentroHorarioRt(perfil.horario);
+  b.setAttribute("aria-checked", on ? "true" : "false"); b.querySelector("span").textContent = fuera ? "Fuera de horario" : on ? "Abierto" : "Cerrado";
 }
 $("btnAbierto").onclick = async () => {
   const on = !(perfil.abierto === true);
@@ -527,6 +542,41 @@ function formPlato(p, id) {
    3) MI NEGOCIO  (restaurantes/{uid} + lugares/rest_{uid})
    ============================================================ */
 let perfilPintado = false, mapa = null, pin = null, pinLL = null;
+/* Horario de atención por día (restaurantes/{id}/horario/{lun..dom} = {a:"HH:MM", c:"HH:MM"}). Sin horario = siempre. */
+const DIAS = [["lun", "Lunes"], ["mar", "Martes"], ["mie", "Miércoles"], ["jue", "Jueves"], ["vie", "Viernes"], ["sab", "Sábado"], ["dom", "Domingo"]];
+const DIA_JS = ["dom", "lun", "mar", "mie", "jue", "vie", "sab"];
+const minHr = (s) => { const m = /^(\d{2}):(\d{2})$/.exec(String(s || "")); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+function dentroHorarioRt(h, f) {
+  if (!h || typeof h !== "object" || !Object.keys(h).length) return true;
+  f = f || new Date();
+  const hoy = h[DIA_JS[f.getDay()]], ayer = h[DIA_JS[(f.getDay() + 6) % 7]], n = f.getHours() * 60 + f.getMinutes();
+  if (hoy) { const a = minHr(hoy.a), c = minHr(hoy.c); if (a != null && c != null && (a < c ? n >= a && n < c : n >= a)) return true; }
+  if (ayer) { const a = minHr(ayer.a), c = minHr(ayer.c); if (a != null && c != null && c <= a && n < c) return true; }
+  return false;
+}
+function pintarHorario(h) {
+  h = h || {};
+  $("pfHorario").innerHTML = DIAS.map(([k, n]) => {
+    const d = h[k], on = !!d;
+    return `<div class="rt-hd ${on ? "" : "off"}" data-k="${k}"><label><input type="checkbox" ${on ? "checked" : ""}> ${n}</label><div class="horas"><input type="time" data-t="a" value="${esc(d ? d.a : "08:00")}"><span>a</span><input type="time" data-t="c" value="${esc(d ? d.c : "20:00")}"></div></div>`;
+  }).join("");
+  $("pfHorario").querySelectorAll(".rt-hd input[type=checkbox]").forEach((c) => { c.onchange = () => c.closest(".rt-hd").classList.toggle("off", !c.checked); });
+}
+function leerHorario() {
+  const out = {};
+  $("pfHorario").querySelectorAll(".rt-hd").forEach((f) => {
+    if (!f.querySelector("input[type=checkbox]").checked) return;
+    const a = f.querySelector("[data-t=a]").value, c = f.querySelector("[data-t=c]").value;
+    if (/^\d{2}:\d{2}$/.test(a) && /^\d{2}:\d{2}$/.test(c) && a !== c) out[f.dataset.k] = { a, c };
+  });
+  return Object.keys(out).length ? out : null;
+}
+$("btnCopiarHorario").onclick = () => {
+  const filas = [...$("pfHorario").querySelectorAll(".rt-hd")], base = filas.find((f) => f.querySelector("input[type=checkbox]").checked);
+  if (!base) return toast("Marca primero un día con su horario.");
+  const a = base.querySelector("[data-t=a]").value, c = base.querySelector("[data-t=c]").value;
+  filas.forEach((f) => { f.querySelector("input[type=checkbox]").checked = true; f.classList.remove("off"); f.querySelector("[data-t=a]").value = a; f.querySelector("[data-t=c]").value = c; });
+};
 function llenarCiudades() {
   try { ciudadesOk = Ciudades.habilitadas(); } catch (_) { ciudadesOk = []; }
   const sel = $("pfCiudad"), actual = sel.value || perfil.ciudad || "";
@@ -548,6 +598,7 @@ function pintarPerfil() {
   $("pfDir").value = perfil.dir || ""; $("pfPrep").value = perfil.prepMin || 20;
   llenarCiudades(); if (perfil.ciudad) $("pfCiudad").value = perfil.ciudad;
   if (sedes.length > 1) $("pfCiudad").disabled = true;
+  pintarHorario(perfil.horario);
   fotoPerfil = perfil.foto || ""; pintarFotoPerfil();
   pinLL = Number.isFinite(perfil.lat) && Number.isFinite(perfil.lng) ? { lat: perfil.lat, lng: perfil.lng } : null; pintarCoord();
   pintarPerfilBarra();
@@ -591,7 +642,7 @@ $("btnGuardarPerfil").onclick = async () => {
   if (!pinLL) return setMsg("msgPerfil", "Fija la ubicación del restaurante en el mapa.", "error");
   if (!ciudad) return setMsg("msgPerfil", "Elige la ciudad.", "error");
   const dir = $("pfDir").value.trim().slice(0, 160), prep = Math.max(5, Math.min(120, parseInt($("pfPrep").value, 10) || 20));
-  const ficha = { nombre, desc: $("pfDesc").value.trim().slice(0, 160), ciudad, dir, lat: pinLL.lat, lng: pinLL.lng, prepMin: prep, foto: fotoPerfil || null, actualizado: TS };
+  const ficha = { nombre, desc: $("pfDesc").value.trim().slice(0, 160), ciudad, dir, lat: pinLL.lat, lng: pinLL.lng, prepMin: prep, foto: fotoPerfil || null, horario: leerHorario(), actualizado: TS };
   setMsg("msgPerfil", "Guardando…"); $("btnGuardarPerfil").disabled = true;
   try {
     await db.ref("restaurantes/" + uid).update(ficha);

@@ -743,12 +743,12 @@
     if (!activo) { if (el) el.remove(); return; }
     if (!el) {
       el = document.createElement("div"); el.id = "restCrono";
-      el.style.cssText = "align-self:flex-end;width:fit-content;margin:2px 12px 2px auto;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;background:rgba(255,255,255,.85);color:#0B4F7A;border:1px solid #CFE6F7";
+      el.style.cssText = "align-self:flex-end;width:fit-content;margin:4px 12px 4px auto;padding:4px 14px;border-radius:999px;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.3px;color:#fff;background:#FF6A00;box-shadow:0 2px 8px rgba(255,106,0,.55)";
       const cv = $("mensajes"); cv.parentNode.insertBefore(el, cv);
     }
     const tick = () => {
       const d = fin - Date.now(), a = Math.abs(Math.round(d / 1000));
-      el.style.color = d < 0 ? "#B3261E" : "#0B4F7A";
+      el.style.background = d < 0 ? "#D90429" : "#FF6A00"; el.style.boxShadow = d < 0 ? "0 2px 8px rgba(217,4,41,.6)" : "0 2px 8px rgba(255,106,0,.55)";
       el.textContent = (d < 0 ? "⚠️ +" : "⏱ ") + String(Math.floor(a / 60)).padStart(2, "0") + ":" + String(a % 60).padStart(2, "0");
     };
     tick(); cronoT = setInterval(tick, 1000);
@@ -1639,13 +1639,24 @@
   const RESUMEN_ITEMS = (items) => items.map((i) => i.q + " × " + i.n).join(", ").slice(0, 1000);
 
   /* Restaurantes ABIERTOS de la ciudad activa (restaurantes/{uid}, ficha pública). Si falla o no hay, el flujo sigue como antes (texto libre). */
+  const DIAS_H = ["dom", "lun", "mar", "mie", "jue", "vie", "sab"];
+  const minH = (s) => { const m = /^(\d{2}):(\d{2})$/.exec(String(s || "")); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+  /* Horario por día: sin horario guardado = siempre disponible. Soporta cierre pasada la medianoche. */
+  function dentroHorario(h, f) {
+    if (!h || typeof h !== "object" || !Object.keys(h).length) return true;
+    f = f || new Date();
+    const hoy = h[DIAS_H[f.getDay()]], ayer = h[DIAS_H[(f.getDay() + 6) % 7]], n = f.getHours() * 60 + f.getMinutes();
+    if (hoy) { const a = minH(hoy.a), c = minH(hoy.c); if (a != null && c != null && (a < c ? n >= a && n < c : n >= a)) return true; }
+    if (ayer) { const a = minH(ayer.a), c = minH(ayer.c); if (a != null && c != null && c <= a && n < c) return true; }
+    return false;
+  }
   let errRest = "";
   async function cargarRestaurantes() {
     errRest = "";
     try {
       const s = await db.ref("restaurantes").orderByChild("ciudad").equalTo(ciudadActiva.id).once("value");
       return Object.entries(s.val() || {})
-        .filter(([, r]) => r && r.activo !== false && r.suspendida !== true && r.abierto === true && typeof r.nombre === "string")
+        .filter(([, r]) => r && r.activo !== false && r.suspendida !== true && r.abierto === true && dentroHorario(r.horario) && typeof r.nombre === "string")
         .map(([uid, r]) => ({ uid, nombre: String(r.nombre).slice(0, 60), lat: Number(r.lat), lng: Number(r.lng), prepMin: Number(r.prepMin) || 0, menuDe: typeof r.menuDe === "string" ? r.menuDe : "" }))
         .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 30);
     } catch (er) { errRest = (er && (er.code || er.message)) || "error"; return []; }
@@ -1777,7 +1788,14 @@
                 if (!vivo(id)) return;
                 const v = p.variantes[Number(s)]; partes.push(v.n); pu = v.p;
               }
-              if (p.sabores.length) {
+              for (const x of p.extras) {
+                if (!(await di(id, "➕ ¿Quieres agregar «" + x.n + "» a " + rotulo + "? (+C$ " + x.p.toFixed(2) + ")"))) return;
+                const s = await opciones(id, [{ clave: "s", texto: "✅ Sí, agregar (+C$ " + x.p.toFixed(2) + ")" }, { clave: "n", texto: "No, gracias" }]);
+                if (!vivo(id)) return;
+                if (s === "s") { ext.push(x.n); pu += x.p; }
+              }
+              const esBeb = /beb|refr|gas|jug|soda|fresco|batid/i.test((p.cat || "") + " " + p.nombre);
+              if (p.sabores.length && (!p.extras.length || ext.length || esBeb)) {
                 const nb = Math.max(1, Math.min(6, Number(p.nSab) || 1)), sel = [];
                 for (let j = 1; j <= nb; j++) {
                   if (!(await di(id, "🥤 " + (nb > 1 ? "Refresco " + j + " de " + nb + " de " : "¿De qué sabor quieres ") + rotulo + (nb > 1 ? ": ¿qué sabor?" : "?")))) return;
@@ -1786,12 +1804,6 @@
                   sel.push(p.sabores[Number(s)]);
                 }
                 partes.push(sel.join(" + "));
-              }
-              for (const x of p.extras) {
-                if (!(await di(id, "➕ ¿Quieres agregar «" + x.n + "» a " + rotulo + "? (+C$ " + x.p.toFixed(2) + ")"))) return;
-                const s = await opciones(id, [{ clave: "s", texto: "✅ Sí, agregar (+C$ " + x.p.toFixed(2) + ")" }, { clave: "n", texto: "No, gracias" }]);
-                if (!vivo(id)) return;
-                if (s === "s") { ext.push(x.n); pu += x.p; }
               }
               const suf = (partes.length ? " (" + partes.join(", ") + ")" : "") + (ext.length ? " + " + ext.join(" + ") : "");
               cfg = { n: (p.nombre.slice(0, Math.max(10, 60 - suf.length)) + suf).slice(0, 60), p: Math.round(pu * 100) / 100 };
