@@ -31,7 +31,8 @@ window.Factura = {
 
   let products = [];
   let editingIndex = -1;
-  let extraErrand = 0;
+  let extraErrand = 0;          // suma de todos los mandados extra
+  let extras = [];              // lista de mandados extra [{monto}]
   let depositPaid = false;
   let pendingDeleteIndex = -1;
   let pedidoSistema = null;
@@ -145,7 +146,7 @@ window.Factura = {
       if (!hayAlgo) return null;
       return {
           v: 1, modo, chat: chatDestino ? { id: chatDestino.solicitudId, cliente: chatDestino.cliente } : null, pedido: pedidoSistema ? Object.assign({}, pedidoSistema) : null,
-          products: products.map((p) => ({ name: p.name, price: p.price })), extraErrand, cliente, delivery, ivasExtras: ivasExtrasActual(), deposito: depositPaid,
+          products: products.map((p) => ({ name: p.name, price: p.price })), extraErrand, extras: extras.map((x) => x.monto), cliente, delivery, ivasExtras: ivasExtrasActual(), deposito: depositPaid,
           entrada: { nombre: nom, precio: pre }, ts: Date.now()
       };
   }
@@ -168,7 +169,7 @@ window.Factura = {
       fijarIvasExtras(s.ivasExtras);
       if (s.entrada) { if (g('currentProductName')) g('currentProductName').value = String(s.entrada.nombre || ''); if (g('currentProductPrice')) g('currentProductPrice').value = String(s.entrada.precio || ''); }
       renderProductList();
-      toggleExtraErrand(s.extraErrand === 10 || s.extraErrand === 20 ? s.extraErrand : 0);
+      fijarExtras(Array.isArray(s.extras) ? s.extras : (Number(s.extraErrand) > 0 ? [s.extraErrand] : [])); calculateTotal();
   }
   /* Al abrir la app: recupera lo último que había (localStorage al instante; IndexedDB si es más reciente) */
   function restaurarSnap() {
@@ -196,7 +197,7 @@ window.Factura = {
       try {
           if (chatDestino) return guardarBorradorChat();
           if (pedidoSistema) return;
-          const d = { products, extraErrand, cliente: document.getElementById('customerName').value, delivery: document.getElementById('deliveryPrice').value, ivasExtras: ivasExtrasActual(), ts: Date.now() };
+          const d = { products, extraErrand, extras: extras.map((x) => x.monto), cliente: document.getElementById('customerName').value, delivery: document.getElementById('deliveryPrice').value, ivasExtras: ivasExtrasActual(), ts: Date.now() };
           if (!products.length && !d.cliente.trim() && !String(d.delivery).trim()) localStorage.removeItem(CLAVE_BORRADOR);
           else localStorage.setItem(CLAVE_BORRADOR, JSON.stringify(d));
       } catch (_) {}
@@ -213,7 +214,7 @@ window.Factura = {
   function guardarBorradorChat() {
       if (!chatDestino) return;
       const o = leerBorradoresChat(), id = chatDestino.solicitudId, ahora = Date.now();
-      const d = { products, extraErrand, cliente: document.getElementById('customerName').value, delivery: document.getElementById('deliveryPrice').value, ivasExtras: ivasExtrasActual(), deposito: depositPaid, ts: ahora };
+      const d = { products, extraErrand, extras: extras.map((x) => x.monto), cliente: document.getElementById('customerName').value, delivery: document.getElementById('deliveryPrice').value, ivasExtras: ivasExtrasActual(), deposito: depositPaid, ts: ahora };
       if (!products.length && !String(d.delivery).trim() && !extraErrand && !d.ivasExtras) delete o[id]; else o[id] = d;
       Object.keys(o).forEach((k) => { if (ahora - (Number(o[k] && o[k].ts) || 0) > VIDA_BORRADOR_MS) delete o[k]; });
       escribirBorradoresChat(o);
@@ -234,7 +235,7 @@ window.Factura = {
           if (!d || Date.now() - (Number(d.ts) || 0) > VIDA_BORRADOR_MANUAL_MS) return localStorage.removeItem(CLAVE_BORRADOR);
           products = (Array.isArray(d.products) ? d.products : []).filter((p) => p && typeof p.name === 'string' && typeof p.price === 'number' && p.price >= 0)
               .map((p) => ({ name: p.name, price: p.price }));
-          extraErrand = d.extraErrand === 10 || d.extraErrand === 20 ? d.extraErrand : 0;
+          fijarExtras(Array.isArray(d.extras) ? d.extras : (Number(d.extraErrand) > 0 ? [d.extraErrand] : []));
           document.getElementById('customerName').value = String(d.cliente || '');
           document.getElementById('deliveryPrice').value = String(d.delivery || '');
           fijarIvasExtras(d.ivasExtras);
@@ -364,14 +365,33 @@ window.Factura = {
   function updateStatsDisplay() {}
   function calculateIVA() {}
   function resetStats() {}
+  /* Mandados extra: se pueden agregar VARIOS (cada uno con su monto). 0 = quitar todos. */
+  const EXTRAS_MAX = 10, EXTRA_MONTO_MAX = 5000;
+  function fijarExtras(lista) {
+      extras = (Array.isArray(lista) ? lista : []).map((x) => r2(Number(x && typeof x === 'object' ? x.monto : x))).filter((m) => m > 0 && m <= EXTRA_MONTO_MAX).slice(0, EXTRAS_MAX).map((m) => ({ monto: m }));
+      extraErrand = r2(extras.reduce((t, x) => t + x.monto, 0));
+      pintarExtras();
+  }
+  function pintarExtras() {
+      const box = document.getElementById('extrasLista'); if (!box) return;
+      box.style.display = extras.length ? '' : 'none';
+      box.innerHTML = extras.length
+          ? '<span class="fx-ex-tit">Mandados extra (' + extras.length + '):</span>' + extras.map((x, i) => `<span class="fx-ex-chip">➕ C$ ${x.monto.toFixed(2)}<button type="button" onclick="quitarExtra(${i})" aria-label="Quitar este mandado extra">✕</button></span>`).join('') + '<b class="fx-ex-tot">= ' + formatMoney(extraErrand) + '</b>'
+          : '';
+  }
   function toggleExtraErrand(amount) {
-      extraErrand = amount;
-      const buttons = document.querySelectorAll('.extra-errand-btn');
-      buttons.forEach(btn => btn.classList.remove('active'));
-      if (amount === 0) buttons[0].classList.add('active');
-      else if (amount === 10) buttons[1].classList.add('active');
-      else if (amount === 20) buttons[2].classList.add('active');
+      amount = Number(amount) || 0;
+      if (amount <= 0) fijarExtras([]);
+      else { if (extras.length >= EXTRAS_MAX) { showCustomAlert('Máximo ' + EXTRAS_MAX + ' mandados extra por factura.'); return; } fijarExtras(extras.map((x) => x.monto).concat([amount])); }
       calculateTotal();
+  }
+  function quitarExtra(i) { fijarExtras(extras.filter((_, k) => k !== Number(i)).map((x) => x.monto)); calculateTotal(); }
+  function extraPersonalizado() {
+      const v = prompt('Monto del mandado extra (C$):', '');
+      if (v === null) return;
+      const m = r2(parseFloat(String(v).replace(',', '.')));
+      if (!(m > 0) || m > EXTRA_MONTO_MAX) { showCustomAlert('Escribe un monto válido (mayor a 0).'); return; }
+      toggleExtraErrand(m);
   }
   function addProductToList() {
       const name = document.getElementById('currentProductName').value.trim();
@@ -494,7 +514,8 @@ window.Factura = {
       invoiceHTML += '<table class="invoice-totals-table">';
       invoiceHTML += `<tr><td>Subtotal:</td><td>C$ ${subtotal.toFixed(2)}</td></tr>`;
       invoiceHTML += `<tr><td>Delivery:</td><td>C$ ${deliveryCliente.toFixed(2)}</td></tr>`;
-      if (extraErrand > 0) { invoiceHTML += `<tr><td>➕ Mandado Extra:</td><td>C$ ${extraErrand.toFixed(2)}</td></tr>`; }
+      if (extras.length === 1) invoiceHTML += `<tr><td>➕ Mandado Extra:</td><td>C$ ${extraErrand.toFixed(2)}</td></tr>`;
+      else extras.forEach((x, i) => { invoiceHTML += `<tr><td>➕ Mandado Extra ${i + 1}:</td><td>C$ ${x.monto.toFixed(2)}</td></tr>`; });
       if (prioridad > 0) { invoiceHTML += `<tr><td>⚡ Prioridad:</td><td>C$ ${prioridad.toFixed(2)}</td></tr>`; }
       invoiceHTML += `<tr class="total-row"><td>TOTAL:</td><td>C$ ${grandTotal.toFixed(2)}</td></tr>`;
       invoiceHTML += '</table>';
@@ -504,7 +525,8 @@ window.Factura = {
       invoiceText += `\n${SEP}\n`;
       invoiceText += `Productos: C$ ${subtotal.toFixed(2)}\n`;
       invoiceText += `Delivery: C$ ${deliveryCliente.toFixed(2)}\n`;
-      if (extraErrand > 0) invoiceText += `➕ Mandado Extra: C$ ${extraErrand.toFixed(2)}\n`;
+      if (extras.length === 1) invoiceText += `➕ Mandado Extra: C$ ${extraErrand.toFixed(2)}\n`;
+      else extras.forEach((x, i) => { invoiceText += `➕ Mandado Extra ${i + 1}: C$ ${x.monto.toFixed(2)}\n`; });
       if (prioridad > 0) invoiceText += `⚡ Prioridad: C$ ${prioridad.toFixed(2)}\n`;
       invoiceText += `*TOTAL: C$ ${grandTotal.toFixed(2)}*\n`;
       invoiceText += `*CÓDIGO DE RETIRO: ${pickupCode}*\n`;
@@ -568,16 +590,8 @@ window.Factura = {
       try { localStorage.setItem(CLAVE_WA, JSON.stringify(a.slice(0, 10))); } catch (_) {}
       pintarWA();
   }
-  function pintarWA() {
-      const box = document.getElementById('fxUltimaWA'); if (!box) return;
-      const a = leerWA(), manual = !pedidoSistema && !chatDestino;
-      if (!a.length || !manual) { box.style.display = 'none'; box.innerHTML = ''; return; }
-      const hora = (ts) => new Date(ts).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-      const fila = (x, i) => `<div class="fx-wa-fila"><div><b>${escHtml(x.cliente) || 'Sin nombre'}</b><small>${formatMoney(x.total)} · ${hora(x.ts)}</small></div><button type="button" onclick="reenviarFacturaWA(${i})">🔁 Reenviar</button></div>`;
-      box.style.display = '';
-      box.innerHTML = '<div class="fx-wa-tit">📲 Facturas enviadas por WhatsApp</div>' + fila(a[0], 0)
-          + (a.length > 1 ? `<details><summary>Anteriores (${a.length - 1})</summary>${a.slice(1).map((x, i) => fila(x, i + 1)).join('')}</details>` : '')
-          + '<small class="fx-wa-ayuda">Si se fue la red y la factura no llegó, reenvíala desde aquí.</small>';
+  function pintarWA() {   /* se quitó el cuadro «Facturas enviadas por WhatsApp / Reenviar» */
+      const box = document.getElementById('fxUltimaWA'); if (box) { box.style.display = 'none'; box.innerHTML = ''; }
   }
   function reenviarFacturaWA(i) {
       const x = leerWA()[Number(i) || 0]; if (!x) return;
@@ -616,7 +630,7 @@ window.Factura = {
       const mismo = !!pedidoSistema && pedidoSistema.id === String(info.id);
       pedidoSistema = { id: String(info.id), codigo: String(info.codigo || ''), cliente: String(info.cliente || ''), delivery: r2(info.delivery) };
       if (!mismo) {
-          products = []; editingIndex = -1; extraErrand = 0; depositPaid = false; facturaActual = null;
+          products = []; editingIndex = -1; fijarExtras([]); depositPaid = false; facturaActual = null;
           document.getElementById('currentProductName').value = '';
           document.getElementById('currentProductPrice').value = '';
           document.getElementById('customerName').value = pedidoSistema.cliente;
@@ -662,7 +676,7 @@ window.Factura = {
       if (previo && Date.now() - (Number(previo.ts) || 0) > VIDA_BORRADOR_MS) previo = null;
       chatDestino = { solicitudId: id, cliente: String(info.cliente || '') };
       if (!mismo) {
-          products = []; editingIndex = -1; extraErrand = 0; depositPaid = false; facturaActual = null;
+          products = []; editingIndex = -1; fijarExtras([]); depositPaid = false; facturaActual = null;
           document.getElementById('currentProductName').value = '';
           document.getElementById('currentProductPrice').value = '';
           document.getElementById('deliveryPrice').value = '';
@@ -678,7 +692,7 @@ window.Factura = {
               if (previo.cliente) document.getElementById('customerName').value = String(previo.cliente);
           }
           renderProductList();
-          toggleExtraErrand(previo && (previo.extraErrand === 10 || previo.extraErrand === 20) ? previo.extraErrand : 0);
+          fijarExtras(previo ? (Array.isArray(previo.extras) ? previo.extras : (Number(previo.extraErrand) > 0 ? [previo.extraErrand] : [])) : []); calculateTotal();
       }
       hideStats(); pintarModoPedido();
   }
@@ -780,15 +794,13 @@ window.Factura = {
       facturaActual = null; resetForm();
   }
   function resetForm() {
-      products = []; editingIndex = -1; extraErrand = 0;
+      products = []; editingIndex = -1; fijarExtras([]);
       document.getElementById('deliveryPrice').value = '';
       fijarIvasExtras(0);
       document.getElementById('currentProductName').value = '';
       document.getElementById('currentProductPrice').value = '';
       document.getElementById('customerName').value = '';
       depositPaid = false; refrescarContactos();
-      const buttons = document.querySelectorAll('.extra-errand-btn');
-      buttons.forEach(btn => btn.classList.remove('active'));
       renderProductList(); calculateTotal();
   }
   document.getElementById('invoicePopup').addEventListener('click', function(e) { if (e.target === this) closePopup(); });
@@ -852,8 +864,8 @@ window.Factura = {
   restaurarSnap();
   try { pintarWA(); } catch (_) {}   // muestra las facturas recientes por si hay que reenviarlas
   ['customerName', 'currentProductName', 'currentProductPrice'].forEach((id) => { const e = document.getElementById(id); if (e) e.addEventListener('input', guardarBorrador); });
-  toggleExtraErrand(extraErrand); calculateTotal();
+  pintarExtras(); calculateTotal();
   checkAndResetStats(); checkSessionAndLogin(); renderDepositInvoices();
 
-  Object.assign(window, { reenviarFacturaWA, abrirEnlaceExterno, showCustomAlert, closeCustomAlert, closeCustomConfirm, cancelarFactura, cancelarFacturaNueva, cancelarFacturaEditar, cerrarCancelFactura, showStats, hideStats, calculateTotal, toggleExtraErrand, cambiarIvasExtras, pintarIvasExtras, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto, reintentarEnvioPedido });
+  Object.assign(window, { quitarExtra, extraPersonalizado, reenviarFacturaWA, abrirEnlaceExterno, showCustomAlert, closeCustomAlert, closeCustomConfirm, cancelarFactura, cancelarFacturaNueva, cancelarFacturaEditar, cerrarCancelFactura, showStats, hideStats, calculateTotal, toggleExtraErrand, cambiarIvasExtras, pintarIvasExtras, addProductToList, editProduct, deleteProduct, clearDepositInvoices, resetStats, calculateIVA, promptGenerateInvoice, downloadInvoiceImage, closePopup, enviarFacturaWhatsApp, alElegirContacto, reintentarEnvioPedido });
 })();

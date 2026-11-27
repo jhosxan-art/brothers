@@ -276,7 +276,6 @@
 
   <div id="vistaFactura" class="fx oculto">
     <div class="invoice-container" id="invoiceContainer">
-      <div id="fxUltimaWA" class="fx-wa" style="display:none"></div>
       <div id="pedidoBanner" class="fx-pedido-banner" style="display:none">
         <div><b>🧾 Factura del pedido <span id="pedidoBannerCod"></span></b><small id="pedidoBannerTxt"></small></div>
         <button type="button" onclick="Factura.salirModoPedido()" aria-label="Salir de la factura de este pedido">✕</button>
@@ -300,12 +299,14 @@
         <div class="fx-campo fx-grow">
           <span class="fx-et">➕ Mandado extra</span>
           <div class="extra-errand-buttons">
-            <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(0)">Ninguno</button>
             <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(10)">+C$10</button>
             <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(20)">+C$20</button>
+            <button type="button" class="extra-errand-btn" onclick="extraPersonalizado()">➕ Otro</button>
+            <button type="button" class="extra-errand-btn" onclick="toggleExtraErrand(0)" aria-label="Quitar todos los mandados extra">🗑</button>
           </div>
         </div>
       </div>
+      <div class="fx-extras" id="extrasLista" style="display:none" aria-live="polite"></div>
       <div class="fx-campo fx-iva" id="fxIvaFila">
         <span class="fx-et">🧮 Para agregar IVAs extras (cada IVA vale C$ 7)</span>
         <div class="fx-iva-fila">
