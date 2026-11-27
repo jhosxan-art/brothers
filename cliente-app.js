@@ -1651,6 +1651,7 @@
 
   const norm = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
   const cachePlatos = {};
+  const normOpc = (a, max) => (Array.isArray(a) ? a : []).filter((x) => x && typeof x.n === "string" && x.n && Number(x.p) >= 0).slice(0, max).map((x) => ({ n: x.n.slice(0, 24), p: Math.round(Number(x.p) * 100) / 100 }));
   /* Platos activos de un restaurante (menus/{uid}), con caché por sesión. */
   async function cargarPlatos(uid) {
     if (cachePlatos[uid]) return cachePlatos[uid];
@@ -1659,7 +1660,8 @@
       const s = await db.ref("menus/" + uid).once("value");
       platos = Object.entries(s.val() || {}).map(([k, p]) => ({ k, ...p }))
         .filter((p) => p && p.activo !== false && typeof p.nombre === "string" && Number(p.precio) >= 0)
-        .map((p) => ({ ...p, sabores: Array.isArray(p.sabores) ? p.sabores.filter((x) => typeof x === "string" && x).slice(0, 8) : [] }))
+        .map((p) => ({ ...p, sabores: Array.isArray(p.sabores) ? p.sabores.filter((x) => typeof x === "string" && x).slice(0, 8) : [],
+          variantes: normOpc(p.variantes, 6), extras: normOpc(p.extras, 8) }))
         .sort((a, b) => String(a.cat || "").localeCompare(String(b.cat || "")) || (a.orden || 0) - (b.orden || 0)).slice(0, 60);
     } catch (_) { }
     return (cachePlatos[uid] = platos);
@@ -1721,7 +1723,7 @@
         if (typeof p.foto === "string" && p.foto.indexOf("data:image/") === 0) { const im = document.createElement("img"); im.alt = ""; im.src = p.foto; img.appendChild(im); }
         else img.textContent = /beb|jug|refr|gas/i.test(p.cat || "") ? "🥤" : "🍽️";
         const n = document.createElement("div"); n.className = "wm-n"; n.innerHTML = "<b></b><em></em>";
-        n.querySelector("b").textContent = p.nombre; n.querySelector("em").textContent = "C$ " + precio(p).toFixed(2);
+        n.querySelector("b").textContent = p.nombre; n.querySelector("em").textContent = (p.variantes.length ? "Desde C$ " + Math.min(...p.variantes.map((v) => v.p)).toFixed(2) : "C$ " + precio(p).toFixed(2)) + (p.extras.length ? " · con adicionales" : "");
         const q = document.createElement("div"); q.className = "wm-q";
         const mn = document.createElement("button"); mn.type = "button"; mn.textContent = "−"; mn.setAttribute("aria-label", "Quitar uno");
         const nq = document.createElement("span"); nq.textContent = "0";
@@ -1732,8 +1734,8 @@
       });
       const elegidos = () => platos.filter((p) => cant[p.k] > 0);
       function calc() {
-        const e = elegidos(), t = e.reduce((a, p) => a + precio(p) * cant[p.k], 0);
-        tot.textContent = e.length ? "C$ " + (Math.round(t * 100) / 100).toFixed(2) : "Elige lo que quieres";
+        const e = elegidos(), t = e.reduce((a, p) => a + precio(p) * cant[p.k], 0), nu = e.reduce((a, p) => a + cant[p.k], 0);
+        tot.textContent = e.length ? (e.some((p) => p.variantes.length || p.extras.length) ? nu + " producto(s)" : "C$ " + (Math.round(t * 100) / 100).toFixed(2)) : "Elige lo que quieres";
         ok.disabled = !e.length;
       }
       no.onclick = () => { if (!vivo(id)) return; caja.remove(); res({ volver: true }); };
@@ -1741,18 +1743,47 @@
         if (!vivo(id)) return;
         const e = elegidos(); if (!e.length) return;
         caja.remove();
-        /* Sabores: una pregunta por unidad de cada bebida con sabores */
-        const items = [];
+        /* Opciones por unidad: tamaño/variante, sabor y adicionales */
+        const items = [], agg = {};
         for (const p of e) {
-          if (!p.sabores.length) { items.push({ n: p.nombre.slice(0, 60), q: cant[p.k], p: precio(p) }); continue; }
-          const por = {};
+          let prev = null;
           for (let u = 1; u <= cant[p.k]; u++) {
-            if (!(await di(id, "🥤 ¿De qué sabor quieres tu " + p.nombre + (cant[p.k] > 1 ? " (" + u + " de " + cant[p.k] + ")" : "") + "?"))) return;
-            const s = await opciones(id, p.sabores.map((x, i) => ({ clave: String(i), texto: x })));
-            if (!vivo(id)) return;
-            const sb = p.sabores[Number(s)]; por[sb] = (por[sb] || 0) + 1;
+            const rotulo = p.nombre + (cant[p.k] > 1 ? " (" + u + " de " + cant[p.k] + ")" : "");
+            let cfg = null;
+            const conOpc = p.variantes.length || p.sabores.length || p.extras.length;
+            if (conOpc && prev && u > 1) {
+              if (!(await di(id, "¿" + rotulo + " igual que el anterior?"))) return;
+              const ig = await opciones(id, [{ clave: "s", texto: "🔁 Igual que el anterior" }, { clave: "n", texto: "✏️ Elegir distinto" }]);
+              if (!vivo(id)) return;
+              if (ig === "s") cfg = prev;
+            }
+            if (!cfg) {
+              let pu = precio(p); const partes = [], ext = [];
+              if (p.variantes.length) {
+                if (!(await di(id, "📏 ¿Qué opción quieres para " + rotulo + "?"))) return;
+                const s = await opciones(id, p.variantes.map((v, i) => ({ clave: String(i), texto: v.n + " · C$ " + v.p.toFixed(2) })));
+                if (!vivo(id)) return;
+                const v = p.variantes[Number(s)]; partes.push(v.n); pu = v.p;
+              }
+              if (p.sabores.length) {
+                if (!(await di(id, "🥤 ¿De qué sabor quieres " + rotulo + "?"))) return;
+                const s = await opciones(id, p.sabores.map((x, i) => ({ clave: String(i), texto: x })));
+                if (!vivo(id)) return;
+                partes.push(p.sabores[Number(s)]);
+              }
+              for (const x of p.extras) {
+                if (!(await di(id, "➕ ¿Quieres agregar «" + x.n + "» a " + rotulo + "? (+C$ " + x.p.toFixed(2) + ")"))) return;
+                const s = await opciones(id, [{ clave: "s", texto: "✅ Sí, agregar (+C$ " + x.p.toFixed(2) + ")" }, { clave: "n", texto: "No, gracias" }]);
+                if (!vivo(id)) return;
+                if (s === "s") { ext.push(x.n); pu += x.p; }
+              }
+              const suf = (partes.length ? " (" + partes.join(", ") + ")" : "") + (ext.length ? " + " + ext.join(" + ") : "");
+              cfg = { n: (p.nombre.slice(0, Math.max(10, 60 - suf.length)) + suf).slice(0, 60), p: Math.round(pu * 100) / 100 };
+              prev = cfg;
+            }
+            const key = cfg.n + "|" + cfg.p;
+            if (agg[key]) agg[key].q++; else { agg[key] = { n: cfg.n, q: 1, p: cfg.p }; items.push(agg[key]); }
           }
-          Object.entries(por).forEach(([sb, q]) => items.push({ n: p.nombre.slice(0, 60 - sb.length - 3) + " (" + sb + ")", q, p: precio(p) }));
         }
         addYo("🧾 " + RESUMEN_ITEMS(items) + " · C$ " + (Math.round(items.reduce((a, i) => a + i.p * i.q, 0) * 100) / 100).toFixed(2));
         let nota = "";

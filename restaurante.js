@@ -363,7 +363,7 @@ function pintarMenu() {
   const lista = Object.entries(menu).map(([id, p]) => Object.assign({ id }, p)).filter((p) => catSel === "Todos" || p.cat === catSel)
     .sort((a, b) => (a.orden || 0) - (b.orden || 0) || String(a.nombre).localeCompare(String(b.nombre)));
   $("rtListaMenu").innerHTML = lista.length ? lista.map((p) => `<article class="rt-pl ${p.activo === false ? "off" : ""}" data-id="${esc(p.id)}">
-      <div class="rt-pl-tx"><b>${esc(p.nombre)}</b>${p.desc ? `<small>${esc(p.desc)}</small>` : ""}<em>${money(p.precio)}</em>${Array.isArray(p.sabores) && p.sabores.length ? `<div class="rt-pl-sab">${p.sabores.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : ""}</div>
+      <div class="rt-pl-tx"><b>${esc(p.nombre)}</b>${p.desc ? `<small>${esc(p.desc)}</small>` : ""}<em>${money(p.precio)}</em>${Array.isArray(p.sabores) && p.sabores.length ? `<div class="rt-pl-sab">${p.sabores.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : ""}${Array.isArray(p.variantes) && p.variantes.length ? `<div class="rt-pl-sab">${p.variantes.map((x) => `<span>📏 ${esc(x.n)} · ${money(x.p)}</span>`).join("")}</div>` : ""}${Array.isArray(p.extras) && p.extras.length ? `<div class="rt-pl-sab">${p.extras.map((x) => `<span>➕ ${esc(x.n)} +${money(x.p)}</span>`).join("")}</div>` : ""}</div>
       <div class="rt-pl-img">${p.foto ? `<img src="${esc(p.foto)}" alt="">` : "🍽️"}${p.activo === false ? `<i>Agotado</i>` : ""}</div>
       <div class="rt-pl-pie"><label class="rt-pl-sw"><button class="rt-sw" type="button" role="switch" data-a="sw" aria-checked="${p.activo !== false}" aria-label="Disponible"></button><span>${p.activo === false ? "No disponible" : "Disponible"}</span></label><button class="mini" type="button" data-a="ed">✏️ Editar</button></div>
     </article>`).join("") : `<p class="rt-vacio">${Object.keys(menu).length ? "No hay platos en esta categoría." : "Aún no tienes platos. Toca «➕ Plato» para agregar el primero."}</p>`;
@@ -392,6 +392,15 @@ function reducirFoto(file, max, calidad) {
     img.src = url;
   });
 }
+const opcTxt = (a) => (Array.isArray(a) ? a : []).map((x) => x.n + " = " + x.p).join("\n");
+function leerOpc(txt, max) {
+  const out = [];
+  String(txt || "").split(/\n/).forEach((l) => {
+    const m = l.trim().match(/^(.{1,24}?)\s*[=:]\s*\+?\s*(\d+(?:[.,]\d+)?)$/);
+    if (m && out.length < max) out.push({ n: m[1].trim(), p: Math.round(parseFloat(m[2].replace(",", ".")) * 100) / 100 });
+  });
+  return out;
+}
 function formPlato(p, id) {
   let foto = p.foto || "";
   const cats = categorias().filter((c) => c !== "Todos"), catIni = p.cat || cats[0] || "Platos";
@@ -403,6 +412,8 @@ function formPlato(p, id) {
       <label>Precio (C$)<input id="plPrecio" type="number" inputmode="decimal" min="0" step="0.01" value="${p.precio != null ? esc(p.precio) : ""}" placeholder="0.00"></label>
       <label>Categoría<select id="plCat">${cats.map((c) => `<option value="${esc(c)}" ${c === catIni ? "selected" : ""}>${esc(c)}</option>`).join("")}<option value="__nueva">➕ Nueva categoría…</option></select></label>
     </div>
+    <label>Tamaños u opciones con precio (opcional, una por línea)<textarea id="plVar" rows="3" placeholder="Media libra = 90&#10;Una libra = 170">${esc(opcTxt(p.variantes))}</textarea></label>
+    <label>Adicionales opcionales (una por línea, el cliente decide)<textarea id="plExt" rows="3" placeholder="Con bebida = 25&#10;Extra queso = 15">${esc(opcTxt(p.extras))}</textarea></label>
     <input id="plCatNueva" class="oculto" maxlength="24" placeholder="Nombre de la nueva categoría">
     <label>Sabores (opcional, separados por coma)<input id="plSab" maxlength="160" value="${esc(Array.isArray(p.sabores) ? p.sabores.join(", ") : "")}" placeholder="Ej. Naranja, Piña, Cola"></label>
     <div class="eq-foto-fila"><div id="plFotoPrev" class="rt-plato-img">${foto ? `<img src="${esc(foto)}" alt="">` : "🍽️"}</div>
@@ -426,12 +437,16 @@ function formPlato(p, id) {
     try { await db.ref("menus/" + mid() + "/" + id).remove(); cerrarModal(); toast("Plato eliminado."); } catch (err) { setMsg("plMsg", err.code || err.message, "error"); }
   };
   $("plOk").onclick = async () => {
-    const nombre = $("plNombre").value.trim(), precio = parseFloat($("plPrecio").value), cat = $("plCat").value === "__nueva" ? $("plCatNueva").value.trim().replace(/\s+/g, " ") : $("plCat").value;
+    let precio, cat; const nombre = $("plNombre").value.trim(); precio = parseFloat($("plPrecio").value); cat = $("plCat").value === "__nueva" ? $("plCatNueva").value.trim().replace(/\s+/g, " ") : $("plCat").value;
     if (!cat || cat.length < 2) return setMsg("plMsg", "Escribe el nombre de la nueva categoría.", "error");
     if (nombre.length < 2) return setMsg("plMsg", "Escribe el nombre del plato.", "error");
+    const variantes = leerOpc($("plVar").value, 6), extras = leerOpc($("plExt").value, 8);
+    if ($("plVar").value.trim() && !variantes.length) return setMsg("plMsg", "Tamaños: usa el formato «Nombre = precio», una por línea.", "error");
+    if ($("plExt").value.trim() && !extras.length) return setMsg("plMsg", "Adicionales: usa el formato «Nombre = precio», una por línea.", "error");
+    if (!(precio >= 0) && variantes.length) precio = Math.min(...variantes.map((v) => v.p));
     if (!(precio >= 0)) return setMsg("plMsg", "Escribe un precio válido.", "error");
     const sabores = [...new Set($("plSab").value.split(",").map((x) => x.trim().slice(0, 20)).filter(Boolean))].slice(0, 8);
-    const d = { sabores: sabores.length ? sabores : null, nombre, desc: $("plDesc").value.trim().slice(0, 160), precio: Math.round(precio * 100) / 100, cat: cat.slice(0, 24), foto: foto || null, actualizado: TS };
+    const d = { sabores: sabores.length ? sabores : null, variantes: variantes.length ? variantes : null, extras: extras.length ? extras : null, nombre, desc: $("plDesc").value.trim().slice(0, 160), precio: Math.round(precio * 100) / 100, cat: cat.slice(0, 24), foto: foto || null, actualizado: TS };
     $("plOk").disabled = true;
     try {
       if (id) await db.ref("menus/" + mid() + "/" + id).update(d);

@@ -608,6 +608,22 @@
           "foto": {
             ".validate": "newData.isString() && newData.val().length < 120000"
           },
+          "variantes": {
+            "$i": {
+              ".validate": "newData.hasChildren(['n', 'p'])",
+              "n": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 24" },
+              "p": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
+              "$otro": { ".validate": false }
+            }
+          },
+          "extras": {
+            "$i": {
+              ".validate": "newData.hasChildren(['n', 'p'])",
+              "n": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 24" },
+              "p": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
+              "$otro": { ".validate": false }
+            }
+          },
           "sabores": {
             "$i": {
               ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 20"
