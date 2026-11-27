@@ -514,6 +514,9 @@
           ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isString() && newData.val().length <= 160"
         },
+        "menuDe": {
+          ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 64 && newData.val() !== $uid && root.child('restaurantes').child(newData.val()).exists()"
+        },
         "ciudad": {
           ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
           ".validate": "newData.isString() && newData.val().matches(/^[a-z0-9-]{2,30}$/)"
@@ -584,7 +587,7 @@
       ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
       "$uid": {
         ".read": "auth != null",
-        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (auth.uid === $uid && root.child('restaurantes').child($uid).exists() && root.child('restaurantes').child($uid).child('activo').val() !== false))",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || root.child('restaurantes').child(auth.uid).child('menuDe').val() === $uid) && root.child('restaurantes').child(auth.uid).exists() && root.child('restaurantes').child(auth.uid).child('activo').val() !== false))",
         "$id": {
           ".validate": "newData.hasChildren(['nombre', 'precio'])",
           "nombre": {
@@ -622,6 +625,15 @@
           "$otro": {
             ".validate": false
           }
+        }
+      }
+    },
+    "menusCats": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || ((auth.uid === $uid || root.child('restaurantes').child(auth.uid).child('menuDe').val() === $uid) && root.child('restaurantes').child(auth.uid).exists() && root.child('restaurantes').child(auth.uid).child('activo').val() !== false))",
+        "$i": {
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 24"
         }
       }
     },

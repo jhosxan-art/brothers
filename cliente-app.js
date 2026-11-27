@@ -744,7 +744,7 @@
     if (!el) {
       el = document.createElement("div"); el.id = "restCrono";
       el.style.cssText = "align-self:flex-end;width:fit-content;margin:2px 12px 2px auto;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;background:rgba(255,255,255,.85);color:#0B4F7A;border:1px solid #CFE6F7";
-      const cv = $("convo"); cv.parentNode.insertBefore(el, cv);
+      const cv = $("mensajes"); cv.parentNode.insertBefore(el, cv);
     }
     const tick = () => {
       const d = fin - Date.now(), a = Math.abs(Math.round(d / 1000));
@@ -1644,7 +1644,7 @@
       const s = await db.ref("restaurantes").orderByChild("ciudad").equalTo(ciudadActiva.id).once("value");
       return Object.entries(s.val() || {})
         .filter(([, r]) => r && r.activo !== false && r.abierto === true && typeof r.nombre === "string" && okLL(Number(r.lat), Number(r.lng)))
-        .map(([uid, r]) => ({ uid, nombre: String(r.nombre).slice(0, 60), lat: Number(r.lat), lng: Number(r.lng), prepMin: Number(r.prepMin) || 0 }))
+        .map(([uid, r]) => ({ uid, nombre: String(r.nombre).slice(0, 60), lat: Number(r.lat), lng: Number(r.lng), prepMin: Number(r.prepMin) || 0, menuDe: typeof r.menuDe === "string" ? r.menuDe : "" }))
         .sort((a, b) => a.nombre.localeCompare(b.nombre)).slice(0, 30);
     } catch (_) { return []; }
   }
@@ -1670,7 +1670,7 @@
     const tk = norm(texto).split(/\s+/).filter((x) => x.length >= 2);
     if (!tk.length) return [];
     const res = await Promise.all(lista.map(async (r) => {
-      const platos = await cargarPlatos(r.uid), nn = norm(r.nombre);
+      const platos = await cargarPlatos(r.menuDe || r.uid), nn = norm(r.nombre);
       const hit = platos.filter((p) => { const h = norm(p.nombre + " " + (p.desc || "") + " " + (p.cat || "")); return tk.every((x) => h.includes(x)); });
       const porNombre = tk.every((x) => nn.includes(x));
       if (!porNombre && !hit.length) return null;
@@ -1699,7 +1699,7 @@
      Resuelve { items, nota } | { sinMenu } | { volver } */
   function armarPedidoMenu(id, r) {
     return new Promise(async (res) => {
-      const platos = await cargarPlatos(r.uid);
+      const platos = await cargarPlatos(r.menuDe || r.uid);
       if (!vivo(id)) return;
       if (!platos.length) return res({ sinMenu: true });
       estiloMenu();

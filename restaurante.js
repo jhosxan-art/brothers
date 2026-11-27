@@ -115,13 +115,25 @@ auth.onAuthStateChanged(async (u) => {
   } catch (e) { detener(); uid = null; vista("denegado"); }
 });
 
+/* Menú compartido entre sucursales: si el administrador vinculó este negocio a otro (menuDe), se usa ese menú. */
+let mActual = null;
+const mid = () => (perfil && perfil.menuDe) || uid;
+function escucharMenu() {
+  if (refMenu) { try { refMenu.off(); } catch (_) {} }
+  mActual = mid();
+  refMenu = db.ref("menus/" + mActual);
+  refMenu.on("value", (s) => { diag.menu = "ok"; pintarDiag(); menu = s.val() || {}; pintarMenu(); }, (e) => { diag.menu = e.code || e.message; pintarDiag(); });
+  if (refCats) { try { refCats.off(); } catch (_) {} }
+  catsGuardadas = null;
+  refCats = db.ref("menusCats/" + mActual);
+  refCats.on("value", (s) => { const v = s.val(); catsGuardadas = Array.isArray(v) ? v.filter((x) => typeof x === "string") : null; pintarMenu(); }, () => {});
+}
 function iniciar() {
   detener();
   primeraCarga = true; vistos.clear();
   refPerfil = db.ref("restaurantes/" + uid);
-  refPerfil.on("value", (s) => { diag.perfil = "ok"; pintarDiag(); perfil = s.val() || {}; pintarPerfilBarra(); if (!perfilPintado) pintarPerfil(); }, (e) => { diag.perfil = e.code || e.message; pintarDiag(); });
-  refMenu = db.ref("menus/" + uid);
-  refMenu.on("value", (s) => { diag.menu = "ok"; pintarDiag(); menu = s.val() || {}; pintarMenu(); }, (e) => { diag.menu = e.code || e.message; pintarDiag(); });
+  refPerfil.on("value", (s) => { diag.perfil = "ok"; pintarDiag(); perfil = s.val() || {}; pintarPerfilBarra(); if (!perfilPintado) pintarPerfil(); if (mActual !== mid()) escucharMenu(); }, (e) => { diag.perfil = e.code || e.message; pintarDiag(); });
+  escucharMenu();
   /* Pedidos: índice restaurantePedidos/{uid}/{id} (lo escribe el cliente al pedir) + un oyente por pedido */
   refPedidos = db.ref("restaurantePedidos/" + uid).limitToLast(100);
   refPedidos.on("child_added", (x) => { diag.indice = "ok"; pintarDiag(); escucharPedido(x.key); }, (e) => { diag.indice = e.code || e.message; pintarDiag(); });
@@ -144,7 +156,7 @@ function escucharPedido(id) {
     const r = db.ref(base + "/" + ruta); lista.push(r);
     r.on("value", (s) => { parte[k] = s.val(); armar(); }, (e) => {
       (refsPed[id] || []).forEach((x) => { try { x.off(); } catch (_) {} }); refsPed[id] = [];
-      delete pedidos[id]; diag["pedido " + bonito(id) + " " + ruta] = e.code || e.message; pintarDiag(); pintarPedidos();
+      delete pedidos[id]; if (ruta !== "vistaRestaurante") diag["pedido " + bonito(id) + " " + ruta] = e.code || e.message; pintarDiag(); pintarPedidos();
     });
   });
   refsPed[id] = lista;
@@ -156,8 +168,8 @@ function pintarDiag() {
 function detener() {
   Object.keys(refsPed).forEach((k) => { (refsPed[k] || []).forEach((r) => { try { r.off(); } catch (_) {} }); delete refsPed[k]; });
   Object.keys(diag).forEach((k) => { delete diag[k]; });
-  [refPerfil, refMenu, refPedidos].forEach((r) => { try { r && r.off(); } catch (_) {} });
-  refPerfil = refMenu = refPedidos = null; cerrarChat();
+  [refPerfil, refMenu, refPedidos, refCats].forEach((r) => { try { r && r.off(); } catch (_) {} });
+  refPerfil = refMenu = refPedidos = refCats = null; cerrarChat();
   perfil = {}; menu = {}; pedidos = {}; perfilPintado = false;   // OJO: uid NO se borra aquí (iniciar() lo necesita)
 }
 
@@ -305,14 +317,49 @@ function accion(id, a) {
    2) MENÚ  (menus/{uid}/{id})
    ============================================================ */
 const CATS_BASE = ["Platos", "Bebidas", "Postres", "Extras"];
-function categorias() {
-  const v = new Set(CATS_BASE);
+let catsGuardadas = null, refCats = null;
+function listaCats() {
+  const v = new Set(Array.isArray(catsGuardadas) && catsGuardadas.length ? catsGuardadas : CATS_BASE);
   Object.values(menu).forEach((p) => { if (p && p.cat) v.add(p.cat); });
-  return ["Todos", ...v];
+  return [...v];
+}
+function categorias() { return ["Todos", ...listaCats()]; }
+/* Gestión de categorías (menusCats/{menú}) */
+function formCats() {
+  const cs = listaCats();
+  modal(`<h2>⚙️ Categorías</h2>
+    <div class="rt-catlista">${cs.map((c) => `<div class="rt-catfila"><span>${esc(c)}</span><button class="mini peligro" type="button" data-del="${esc(c)}" aria-label="Eliminar ${esc(c)}">🗑</button></div>`).join("")}</div>
+    <label>Nueva categoría<input id="ctNueva" maxlength="24" placeholder="Ej. Combos, Desayunos"></label>
+    <div id="ctMsg" class="estado oculto" role="alert"></div>
+    <button id="ctAdd" class="primario" type="button">➕ Agregar categoría</button>
+    <button id="ctOk" class="oscuro" type="button">Listo</button>`);
+  $("ctOk").onclick = cerrarModal;
+  $("ctAdd").onclick = async () => {
+    const n = $("ctNueva").value.trim().replace(/\s+/g, " ");
+    if (n.length < 2) return setMsg("ctMsg", "Escribe el nombre (mínimo 2 letras).", "error");
+    if (cs.some((c) => c.toLowerCase() === n.toLowerCase())) return setMsg("ctMsg", "Esa categoría ya existe.", "error");
+    if (cs.length >= 20) return setMsg("ctMsg", "Máximo 20 categorías.", "error");
+    try { const nl = cs.concat([n.slice(0, 24)]); await db.ref("menusCats/" + mid()).set(nl); catsGuardadas = nl; pintarMenu(); formCats(); }
+    catch (err) { setMsg("ctMsg", "No se pudo guardar: " + (err.code || err.message), "error"); }
+  };
+  $("modalRtCaja").querySelectorAll("[data-del]").forEach((b) => {
+    b.onclick = async () => {
+      const c = b.dataset.del;
+      if (cs.length <= 1) return setMsg("ctMsg", "Debe quedar al menos una categoría.", "error");
+      const usados = Object.entries(menu).filter(([, p]) => p && p.cat === c);
+      if (!confirm(usados.length ? `¿Eliminar «${c}»? Sus ${usados.length} producto(s) pasarán a «Otros».` : `¿Eliminar «${c}»?`)) return;
+      let nl = cs.filter((x) => x !== c);
+      const upd = {};
+      if (usados.length) { if (nl.indexOf("Otros") < 0) nl.push("Otros"); usados.forEach(([id]) => { upd["menus/" + mid() + "/" + id + "/cat"] = "Otros"; }); }
+      upd["menusCats/" + mid()] = nl;
+      try { await db.ref().update(upd); catsGuardadas = nl; if (catSel === c) catSel = "Todos"; pintarMenu(); formCats(); }
+      catch (err) { setMsg("ctMsg", "No se pudo eliminar: " + (err.code || err.message), "error"); }
+    };
+  });
 }
 function pintarMenu() {
   const cats = categorias(); if (cats.indexOf(catSel) < 0) catSel = "Todos";
-  $("rtCats").innerHTML = cats.map((c) => `<button type="button" class="${c === catSel ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("");
+  $("rtCats").innerHTML = cats.map((c) => `<button type="button" class="${c === catSel ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("") + `<button type="button" data-c="__gest" aria-label="Gestionar categorías">⚙️ Categorías</button>`;
   const lista = Object.entries(menu).map(([id, p]) => Object.assign({ id }, p)).filter((p) => catSel === "Todos" || p.cat === catSel)
     .sort((a, b) => (a.orden || 0) - (b.orden || 0) || String(a.nombre).localeCompare(String(b.nombre)));
   $("rtListaMenu").innerHTML = lista.length ? lista.map((p) => `<article class="rt-pl ${p.activo === false ? "off" : ""}" data-id="${esc(p.id)}">
@@ -321,12 +368,12 @@ function pintarMenu() {
       <div class="rt-pl-pie"><label class="rt-pl-sw"><button class="rt-sw" type="button" role="switch" data-a="sw" aria-checked="${p.activo !== false}" aria-label="Disponible"></button><span>${p.activo === false ? "No disponible" : "Disponible"}</span></label><button class="mini" type="button" data-a="ed">✏️ Editar</button></div>
     </article>`).join("") : `<p class="rt-vacio">${Object.keys(menu).length ? "No hay platos en esta categoría." : "Aún no tienes platos. Toca «➕ Plato» para agregar el primero."}</p>`;
 }
-$("rtCats").onclick = (e) => { const b = e.target.closest("[data-c]"); if (b) { catSel = b.dataset.c; pintarMenu(); } };
+$("rtCats").onclick = (e) => { const b = e.target.closest("[data-c]"); if (!b) return; if (b.dataset.c === "__gest") return formCats(); catSel = b.dataset.c; pintarMenu(); };
 $("rtListaMenu").onclick = async (e) => {
   const b = e.target.closest("[data-a]"), c = e.target.closest("[data-id]"); if (!b || !c) return;
   const id = c.dataset.id, p = menu[id]; if (!p) return;
   if (b.dataset.a === "ed") return formPlato(p, id);
-  try { await db.ref("menus/" + uid + "/" + id + "/activo").set(p.activo === false); }
+  try { await db.ref("menus/" + mid() + "/" + id + "/activo").set(p.activo === false); }
   catch (err) { toast("No se pudo cambiar: " + (err.code || err.message)); }
 };
 $("btnNuevoPlato").onclick = () => formPlato({ cat: catSel === "Todos" ? "Platos" : catSel }, null);
@@ -347,14 +394,16 @@ function reducirFoto(file, max, calidad) {
 }
 function formPlato(p, id) {
   let foto = p.foto || "";
-  const cats = categorias().filter((c) => c !== "Todos");
+  const cats = categorias().filter((c) => c !== "Todos"), catIni = p.cat || cats[0] || "Platos";
+  if (cats.indexOf(catIni) < 0) cats.unshift(catIni);
   modal(`<h2>${id ? "✏️ Editar plato" : "➕ Nuevo plato"}</h2>
     <label>Nombre<input id="plNombre" maxlength="60" value="${esc(p.nombre || "")}" placeholder="Ej. Pollo con tajadas"></label>
     <label>Descripción (opcional)<textarea id="plDesc" rows="2" maxlength="160" placeholder="Acompañado de…">${esc(p.desc || "")}</textarea></label>
     <div class="rt-fila2">
       <label>Precio (C$)<input id="plPrecio" type="number" inputmode="decimal" min="0" step="0.01" value="${p.precio != null ? esc(p.precio) : ""}" placeholder="0.00"></label>
-      <label>Categoría<input id="plCat" list="plCats" maxlength="24" value="${esc(p.cat || "Platos")}"><datalist id="plCats">${cats.map((c) => `<option value="${esc(c)}">`).join("")}</datalist></label>
+      <label>Categoría<select id="plCat">${cats.map((c) => `<option value="${esc(c)}" ${c === catIni ? "selected" : ""}>${esc(c)}</option>`).join("")}<option value="__nueva">➕ Nueva categoría…</option></select></label>
     </div>
+    <input id="plCatNueva" class="oculto" maxlength="24" placeholder="Nombre de la nueva categoría">
     <label>Sabores (opcional, separados por coma)<input id="plSab" maxlength="160" value="${esc(Array.isArray(p.sabores) ? p.sabores.join(", ") : "")}" placeholder="Ej. Naranja, Piña, Cola"></label>
     <div class="eq-foto-fila"><div id="plFotoPrev" class="rt-plato-img">${foto ? `<img src="${esc(foto)}" alt="">` : "🍽️"}</div>
       <div class="eq-foto-txt"><strong>Foto (opcional)</strong><div class="acciones-fila"><button id="plFotoBtn" class="mini" type="button">Elegir</button><button id="plFotoQ" class="mini peligro ${foto ? "" : "oculto"}" type="button">Quitar</button></div></div>
@@ -365,6 +414,7 @@ function formPlato(p, id) {
     <button id="plNo" class="oscuro" type="button">Cancelar</button>`);
   const prev = () => { $("plFotoPrev").innerHTML = foto ? `<img src="${esc(foto)}" alt="">` : "🍽️"; $("plFotoQ").classList.toggle("oculto", !foto); };
   $("plNo").onclick = cerrarModal;
+  $("plCat").onchange = () => { const n = $("plCat").value === "__nueva"; $("plCatNueva").classList.toggle("oculto", !n); if (n) $("plCatNueva").focus(); };
   $("plFotoBtn").onclick = () => $("plFotoFile").click();
   $("plFotoQ").onclick = () => { foto = ""; prev(); };
   $("plFotoFile").onchange = async (e) => {
@@ -373,18 +423,20 @@ function formPlato(p, id) {
   };
   if (id) $("plDel").onclick = async () => {
     if (!confirm("¿Eliminar este plato del menú?")) return;
-    try { await db.ref("menus/" + uid + "/" + id).remove(); cerrarModal(); toast("Plato eliminado."); } catch (err) { setMsg("plMsg", err.code || err.message, "error"); }
+    try { await db.ref("menus/" + mid() + "/" + id).remove(); cerrarModal(); toast("Plato eliminado."); } catch (err) { setMsg("plMsg", err.code || err.message, "error"); }
   };
   $("plOk").onclick = async () => {
-    const nombre = $("plNombre").value.trim(), precio = parseFloat($("plPrecio").value), cat = $("plCat").value.trim() || "Platos";
+    const nombre = $("plNombre").value.trim(), precio = parseFloat($("plPrecio").value), cat = $("plCat").value === "__nueva" ? $("plCatNueva").value.trim().replace(/\s+/g, " ") : $("plCat").value;
+    if (!cat || cat.length < 2) return setMsg("plMsg", "Escribe el nombre de la nueva categoría.", "error");
     if (nombre.length < 2) return setMsg("plMsg", "Escribe el nombre del plato.", "error");
     if (!(precio >= 0)) return setMsg("plMsg", "Escribe un precio válido.", "error");
     const sabores = [...new Set($("plSab").value.split(",").map((x) => x.trim().slice(0, 20)).filter(Boolean))].slice(0, 8);
     const d = { sabores: sabores.length ? sabores : null, nombre, desc: $("plDesc").value.trim().slice(0, 160), precio: Math.round(precio * 100) / 100, cat: cat.slice(0, 24), foto: foto || null, actualizado: TS };
     $("plOk").disabled = true;
     try {
-      if (id) await db.ref("menus/" + uid + "/" + id).update(d);
-      else { const k = db.ref("menus/" + uid).push().key; await db.ref("menus/" + uid + "/" + k).set(Object.assign(d, { activo: true, orden: Date.now(), creado: TS })); }
+      if (id) await db.ref("menus/" + mid() + "/" + id).update(d);
+      else { const k = db.ref("menus/" + mid()).push().key; await db.ref("menus/" + mid() + "/" + k).set(Object.assign(d, { activo: true, orden: Date.now(), creado: TS })); }
+      if (listaCats().every((c) => c.toLowerCase() !== cat.toLowerCase())) { const nl = listaCats().concat([cat.slice(0, 24)]); await db.ref("menusCats/" + mid()).set(nl); catsGuardadas = nl; }
       cerrarModal(); toast("Plato guardado ✓");
     } catch (err) { setMsg("plMsg", "No se pudo guardar: " + (err.code || err.message), "error"); $("plOk").disabled = false; }
   };

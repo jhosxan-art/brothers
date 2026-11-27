@@ -1473,11 +1473,12 @@ function pintarRestaurantes() {
         <span class="avatar">🍔</span>
         <div class="datos"><strong>${esc(r.nombre || "Sin nombre")}</strong>
           <small>${esc(email || uid.slice(0, 8) + "…")} · ${esc(ciudad)}</small>
-          <small>${sinUbic ? "⚠️ Aún no fija su ubicación" : "📍 Ubicación lista"}</small></div>
+          <small>${sinUbic ? "⚠️ Aún no fija su ubicación" : "📍 Ubicación lista"}${r.menuDe && restaurantes[r.menuDe] ? " · 🔗 Menú de " + esc(restaurantes[r.menuDe].nombre || "") + " (" + esc(restaurantes[r.menuDe].ciudad && Ciudades.porId(restaurantes[r.menuDe].ciudad) ? Ciudades.nombre(restaurantes[r.menuDe].ciudad) : "") + ")" : ""}</small></div>
         <span class="chip ${clase}">${texto}</span>
       </div>
       <div class="acciones-fila">
         ${inactivo ? "" : `<button class="mini" data-ra="abierto" data-uid="${esc(uid)}">${r.abierto === true ? "Cerrar" : "Abrir"}</button>`}
+        <button class="mini" data-ra="menu" data-uid="${esc(uid)}">🔗 Menú compartido</button>
         <button class="mini" data-ra="activo" data-uid="${esc(uid)}">${inactivo ? "Activar" : "Desactivar"}</button>
         ${email ? `<button class="mini" data-ra="reset" data-uid="${esc(uid)}">Restablecer clave</button>` : ""}
         <button class="mini peligro" data-ra="quitar" data-uid="${esc(uid)}">Quitar</button>
@@ -1497,6 +1498,17 @@ $("listaRest").onclick = (e) => {
     if (!activar && !confirm(`¿Desactivar a ${n}? No podrá entrar a su app y dejará de aparecer a los clientes.`)) return;
     db.ref("restaurantes/" + uid).update(activar ? { activo: true, actualizado: TS } : { activo: false, abierto: false, actualizado: TS })
       .then(() => ok(n + (activar ? " activado." : " desactivado."))).catch(mal);
+  } else if (b.dataset.ra === "menu") {
+    const otros = Object.keys(restaurantes).filter((u) => u !== uid && !restaurantes[u].menuDe)
+      .sort((x, y) => String(restaurantes[x].nombre || "").localeCompare(String(restaurantes[y].nombre || "")));
+    if (!otros.length) return setMsg("msgRest", "No hay otro restaurante con menú propio para vincular.", "error");
+    const lista = otros.map((u, i) => (i + 1) + ". " + (restaurantes[u].nombre || "?") + " (" + (restaurantes[u].ciudad && Ciudades.porId(restaurantes[u].ciudad) ? Ciudades.nombre(restaurantes[u].ciudad) : "sin ciudad") + ")").join("\n");
+    const r0 = prompt("Usar el menú de otra sucursal para " + n + ".\nEscribe el número (0 = quitar vínculo):\n\n" + lista, "");
+    if (r0 === null) return;
+    const i = parseInt(r0, 10);
+    if (i === 0) return db.ref("restaurantes/" + uid).update({ menuDe: null, actualizado: TS }).then(() => ok("Vínculo quitado.")).catch(mal);
+    if (!(i >= 1 && i <= otros.length)) return setMsg("msgRest", "Número no válido.", "error");
+    db.ref("restaurantes/" + uid).update({ menuDe: otros[i - 1], actualizado: TS }).then(() => ok(n + " ahora usa el menú de " + (restaurantes[otros[i - 1]].nombre || "") + ".")).catch(mal);
   } else if (b.dataset.ra === "reset") {
     const em = (restPriv[uid] || {}).email; if (!em) return;
     auth.sendPasswordResetEmail(em).then(() => ok(`Enviamos un correo a ${em} para cambiar su contraseña.`)).catch((err) => setMsg("msgRest", errorAuth(err), "error"));
