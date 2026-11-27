@@ -50,6 +50,9 @@ jobs:
           if [ -f icon-restaurante-only.png ]; then cp icon-restaurante-only.png www/icon-restaurante-only.png
           elif [ -f assets/icon-restaurante-only.png ]; then cp assets/icon-restaurante-only.png www/icon-restaurante-only.png
           else echo "::warning::No se encontró icon-restaurante-only.png ni en la raiz ni en assets/."; fi
+          for f in logo.png restaurante-icon.png; do
+            if [ -f "$f" ]; then cp "$f" "www/$f"; elif [ -f "assets/$f" ]; then cp "assets/$f" "www/$f"; else echo "::warning::Falta $f en la raiz o en assets/ (se usa icon-192.png)."; fi
+          done
           cp restaurante.html www/index.html
 
       - name: Instalar dependencias
