@@ -1236,6 +1236,13 @@
           },
           ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid"
         },
+        "retiroRest": {
+          ".write": "auth != null && (root.child('admins').child(auth.uid).exists() || (root.child('repartidores').child(auth.uid).exists() && root.child('solicitudes_entrantes').child($solicitudId).child('repartidorUid').val() === auth.uid))",
+          ".validate": "newData.hasChildren(['ts', 'delivery'])",
+          "ts": { ".validate": "newData.isNumber()" },
+          "delivery": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000" },
+          "$otro": { ".validate": false }
+        },
         "vistaRestaurante": {
           ".read": "auth != null && root.child('restaurantes').child(auth.uid).exists() && data.parent().child('restauranteUid').val() === auth.uid",
           ".validate": "newData.hasChildren(['items', 'subtotal', 'ts'])",

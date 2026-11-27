@@ -2121,6 +2121,18 @@ function pintarLugares() {
     } else { m.setLatLng([l.lat, l.lng]); if (m._clave !== clave) { m.setIcon(iconoLugarPlano(l)); m._clave = clave; } }
   });
 }
+setInterval(() => {
+  let c = {}; try { c = (window.__cronoRest && window.__cronoRest()) || {}; } catch (_) {}
+  Object.keys(lugarMarks).forEach((id) => {
+    const m = lugarMarks[id], e = m && m.getElement && m.getElement(); if (!e) return;
+    let b = e.querySelector(".rep-crono"); const x = c[id];
+    if (!x) { if (b) b.remove(); return; }
+    if (!b) { b = document.createElement("div"); b.className = "rep-crono"; b.style.cssText = "position:absolute;left:50%;top:-26px;transform:translateX(-50%);white-space:nowrap;padding:2px 8px;border-radius:999px;font:800 12px/1.3 system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.35);pointer-events:none;z-index:5"; e.appendChild(b); }
+    const ms = x.fin - Date.now(), a = Math.abs(Math.round(ms / 1000));
+    b.style.background = x.listo ? "#1A7F37" : ms < 0 ? "#B3261E" : "#0B4F7A";
+    b.textContent = x.listo ? "🛍️ Listo" : "⏱ " + (ms < 0 ? "+" : "") + String(Math.floor(a / 60)).padStart(2, "0") + ":" + String(a % 60).padStart(2, "0");
+  });
+}, 1000);
 let verNegociosRep = localStorage.getItem("verNegociosRep") !== "0";
 function aplicarNegociosRep() {
   const b = $("btnVerNegociosRep");
@@ -4024,6 +4036,7 @@ const ChatsEntrantes = (() => {
     if (!mios_.length) mios.appendChild(el("div", "cn-vacio", "Aún no atiendes ningún chat."));
     mios_.forEach((k) => mios.appendChild(filaChat(k, lista[k], true)));
     pintarRegistro();
+    try { pintarRetiroPanel(); } catch (_) {}
   }
   function marcarConPedido() {
     const on = orden.length > 0
@@ -4752,25 +4765,107 @@ const ChatsEntrantes = (() => {
     leerUltimaDirCliente(d);
     marcarLeidoPropio(id);
     pintarTyping();
+    retEdit = false; retFirma = ""; try { pintarRetiroPanel(); } catch (_) {}
   }
   function pintarPedidoInicial(d) {
     const p = (d && d.pedido) || {};
     if (!p.quiere && !p.origen) return;
     const c = $("cnMsgs");
     const b = el("div", "cn-b cn-pedido-ini");
-    b.appendChild(el("strong", "cn-pi-tit", "🛍️ Pedido del cliente"));
-    const fila = (et, val) => {
-      const f = el("div", "cn-pi-fila");
-      f.appendChild(el("small", "", et));
-      f.appendChild(el("span", "", val));
-      b.appendChild(f);
-    };
-    fila("Qué desea", p.quiere ? cortar(p.quiere, 300) : "No lo indicó");
-    fila("De dónde", p.origen ? cortar(p.origen, 160) : "No lo indicó");
-    fila("Entregar en", textoDestino(d));
+    const it = Array.isArray(p.items) && p.items.length ? p.items : null;
+    b.appendChild(el("strong", "cn-pi-tit", it ? "🍔 " + cortar(p.restauranteNombre || p.origen || "Pedido", 60) : "🛍️ Pedido del cliente"));
+    if (it) {
+      it.slice(0, 40).forEach((i) => b.appendChild(el("span", "cn-pi-it", "• " + (Number(i.q) || 1) + " × " + cortar(String(i.n || ""), 60))));
+      if (p.nota) b.appendChild(el("span", "cn-pi-it", "📝 " + cortar(p.nota, 200)));
+      if (Number(p.subtotal) > 0) b.appendChild(el("span", "cn-pi-it", "💰 Productos: C$ " + (Math.round(Number(p.subtotal) * 100) / 100).toFixed(2)));
+    } else {
+      const fila = (et, val) => { const f = el("div", "cn-pi-fila"); f.appendChild(el("small", "", et)); f.appendChild(el("span", "", val)); b.appendChild(f); };
+      fila("Qué desea", p.quiere ? cortar(p.quiere, 300) : "No lo indicó");
+      if (p.origen) fila("De dónde", cortar(p.origen, 160));
+    }
     const ts = Number(d.ts || d.creadoTs || d.atendidoTs) || 0;
     if (ts) b.appendChild(el("span", "cn-h", horaDe(ts)));
     c.appendChild(b);
+  }
+
+  /* ---------- Pedido de restaurante: cronómetro, «Ya retiré» y factura automática ---------- */
+  (function () {
+    const st = document.createElement("style");
+    st.textContent = "#vistaChats .cn-pi-it{font-size:14px;font-weight:600;overflow-wrap:anywhere}" +
+      ".cn-retiro{margin:6px 10px;padding:10px 12px;border-radius:14px;background:#fff;border:1px solid #D0D7DE;display:grid;gap:8px;box-shadow:0 1px 3px rgba(0,0,0,.08)}.cn-retiro.oculto{display:none}" +
+      ".cn-retiro .rr-f{display:flex;align-items:center;justify-content:space-between;gap:8px}.cn-retiro b{font-size:14px}.cn-retiro .rr-t{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:#0B4F7A}.cn-retiro .rr-t.tarde{color:#B3261E}.cn-retiro .rr-t.ok{color:#1A7F37;font-size:15px}" +
+      ".cn-retiro button{min-height:44px;border:0;border-radius:12px;background:#1A7F37;color:#fff;font-weight:800;font-size:15px;padding:0 14px}.cn-retiro button.gris{background:#EEF1F4;color:#24292F}.cn-retiro input{height:44px;border:1px solid #D0D7DE;border-radius:12px;padding:0 12px;font-size:16px;min-width:0;flex:1}.cn-retiro .rr-ok{font-size:13px;font-weight:700;color:#1A7F37}";
+    document.head.appendChild(st);
+  })();
+  const retEl = el("div", "cn-retiro oculto"); retEl.id = "cnRetiro";
+  $("cnConv").insertBefore(retEl, $("cnMsgs"));
+  const finRest = (d) => { const r = d && d.rest; return r && Number(r.prepMin) && Number(r.aceptadoTs) ? Number(r.aceptadoTs) + Number(r.prepMin) * 60000 : 0; };
+  const mmssRep = (ms) => { const a = Math.abs(Math.round(ms / 1000)); return (ms < 0 ? "+" : "") + String(Math.floor(a / 60)).padStart(2, "0") + ":" + String(a % 60).padStart(2, "0"); };
+  window.__cronoRest = () => {
+    const out = {};
+    Object.values(lista).forEach((d) => {
+      if (!mio(d) || !d.restauranteUid || (d.retiroRest && d.retiroRest.ts)) return;
+      const e = d.rest && d.rest.estado, fin = finRest(d);
+      if (fin && (e === "aceptado" || e === "preparando" || e === "listo")) out["rest_" + d.restauranteUid] = { fin, listo: e === "listo" };
+    });
+    return out;
+  };
+  let retTick = null, retEdit = false, retFirma = "";
+  function pintarRetiroPanel() {
+    const id = abiertoId, d = id && lista[id];
+    if (!d || !mio(d) || !d.restauranteUid) { clearInterval(retTick); retFirma = ""; retEl.classList.add("oculto"); return; }
+    const e = (d.rest && d.rest.estado) || "pendiente", hecho = !!(d.retiroRest && d.retiroRest.ts), fin = finRest(d);
+    const firma = [id, e, hecho, retEdit, fin].join("|");
+    if (firma !== retFirma) {
+      retFirma = firma; retEl.textContent = ""; retEl.classList.remove("oculto");
+      const f1 = el("div", "rr-f"); f1.appendChild(el("b", "", "🍔 " + cortar(d.pedido && d.pedido.restauranteNombre || "Negocio", 40)));
+      const t = el("span", "rr-t", ""); t.id = "rrT"; f1.appendChild(t); retEl.appendChild(f1);
+      if (hecho) { retEl.appendChild(el("div", "rr-ok", "✅ Retirado · Delivery C$ " + Number(d.retiroRest.delivery || 0).toFixed(2) + " · factura enviada")); }
+      else if (e === "rechazado") retEl.appendChild(el("div", "rr-ok", "⚠️ El negocio rechazó el pedido."));
+      else if (!retEdit) {
+        const bt = el("button", "", "✅ Ya retiré"); bt.type = "button"; bt.onclick = () => { retEdit = true; pintarRetiroPanel(); }; retEl.appendChild(bt);
+      } else {
+        const f2 = el("div", "rr-f"), inp = el("input", ""); inp.type = "number"; inp.inputMode = "decimal"; inp.min = "0"; inp.step = "1"; inp.placeholder = "Delivery C$";
+        const fj = typeof precioFijoDe === "function" ? Number(precioFijoDe(d)) : 0; if (fj > 0) inp.value = fj;
+        const ok = el("button", "", "Confirmar"); ok.type = "button";
+        const no = el("button", "gris", "✕"); no.type = "button"; no.onclick = () => { retEdit = false; pintarRetiroPanel(); };
+        ok.onclick = async () => {
+          const v = parseFloat(inp.value); if (!(v >= 0)) { inp.focus(); return; }
+          ok.disabled = true;
+          try { await confirmarRetiro(id, Math.round(v * 100) / 100); retEdit = false; }
+          catch (er) { aviso("No se pudo registrar el retiro: " + (er.code || er.message)); ok.disabled = false; }
+          pintarRetiroPanel();
+        };
+        f2.append(inp, ok, no); retEl.appendChild(f2);
+      }
+    }
+    clearInterval(retTick);
+    const t = document.getElementById("rrT");
+    if (!t) return;
+    if (hecho) { t.textContent = ""; return; }
+    const tick = () => {
+      if (e === "listo") { t.textContent = "🛍️ Listo"; t.className = "rr-t ok"; return; }
+      if (!fin) { t.textContent = e === "pendiente" ? "Esperando…" : ""; t.className = "rr-t ok"; return; }
+      const ms = fin - Date.now(); t.textContent = "⏱ " + mmssRep(ms); t.className = "rr-t" + (ms < 0 ? " tarde" : "");
+    };
+    tick(); retTick = setInterval(tick, 1000);
+  }
+  async function confirmarRetiro(id, delivery) {
+    const d = lista[id]; if (!mio(d) || !d.restauranteUid) throw new Error("Este pedido ya no está asignado a ti.");
+    const p = d.pedido || {}, items = Array.isArray(p.items) ? p.items : [];
+    const productos = items.map((i) => ({ nombre: cortar((Number(i.q) || 1) + " × " + String(i.n || ""), 80), precio: r2((Number(i.p) || 0) * (Number(i.q) || 1)) }));
+    const subtotal = r2(productos.reduce((a, x) => a + x.precio, 0)), total = r2(subtotal + delivery);
+    const fac = JSON.parse(JSON.stringify({ productos, subtotal, delivery, mandadoExtra: 0, prioridad: 0, deposito: false, total, totalFinal: total,
+      pedido: (typeof Factura.nuevoCodigoChat === "function" ? Factura.nuevoCodigoChat() : ""), cliente: cortar(d.nombre || "", 60) }));
+    const clave = db.ref(RAIZ + "/" + id + "/mensajes").push().key, cambios = {};
+    cambios["retiroRest"] = { ts: TS, delivery };
+    cambios["mensajes/" + clave] = { de: "repartidor", tipo: "factura", factura: fac, ts: TS };
+    cambios["ultimoMensaje"] = "🧾 Factura · " + dinero(total);
+    cambios["ultimoDe"] = "repartidor";
+    cambios["ts"] = TS;
+    cambios["facturaFinal"] = fac;
+    await db.ref(RAIZ + "/" + id).update(cambios);
+    guardarFacLocal(id, fac, fac);
   }
   function cerrarConversacion() {
     if (consultaMsgs) { consultaMsgs.off(); consultaMsgs = null; }
@@ -4780,6 +4875,7 @@ const ChatsEntrantes = (() => {
     apagarTypingPropio();
     abiertoId = null;
     lect = {}; typing = {}; ultimaDirCliente = null;
+    try { pintarRetiroPanel(); } catch (_) {}
     $("cnConv").classList.add("oculto");
     $("cnLista").classList.remove("oculto");
     $("cnUltimaDir").classList.add("oculto");

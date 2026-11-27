@@ -217,7 +217,8 @@ function tarjeta(s) {
     if (r === "aceptado" || r === "preparando") acc += `<button class="no" data-a="rechazar" type="button">✖ No puedo</button>`;
   }
   const rep = s.repartidorNombre ? `<div class="rt-rep">🛵 ${esc(s.repartidorNombre)}</div>` : (g === "curso" ? `<div class="rt-rep">🛵 Buscando repartidor…</div>` : "");
-  const prep = s.rest && s.rest.prepMin && g === "curso" ? `<div class="rt-rep">⏱ Preparación: ${esc(s.rest.prepMin)} min</div>` : "";
+  const fin = s.rest && s.rest.prepMin && s.rest.aceptadoTs ? Number(s.rest.aceptadoTs) + Number(s.rest.prepMin) * 60000 : 0;
+  const prep = fin && g === "curso" ? (r === "listo" ? `<div class="rt-crono ok">✅ Listo · tiempo pedido: ${esc(s.rest.prepMin)} min</div>` : `<div class="rt-crono" data-fin="${fin}"><span>⏱ Tiempo restante (${esc(s.rest.prepMin)} min)</span><b>--:--</b></div>`) : "";
   const mot = s.rest && s.rest.motivo && r === "rechazado" ? `<div class="rt-nota">Motivo: ${esc(s.rest.motivo)}</div>` : "";
   return `<article class="rt-ped ${g === "nuevo" ? "nuevo" : ""}" data-id="${esc(s.id)}">
     <div class="rt-ped-top"><div><strong>🛵 Brother’s Deliverys · ${esc(bonito(s.id))}</strong><small>${esc(hace(s.creado || s.ts))} · ${esc(hora(s.creado || s.ts))}</small></div><span class="rt-chip ${cl}">${esc(tx)}</span></div>
@@ -228,6 +229,16 @@ function tarjeta(s) {
     <div class="rt-acc">${acc}</div>
   </article>`;
 }
+function tickCrono() {
+  const n = Date.now();
+  document.querySelectorAll(".rt-crono[data-fin]").forEach((e) => {
+    const d = Number(e.dataset.fin) - n, a = Math.abs(Math.round(d / 1000)), m = Math.floor(a / 60), s = a % 60;
+    e.classList.toggle("tarde", d < 0);
+    e.querySelector("b").textContent = (d < 0 ? "+" : "") + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+    e.querySelector("span").textContent = d < 0 ? "⚠️ Retraso" : e.querySelector("span").textContent.replace("⚠️ Retraso", "⏱ Tiempo restante");
+  });
+}
+setInterval(tickCrono, 1000);
 function pintarPedidos() {
   const lista = Object.entries(pedidos).map(([id, s]) => Object.assign({ id }, s)).sort((a, b) => (b.creado || b.ts || 0) - (a.creado || a.ts || 0));
   const cnt = { nuevo: 0, curso: 0, finalizado: 0 };
@@ -242,6 +253,7 @@ function pintarPedidos() {
   lista.forEach((s) => vistos.add(s.id));
   if (nuevos.length) { pitar(); toast("📥 Pedido nuevo de Brother’s Deliverys " + bonito(nuevos[0].id)); }
   primeraCarga = false;
+  tickCrono();
 }
 $("rtFiltros").onclick = (e) => {
   const b = e.target.closest("[data-f]"); if (!b) return;
@@ -303,11 +315,11 @@ function pintarMenu() {
   $("rtCats").innerHTML = cats.map((c) => `<button type="button" class="${c === catSel ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("");
   const lista = Object.entries(menu).map(([id, p]) => Object.assign({ id }, p)).filter((p) => catSel === "Todos" || p.cat === catSel)
     .sort((a, b) => (a.orden || 0) - (b.orden || 0) || String(a.nombre).localeCompare(String(b.nombre)));
-  $("rtListaMenu").innerHTML = lista.length ? lista.map((p) => `<div class="rt-plato ${p.activo === false ? "off" : ""}" data-id="${esc(p.id)}">
-      <div class="rt-plato-img">${p.foto ? `<img src="${esc(p.foto)}" alt="">` : "🍽️"}</div>
-      <div class="rt-plato-tx"><b>${esc(p.nombre)}</b>${p.desc ? `<small>${esc(p.desc)}</small>` : ""}<em>${money(p.precio)}</em>${Array.isArray(p.sabores) && p.sabores.length ? `<small>🥤 ${esc(p.sabores.join(", "))}</small>` : ""}</div>
-      <div class="rt-plato-acc"><button class="rt-sw" type="button" role="switch" data-a="sw" aria-checked="${p.activo !== false}" aria-label="Disponible"></button><button class="mini" type="button" data-a="ed">✏️ Editar</button></div>
-    </div>`).join("") : `<p class="rt-vacio">${Object.keys(menu).length ? "No hay platos en esta categoría." : "Aún no tienes platos. Toca «➕ Plato» para agregar el primero."}</p>`;
+  $("rtListaMenu").innerHTML = lista.length ? lista.map((p) => `<article class="rt-pl ${p.activo === false ? "off" : ""}" data-id="${esc(p.id)}">
+      <div class="rt-pl-tx"><b>${esc(p.nombre)}</b>${p.desc ? `<small>${esc(p.desc)}</small>` : ""}<em>${money(p.precio)}</em>${Array.isArray(p.sabores) && p.sabores.length ? `<div class="rt-pl-sab">${p.sabores.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : ""}</div>
+      <div class="rt-pl-img">${p.foto ? `<img src="${esc(p.foto)}" alt="">` : "🍽️"}${p.activo === false ? `<i>Agotado</i>` : ""}</div>
+      <div class="rt-pl-pie"><label class="rt-pl-sw"><button class="rt-sw" type="button" role="switch" data-a="sw" aria-checked="${p.activo !== false}" aria-label="Disponible"></button><span>${p.activo === false ? "No disponible" : "Disponible"}</span></label><button class="mini" type="button" data-a="ed">✏️ Editar</button></div>
+    </article>`).join("") : `<p class="rt-vacio">${Object.keys(menu).length ? "No hay platos en esta categoría." : "Aún no tienes platos. Toca «➕ Plato» para agregar el primero."}</p>`;
 }
 $("rtCats").onclick = (e) => { const b = e.target.closest("[data-c]"); if (b) { catSel = b.dataset.c; pintarMenu(); } };
 $("rtListaMenu").onclick = async (e) => {
