@@ -118,11 +118,11 @@ function mostrar(vista) {
   $("vistaApp").classList.toggle("oculto", vista !== "app");
   $("btnSalir").classList.toggle("oculto", vista !== "app");
 }
-const PANELES = ["panelMapa", "panelPedidos", "panelChats", "panelEquipo"];
+const PANELES = ["panelMapa", "panelPedidos", "panelChats", "panelEquipo", "panelPromos"];
 document.querySelectorAll(".tabs button").forEach((b) => {
   b.onclick = () => {
     document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("activa", x === b));
-    PANELES.forEach((id) => $(id).classList.toggle("oculto", id !== b.dataset.tab));
+    PANELES.forEach((id) => { const e = $(id); if (e) e.classList.toggle("oculto", id !== b.dataset.tab); });
     if (b.dataset.tab === "panelMapa") {
       setTimeout(() => {
         mapa.invalidateSize();
