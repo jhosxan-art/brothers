@@ -129,8 +129,17 @@ jobs:
           if [ -n "$SRC_ICON" ]; then
             mkdir -p assets; cp "$SRC_ICON" assets/icon-only.png
             # Icono adaptativo: fondo blanco + logo al 70 % centrado (zona segura de Android). Sin fondo, el build falla (falta mipmap/ic_launcher_background).
-            ffmpeg -y -loglevel error -f lavfi -i color=c=white:s=1024x1024 -frames:v 1 assets/icon-background.png
-            ffmpeg -y -loglevel error -i "$SRC_ICON" -vf "format=rgba,scale=720:720:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -frames:v 1 assets/icon-foreground.png
+            python3 -m pip install --quiet pillow
+            SRC_ICON="$SRC_ICON" python3 - <<'PYI'
+          import os
+          from PIL import Image
+          im = Image.open(os.environ['SRC_ICON']).convert('RGBA')
+          Image.new('RGBA', (1024, 1024), (255, 255, 255, 255)).save('assets/icon-background.png')
+          im.thumbnail((720, 720), Image.LANCZOS)
+          fg = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))
+          fg.paste(im, ((1024 - im.width) // 2, (1024 - im.height) // 2), im)
+          fg.save('assets/icon-foreground.png')
+          PYI
             echo "Icono de la app: $SRC_ICON"
           else echo "::warning::Falta restaurante-icon.png (raíz o assets/): se usa el icono anterior."; fi
           if [ -f assets/icon-only.png ]; then npx --yes @capacitor/assets generate --android; else echo "::warning::Sin icono fuente: se usa el icono por defecto de Capacitor."; fi
