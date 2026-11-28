@@ -50,9 +50,13 @@ jobs:
             if [ -f "$f" ]; then cp "$f" "www/$f"; elif [ -f "assets/$f" ]; then cp "assets/$f" "www/$f"; fi
           done
           cp cliente-app.html www/index.html
+          # Número de compilación que usa la actualización obligatoria del APK
+          echo "window.APK_VERSION = ${{ github.run_number }};" > www/apk-version.js
 
       - name: Instalar dependencias
-        run: npm install --legacy-peer-deps
+        run: |
+          npm install --legacy-peer-deps
+          npm install --legacy-peer-deps --save @capacitor-community/file-opener@^6 || echo "::warning::No se pudo instalar file-opener: la actualización abrirá el enlace en el navegador."
 
       # Garantiza que Capacitor (core, android y CLI) estén bien instalados justo antes de crear el proyecto Android.
       # Repara el error "npm error could not determine executable to run" (el comando cap no existe en node_modules/.bin).
@@ -134,7 +138,7 @@ jobs:
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p, encoding='utf-8').read()
-          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "CAMERA", "RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS"]
+          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK", "REQUEST_INSTALL_PACKAGES", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "CAMERA", "RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS"]
           add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if 'android.permission.%s"' % x not in s)
           if 'android.hardware.camera' not in s:
               add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'

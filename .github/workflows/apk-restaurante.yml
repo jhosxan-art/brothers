@@ -54,9 +54,13 @@ jobs:
             if [ -f "$f" ]; then cp "$f" "www/$f"; elif [ -f "assets/$f" ]; then cp "assets/$f" "www/$f"; else echo "::warning::Falta $f en la raiz o en assets/ (se usa icon-192.png)."; fi
           done
           cp restaurante.html www/index.html
+          # Número de compilación que usa la actualización obligatoria del APK
+          echo "window.APK_VERSION = ${{ github.run_number }};" > www/apk-version.js
 
       - name: Instalar dependencias
-        run: npm install --legacy-peer-deps
+        run: |
+          npm install --legacy-peer-deps
+          npm install --legacy-peer-deps --save @capacitor-community/file-opener@^6 || echo "::warning::No se pudo instalar file-opener: la actualización abrirá el enlace en el navegador."
 
       # Plugin de segundo plano específico del Restaurante
       - name: Plugin de segundo plano
@@ -168,7 +172,7 @@ jobs:
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p, encoding='utf-8').read()
-          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK", "USE_FULL_SCREEN_INTENT", "CAMERA", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE", "FOREGROUND_SERVICE_DATA_SYNC"]
+          perms = ["INTERNET", "POST_NOTIFICATIONS", "VIBRATE", "WAKE_LOCK", "REQUEST_INSTALL_PACKAGES", "USE_FULL_SCREEN_INTENT", "CAMERA", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE", "FOREGROUND_SERVICE_DATA_SYNC"]
           add = ''.join('    <uses-permission android:name="android.permission.%s" />\n' % x for x in perms if 'android.permission.%s"' % x not in s)
           if 'android.hardware.camera' not in s:
               add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
