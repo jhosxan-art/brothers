@@ -1745,7 +1745,7 @@
     const st = document.createElement("style"); st.id = "estiloMenuRest";
     st.textContent = ".wa-menu{align-self:stretch;margin:4px 0;background:#fff;border-radius:12px;padding:8px;box-shadow:0 1px 2px rgba(0,0,0,.15);display:grid;gap:4px;color:#0E141B;max-width:100%}" +
       ".wa-menu h4{margin:0 0 2px;font-size:13px;font-weight:800}.wa-menu .wm-lista{max-height:38vh;overflow:auto;display:grid;gap:0;position:relative}" +
-      ".wa-menu .wm-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 4px;scrollbar-width:none}.wa-menu .wm-chip{flex:none;border:1.5px solid #FF6A00;background:#fff;color:#C2410C;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:800;min-height:30px}.wa-menu .wm-chip.on{background:#FF6A00;color:#fff}" +
+      ".wa-menu .wm-chips{display:flex;gap:4px;overflow-x:auto;padding:2px 0 4px;scrollbar-width:none}.wa-menu .wm-chip{flex:none;width:auto;border:1px solid #FF6A00;background:#fff;color:#C2410C;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;line-height:1.2;min-height:0;height:auto}.wa-menu .wm-chip.on{background:#FF6A00;color:#fff}.wa-menu .wm-oculto{display:none!important}" +
       ".wa-menu .wm-cat{margin:6px 0 2px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#5B6672}" +
       ".wa-menu .wm-fila{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #EEF1F4}" +
       ".wa-menu .wm-img{width:36px;height:36px;border-radius:8px;background:#F1F4F7;display:grid;place-items:center;font-size:18px;overflow:hidden}.wa-menu .wm-img img{width:100%;height:100%;object-fit:cover}" +
@@ -1769,6 +1769,15 @@
       caja.className = "wa-menu";
       const h = document.createElement("h4"); h.textContent = "🍔 " + r.nombre; caja.appendChild(h);
       const chips = document.createElement("div"); chips.className = "wm-chips"; caja.appendChild(chips);
+      let catFiltro = null;
+      const aplicarFiltro = (k) => {
+        catFiltro = k;
+        lista.querySelectorAll("[data-cat]").forEach((x) => x.classList.toggle("wm-oculto", k !== null && x.dataset.cat !== k));
+        chips.querySelectorAll(".wm-chip").forEach((x) => x.classList.toggle("on", (x.dataset.k === undefined ? null : x.dataset.k) === k));
+        lista.scrollTop = 0;
+      };
+      const cTodo = document.createElement("button"); cTodo.type = "button"; cTodo.className = "wm-chip on"; cTodo.textContent = "Menú completo";
+      cTodo.onclick = () => aplicarFiltro(null); chips.appendChild(cTodo);
       const lista = document.createElement("div"); lista.className = "wm-lista"; caja.appendChild(lista);
       const pie = document.createElement("div"); pie.className = "wm-pie";
       const tot = document.createElement("b"); tot.textContent = "Elige lo que quieres";
@@ -1778,11 +1787,11 @@
       const precio = (p) => Math.round(Number(p.precio) * 100) / 100;
       let cat = null;
       platos.forEach((p) => {
-        if ((p.cat || "") !== cat) { cat = p.cat || ""; const c = document.createElement("div"); c.className = "wm-cat"; c.textContent = cat || "Menú"; lista.appendChild(c);
+        if ((p.cat || "") !== cat) { cat = p.cat || ""; const c = document.createElement("div"); c.className = "wm-cat"; c.textContent = cat || "Menú"; c.dataset.cat = cat; lista.appendChild(c);
           const cb = document.createElement("button"); cb.type = "button"; cb.className = "wm-chip"; cb.textContent = cat || "Menú";
-          cb.onclick = () => { lista.scrollTo({ top: Math.max(0, c.offsetTop - lista.offsetTop), behavior: "smooth" }); chips.querySelectorAll(".wm-chip").forEach((x) => x.classList.toggle("on", x === cb)); };
+          cb.dataset.k = cat; cb.onclick = () => aplicarFiltro(cat);
           chips.appendChild(cb); }
-        const f = document.createElement("div"); f.className = "wm-fila";
+        const f = document.createElement("div"); f.className = "wm-fila"; f.dataset.cat = cat;
         const img = document.createElement("div"); img.className = "wm-img";
         if (typeof p.foto === "string" && p.foto.indexOf("data:image/") === 0) { const im = document.createElement("img"); im.alt = ""; im.src = p.foto; img.appendChild(im); }
         else img.textContent = /beb|jug|refr|gas/i.test(p.cat || "") ? "🥤" : "🍽️";
