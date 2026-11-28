@@ -1506,6 +1506,34 @@
           "publicado": {
             ".validate": "newData.isNumber()"
           }
+        },
+        "restaurante": {
+          ".validate": "newData.hasChildren(['version']) && newData.child('version').isNumber()",
+          "version": {},
+          "novedades": {
+            ".validate": "newData.isString() && newData.val().length <= 2000"
+          },
+          "url": {
+            ".validate": "newData.isString() && newData.val().length <= 2000"
+          },
+          "publicado": {
+            ".validate": "newData.isNumber()"
+          },
+          ".read": "auth != null"
+        },
+        "cliente": {
+          ".validate": "newData.hasChildren(['version']) && newData.child('version').isNumber()",
+          "version": {},
+          "novedades": {
+            ".validate": "newData.isString() && newData.val().length <= 2000"
+          },
+          "url": {
+            ".validate": "newData.isString() && newData.val().length <= 2000"
+          },
+          "publicado": {
+            ".validate": "newData.isNumber()"
+          },
+          ".read": "auth != null"
         }
       },
       "cobertura": {

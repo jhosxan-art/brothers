@@ -2778,8 +2778,8 @@ const ActualizacionAdmin = (() => {
   function lanzar() {
     const base = bd(); if (!base) return;
     modal(`<h2>🚀 Lanzar actualización</h2>
-      <p class="ayuda">Las apps con una versión menor quedarán bloqueadas hasta que instalen el nuevo APK.</p>
-      <label>Tipo de app <select id="updTipo"><option value="repartidor">Repartidor</option><option value="admin">Admin / Controlador</option></select></label>
+      <p class="ayuda">Las apps (solo el APK, nunca la web) con una versión menor quedarán bloqueadas hasta que instalen el nuevo APK. Para Restaurante y Cliente, la versión es el número de compilación de GitHub (el que dice «versión N» en el Release).</p>
+      <label>Tipo de app <select id="updTipo"><option value="repartidor">Repartidor</option><option value="admin">Admin / Controlador</option><option value="restaurante">Restaurante (APK)</option><option value="cliente">Cliente (APK)</option></select></label>
       <small id="updActual" class="ayuda">Versión actual en la nube: …</small>
       <label>Nueva versión (ej. 2) <input id="updVersion" type="number" min="1" step="1" placeholder="2"></label>
       <label>Novedades <textarea id="updNov" rows="4" maxlength="600" placeholder="Qué trae esta versión…"></textarea></label>
