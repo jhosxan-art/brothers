@@ -143,8 +143,8 @@ async function esRepartidor(uid, env) {
 }
 
 /* ---------- Envío de push por FCM (API HTTP v1) ---------- */
-const CANALES = ["pedidos", "mensajes", "admin"];
-async function enviarFCM(env, token, { titulo, cuerpo, canal, data, tag }) {
+const CANALES = ["pedidos", "mensajes", "admin", "solicitudes"];
+async function enviarFCM(env, token, { titulo, cuerpo, canal, data, tag, sonido }) {
   const acceso = await tokenGoogle(env);
   const r = await fetch("https://fcm.googleapis.com/v1/projects/" + encodeURIComponent(env.FCM_PROJECT_ID) + "/messages:send", {
     method: "POST",
@@ -156,7 +156,7 @@ async function enviarFCM(env, token, { titulo, cuerpo, canal, data, tag }) {
       webpush: { headers: { Urgency: "high", TTL: "86400" }, ...(tag ? { notification: { tag } } : {}) },   // navegador / PWA del admin: entrega inmediata aunque el equipo esté en reposo
       android: {
         priority: "HIGH", ttl: "86400s",
-        notification: { ...(tag ? { tag } : {}), channel_id: canal, sound: "default", default_sound: true, default_vibrate_timings: true, notification_priority: "PRIORITY_MAX", visibility: "PUBLIC" }
+        notification: { ...(tag ? { tag } : {}), channel_id: canal, ...(sonido ? { sound: sonido } : { sound: "default", default_sound: true }), default_vibrate_timings: true, notification_priority: "PRIORITY_MAX", visibility: "PUBLIC" }
       }
     } })
   });
@@ -309,7 +309,61 @@ async function avisarRepartidores(env, aviso, ciudad) {
   }));
   return enviados ? { ok: true, enviados } : { ok: false, error: ultimoError || "FCM rechazó el envío", enviados: 0 };
 }
+/* ---------- NUEVO · Restaurantes: push INVASIVO (canal «solicitudes», sonido con voz) y repetición cada minuto hasta que acepten o rechacen ---------- */
+const REST_MAX_AVISOS = 10, REST_CADA_MS = 55000, REST_EDAD_MS = 30 * 60 * 1000;
+async function dbLeerQ(env, ruta, query) {
+  const acceso = await tokenGoogle(env);
+  const r = await fetch(dbBase(env) + "/" + ruta + ".json?" + query + "&access_token=" + encodeURIComponent(acceso));
+  if (!r.ok) throw new Error("Base de datos: error " + r.status + " al leer " + ruta);
+  return r.json();
+}
+async function dbEscribir(env, ruta, valor) {
+  const acceso = await tokenGoogle(env);
+  await fetch(dbBase(env) + "/" + ruta + ".json?access_token=" + encodeURIComponent(acceso), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(valor) }).catch(() => {});
+}
+/* El negocio solo recibe el número del pedido y que viene de Brother’s Deliverys (nunca datos del cliente) */
+async function pushRestaurante(env, bid, sid, d) {
+  const priv = await dbLeer(env, "restaurantesPriv/" + encodeURIComponent(bid) + "/fcmToken");
+  if (typeof priv !== "string" || priv.length < 20) return { ok: false, error: "El negocio no tiene avisos activados" };
+  const prev = d && d.pushRest && typeof d.pushRest === "object" ? d.pushRest : {};
+  const n = Number(prev.n) || 0;
+  const items = d && d.vistaRestaurante && Array.isArray(d.vistaRestaurante.items) ? d.vistaRestaurante.items : (d && d.pedido && Array.isArray(d.pedido.items) ? d.pedido.items : []);
+  const unidades = items.reduce((a, i) => a + (Number(i && i.q) || 1), 0);
+  const num = "#" + String(sid).slice(-5).toUpperCase();
+  const r = await enviarFCM(env, priv, {
+    titulo: (n ? "🔁 " : "🔔 ") + "¡TIENES UNA SOLICITUD DE PEDIDO!",
+    cuerpo: "Pedido " + num + " de Brother’s Deliverys" + (unidades ? " · " + unidades + " producto(s)" : "") + ". ¡Ábrelo y acéptalo!",
+    canal: "solicitudes", sonido: "solicitud_pedido", tag: "rest_" + sid,
+    data: { tipo: "solicitud_rest", solicitud: sid, voz: "Tienes una solicitud de pedido" }
+  });
+  if (r.ok) await dbEscribir(env, "solicitudes_entrantes/" + encodeURIComponent(sid) + "/pushRest", { n: n + 1, ts: Date.now() });
+  else if (["UNREGISTERED", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, "restaurantesPriv/" + encodeURIComponent(bid) + "/fcmToken");
+  return r;
+}
+const restPendiente = (d) => d && typeof d === "object" && !["cancelado", "rechazado", "entregado", "finalizado"].includes(d.estado) && ((d.rest && d.rest.estado) || "pendiente") === "pendiente";
+/* Cron: repite el aviso cada minuto (hasta 10 veces) mientras el negocio no haya aceptado ni rechazado */
+async function revisarRestaurantes(env) {
+  const privs = (await dbLeer(env, "restaurantesPriv")) || {};
+  let avisos = 0;
+  for (const [bid, v] of Object.entries(privs)) {
+    if (!v || typeof v.fcmToken !== "string" || v.fcmToken.length < 20) continue;
+    const idx = (await dbLeerQ(env, "restaurantePedidos/" + encodeURIComponent(bid), "orderBy=" + encodeURIComponent('"$value"') + "&startAt=" + (Date.now() - REST_EDAD_MS))) || {};
+    for (const sid of Object.keys(idx)) {
+      if (!/^sol_[A-Za-z0-9_-]{8,64}$/.test(sid)) continue;
+      const d = await dbLeer(env, "solicitudes_entrantes/" + encodeURIComponent(sid));
+      if (!d || d.restauranteUid !== bid || !restPendiente(d)) continue;
+      const pr = d.pushRest || {};
+      if ((Number(pr.n) || 0) >= REST_MAX_AVISOS || Date.now() - (Number(pr.ts) || 0) < REST_CADA_MS) continue;
+      const r = await pushRestaurante(env, bid, sid, d);
+      if (r.ok) avisos++;
+    }
+  }
+  return avisos;
+}
 async function avisarSolicitudNueva(env, id, d) {
+  if (d && typeof d.restauranteUid === "string" && /^[A-Za-z0-9_~-]{6,90}$/.test(d.restauranteUid)) {
+    try { await pushRestaurante(env, d.restauranteUid, id, d); } catch (_) {}
+  }
   const p = (d && d.pedido) || {};
   const nombre = recorta((d && d.nombre) || "Cliente", 40);
   const quiere = recorta(p.quiere || "", 160);
@@ -457,6 +511,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(revisarSolicitudesNuevas(env).catch((e) => console.warn("cron solicitudes:", e && e.message ? e.message : e)));
     ctx.waitUntil(revisarOrdenesAdmin(env).catch((e) => console.warn("cron pedidos admin:", e && e.message ? e.message : e)));
+    ctx.waitUntil(revisarRestaurantes(env).catch((e) => console.warn("cron restaurantes:", e && e.message ? e.message : e)));
   },
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
