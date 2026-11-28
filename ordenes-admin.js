@@ -2775,40 +2775,72 @@ const ActualizacionAdmin = (() => {
     ref = base.ref(BASE + "admin");
     ref.on("value", (s) => evaluar(s.val()), () => { ref = null; });
   }
+  /* Lee el enlace del APK y deduce SOLA la app y el número de compilación.
+     Ej.: .../releases/download/restaurante-v12/brothers-restaurante-v12.apk → app «restaurante», versión 12.
+          .../download/cliente-v3/Brothers-Deliverys-v3.apk → app «cliente», versión 3. */
+  const NOMBRES_APP = { repartidor: "Repartidor", admin: "Admin / Controlador", restaurante: "Restaurante", cliente: "Cliente (Brothers Deliverys)" };
+  function detectarEnlace(u) {
+    const url = urlSegura(u); if (!url) return null;
+    let txt = url; try { txt = decodeURIComponent(new URL(url).pathname); } catch (_) {}
+    txt = txt.toLowerCase();
+    const tipo = /restaurante/.test(txt) ? "restaurante" : /repartidor/.test(txt) ? "repartidor" : /(^|[^a-z])admin([^a-z]|$)/.test(txt) ? "admin" : /(brothers[-_ ]?deliverys|cliente)/.test(txt) ? "cliente" : "";
+    const vs = txt.match(/(?:^|[^a-z0-9])v(?:ersion)?[-_ ]?(\d{1,6})(?=[^0-9]|$)/g) || [];
+    let version = 0;
+    if (vs.length) version = Number(vs[vs.length - 1].match(/(\d+)\s*$/)[1]);
+    else { const m = txt.match(/(\d{1,6})\.apk(?:$|[?#])/); if (m) version = Number(m[1]); }
+    return { tipo, version: version >= 1 ? version : 0, url };
+  }
   function lanzar() {
     const base = bd(); if (!base) return;
     modal(`<h2>🚀 Lanzar actualización</h2>
-      <p class="ayuda">Las apps (solo el APK, nunca la web) con una versión menor quedarán bloqueadas hasta que instalen el nuevo APK. Para Restaurante y Cliente, la versión es el número de compilación de GitHub (el que dice «versión N» en el Release).</p>
-      <label>Tipo de app <select id="updTipo"><option value="repartidor">Repartidor</option><option value="admin">Admin / Controlador</option><option value="restaurante">Restaurante (APK)</option><option value="cliente">Cliente (APK)</option></select></label>
-      <small id="updActual" class="ayuda">Versión actual en la nube: …</small>
-      <label>Nueva versión (ej. 2) <input id="updVersion" type="number" min="1" step="1" placeholder="2"></label>
-      <label>Novedades <textarea id="updNov" rows="4" maxlength="600" placeholder="Qué trae esta versión…"></textarea></label>
-      <label>Enlace del nuevo APK <input id="updUrl" type="url" placeholder="https://…"></label>
-      <small class="ayuda">Debe ser un enlace directo de descarga del .apk (GitHub Releases, Firebase Storage, tu servidor, o un enlace de Google Drive/Dropbox, que se convierte solo). La app lo descarga e instala sin desinstalar.</small>
+      <div id="updDet" class="estado" style="font-size:16px;font-weight:800;padding:10px 12px;border-radius:12px;background:#F3F6F9">📱 Pega el enlace del APK y detecto la app y la versión sola.</div>
+      <small id="updActual" class="ayuda"></small>
+      <label>Enlace del nuevo APK <input id="updUrl" type="url" placeholder="https://github.com/…/releases/download/restaurante-v12/brothers-restaurante-v12.apk"></label>
+      <small class="ayuda">Debe ser un enlace directo de descarga del .apk (GitHub Releases, tu servidor, o un enlace de Google Drive/Dropbox, que se convierte solo). El nombre del archivo o la etiqueta del Release debe traer el nombre de la app y «-vNúmero», como los que crea GitHub Actions. Solo el APK se bloquea; la web nunca.</small>
+      <div id="updManual" class="oculto">
+        <label>Tipo de app <select id="updTipo"><option value="">— elegir —</option><option value="repartidor">Repartidor</option><option value="admin">Admin / Controlador</option><option value="restaurante">Restaurante (APK)</option><option value="cliente">Cliente (APK)</option></select></label>
+        <label>Número de versión <input id="updVersion" type="number" min="1" step="1" placeholder="12"></label>
+      </div>
+      <label>Novedades <textarea id="updNov" rows="3" maxlength="600" placeholder="Qué trae esta versión…"></textarea></label>
       <div id="updMsg" class="estado oculto" role="status"></div>
-      <button id="updPublicar" class="primario" type="button">Publicar actualización</button>
+      <button id="updPublicar" class="primario" type="button" disabled>Publicar actualización</button>
       <button id="updCancelar" class="oscuro" type="button">Cancelar</button>`);
     const msg = (t, tipo) => { const m = g("updMsg"); m.textContent = t || ""; m.className = "estado " + (tipo || "") + (t ? "" : " oculto"); };
-    async function mostrarActual() {
-      const tipo = g("updTipo").value;
-      g("updActual").textContent = "Versión actual en la nube: …";
-      try {
-        const v = (await base.ref(BASE + tipo).once("value")).val();
-        if (g("updTipo") && g("updTipo").value === tipo) g("updActual").textContent = "Versión actual en la nube: " + (v && v.version != null ? v.version : "ninguna") + " · Instalada en este aparato (admin): " + APP_VERSION_ADMIN;
-      } catch (_) { if (g("updActual")) g("updActual").textContent = "No se pudo leer la versión actual."; }
+    let det = null, seq = 0;
+    const efectivo = () => {
+      const manual = !g("updManual").classList.contains("oculto");
+      const tipo = manual ? g("updTipo").value : (det && det.tipo) || "", version = manual ? Number(g("updVersion").value) : (det && det.version) || 0;
+      return { tipo, version, url: enlaceDirecto(g("updUrl").value) };
+    };
+    async function refrescar() {
+      const mi = ++seq, e = efectivo();
+      const d = g("updDet");
+      if (!e.url) { d.textContent = "📱 Pega el enlace del APK y detecto la app y la versión sola."; d.style.background = "#F3F6F9"; g("updActual").textContent = ""; g("updPublicar").disabled = true; return; }
+      if (e.tipo && e.version) {
+        d.textContent = "📱 Actualizando: " + NOMBRES_APP[e.tipo] + " · versión " + e.version; d.style.background = "#E8F6EE";
+        g("updPublicar").disabled = false;
+        try {
+          const v = (await base.ref(BASE + e.tipo).once("value")).val();
+          if (mi === seq) g("updActual").textContent = "Versión actual en la nube: " + (v && v.version != null ? v.version : "ninguna") + (v && Number(v.version) >= e.version ? " ⚠️ la nueva no es mayor: nadie se actualizaría." : "");
+        } catch (_) {}
+      } else {
+        d.textContent = "⚠️ No pude identificar " + (!e.tipo ? "la app" : "") + (!e.tipo && !e.version ? " ni " : "") + (!e.version ? "el número de versión" : "") + " en el enlace. Elígelos aquí abajo.";
+        d.style.background = "#FFF3E0"; g("updActual").textContent = ""; g("updPublicar").disabled = !(e.tipo && e.version);
+        g("updManual").classList.remove("oculto");
+      }
     }
-    mostrarActual();
-    g("updTipo").onchange = mostrarActual;
+    g("updUrl").addEventListener("input", () => { det = detectarEnlace(g("updUrl").value); if (det && det.tipo && det.version) g("updManual").classList.add("oculto"); refrescar(); });
+    g("updTipo").onchange = refrescar; g("updVersion").oninput = refrescar;
     g("updCancelar").onclick = cerrarModal;
     g("updPublicar").onclick = async () => {
-      const tipo = g("updTipo").value, version = Number(g("updVersion").value), novedades = g("updNov").value.trim(), url = enlaceDirecto(g("updUrl").value);
-      if (!Number.isInteger(version) || version < 1) return msg("Escribe la versión como número entero.", "error");
+      const e = efectivo(), novedades = g("updNov").value.trim();
+      if (!e.tipo || !Number.isInteger(e.version) || e.version < 1) return msg("Falta la app o la versión.", "error");
       if (!novedades) return msg("Escribe las novedades.", "error");
-      if (!url) return msg("El enlace debe empezar con http:// o https://", "error");
+      if (!e.url) return msg("El enlace debe empezar con http:// o https://", "error");
       g("updPublicar").disabled = true; msg("Publicando…", "ok");
       try {
-        await base.ref(BASE + tipo).set({ version, novedades, url, publicado: firebase.database.ServerValue.TIMESTAMP });
-        cerrarModal(); toast("Actualización publicada ✓");
+        await base.ref(BASE + e.tipo).set({ version: e.version, novedades, url: e.url, publicado: firebase.database.ServerValue.TIMESTAMP });
+        cerrarModal(); toast("Actualización de " + NOMBRES_APP[e.tipo] + " (v" + e.version + ") publicada ✓");
       } catch (err) {
         g("updPublicar").disabled = false;
         msg("No se pudo publicar: " + (err.message || err), "error");
