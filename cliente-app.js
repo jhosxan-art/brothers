@@ -3001,7 +3001,20 @@
     const soporta = () => { try { return "serviceWorker" in navigator && "Notification" in window && "PushManager" in window && !!firebase.messaging && (typeof firebase.messaging.isSupported !== "function" || firebase.messaging.isSupported()); } catch (_) { return false; } };
     const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
     const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { } };
+    /* APK (Capacitor): push nativo */
+    const nativo = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications);
+    async function registrarNativo() {
+      const P = window.Capacitor.Plugins.PushNotifications, u = auth.currentUser; if (!u) return false;
+      try {
+        try { await P.createChannel({ id: "avisos", name: "Avisos y promociones", description: "Ofertas y avisos de Brother’s Deliverys", importance: 5, sound: "default", vibration: true, lights: true, visibility: 1 }); } catch (_) { }
+        const perm = await P.requestPermissions(); if (perm.receive !== "granted") return false;
+        P.addListener("registration", (t) => { if (t && t.value && auth.currentUser) db.ref("clientesPush/" + auth.currentUser.uid).set({ t: t.value, ts: firebase.database.ServerValue.TIMESTAMP }).catch(() => { }); });
+        await P.register();
+        return true;
+      } catch (e) { console.warn("Push nativo cliente:", e && e.message ? e.message : e); return false; }
+    }
     async function registrar() {
+      if (nativo()) return registrarNativo();
       const u = auth.currentUser; if (!u || !soporta() || Notification.permission !== "granted") return false;
       try {
         const reg = await navigator.serviceWorker.register("cliente-sw.js", { scope: "./cliente-app" });
@@ -3025,7 +3038,7 @@
       b.appendChild(si); b.appendChild(no);
       cv.parentNode.insertBefore(b, cv);
     }
-    return { iniciar() { if (Notification.permission === "granted") registrar(); else setTimeout(banner, 4000); } };
+    return { iniciar() { if (nativo()) { setTimeout(registrar, 3000); return; } if (!("Notification" in window)) return; if (Notification.permission === "granted") registrar(); else setTimeout(banner, 4000); } };
   })();
 
   arrancar().then(() => { try { PushCli.iniciar(); } catch (_) { } });
