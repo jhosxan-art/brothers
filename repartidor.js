@@ -3219,6 +3219,12 @@ const CobroEntrega = (() => {
     });
   }
   function elegir(metodo) {
+    const rotulo = { efectivo: "💵 EFECTIVO", transferencia: "🏦 TRANSFERENCIA", mixto: "🔀 MIXTO" }[metodo];
+    if (rotulo) {   // confirmación anti-errores: si dice «Cancelar» el modal sigue abierto para elegir otra vez
+      let det = "";
+      if (metodo === "mixto" && infoPago) { const mx = mixtoDatos[String(infoPago.id)]; if (mx) det = "\nEfectivo: " + moneda(mx.efectivo) + " · Transferencia: " + moneda(Math.max(0, mx.total - mx.efectivo)); }
+      if (!window.confirm("¿Confirmas que el cliente pagó con " + rotulo + "?" + det)) return;
+    }
     $("modalPago").classList.add("oculto");
     const r = resolver; resolver = null;
     if (r) r(metodo);
@@ -4086,10 +4092,19 @@ const ChatsEntrantes = (() => {
       if (alTocar) coleccion[id].on("click", alTocar);
     } else coleccion[id].setLatLng(ll);
   }
+  const restVisto = {};
   function pintarMapa() {
     if (typeof mapa === "undefined" || !mapa) return;
     Object.keys(lista).forEach((id) => {
       const d = lista[id];
+      if (d && d.restauranteUid && mio(d)) {
+        const e = d.rest && d.rest.estado;
+        if (restVisto[id] !== undefined && restVisto[id] !== e && e === "preparando") {
+          toast("👨‍🍳", "¡Ya están cocinando!", cortar(String(d.restauranteNombre || (d.pedido && d.pedido.restauranteNombre) || "El negocio"), 40) + " empezó a preparar el pedido" + (d.rest && Number(d.rest.prepMin) ? " (~" + Math.round(Number(d.rest.prepMin)) + " min)." : "."), () => { irA("chats"); abrir(id); }, 9000);
+          try { if (navigator.vibrate) navigator.vibrate([300, 120, 300]); } catch (_) {}
+        }
+        restVisto[id] = e;
+      }
       marca(marcasSol, id, libre(d) ? puntoDe(d) : null, '<div class="sol-pin calculando"><span>📥</span>…</div>', [190, 44], () => vistaPrevia(id));
       marca(marcasCli, id, mio(d) && !viajes[id] ? puntoDe(d) : null, htmlCliente("#2F6FED", "", escHtml(cortar(d && d.nombre || "Cliente", 16)), false, false), [34, 44], () => tocarCliente(id), [17, 42]);
     });
@@ -4158,7 +4173,7 @@ const ChatsEntrantes = (() => {
         }
         return;
       }
-      const punto = puntoDe(d);
+      const rpPt = puntoRetiroPend(d), cliPt = puntoDe(d), punto = rpPt || cliPt;
       if (!punto) return;
       const prev = rutasPend[id];
       const cambioPunto = !prev || !prev.punto || Math.abs(prev.punto.lat - punto.lat) > 0.0001 || Math.abs(prev.punto.lng - punto.lng) > 0.0001;
@@ -4182,14 +4197,12 @@ const ChatsEntrantes = (() => {
       Ordenes.rutaCalles({ lat: ultimaPos.lat, lng: ultimaPos.lng }, punto).then((r) => {
         if (!rutasPend[id] || rutasPend[id] !== rp || !r) { if (rp) rp.calculando = false; return; }
         rp.calculando = false;
-        rp.dist = r.dist;
+        rp.dist = r.dist; rp.rest = !!rpPt;
         rp.linea.setStyle({ color: "#E5322D", weight: 5, opacity: .9, dashArray: null });
         rp.linea.setLatLngs([[rp.pos.lat, rp.pos.lng], ...r.pts]);
-        if (marcasSol[id]) {
-          const txt = r.dist >= 1000 ? (r.dist / 1000).toFixed(1) + " km" : Math.round(r.dist) + " m";
-          const html = '<div class="sol-pin"><span>📥</span>' + txt + '</div>';
-          try { marcasSol[id].setIcon(L.divIcon({ className: "", html, iconSize: [190, 44], iconAnchor: [95, 22] })); } catch (_) {}
-        }
+        if (rpPt && cliPt) segundoTramo(id, rp, rpPt, cliPt);
+        else { if (rp.linea2) { try { mapa.removeLayer(rp.linea2); } catch (_) {} rp.linea2 = null; } rp.dist2 = null; }
+        pinDistancia(id); actualizarRecorridoNp(id);
       }).catch(() => { if (rp) rp.calculando = false; });
     });
     Object.keys(rutasPend).forEach((id) => {
@@ -4198,6 +4211,41 @@ const ChatsEntrantes = (() => {
         delete rutasPend[id];
       }
     });
+  }
+
+  /* Pedido de negocio: tramo 2 (negocio → cliente) en azul y total «tú → negocio + negocio → cliente» */
+  const kmTxt = (m) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m");
+  function segundoTramo(id, rp, a, b) {
+    const clave = a.lat.toFixed(5) + "," + a.lng.toFixed(5) + ">" + b.lat.toFixed(5) + "," + b.lng.toFixed(5);
+    if (rp.clave2 === clave && rp.dist2 != null) return;
+    rp.clave2 = clave;
+    if (!rp.linea2) rp.linea2 = L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color: "#2F6FED", weight: 4, opacity: .8, dashArray: "6 10", lineCap: "round" }).addTo(mapa);
+    else rp.linea2.setLatLngs([[a.lat, a.lng], [b.lat, b.lng]]);
+    Ordenes.rutaCalles({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng }).then((r2) => {
+      if (rutasPend[id] !== rp || !r2) return;
+      rp.dist2 = r2.dist; rp.linea2.setStyle({ weight: 5, opacity: .9, dashArray: null }); rp.linea2.setLatLngs([[a.lat, a.lng], ...r2.pts]);
+      pinDistancia(id); actualizarRecorridoNp(id);
+    }).catch(() => {});
+  }
+  function pinDistancia(id) {
+    const rp = rutasPend[id]; if (!rp || rp.dist == null || !marcasSol[id]) return;
+    const txt = rp.rest && rp.dist2 != null ? kmTxt(rp.dist) + " + " + kmTxt(rp.dist2) + " = " + kmTxt(rp.dist + rp.dist2) : kmTxt(rp.dist);
+    const ancho = rp.rest && rp.dist2 != null ? 250 : 190;
+    const html = '<div class="sol-pin"><span>📥</span>' + txt + '</div>';
+    try { marcasSol[id].setIcon(L.divIcon({ className: "", html, iconSize: [ancho, 44], iconAnchor: [ancho / 2, 22] })); } catch (_) {}
+  }
+  function resumenRecorrido(id, d) {
+    const rpt = puntoRetiroPend(d), cl = puntoDe(d), rp = rutasPend[id];
+    if (!rpt || !cl) return null;
+    const a = rp && rp.dist != null ? rp.dist : (ultimaPos ? distanciaM(ultimaPos.lat, ultimaPos.lng, rpt.lat, rpt.lng) : null);
+    const b = rp && rp.dist2 != null ? rp.dist2 : distanciaM(rpt.lat, rpt.lng, cl.lat, cl.lng);
+    if (a == null) return null;
+    return { texto: "Tú → negocio " + kmTxt(a) + " · negocio → cliente " + kmTxt(b) + " = " + kmTxt(a + b) + " en total" + ((rp && rp.dist != null && rp.dist2 != null) ? "" : " (aprox.)") };
+  }
+  function actualizarRecorridoNp(id) {
+    if (previoId !== id) return;
+    const b = document.querySelector("#npRecorrido b"); if (!b || !lista[id]) return;
+    const rr = resumenRecorrido(id, lista[id]); if (rr) b.textContent = rr.texto;
   }
 
   /* Toque en el push "Nueva solicitud": abre la vista previa (Atender / Cerrar) en cuanto la solicitud esté cargada */
@@ -4345,6 +4393,7 @@ const ChatsEntrantes = (() => {
     f(p.entreCiudades ? "🚚" : "🏙️", p.entreCiudades ? (CiudadRep.rolEnPedido(p) === "destino" ? "Entre ciudades · lo entregas en tu ciudad" : "Entre ciudades · lo retiras en tu ciudad") : "Ciudad del pedido", CiudadRep.etiquetaRuta(p).replace(/^\S+\s/, ""));
     if (Number(p.tarifaEstimada) > 0) f("💰", "Tarifa estimada (referencia)", "C$ " + Number(p.tarifaEstimada) + " · ~" + Number(p.kmEstimado || 0) + " km");
     f(p.modo === "envia" ? "🎁" : "📍", p.modo === "envia" ? "Lo envía a otra persona · entrega en" : "Lo recibe el cliente · ubicación", textoDestino(d));
+    { const rr = d.restauranteUid ? resumenRecorrido(previoId, d) : null; if (rr) { f("🧭", "Recorrido (retiro y entrega)", rr.texto, true); t.lastChild.id = "npRecorrido"; } }
     s.appendChild(t);
     const h = $("npSecChat"), ms = d.mensajes && typeof d.mensajes === "object" ? Object.keys(d.mensajes).sort().slice(-5).map((k) => d.mensajes[k]) : [];
     h.textContent = "";

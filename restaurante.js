@@ -100,7 +100,7 @@ function gestionarAlarma(n) {
   if (n > 0) {
     if (!ban) {
       ban = document.createElement("button"); ban.id = "rtAlarma"; ban.type = "button";
-      ban.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;border:0;padding:16px 12px;background:#D90429;color:#fff;font:800 18px/1.2 system-ui,sans-serif;text-align:center;animation:rtParpadeo .8s infinite;box-shadow:0 4px 16px rgba(0,0,0,.4)";
+      ban.style.cssText = "position:fixed;left:10px;right:10px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:99999;border:0;border-radius:14px;padding:12px;background:#D90429;color:#fff;font:800 15px/1.2 system-ui,sans-serif;text-align:center;animation:rtParpadeo .8s infinite;box-shadow:0 4px 16px rgba(0,0,0,.45)";
       if (!document.getElementById("rtAlarmaCss")) { const st = document.createElement("style"); st.id = "rtAlarmaCss"; st.textContent = "@keyframes rtParpadeo{50%{background:#7A0016}}"; document.head.appendChild(st); }
       ban.onclick = () => { filtro = "nuevo"; document.querySelectorAll("#rtFiltros button").forEach((x) => x.classList.toggle("on", x.dataset.f === "nuevo")); pintarPedidos(); };
       document.body.appendChild(ban);
@@ -314,15 +314,15 @@ const etiqueta = (s) => {
   const r = (s.rest && s.rest.estado) || "pendiente";
   if (s.estado === "cancelado") return ["rech", "Cancelado"];
   if (s.estado === "entregado") return ["fin", "Entregado"];
-  return { pendiente: ["", "Nuevo"], aceptado: ["prep", "Aceptado"], preparando: ["prep", "Preparando"], listo: ["listo", "Listo para retirar"], rechazado: ["rech", "Rechazado"] }[r] || ["", r];
+  return { pendiente: ["", "Nuevo"], aceptado: ["prep", "Aceptado"], preparando: ["prep", "Cocinando"], listo: ["listo", "Listo para retirar"], rechazado: ["rech", "Rechazado"] }[r] || ["", r];
 };
 function tarjeta(s) {
   const r = (s.rest && s.rest.estado) || "pendiente", g = grupoDe(s), [cl, tx] = etiqueta(s), p = s.pedido || {};
   const total = Number(p.subtotal) || (Array.isArray(p.items) ? p.items.reduce((a, i) => a + (Number(i.p) || 0) * (Number(i.q) || 1), 0) : 0);
   let acc = "";
-  if (g === "nuevo") acc = `<button class="ok" data-a="aceptar" type="button">✅ Aceptar</button><button class="no" data-a="rechazar" type="button">✖ Rechazar</button>`;
+  if (g === "nuevo") acc = `<button class="ok" data-a="cocinar" type="button">👨‍🍳 Cocinar</button><button class="no" data-a="rechazar" type="button">✖ Rechazar</button>`;
   else if (g === "curso") {
-    if (r === "aceptado") acc = `<button class="ok" data-a="preparando" type="button">👨‍🍳 Empezar a preparar</button>`;
+    if (r === "aceptado") acc = `<button class="ok" data-a="preparando" type="button">👨‍🍳 Cocinar</button>`;
     else if (r === "preparando") acc = `<button class="ok" data-a="listo" type="button">🛍️ Listo para retirar</button>`;
     else if (r === "listo") acc = `<span class="rt-rep">Esperando al repartidor…</span>`;
     if (r === "aceptado" || r === "preparando") acc += `<button class="no" data-a="rechazar" type="button">✖ No puedo</button>`;
@@ -383,20 +383,21 @@ async function actualizar(id, cambios, ok) {
 }
 function accion(id, a) {
   const s = pedidos[id]; if (!s) return;
-  if (a === "aceptar") {
+  if (a === "cocinar") {
+    /* Un solo toque: se acepta y se empieza a cocinar a la vez; el cliente y el repartidor reciben el aviso */
     const prep = Number(perfil.prepMin) || 20;
-    modal(`<h2>✅ Aceptar pedido ${esc(bonito(id))}</h2>
+    modal(`<h2>👨‍🍳 Cocinar pedido ${esc(bonito(id))}</h2>
       <label>Tiempo de preparación (min)<input id="apPrep" type="number" inputmode="numeric" min="5" max="120" step="5" value="${prep}"></label>
-      <button id="apOk" class="primario" type="button">Aceptar</button><button id="apNo" class="oscuro" type="button">Cancelar</button>`);
+      <button id="apOk" class="primario" type="button">👨‍🍳 Cocinar ahora</button><button id="apNo" class="oscuro" type="button">Cancelar</button>`);
     $("apNo").onclick = cerrarModal;
     $("apOk").onclick = () => {
       const m = Math.max(5, Math.min(120, parseInt($("apPrep").value, 10) || prep));
       cerrarModal();
-      actualizar(id, { "rest/estado": "aceptado", "rest/prepMin": m, "rest/ts": TS, "rest/aceptadoTs": TS }, "Pedido aceptado ✓");
+      actualizar(id, { "rest/estado": "preparando", "rest/prepMin": m, "rest/ts": TS, "rest/aceptadoTs": TS }, "👨‍🍳 Cocinando · avisamos al cliente y al repartidor");
     };
     return;
   }
-  if (a === "preparando") return actualizar(id, { "rest/estado": "preparando", "rest/ts": TS }, "Preparando…");
+  if (a === "preparando") return actualizar(id, { "rest/estado": "preparando", "rest/ts": TS, "rest/aceptadoTs": TS }, "👨‍🍳 Cocinando · avisamos al cliente y al repartidor");
   if (a === "listo") return actualizar(id, { "rest/estado": "listo", "rest/ts": TS, "rest/listoTs": TS }, "Marcado como listo ✓");
   if (a === "rechazar") {
     modal(`<h2>✖ Rechazar pedido ${esc(bonito(id))}</h2>

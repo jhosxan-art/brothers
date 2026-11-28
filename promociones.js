@@ -77,18 +77,6 @@
 
   function iniciar() {
     if (!q("prTit")) return;
-    /* 6 pestañas en una sola línea (el CSS base estaba pensado para 5) */
-    const st = document.createElement("style");
-    st.textContent = "body.admin nav.tabs{display:grid!important;grid-auto-flow:column;grid-template-columns:none!important;grid-auto-columns:max-content;justify-content:space-between;overflow-x:auto;scrollbar-width:none}" +
-      "body.admin nav.tabs button{white-space:nowrap!important;font-size:11px!important;padding:0 5px!important;letter-spacing:-.01em;line-height:1.1;overflow:visible!important;text-overflow:clip!important}" +
-      "body.admin nav.tabs::-webkit-scrollbar{display:none}";
-    document.head.appendChild(st);
-    /* El manejador de pestañas de admin.js no conoce este panel: lo mostramos/ocultamos aquí */
-    document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
-      const ver = b.dataset.tab === "panelPromos", pan = q("panelPromos");
-      if (ver) document.querySelectorAll("section[id^='panel']").forEach((s) => { if (s !== pan) s.classList.add("oculto"); });
-      pan.classList.toggle("oculto", !ver);
-    }));
     ["prTit", "prDesc"].forEach((i) => q(i).addEventListener("input", pintarVista));
     q("prDest").addEventListener("click", (e) => { const b = e.target.closest("[data-d]"); if (!b) return; destino = b.dataset.d; q("prDest").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); });
     q("prFotoBtn").onclick = () => q("prFoto").click();

@@ -11,7 +11,7 @@ body.restaurante .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); flex:
 body.restaurante .tabs button { font-size: 13px; line-height: 1.1; padding: 0 4px; }
 body.restaurante .tabs .badge-nav { margin-left: 4px; min-width: 18px; height: 18px; padding: 0 5px; font-size: 11px; }
 body.restaurante h2 { font-size: 20px; font-weight: 800; }
-body.restaurante .toast-admin { position: fixed; top: calc(64px + env(safe-area-inset-top)); z-index: 3000; }
+body.restaurante .toast-admin { position: fixed; top: auto; bottom: calc(76px + env(safe-area-inset-bottom)); left: 12px; right: 12px; z-index: 3000; }   /* abajo: ya no tapa el encabezado */
 body.restaurante .toast-admin.oculto { display: none; }
 
 /* Interruptor Abierto / Cerrado en la barra */

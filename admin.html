@@ -228,12 +228,11 @@
     #btnRecargarEquipo[disabled], #btnPlegarEquipo[disabled] { opacity: .5; cursor: not-allowed; }
   </style>
   <style id="tabsPromos">
-    /* 6 pestañas en UNA sola línea */
-    body.admin nav.tabs{display:grid!important;grid-auto-flow:column;grid-template-columns:none!important;grid-auto-columns:max-content;justify-content:space-between;overflow-x:auto;scrollbar-width:none}
-    body.admin nav.tabs::-webkit-scrollbar{display:none}
-    body.admin nav.tabs button{white-space:nowrap!important;font-size:11px!important;padding:0 5px!important;letter-spacing:-.01em;line-height:1.1;overflow:visible!important;text-overflow:clip!important}
     #panelPromos{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;box-sizing:border-box}
     #panelPromos.oculto{display:none!important}
+    #btnPromos{font-size:20px;line-height:1}
+    #btnPromos + .salir{margin-left:8px}
+    #btnPromos.activa{background:#FF6A00;box-shadow:0 0 0 2px #fff inset}
   </style>
 </head>
 <body class="admin">
@@ -241,6 +240,7 @@
   <header class="barra-marca">
     <img class="insignia" src="icon-admin-only.png?v=20261126a" onerror="this.onerror=null;this.src='icon-192.png'" alt="Brother’s Deliverys">
     <div class="titulo"><strong>Brother’s Deliverys</strong><small>Administrador</small></div>
+    <button id="btnPromos" class="salir oculto" type="button" aria-label="Promociones (enviar push)" title="Promociones">📣</button>
     <button id="btnSalir" class="salir oculto" aria-label="Cerrar sesión">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0E141B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
     </button>
@@ -573,7 +573,6 @@
       <button data-tab="panelChats">Chats<span id="chatsBadge" class="badge-nav rojo oculto">0</span></button>
       <button data-tab="panelEquipo">Equipo</button>
       <button data-tab="panelPedidos">Crear Pedido</button>
-      <button data-tab="panelPromos">📣 Promos</button>
       <button data-tab="panelSolicitudes">Solicitudes<span id="saBadge" class="sa-badge oculto">0</span></button>
     </nav>
   </div>
@@ -628,20 +627,22 @@
   <script src="push-admin.js?v=2026112803"></script>
   <script src="ordenes-admin.js?v=2026112803"></script>
   <script>
-    /* Pestaña «Promos»: admin.js no conoce este panel, así que se muestra/oculta aquí (no depende de otros archivos) */
+    /* Botón 📣 del encabezado: abre el panel de promociones (junto a «Salir»; solo con sesión iniciada) */
     document.addEventListener("DOMContentLoaded", function () {
-      var btns = document.querySelectorAll(".tabs button");
-      btns.forEach(function (b) {
-        b.addEventListener("click", function () {
-          var pan = document.getElementById("panelPromos"); if (!pan) return;
-          var ver = b.dataset.tab === "panelPromos";
-          if (ver) document.querySelectorAll("section[id^='panel']").forEach(function (s) { if (s !== pan) s.classList.add("oculto"); });
-          pan.classList.toggle("oculto", !ver);
-        });
+      var bp = document.getElementById("btnPromos"), bs = document.getElementById("btnSalir");
+      if (!bp || !bs) return;
+      var sync = function () { bp.classList.toggle("oculto", bs.classList.contains("oculto")); };
+      new MutationObserver(sync).observe(bs, { attributes: true, attributeFilter: ["class"] }); sync();
+      bp.addEventListener("click", function () {
+        var pan = document.getElementById("panelPromos"); if (!pan) return;
+        document.querySelectorAll("section[id^='panel']").forEach(function (s) { if (s !== pan) s.classList.add("oculto"); });
+        document.querySelectorAll(".tabs button").forEach(function (x) { x.classList.remove("activa"); });
+        pan.classList.remove("oculto"); bp.classList.add("activa");
       });
+      document.querySelectorAll(".tabs button").forEach(function (b) { b.addEventListener("click", function () { var pan = document.getElementById("panelPromos"); if (pan) pan.classList.add("oculto"); bp.classList.remove("activa"); }); });
     });
   </script>
-  <script src="promociones.js?v=2026112803"></script>
+  <script src="promociones.js?v=2026112804"></script>
   <script src="espectador-extras.js?v=20261126a"></script>
   <script>
     /* ---- FASE 1 · Service Worker de push + redirección inteligente al panel de Solicitudes ---- */

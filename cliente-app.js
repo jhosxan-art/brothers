@@ -768,7 +768,7 @@
     const n = String(pedidoActual.restauranteNombre || "El restaurante").slice(0, 60);
     const t = {
       aceptado: "🍔 " + n + " aceptó tu pedido" + (Number(r.prepMin) ? " (~" + Math.round(Number(r.prepMin)) + " min de preparación)." : "."),
-      preparando: "👨‍🍳 " + n + " está preparando tu pedido.",
+      preparando: "👨‍🍳 ¡" + n + " ya está cocinando tu pedido!" + (Number(r.prepMin) ? " Estará listo en ~" + Math.round(Number(r.prepMin)) + " min." : ""),
       listo: "🛍️ Tu pedido ya está listo en " + n + ". El repartidor pasa por él.",
       rechazado: "⚠️ " + n + " no puede preparar tu pedido" + (r && r.motivo ? ": " + String(r.motivo).slice(0, 120) : ".") + " Puedes cancelar la solicitud o esperar indicaciones de la central."
     }[e];
