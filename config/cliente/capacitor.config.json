@@ -1,0 +1,9 @@
+{
+  "appId": "com.brothers.cliente",
+  "appName": "Brothers Deliverys",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "plugins": {
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] }
+  }
+}
