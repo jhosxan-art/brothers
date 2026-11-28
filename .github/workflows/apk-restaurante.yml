@@ -127,11 +127,13 @@ jobs:
           SRC_ICON=""
           if [ -f restaurante-icon.png ]; then SRC_ICON=restaurante-icon.png; elif [ -f assets/restaurante-icon.png ]; then SRC_ICON=assets/restaurante-icon.png; fi
           if [ -n "$SRC_ICON" ]; then
-            mkdir -p assets; cp "$SRC_ICON" assets/icon-only.png; cp "$SRC_ICON" assets/icon-foreground.png
-            rm -f assets/icon-background.png
+            mkdir -p assets; cp "$SRC_ICON" assets/icon-only.png
+            # Icono adaptativo: fondo blanco + logo al 70 % centrado (zona segura de Android). Sin fondo, el build falla (falta mipmap/ic_launcher_background).
+            ffmpeg -y -loglevel error -f lavfi -i color=c=white:s=1024x1024 -frames:v 1 assets/icon-background.png
+            ffmpeg -y -loglevel error -i "$SRC_ICON" -vf "format=rgba,scale=720:720:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2:color=0x00000000" -frames:v 1 assets/icon-foreground.png
             echo "Icono de la app: $SRC_ICON"
           else echo "::warning::Falta restaurante-icon.png (raíz o assets/): se usa el icono anterior."; fi
-          if [ -f assets/icon-only.png ]; then npx --yes @capacitor/assets generate --android --iconBackgroundColor '#FFFFFF' --iconBackgroundColorDark '#FFFFFF'; else echo "::warning::Sin icono fuente: se usa el icono por defecto de Capacitor."; fi
+          if [ -f assets/icon-only.png ]; then npx --yes @capacitor/assets generate --android; else echo "::warning::Sin icono fuente: se usa el icono por defecto de Capacitor."; fi
 
       - name: Permisos y canal de notificaciones
         run: |
