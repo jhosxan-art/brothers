@@ -58,7 +58,7 @@
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Max-Age": "86400"
 };
@@ -143,20 +143,20 @@ async function esRepartidor(uid, env) {
 }
 
 /* ---------- Envío de push por FCM (API HTTP v1) ---------- */
-const CANALES = ["pedidos", "mensajes", "admin", "solicitudes"];
-async function enviarFCM(env, token, { titulo, cuerpo, canal, data, tag, sonido }) {
+const CANALES = ["pedidos", "mensajes", "admin", "solicitudes", "avisos"];
+async function enviarFCM(env, token, { titulo, cuerpo, canal, data, tag, sonido, imagen, link }) {
   const acceso = await tokenGoogle(env);
   const r = await fetch("https://fcm.googleapis.com/v1/projects/" + encodeURIComponent(env.FCM_PROJECT_ID) + "/messages:send", {
     method: "POST",
     headers: { "Authorization": "Bearer " + acceso, "Content-Type": "application/json" },
     body: JSON.stringify({ message: {
       token,
-      notification: { title: titulo, body: cuerpo },
+      notification: { title: titulo, body: cuerpo, ...(imagen ? { image: imagen } : {}) },
       data,
-      webpush: { headers: { Urgency: "high", TTL: "86400" }, ...(tag ? { notification: { tag } } : {}) },   // navegador / PWA del admin: entrega inmediata aunque el equipo esté en reposo
+      webpush: { headers: { Urgency: "high", TTL: "86400" }, ...((tag || imagen) ? { notification: { ...(tag ? { tag } : {}), ...(imagen ? { image: imagen } : {}), requireInteraction: true } } : {}), ...(link ? { fcm_options: { link } } : {}) },   // navegador / PWA del admin: entrega inmediata aunque el equipo esté en reposo
       android: {
         priority: "HIGH", ttl: "86400s",
-        notification: { ...(tag ? { tag } : {}), channel_id: canal, ...(sonido ? { sound: sonido } : { sound: "default", default_sound: true }), default_vibrate_timings: true, notification_priority: "PRIORITY_MAX", visibility: "PUBLIC" }
+        notification: { ...(tag ? { tag } : {}), ...(imagen ? { image: imagen } : {}), channel_id: canal, ...(sonido ? { sound: sonido } : { sound: "default", default_sound: true }), default_vibrate_timings: true, notification_priority: "PRIORITY_MAX", visibility: "PUBLIC" }
       }
     } })
   });
@@ -486,6 +486,46 @@ async function accionClientePrioridad(b, env) {
   return json(r.ok ? { ok: true } : { ok: false, code: r.code, error: r.error }, r.ok ? 200 : 502);
 }
 
+/* 9) NUEVO · PROMOCIONES: el administrador envía un push (título grande + descripción + foto) a restaurantes y/o clientes.
+      Cuerpo: { accion:"difusion", id:"<difusiones/{id}>", desde:0 }  (con sesión de admin). Responde { total, enviados, siguiente } → repetir con desde=siguiente hasta que sea null.
+      La foto vive en difusionesFoto/{id} (data URL) y se sirve en GET /img/{id} para que FCM la descargue. */
+const LOTE_DIFUSION = 40;
+async function accionDifusion(b, idToken, env) {
+  const uid = await uidDeSesion(idToken, env);
+  if (!uid || !(await esAdmin(uid, env))) return json({ ok: false, error: "No eres administrador" }, 403);
+  const id = String(b.id || "");
+  if (!/^[A-Za-z0-9_-]{6,40}$/.test(id)) return json({ ok: false, error: "Id no válido" }, 400);
+  const d = await dbLeer(env, "difusiones/" + id);
+  if (!d || !d.titulo) return json({ ok: false, error: "La promoción no existe" }, 404);
+  const destino = ["restaurantes", "clientes", "todos"].includes(d.destino) ? d.destino : "todos";
+  const vistos = new Set(), dest = [];
+  const agregar = (t, ruta) => { if (typeof t === "string" && t.length > 20 && !vistos.has(t)) { vistos.add(t); dest.push({ t, ruta }); } };
+  if (destino !== "clientes") { const p = (await dbLeer(env, "restaurantesPriv")) || {}; Object.entries(p).forEach(([k, v]) => agregar(v && v.fcmToken, "restaurantesPriv/" + encodeURIComponent(k) + "/fcmToken")); }
+  if (destino !== "restaurantes") { const c = (await dbLeer(env, "clientesPush")) || {}; Object.entries(c).forEach(([k, v]) => agregar(v && v.t, "clientesPush/" + encodeURIComponent(k))); }
+  const desde = Math.max(0, Number(b.desde) || 0), lote = dest.slice(desde, desde + LOTE_DIFUSION);
+  const base = new URL(req_url_base(env)).origin;
+  const imagen = d.tieneFoto ? base + "/img/" + id : "";
+  let enviados = 0, fallidos = 0;
+  for (const x of lote) {
+    const r = await enviarFCM(env, x.t, { titulo: recorta(d.titulo, 80), cuerpo: recorta(d.desc || "", 240), canal: "avisos", tag: "promo_" + id, imagen, link: "https://jhosxan-art.github.io/brothers/cliente-app.html", data: { tipo: "promo", id } });
+    if (r.ok) enviados++; else { fallidos++; if (["UNREGISTERED", "NOT_FOUND"].includes(r.code)) await dbBorrar(env, x.ruta); }
+  }
+  const sig = desde + LOTE_DIFUSION < dest.length ? desde + LOTE_DIFUSION : null;
+  return json({ ok: true, total: dest.length, enviados, fallidos, siguiente: sig });
+}
+let URL_BASE = "";
+const req_url_base = () => URL_BASE;
+/* GET /img/{id}: sirve la foto de la promoción (pública; solo lectura de una foto que el admin eligió enviar) */
+async function servirImagen(id, env) {
+  if (!/^[A-Za-z0-9_-]{6,40}$/.test(id)) return new Response("No", { status: 404 });
+  const v = await dbLeer(env, "difusionesFoto/" + id);
+  const m = typeof v === "string" && v.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
+  if (!m) return new Response("No", { status: 404 });
+  const bin = atob(m[2]), buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Response(buf, { headers: { "Content-Type": m[1], "Cache-Control": "public, max-age=86400", "Access-Control-Allow-Origin": "*" } });
+}
+
 /* 1) y 2): solo administradores */
 async function accionAdmin(b, idToken, env) {
   const uid = await uidDeSesion(idToken, env);
@@ -515,6 +555,8 @@ export default {
   },
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+    URL_BASE = req.url;
+    if (req.method === "GET") { const mm = new URL(req.url).pathname.match(/^\/img\/([A-Za-z0-9_-]+)$/); if (mm) return await servirImagen(mm[1], env); return new Response("Brother's push", { status: 200 }); }
     if (req.method !== "POST") return json({ ok: false, error: "Solo POST" }, 405);
     try {
       const idToken = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
@@ -523,6 +565,7 @@ export default {
       if (b.accion === "solicitud_nueva") return await accionSolicitudNueva(b, env);   // sin sesión: se valida contra Firebase
       if (b.accion === "cliente_prioridad") return await accionClientePrioridad(b, env);
       if (b.accion === "mensaje_cliente") return await accionMensajeCliente(b, env);   // sin sesión: se valida contra Firebase
+      if (b.accion === "difusion") return await accionDifusion(b, idToken, env);
       if (b.accion === "admin_chat") return await accionAdminChat(b, idToken, env);
       return await accionAdmin(b, idToken, env);
     } catch (err) {
