@@ -134,11 +134,21 @@ jobs:
           import os
           from PIL import Image
           im = Image.open(os.environ['SRC_ICON']).convert('RGBA')
-          Image.new('RGBA', (1024, 1024), (255, 255, 255, 255)).save('assets/icon-background.png')
-          im.thumbnail((720, 720), Image.LANCZOS)
-          fg = Image.new('RGBA', (1024, 1024), (0, 0, 0, 0))
-          fg.paste(im, ((1024 - im.width) // 2, (1024 - im.height) // 2), im)
-          fg.save('assets/icon-foreground.png')
+          # Recorta bordes transparentes o blancos para que el color del icono llene todo el cuadro
+          w, h = im.size; px = im.load()
+          def util(x, y):
+              r, g, b, a = px[x, y]
+              return a > 20 and not (r > 235 and g > 235 and b > 235)
+          xs = [x for x in range(0, w, 2) for y in range(0, h, 8) if util(x, y)]
+          ys = [y for y in range(0, h, 2) for x in range(0, w, 8) if util(x, y)]
+          if xs and ys:
+              im = im.crop((max(0, min(xs)), max(0, min(ys)), min(w, max(xs) + 2), min(h, max(ys) + 2)))
+          im = im.resize((1024, 1024), Image.LANCZOS)
+          # Color de fondo = color del borde del icono (muestra a ~6 % del borde, centrada)
+          c = im.getpixel((512, 60))[:3]
+          Image.new('RGBA', (1024, 1024), c + (255,)).save('assets/icon-background.png')
+          im.save('assets/icon-foreground.png')
+          im.save('assets/icon-only.png')
           PYI
             echo "Icono de la app: $SRC_ICON"
           else echo "::warning::Falta restaurante-icon.png (raíz o assets/): se usa el icono anterior."; fi
