@@ -749,6 +749,7 @@ async function registrarPush() {
   try {
     const P = cap() && cap().PushNotifications; if (!P || !uid) return;
     try { await P.createChannel({ id: "pedidos", name: "Pedidos", importance: 5, sound: "default", vibration: true, visibility: 1 }); } catch (_) {}
+    try { await P.createChannel({ id: "avisos", name: "Avisos y promociones", description: "Mensajes de Brother’s Deliverys", importance: 5, sound: "default", vibration: true, lights: true, visibility: 1 }); } catch (_) {}
     try { await P.createChannel({ id: "solicitudes", name: "Solicitudes de pedido (urgente)", description: "Suena con voz hasta que aceptes el pedido", importance: 5, sound: "solicitud_pedido", vibration: true, lights: true, lightColor: "#FF0000", visibility: 1 }); } catch (_) {}
     const perm = await P.requestPermissions(); if (perm.receive !== "granted") return;
     P.addListener("registration", (t) => {
@@ -756,7 +757,7 @@ async function registrarPush() {
       const ids = new Set([uid].concat((sedes || []).map((x) => x && x.id)).filter(Boolean));   // el mismo celular recibe los pedidos de todas sus sedes
       ids.forEach((i) => db.ref("restaurantesPriv/" + i + "/fcmToken").set(t.value).catch(() => {}));
     });
-    P.addListener("pushNotificationReceived", () => { pitar(); decirSolicitud(); });
+    P.addListener("pushNotificationReceived", (n) => { const d = (n && n.data) || {}; if (d.tipo === "promo") { pitar(); toast("📣 " + ((n && n.title) || "Brother’s Deliverys") + (n && n.body ? " · " + n.body : "")); } else { pitar(); decirSolicitud(); } });
     await P.register();
   } catch (e) { console.warn("Push restaurante:", e && e.message ? e.message : e); }
 }

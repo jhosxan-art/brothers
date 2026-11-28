@@ -2995,5 +2995,38 @@
   /* Los campos de escribir crecen con el texto (hasta 5 líneas) */
   ["inMensaje", "inConvo"].forEach((id) => { const ta = $(id); if (ta) { ta.addEventListener("input", () => ajustarAlto(ta)); ajustarAlto(ta); } });
 
-  arrancar();
+  /* ---------- Promociones push (navegador / PWA): el cliente decide si quiere recibirlas ---------- */
+  const PushCli = (() => {
+    const VAPID = "BJeqekVqA_37Sc75uSnVSHiAqqU-WY3LRRvnetF0crQTC-wHzym3tue2eTT3zO9Say16DaXRYEe8X9xNIETVBQA";
+    const soporta = () => { try { return "serviceWorker" in navigator && "Notification" in window && "PushManager" in window && !!firebase.messaging && (typeof firebase.messaging.isSupported !== "function" || firebase.messaging.isSupported()); } catch (_) { return false; } };
+    const lsGet = (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+    const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { } };
+    async function registrar() {
+      const u = auth.currentUser; if (!u || !soporta() || Notification.permission !== "granted") return false;
+      try {
+        const reg = await navigator.serviceWorker.register("cliente-sw.js", { scope: "./cliente-app" });
+        await navigator.serviceWorker.ready;
+        const t = await firebase.messaging().getToken({ vapidKey: VAPID, serviceWorkerRegistration: reg });
+        if (!t) return false;
+        await db.ref("clientesPush/" + u.uid).set({ t, ts: firebase.database.ServerValue.TIMESTAMP });
+        return true;
+      } catch (e) { console.warn("Push cliente:", e && e.message ? e.message : e); return false; }
+    }
+    function banner() {
+      if (!soporta() || Notification.permission !== "default" || lsGet("bd_promo_no") === "1" || document.getElementById("bdPromoBan")) return;
+      const cv = $("mensajes"); if (!cv || !cv.parentNode) return;
+      const b = document.createElement("div"); b.id = "bdPromoBan";
+      b.style.cssText = "display:flex;align-items:center;gap:8px;margin:6px 10px;padding:8px 10px;border-radius:12px;background:#FFF3E8;border:1.5px solid #FF6A00;font-size:13px;font-weight:700;color:#7A2E00";
+      b.innerHTML = '<span style="flex:1">🔔 ¿Quieres recibir promociones y ofertas de Brother’s Deliverys?</span>';
+      const si = document.createElement("button"); si.type = "button"; si.textContent = "Sí"; si.style.cssText = "border:0;border-radius:10px;padding:6px 12px;background:#FF6A00;color:#fff;font-weight:800";
+      const no = document.createElement("button"); no.type = "button"; no.textContent = "No"; no.style.cssText = "border:0;background:transparent;font-weight:800;color:#7A2E00;padding:6px";
+      si.onclick = async () => { b.remove(); try { await Notification.requestPermission(); } catch (_) { } registrar(); };
+      no.onclick = () => { lsSet("bd_promo_no", "1"); b.remove(); };
+      b.appendChild(si); b.appendChild(no);
+      cv.parentNode.insertBefore(b, cv);
+    }
+    return { iniciar() { if (Notification.permission === "granted") registrar(); else setTimeout(banner, 4000); } };
+  })();
+
+  arrancar().then(() => { try { PushCli.iniciar(); } catch (_) { } });
 })();

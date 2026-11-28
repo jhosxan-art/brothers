@@ -1755,6 +1755,60 @@
           ".validate": "newData.isNumber()"
         }
       }
+    },
+    "difusiones": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$id": {
+        ".validate": "newData.hasChildren(['titulo','ts'])",
+        "titulo": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 80"
+        },
+        "desc": {
+          ".validate": "newData.isString() && newData.val().length <= 300"
+        },
+        "destino": {
+          ".validate": "newData.val() === 'restaurantes' || newData.val() === 'clientes' || newData.val() === 'todos'"
+        },
+        "ts": {
+          ".validate": "newData.isNumber()"
+        },
+        "tieneFoto": {
+          ".validate": "newData.isBoolean()"
+        },
+        "total": {
+          ".validate": "newData.isNumber()"
+        },
+        "enviados": {
+          ".validate": "newData.isNumber()"
+        },
+        "$otro": {
+          ".validate": false
+        }
+      }
+    },
+    "difusionesFoto": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$id": {
+        ".validate": "newData.isString() && newData.val().beginsWith('data:image/') && newData.val().length <= 700000"
+      }
+    },
+    "clientesPush": {
+      ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['t','ts'])",
+        "t": {
+          ".validate": "newData.isString() && newData.val().length >= 20 && newData.val().length <= 4096"
+        },
+        "ts": {
+          ".validate": "newData.isNumber()"
+        },
+        "$otro": {
+          ".validate": false
+        }
+      }
     }
   }
 }

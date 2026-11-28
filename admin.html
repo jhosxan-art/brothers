@@ -404,6 +404,44 @@
     </section>
 
     <!-- Pedidos: formulario, asignación (registrado o invitado) y estado en vivo -->
+    <section id="panelPromos" class="oculto">
+      <style>
+        #panelPromos .pr-caja{background:#fff;border-radius:16px;padding:14px;margin:12px;box-shadow:0 2px 10px rgba(0,0,0,.08);display:grid;gap:10px}
+        #panelPromos h2{margin:0;font-size:18px}
+        #panelPromos label{font-size:12px;font-weight:800;color:#555}
+        #panelPromos input[type=text],#panelPromos textarea{width:100%;box-sizing:border-box;border:1.5px solid #cfd8dc;border-radius:12px;padding:10px 12px;font:inherit}
+        #prTit{font-size:20px;font-weight:800}
+        #prDest{display:flex;gap:6px;flex-wrap:wrap}
+        #prDest button{border:1.5px solid #FF6A00;background:#fff;color:#C2410C;border-radius:999px;padding:7px 14px;font-weight:800}
+        #prDest button.on{background:#FF6A00;color:#fff}
+        #prEnviar{border:0;border-radius:14px;padding:14px;font-size:17px;font-weight:800;background:#D90429;color:#fff}
+        #prEnviar:disabled{opacity:.5}
+        .pr-vista{background:#1f2933;border-radius:16px;padding:12px;color:#fff;display:grid;gap:6px}
+        .pr-vista small{opacity:.7}
+        #prVTit{font-size:20px;font-weight:800;line-height:1.15}
+        #prVDesc{font-size:13px;opacity:.9}
+        #prVFoto{width:100%;max-height:200px;object-fit:cover;border-radius:12px}
+        .pr-msg{font-weight:700;font-size:14px}.pr-msg.ok{color:#0a7a3d}.pr-msg.error{color:#c1121f}
+        #prHist{list-style:none;margin:0;padding:0;display:grid;gap:6px}#prHist li{display:grid;border-bottom:1px solid #eee;padding:4px 0}#prHist small{color:#666}
+      </style>
+      <div class="pr-caja">
+        <h2>📣 Enviar promoción (push)</h2>
+        <label>Enviar a</label>
+        <div id="prDest"><button type="button" data-d="todos" class="on">Todos</button><button type="button" data-d="restaurantes">Restaurantes</button><button type="button" data-d="clientes">Clientes</button></div>
+        <label for="prTit">Título (letra grande)</label>
+        <input id="prTit" type="text" maxlength="60" placeholder="Ej. 🍔 ¡2x1 en combos hoy!" autocomplete="off">
+        <label for="prDesc">Descripción (letra pequeña)</label>
+        <textarea id="prDesc" rows="3" maxlength="180" placeholder="Ej. Solo hoy hasta las 9 pm. Pide ya en la app de Brother’s Deliverys."></textarea>
+        <small id="prCuenta"></small>
+        <div class="acciones-fila"><button id="prFotoBtn" class="mini" type="button">📷 Agregar foto</button><button id="prFotoQuitar" class="mini peligro oculto" type="button">Quitar foto</button><input id="prFoto" type="file" accept="image/*" hidden></div>
+        <label>Así se verá</label>
+        <div class="pr-vista"><small>Brother’s Deliverys · ahora</small><div id="prVTit"></div><div id="prVDesc"></div><img id="prVFoto" alt="" style="display:none"></div>
+        <button id="prEnviar" type="button">📣 ENVIAR AHORA</button>
+        <div id="prMsg" class="pr-msg" role="status" aria-live="polite"></div>
+      </div>
+      <div class="pr-caja"><h2>Últimas enviadas</h2><ul id="prHist"></ul></div>
+    </section>
+
     <section id="panelPedidos" class="oculto">
       <div class="pd-form pd-modo-asist">
         <h2>Nuevo pedido</h2>
@@ -527,6 +565,7 @@
       <button data-tab="panelChats">Chats<span id="chatsBadge" class="badge-nav rojo oculto">0</span></button>
       <button data-tab="panelEquipo">Equipo</button>
       <button data-tab="panelPedidos">Crear Pedido</button>
+      <button data-tab="panelPromos">📣 Promos</button>
       <button data-tab="panelSolicitudes">Solicitudes<span id="saBadge" class="sa-badge oculto">0</span></button>
     </nav>
   </div>
@@ -580,6 +619,7 @@
   <script src="admin.js?v=20261126a"></script>
   <script src="push-admin.js?v=20261126a"></script>
   <script src="ordenes-admin.js?v=20261126a"></script>
+  <script src="promociones.js?v=2026112801"></script>
   <script src="espectador-extras.js?v=20261126a"></script>
   <script>
     /* ---- FASE 1 · Service Worker de push + redirección inteligente al panel de Solicitudes ---- */
