@@ -78,6 +78,40 @@ function activarSonido() {
     sonidoOk = true; $("rtAviso").classList.add("oculto");
   } catch (_) {}
 }
+/* ---------- Alarma insistente: voz + sirena + vibración cada 9 s mientras haya solicitudes sin responder ---------- */
+let alarmaT = null;
+function decirSolicitud() {
+  try {
+    if (!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance("¡Tienes una solicitud de pedido!");
+    u.lang = "es-MX"; u.rate = .95; u.pitch = 1; u.volume = 1;
+    const vs = (speechSynthesis.getVoices() || []).filter((v) => /^es/i.test(v.lang));
+    if (vs.length) u.voice = vs.find((v) => /MX|419|US/i.test(v.lang)) || vs[0];
+    speechSynthesis.speak(u);
+  } catch (_) {}
+}
+function rondaAlarma() {
+  pitar(); decirSolicitud();
+  try { if (navigator.vibrate) navigator.vibrate([500, 150, 500, 150, 500]); } catch (_) {}
+}
+function gestionarAlarma(n) {
+  let ban = document.getElementById("rtAlarma");
+  if (n > 0) {
+    if (!ban) {
+      ban = document.createElement("button"); ban.id = "rtAlarma"; ban.type = "button";
+      ban.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;border:0;padding:16px 12px;background:#D90429;color:#fff;font:800 18px/1.2 system-ui,sans-serif;text-align:center;animation:rtParpadeo .8s infinite;box-shadow:0 4px 16px rgba(0,0,0,.4)";
+      if (!document.getElementById("rtAlarmaCss")) { const st = document.createElement("style"); st.id = "rtAlarmaCss"; st.textContent = "@keyframes rtParpadeo{50%{background:#7A0016}}"; document.head.appendChild(st); }
+      ban.onclick = () => { filtro = "nuevo"; document.querySelectorAll("#rtFiltros button").forEach((x) => x.classList.toggle("on", x.dataset.f === "nuevo")); pintarPedidos(); };
+      document.body.appendChild(ban);
+    }
+    ban.textContent = "🔔 TIENES " + (n === 1 ? "UNA SOLICITUD" : n + " SOLICITUDES") + " DE PEDIDO · TOCA PARA VERLA";
+    if (!alarmaT) { rondaAlarma(); alarmaT = setInterval(rondaAlarma, 9000); }
+  } else {
+    if (alarmaT) { clearInterval(alarmaT); alarmaT = null; try { speechSynthesis.cancel(); } catch (_) {} }
+    if (ban) ban.remove();
+  }
+}
 function pitar() {
   try { if (navigator.vibrate) navigator.vibrate([220, 100, 220]); } catch (_) {}
   if (!sonidoOk || !audioCtx) return;
@@ -322,6 +356,7 @@ function pintarPedidos() {
   lista.forEach((s) => { cnt[grupoDe(s)]++; });
   ["nuevo", "curso", "finalizado"].forEach((k) => { const e = $("rtN_" + k); e.textContent = cnt[k]; e.classList.toggle("hay", k === "nuevo" && cnt.nuevo > 0); });
   $("rtCuenta").textContent = lista.length;
+  gestionarAlarma(lista.filter((s) => grupoDe(s) === "nuevo" && ((s.rest && s.rest.estado) || "pendiente") === "pendiente").length);
   const b = $("rtBadge"); b.textContent = cnt.nuevo; b.classList.toggle("oculto", !cnt.nuevo);
   const ver = lista.filter((s) => grupoDe(s) === filtro);
   $("rtListaPedidos").innerHTML = ver.length ? ver.map(tarjeta).join("") : `<p class="rt-vacio">${filtro === "nuevo" ? "No hay pedidos nuevos." : filtro === "curso" ? "No tienes pedidos en curso." : "Aún no hay pedidos finalizados."}</p>`;
@@ -393,7 +428,7 @@ function categorias() { return ["Todos", ...listaCats()]; }
 function formCats() {
   const cs = listaCats();
   modal(`<h2>⚙️ Categorías</h2>
-    <div class="rt-catlista">${cs.map((c) => `<div class="rt-catfila"><span>${esc(c)}</span><button class="mini peligro" type="button" data-del="${esc(c)}" aria-label="Eliminar ${esc(c)}">🗑</button></div>`).join("")}</div>
+    <div class="rt-catlista">${cs.map((c, i) => `<div class="rt-catfila"><span>${esc(c)}</span><button class="mini" type="button" data-up="${i}" aria-label="Subir ${esc(c)}"${i === 0 ? " disabled" : ""}>⬆️</button><button class="mini" type="button" data-dn="${i}" aria-label="Bajar ${esc(c)}"${i === cs.length - 1 ? " disabled" : ""}>⬇️</button><button class="mini peligro" type="button" data-del="${esc(c)}" aria-label="Eliminar ${esc(c)}">🗑</button></div>`).join("")}</div>
     <label>Nueva categoría<input id="ctNueva" maxlength="24" placeholder="Ej. Combos, Desayunos"></label>
     <div id="ctMsg" class="estado oculto" role="alert"></div>
     <button id="ctAdd" class="primario" type="button">➕ Agregar categoría</button>
@@ -407,6 +442,15 @@ function formCats() {
     try { const nl = cs.concat([n.slice(0, 24)]); await db.ref("menusCats/" + mid()).set(nl); catsGuardadas = nl; pintarMenu(); formCats(); }
     catch (err) { setMsg("ctMsg", "No se pudo guardar: " + (err.code || err.message), "error"); }
   };
+  $("modalRtCaja").querySelectorAll("[data-up],[data-dn]").forEach((b) => {
+    b.onclick = async () => {
+      const i = Number(b.dataset.up !== undefined ? b.dataset.up : b.dataset.dn), j = b.dataset.up !== undefined ? i - 1 : i + 1;
+      if (j < 0 || j >= cs.length) return;
+      const nl = cs.slice(); const x = nl[i]; nl[i] = nl[j]; nl[j] = x;
+      try { await db.ref("menusCats/" + mid()).set(nl); catsGuardadas = nl; pintarMenu(); formCats(); }
+      catch (err) { setMsg("ctMsg", "No se pudo mover: " + (err.code || err.message), "error"); }
+    };
+  });
   $("modalRtCaja").querySelectorAll("[data-del]").forEach((b) => {
     b.onclick = async () => {
       const c = b.dataset.del;
@@ -705,9 +749,14 @@ async function registrarPush() {
   try {
     const P = cap() && cap().PushNotifications; if (!P || !uid) return;
     try { await P.createChannel({ id: "pedidos", name: "Pedidos", importance: 5, sound: "default", vibration: true, visibility: 1 }); } catch (_) {}
+    try { await P.createChannel({ id: "solicitudes", name: "Solicitudes de pedido (urgente)", description: "Suena con voz hasta que aceptes el pedido", importance: 5, sound: "solicitud_pedido", vibration: true, lights: true, lightColor: "#FF0000", visibility: 1 }); } catch (_) {}
     const perm = await P.requestPermissions(); if (perm.receive !== "granted") return;
-    P.addListener("registration", (t) => { if (uid && t && t.value) db.ref("restaurantesPriv/" + uid + "/fcmToken").set(t.value).catch(() => {}); });
-    P.addListener("pushNotificationReceived", () => { pitar(); });
+    P.addListener("registration", (t) => {
+      if (!t || !t.value) return;
+      const ids = new Set([uid].concat((sedes || []).map((x) => x && x.id)).filter(Boolean));   // el mismo celular recibe los pedidos de todas sus sedes
+      ids.forEach((i) => db.ref("restaurantesPriv/" + i + "/fcmToken").set(t.value).catch(() => {}));
+    });
+    P.addListener("pushNotificationReceived", () => { pitar(); decirSolicitud(); });
     await P.register();
   } catch (e) { console.warn("Push restaurante:", e && e.message ? e.message : e); }
 }

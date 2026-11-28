@@ -4794,6 +4794,11 @@ const ChatsEntrantes = (() => {
       fila("Qué desea", p.quiere ? cortar(p.quiere, 300) : "No lo indicó");
       if (p.origen) fila("De dónde", cortar(p.origen, 160));
     }
+    if (Array.isArray(p.otros) && p.otros.length) {
+      b.appendChild(el("strong", "cn-pi-tit", "🛍️ También comprar en otros lugares"));
+      p.otros.slice(0, 10).forEach((x) => b.appendChild(el("span", "cn-pi-it", "• " + cortar(String(x.l || ""), 40) + ": " + (Number(x.q) || 1) + " × " + cortar(String(x.n || ""), 60) + (Number(x.p) > 0 ? " · C$ " + Number(x.p).toFixed(2) : " · precio por confirmar"))));
+      b.appendChild(el("span", "cn-pi-it", "💡 Cóbralo con «➕ Mandado Extra»."));
+    }
     const ts = Number(d.ts || d.creadoTs || d.atendidoTs) || 0;
     if (ts) b.appendChild(el("span", "cn-h", horaDe(ts)));
     c.appendChild(b);

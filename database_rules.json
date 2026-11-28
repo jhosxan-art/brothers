@@ -1118,6 +1118,27 @@
                 ".validate": false
               }
             }
+          },
+          "otros": {
+            ".validate": "newData.hasChildren()",
+            "$i": {
+              ".validate": "newData.hasChildren(['l','n','q','p'])",
+              "l": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 40"
+              },
+              "n": {
+                ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 60"
+              },
+              "q": {
+                ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 99"
+              },
+              "p": {
+                ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100000"
+              },
+              "$otro": {
+                ".validate": false
+              }
+            }
           }
         },
         "clienteGps": {
@@ -1410,6 +1431,18 @@
           },
           "nota": {
             ".validate": "newData.isString() && newData.val().length <= 200"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "$otro": {
+            ".validate": false
+          }
+        },
+        "pushRest": {
+          ".validate": "newData.hasChildren(['n','ts'])",
+          "n": {
+            ".validate": "newData.isNumber()"
           },
           "ts": {
             ".validate": "newData.isNumber()"

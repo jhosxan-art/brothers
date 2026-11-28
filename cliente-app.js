@@ -1569,6 +1569,7 @@
       o.subtotal = Math.round(o.items.reduce((a, i) => a + i.p * i.q, 0) * 100) / 100;
       const nota = limpiarTexto(p.nota).slice(0, 200);
       if (nota) o.nota = nota;
+      if (Array.isArray(p.otros) && p.otros.length) o.otros = p.otros.slice(0, 10).map((x) => ({ l: limpiarNombre(x.l).slice(0, 40) || "Otro lugar", n: limpiarNombre(x.n).slice(0, 60) || "Compra", q: Math.max(1, Math.min(99, parseInt(x.q, 10) || 1)), p: Math.max(0, Math.round((Number(x.p) || 0) * 100) / 100) }));
     }
     const contacto = limpiarNombre(p.contacto).slice(0, 80);
     if (contacto.length >= 2) o.contacto = contacto;
@@ -1702,14 +1703,15 @@
   /* Platos activos de un restaurante (menus/{uid}), con caché por sesión. */
   async function cargarPlatos(uid) {
     if (cachePlatos[uid] && Date.now() - cachePlatos[uid].t < 60000) return cachePlatos[uid].v;
-    let platos = [];
+    let platos = [], ordenCats = [];
     try {
+      try { const sc = await db.ref("menusCats/" + uid).once("value"), vc = sc.val(); if (Array.isArray(vc)) ordenCats = vc.filter((x) => typeof x === "string"); } catch (_) { }
       const s = await db.ref("menus/" + uid).once("value");
       platos = Object.entries(s.val() || {}).map(([k, p]) => ({ k, ...p }))
         .filter((p) => p && p.activo !== false && typeof p.nombre === "string" && Number(p.precio) >= 0)
         .map((p) => ({ ...p, sabores: Array.isArray(p.sabores) ? p.sabores.filter((x) => typeof x === "string" && x).slice(0, 8) : [],
           variantes: normOpc(p.variantes, 6), extras: normOpc(p.extras, 8) }))
-        .sort((a, b) => String(a.cat || "").localeCompare(String(b.cat || "")) || (a.orden || 0) - (b.orden || 0)).slice(0, 60);
+        .sort((a, b) => { const ia = ordenCats.indexOf(a.cat || ""), ib = ordenCats.indexOf(b.cat || ""); return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib) || String(a.cat || "").localeCompare(String(b.cat || "")) || (a.orden || 0) - (b.orden || 0); }).slice(0, 60);
     } catch (_) { }
     cachePlatos[uid] = { t: Date.now(), v: platos }; return platos;
   }
@@ -1742,7 +1744,8 @@
     if (document.getElementById("estiloMenuRest")) return;
     const st = document.createElement("style"); st.id = "estiloMenuRest";
     st.textContent = ".wa-menu{align-self:stretch;margin:4px 0;background:#fff;border-radius:12px;padding:8px;box-shadow:0 1px 2px rgba(0,0,0,.15);display:grid;gap:4px;color:#0E141B;max-width:100%}" +
-      ".wa-menu h4{margin:0 0 2px;font-size:13px;font-weight:800}.wa-menu .wm-lista{max-height:38vh;overflow:auto;display:grid;gap:0}" +
+      ".wa-menu h4{margin:0 0 2px;font-size:13px;font-weight:800}.wa-menu .wm-lista{max-height:38vh;overflow:auto;display:grid;gap:0;position:relative}" +
+      ".wa-menu .wm-chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 4px;scrollbar-width:none}.wa-menu .wm-chip{flex:none;border:1.5px solid #FF6A00;background:#fff;color:#C2410C;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:800;min-height:30px}.wa-menu .wm-chip.on{background:#FF6A00;color:#fff}" +
       ".wa-menu .wm-cat{margin:6px 0 2px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#5B6672}" +
       ".wa-menu .wm-fila{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #EEF1F4}" +
       ".wa-menu .wm-img{width:36px;height:36px;border-radius:8px;background:#F1F4F7;display:grid;place-items:center;font-size:18px;overflow:hidden}.wa-menu .wm-img img{width:100%;height:100%;object-fit:cover}" +
@@ -1765,6 +1768,7 @@
       const cant = {}, caja = document.createElement("div");
       caja.className = "wa-menu";
       const h = document.createElement("h4"); h.textContent = "🍔 " + r.nombre; caja.appendChild(h);
+      const chips = document.createElement("div"); chips.className = "wm-chips"; caja.appendChild(chips);
       const lista = document.createElement("div"); lista.className = "wm-lista"; caja.appendChild(lista);
       const pie = document.createElement("div"); pie.className = "wm-pie";
       const tot = document.createElement("b"); tot.textContent = "Elige lo que quieres";
@@ -1774,7 +1778,10 @@
       const precio = (p) => Math.round(Number(p.precio) * 100) / 100;
       let cat = null;
       platos.forEach((p) => {
-        if ((p.cat || "") !== cat) { cat = p.cat || ""; const c = document.createElement("div"); c.className = "wm-cat"; c.textContent = cat || "Menú"; lista.appendChild(c); }
+        if ((p.cat || "") !== cat) { cat = p.cat || ""; const c = document.createElement("div"); c.className = "wm-cat"; c.textContent = cat || "Menú"; lista.appendChild(c);
+          const cb = document.createElement("button"); cb.type = "button"; cb.className = "wm-chip"; cb.textContent = cat || "Menú";
+          cb.onclick = () => { lista.scrollTo({ top: Math.max(0, c.offsetTop - lista.offsetTop), behavior: "smooth" }); chips.querySelectorAll(".wm-chip").forEach((x) => x.classList.toggle("on", x === cb)); };
+          chips.appendChild(cb); }
         const f = document.createElement("div"); f.className = "wm-fila";
         const img = document.createElement("div"); img.className = "wm-img";
         if (typeof p.foto === "string" && p.foto.indexOf("data:image/") === 0) { const im = document.createElement("img"); im.alt = ""; im.src = p.foto; img.appendChild(im); }
@@ -1823,14 +1830,29 @@
                 if (!vivo(id)) return;
                 const v = p.variantes[Number(s)]; partes.push(v.n); pu = v.p;
               }
+              const norm2 = (s) => norm(String(s || ""));
+              const esBebTxt = (s) => /\b(refresc|gaseos|jug|soda|fresc|batid|agua|cerve|cafe|bebid|coca|pepsi|sprite|fanta)/.test(norm2(s)) || /\bte\b/.test(norm2(s));
+              const saboresRest = [...new Set(platos.flatMap((q) => q.sabores || []))].slice(0, 12);
+              const opcSab = p.sabores.length ? p.sabores : saboresRest;
+              let sabYa = false;
               if (p.extras.length) {
                 if (!(await di(id, "➕ ¿Quieres agregar algún adicional a " + rotulo + "? Marca los que quieras:"))) return;
                 const cl = await multiOpciones(id, p.extras.map((x, i) => ({ clave: String(i), texto: x.n + " · +C$ " + x.p.toFixed(2) })), "Agregar", "Ninguno, continuar");
                 if (!vivo(id)) return;
-                for (const c of cl) { const x = p.extras[Number(c)]; ext.push(x.n); pu += x.p; }
+                for (const c of cl) {
+                  const x = p.extras[Number(c)]; let nom = x.n; pu += x.p;
+                  if (esBebTxt(x.n) && opcSab.length) {
+                    if (!(await di(id, "🥤 ¿De qué sabor quieres «" + x.n + "»?"))) return;
+                    const s = await opciones(id, opcSab.map((z, i) => ({ clave: String(i), texto: z })));
+                    if (!vivo(id)) return;
+                    nom += " " + opcSab[Number(s)]; sabYa = true;
+                  }
+                  ext.push(nom);
+                }
               }
-              const esBeb = /beb|refr|gas|jug|soda|fresco|batid/i.test((p.cat || "") + " " + p.nombre);
-              if (p.sabores.length && (!p.extras.length || ext.length || esBeb)) {
+              const hayExtBeb = p.extras.some((x) => esBebTxt(x.n));
+              const esBeb = esBebTxt((p.cat || "") + " " + p.nombre);
+              if (p.sabores.length && !sabYa && (!p.extras.length || esBeb || (ext.length && !hayExtBeb))) {
                 const nb = Math.max(1, Math.min(6, Number(p.nSab) || 1)), sel = [];
                 for (let j = 1; j <= nb; j++) {
                   if (!(await di(id, "🥤 " + (nb > 1 ? "Refresco " + j + " de " + nb + " de " : "¿De qué sabor quieres ") + rotulo + (nb > 1 ? ": ¿qué sabor?" : "?")))) return;
@@ -1874,6 +1896,38 @@
     });
   }
 
+  /* Compras adicionales en el mismo viaje: platos de otro restaurante o una compra libre en cualquier lugar. Devuelve [{l,n,q,p}] */
+  async function agregarOtros(id, lista, uid0) {
+    const out = [];
+    while (vivo(id) && out.length < 10) {
+      if (!(await di(id, out.length ? "¿Quieres agregar algo más de otro lugar?" : "🛍️ ¿Quieres agregar algo de otro restaurante o comprar algo en otro lugar? El repartidor lo recoge en el mismo viaje."))) return out;
+      const k = await opciones(id, [{ clave: "r", texto: "🍽️ Menú de otro restaurante" }, { clave: "c", texto: "🛍️ Compra en otro lugar" }, { clave: "n", texto: "➡️ No, continuar" }]);
+      if (!vivo(id)) return out;
+      if (k === "n") break;
+      if (k === "r") {
+        const otrosR = lista.filter((x) => x.uid !== uid0);
+        if (!otrosR.length) { if (!(await di(id, "No hay otros restaurantes abiertos ahora."))) return out; continue; }
+        const j = await opciones(id, otrosR.map((x, i) => ({ clave: String(i), texto: "🍔 " + x.nombre })).concat([{ clave: "x", texto: "↩️ Cancelar" }]));
+        if (!vivo(id)) return out;
+        if (j === "x") continue;
+        const r2 = otrosR[Number(j)], m = await armarPedidoMenu(id, r2);
+        if (!vivo(id)) return out;
+        if (m.volver) continue;
+        if (m.sinMenu) { if (!(await di(id, "Ese negocio aún no tiene su menú disponible."))) return out; continue; }
+        m.items.forEach((i) => out.push({ l: limpiarNombre(r2.nombre).slice(0, 40), n: String(i.n).slice(0, 60), q: i.q, p: i.p }));
+      } else {
+        if (!(await di(id, "¿En qué lugar? (nombre o referencia)"))) return out;
+        const lug = await pedirTexto(id, "Ej. Pulpería Doña Rosa", 2, "Escribe el lugar (mínimo 2 letras).", 40);
+        if (!vivo(id)) return out;
+        if (!(await di(id, "¿Qué quieres que compre ahí? Si sabes el precio, escríbelo (ej. 2 galones de agua, C$ 60)."))) return out;
+        const q = await pedirTexto(id, "Ej. 2 aguas · C$ 60", 2, "Escribe qué comprar.", 60);
+        if (!vivo(id)) return out;
+        out.push({ l: limpiarNombre(lug).slice(0, 40), n: limpiarNombre(q).slice(0, 60), q: 1, p: 0 });
+      }
+    }
+    return out;
+  }
+
   async function flujoComida(id) {
     const v = datos.v;
     if (!v.rest && !v.quiere && !v.libre) {
@@ -1909,6 +1963,7 @@
           if (m.sinMenu) { if (!(await di(id, "Ese negocio aún no tiene su menú disponible. Cuéntame qué deseas pedir."))) return; guardar("libre", true); break; }
           guardar("rest", { uid: r.uid, nombre: r.nombre, lat: r.lat, lng: r.lng, items: m.items, nota: m.nota || "" });
           guardar("quiere", RESUMEN_ITEMS(m.items)); guardar("origen", r.nombre);
+          { const ot = await agregarOtros(id, lista, r.uid); if (!vivo(id)) return; if (ot.length) guardar("otros", ot); }
           hecho = true;
         }
         if (!vivo(id)) return;
@@ -1943,7 +1998,7 @@
         guardar("destino", d);
       }
     }
-    const rst = v.rest && v.rest.uid ? { ...(okLL(Number(v.rest.lat), Number(v.rest.lng)) ? { retiro: { tipo: "pin", lat: v.rest.lat, lng: v.rest.lng } } : {}), restauranteUid: v.rest.uid, restauranteNombre: v.rest.nombre, items: v.rest.items, nota: v.rest.nota } : {};
+    const rst = v.rest && v.rest.uid ? { ...(okLL(Number(v.rest.lat), Number(v.rest.lng)) ? { retiro: { tipo: "pin", lat: v.rest.lat, lng: v.rest.lng } } : {}), restauranteUid: v.rest.uid, restauranteNombre: v.rest.nombre, items: v.rest.items, nota: v.rest.nota, ...(Array.isArray(v.otros) && v.otros.length ? { otros: v.otros } : {}) } : {};
     await finalizar(id, { servicio: "comida", tipo: "compra", quiere: v.quiere, origen: v.origen, modo: v.quien === "yo" ? "recibe" : "envia", destino: v.destino, ...rst });
   }
 
@@ -2134,6 +2189,7 @@
       lineas.push("🍔 " + String(p.restauranteNombre || p.origen || "Pedido"));
       p.items.forEach((i) => lineas.push("• " + (Number(i.q) || 1) + " × " + String(i.n || "")));
       if (p.nota) lineas.push("📝 " + String(p.nota));
+      if (Array.isArray(p.otros) && p.otros.length) { lineas.push("🛍️ También en otros lugares:"); p.otros.forEach((x) => lineas.push("• " + String(x.l || "") + ": " + (Number(x.q) || 1) + " × " + String(x.n || "") + (Number(x.p) > 0 ? " (C$ " + Number(x.p).toFixed(2) + ")" : ""))); }
       if (Number(p.subtotal) > 0) lineas.push("💰 Productos: C$ " + (Math.round(Number(p.subtotal) * 100) / 100).toFixed(2));
     } else lineas.push("🍔 Pedir comida", String(p.quiere || ""), "🏪 " + String(p.origen || ""));
     if (Number(p.tarifaEstimada) > 0) lineas.push("💰 Delivery est.: C$ " + Number(p.tarifaEstimada));
