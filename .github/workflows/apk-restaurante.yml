@@ -123,10 +123,27 @@ jobs:
             cp assets/icon-restaurante-background.png assets/icon-background.png
           fi
           if [ -d assets-restaurante ]; then rm -rf assets && cp -r assets-restaurante assets; fi
-          if [ -f assets/icon-only.png ]; then npx --yes @capacitor/assets generate --android; else echo "::warning::Sin icono fuente: se usa el icono por defecto de Capacitor."; fi
+          # Icono de la app = restaurante-icon.png (raíz o assets/); tiene prioridad sobre cualquier otro
+          SRC_ICON=""
+          if [ -f restaurante-icon.png ]; then SRC_ICON=restaurante-icon.png; elif [ -f assets/restaurante-icon.png ]; then SRC_ICON=assets/restaurante-icon.png; fi
+          if [ -n "$SRC_ICON" ]; then
+            mkdir -p assets; cp "$SRC_ICON" assets/icon-only.png; cp "$SRC_ICON" assets/icon-foreground.png
+            rm -f assets/icon-background.png
+            echo "Icono de la app: $SRC_ICON"
+          else echo "::warning::Falta restaurante-icon.png (raíz o assets/): se usa el icono anterior."; fi
+          if [ -f assets/icon-only.png ]; then npx --yes @capacitor/assets generate --android --iconBackgroundColor '#FFFFFF' --iconBackgroundColorDark '#FFFFFF'; else echo "::warning::Sin icono fuente: se usa el icono por defecto de Capacitor."; fi
 
       - name: Permisos y canal de notificaciones
         run: |
+          # Sonido con voz «Tienes una solicitud de pedido» para el canal urgente (res/raw/solicitud_pedido.ogg)
+          mkdir -p android/app/src/main/res/raw
+          OK_SND=0
+          for ext in mp3 ogg wav m4a aac flac; do
+            for dir in . assets; do
+              if [ "$OK_SND" = "0" ] && [ -f "$dir/solicitud_pedido.$ext" ]; then cp "$dir/solicitud_pedido.$ext" "android/app/src/main/res/raw/solicitud_pedido.$ext"; OK_SND=1; echo "Sonido urgente: $dir/solicitud_pedido.$ext"; fi
+            done
+          done
+          if [ "$OK_SND" = "0" ]; then echo "::warning::Falta solicitud_pedido.(mp3|ogg|wav|m4a|aac|flac) en la raiz: el canal urgente sonara con el tono por defecto."; fi
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p, encoding='utf-8').read()
