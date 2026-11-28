@@ -1789,7 +1789,7 @@
       platos.forEach((p) => {
         if ((p.cat || "") !== cat) { cat = p.cat || ""; const c = document.createElement("div"); c.className = "wm-cat"; c.textContent = cat || "Menú"; c.dataset.cat = cat; lista.appendChild(c);
           const cb = document.createElement("button"); cb.type = "button"; cb.className = "wm-chip"; cb.textContent = cat || "Menú";
-          cb.dataset.k = cat; cb.onclick = () => aplicarFiltro(cat);
+          const kCat = cat; cb.dataset.k = kCat; cb.onclick = () => aplicarFiltro(kCat);
           chips.appendChild(cb); }
         const f = document.createElement("div"); f.className = "wm-fila"; f.dataset.cat = cat;
         const img = document.createElement("div"); img.className = "wm-img";
